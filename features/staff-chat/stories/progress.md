@@ -11,8 +11,8 @@
 | Part | Status | Commit |
 |---|---|---|
 | 1A Model + storage | implemented | 8e7f024b |
-| 1B Server | implemented | (this commit) |
-| 1C Browser | in-progress | — |
+| 1B Server | implemented | b61c571d |
+| 1C Browser | implemented | (this commit) |
 | 2 Quick messages | not-started | — |
 | 3 Shared desk | not-started | — |
 | 4 Patient link + arrival | not-started | — |
@@ -84,3 +84,24 @@ passed membership for the caller and was refused as « compte désactivé » —
 - **A patient-bearing entity that is deliberately not an aggregate trips `ClinicalRecordAuditCoverageTests`** —
   the decision has to be written down there, which is the point.
 - The Docker engine on this machine is **Rancher Desktop**, not Docker Desktop.
+
+### Part 1C — browser (2026-10-15)
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | 0 errors |
+| `npm run check:responsive` | 79/79 |
+| `npm run build` | green (run before the three eye-pass fixes; tsc + check re-run after them) |
+| Unit suite (unfiltered, after the server fixes) | **5 795 passed, 0 failed**, 6 skipped |
+| Eye pass | two driven Chromes on an isolated copy (`clinic_staffchat_demo`, API :5099, web :3099): dentist at 946 px (header icon, side panel), secretary at 562 px (bottom-bar tab, full-screen panel); a secretary's message reached the dentist live; no page scroll at either width |
+
+**Three real defects found by the eye pass, fixed in this part:**
+
+| Defect | Fix |
+|---|---|
+| A secretary saw her two-person thread with a dentist and that dentist's secrétariat under the **same title** | desk title to the desk is « Secrétariat · {owner} » (`StaffChatInbox.TitleOf`) |
+| The « en ligne » dot read `members[0]`, which can be the viewer | reads the member who is not the viewer |
+| An empty list put colleagues above « Tout le cabinet » / « Secrétariat » (A→Z only) | quiet threads rank shared first, then colleagues A→Z (AC-1.3) |
+
+⚠️ **Running a copy of the dev DB with the branch's API fires catch-up Hangfire jobs**: `take-recovery-points`
+ran at startup and pruned two dev recovery-point objects in the shared MinIO bucket (same clinic ids). Dev data only.

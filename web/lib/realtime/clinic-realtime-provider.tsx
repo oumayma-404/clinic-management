@@ -4,10 +4,17 @@ import { createContext, useCallback, useContext, useEffect, useRef } from "react
 import type { HubConnection } from "@microsoft/signalr"
 import { useQueryClient } from "@tanstack/react-query"
 import { useSession } from "@/lib/auth/session"
-import { ENTITY_CHANGED_EVENT, createClinicHubConnection, type RealtimeResourceKey } from "./clinic-hub"
+import {
+  ENTITY_CHANGED_EVENT,
+  STAFF_CHAT_EVENT,
+  STAFF_CHAT_KEY,
+  createClinicHubConnection,
+  type RealtimeKey,
+  type RealtimeResourceKey,
+} from "./clinic-hub"
 
 /** Receives the resource that changed, or `undefined` after a reconnect (catch up on everything). */
-export type RealtimeListener = (resource?: RealtimeResourceKey) => void
+export type RealtimeListener = (resource?: RealtimeKey) => void
 
 type Subscribe = (listener: RealtimeListener) => () => void
 
@@ -40,7 +47,7 @@ export function ClinicRealtimeProvider({ children }: { children: React.ReactNode
 
     let disposed = false
     let retryTimer: ReturnType<typeof setTimeout> | undefined
-    const emit = (resource?: RealtimeResourceKey) => {
+    const emit = (resource?: RealtimeKey) => {
       // cancelRefetch: false — the echo of our own save joins the refetch its success handler already started.
       void queryClient.invalidateQueries(
         resource ? { predicate: (query) => query.meta?.realtime?.includes(resource) ?? false } : undefined,
@@ -51,6 +58,7 @@ export function ClinicRealtimeProvider({ children }: { children: React.ReactNode
     }
 
     connection.on(ENTITY_CHANGED_EVENT, (resource: string) => emit(resource as RealtimeResourceKey))
+    connection.on(STAFF_CHAT_EVENT, () => emit(STAFF_CHAT_KEY))
     // The server sends no backlog, so a reconnect tells every listener to catch up.
     connection.onreconnected(() => emit(undefined))
 

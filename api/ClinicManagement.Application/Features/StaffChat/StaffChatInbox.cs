@@ -51,12 +51,12 @@ public static class StaffChatInbox
         _ => false,
     };
 
-    /// <summary>A desk thread is « Secrétariat » to its owner and the owner's name to the desk — never a secretary's name (FR-1).</summary>
+    /// <summary>A desk thread is « Secrétariat » to its owner and « Secrétariat · owner » to the desk, so it never reads like the two-person thread with that owner (FR-1).</summary>
     public static string TitleOf(StaffConversation conversation, StaffChatRoster roster) => conversation.Kind switch
     {
         StaffConversationKind.Clinic => "Tout le cabinet",
         StaffConversationKind.Desk when conversation.First == roster.Viewer.UserId => "Secrétariat",
-        StaffConversationKind.Desk => roster.NameOf(conversation.First!),
+        StaffConversationKind.Desk => $"Secrétariat · {roster.NameOf(conversation.First!)}",
         _ => roster.NameOf(Other(conversation, roster.Viewer.UserId)),
     };
 

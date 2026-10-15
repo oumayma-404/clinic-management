@@ -1,0 +1,134 @@
+"use client"
+
+import { useEffect, useLayoutEffect, useRef } from "react"
+import { Ban, MessageCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+import { LoadFailureNotice } from "@/components/ui/load-failure"
+import type { StaffConversationDto } from "@/lib/api/staff-chat"
+import { useMarkThreadRead, useStaffChatThread } from "@/lib/hooks/use-staff-chat"
+import { MessageBubble } from "./message-bubble"
+import { MessageComposer } from "./message-composer"
+
+interface MessageThreadProps {
+  conversationKey: string
+  /** Null until the list has loaded, or when the key no longer names a conversation offered to this person. */
+  conversation: StaffConversationDto | null
+  viewer: { userId: string; name: string } | null
+}
+
+/** How close to the bottom still counts as « reading the latest », so a new message scrolls into view. */
+const NEAR_BOTTOM_PX = 120
+
+export function MessageThread({ conversationKey, conversation, viewer }: MessageThreadProps) {
+  const thread = useStaffChatThread(conversationKey, viewer)
+  useMarkThreadRead(conversationKey, thread.messages, viewer?.userId)
+
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const pinnedToBottom = useRef(true)
+  const lastCount = useRef(0)
+  const firstOlderId = useRef<string | null>(null)
+  const heightBeforeOlder = useRef<number | null>(null)
+
+  // New messages follow the reader down only if they were already at the bottom, or wrote the message themselves.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    const messages = thread.messages
+    const first = messages[0]?.id ?? null
+
+    if (heightBeforeOlder.current !== null && first !== firstOlderId.current) {
+      el.scrollTop += el.scrollHeight - heightBeforeOlder.current
+      heightBeforeOlder.current = null
+    } else if (messages.length > lastCount.current) {
+      const newest = messages[messages.length - 1]
+      const mineJustSent = newest?.localId !== undefined
+      if (pinnedToBottom.current || mineJustSent || lastCount.current === 0) el.scrollTop = el.scrollHeight
+    }
+    firstOlderId.current = first
+    lastCount.current = messages.length
+  }, [thread.messages])
+
+  useEffect(() => {
+    lastCount.current = 0
+    pinnedToBottom.current = true
+  }, [conversationKey])
+
+  const loadOlder = () => {
+    const el = scrollerRef.current
+    if (el) heightBeforeOlder.current = el.scrollHeight
+    void thread.loadOlder()
+  }
+
+  const shared = conversation ? conversation.kind !== "direct" : false
+  const readOnly = conversation?.readOnly ?? false
+
+  return (
+    <>
+      <div
+        ref={scrollerRef}
+        onScroll={(event) => {
+          const el = event.currentTarget
+          pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+        }}
+        className="relative min-h-0 flex-1 overflow-y-auto px-3 py-3"
+      >
+        {thread.error && thread.messages.length === 0 ? (
+          <LoadFailureNotice message="Les messages n'ont pas pu être chargés." onRetry={() => void thread.reload()} />
+        ) : thread.loading && thread.messages.length === 0 ? (
+          <div className="space-y-3" aria-busy="true" aria-label="Chargement des messages">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={i % 2 ? "flex justify-end" : "flex"}>
+                <div className="h-10 w-2/3 animate-pulse rounded-2xl bg-muted" />
+              </div>
+            ))}
+          </div>
+        ) : thread.messages.length === 0 ? (
+          <EmptyState size="compact" icon={MessageCircle} title="Aucun message" />
+        ) : (
+          <>
+            {thread.hasOlder && (
+              <div className="mb-3 flex justify-center">
+                <Button variant="ghost" size="sm" onClick={loadOlder} disabled={thread.loadingOlder} className="coarse:min-h-11">
+                  {thread.loadingOlder ? "Chargement…" : "Messages plus anciens"}
+                </Button>
+              </div>
+            )}
+            {thread.error && <LoadFailureNotice variant="inline" message={thread.error} className="mb-3" />}
+            <ol role="log" aria-label="Messages" className="space-y-2">
+              {thread.messages.map((message, index) => {
+                const previous = thread.messages[index - 1]
+                const mine = message.sender.userId === viewer?.userId
+                return (
+                  <li key={message.localId ?? message.id}>
+                    <MessageBubble
+                      message={message}
+                      mine={mine}
+                      showSender={shared && previous?.sender.userId !== message.sender.userId}
+                      onRetry={thread.retry}
+                    />
+                  </li>
+                )
+              })}
+            </ol>
+          </>
+        )}
+      </div>
+
+      {readOnly ? (
+        <p className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-3 text-sm text-muted-foreground" role="status">
+          <Ban className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Ce compte est désactivé : la conversation est en lecture seule.
+        </p>
+      ) : (
+        <MessageComposer
+          key={`${conversationKey}:${viewer?.userId ?? ""}`}
+          conversation={conversationKey}
+          viewerId={viewer?.userId}
+          recipient={conversation?.title ?? "ce collègue"}
+          onSend={thread.send}
+        />
+      )}
+    </>
+  )
+}

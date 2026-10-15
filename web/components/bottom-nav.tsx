@@ -8,6 +8,7 @@ import { useSidebar } from "@/contexts/sidebar-context"
 import { baseSections, isNavItemVisible, type NavItem } from "@/lib/nav"
 import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
 import { useSession } from "@/lib/auth/session"
+import { StaffChatBarTab } from "@/components/staff-chat/staff-chat-launcher"
 
 /**
  * The phone's primary navigation (AC-7).
@@ -136,6 +137,8 @@ export function BottomNav() {
           </Link>
         )
       })}
+
+      <StaffChatBarTab />
 
       <button
         type="button"

@@ -75,6 +75,7 @@ public class GetStaffConversationsQueryHandler : IRequestHandler<GetStaffConvers
                 })
                 .OrderBy(c => c.LastMessage is null ? 1 : 0)
                 .ThenByDescending(c => c.LastMessage?.SentAt)
+                .ThenBy(c => c.LastMessage is null ? QuietRank(c.Kind) : 0)
                 .ThenBy(c => c.Title, FrenchOrder)
                 .ThenBy(c => c.Key, StringComparer.Ordinal)
                 .ToList();
@@ -86,4 +87,12 @@ public class GetStaffConversationsQueryHandler : IRequestHandler<GetStaffConvers
             return Result<List<StaffConversationDto>>.Failure("Impossible de charger les conversations.", ex);
         }
     }
+
+    /// <summary>Among threads nobody has written in yet, the shared ones come before the colleagues (AC-1.3).</summary>
+    private static int QuietRank(string kind) => kind switch
+    {
+        "clinic" => 1,
+        "desk" => 2,
+        _ => 3,
+    };
 }

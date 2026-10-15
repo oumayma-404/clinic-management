@@ -21,8 +21,8 @@ public class GetStaffConversationsQueryTests
 
         var list = result.Value!;
         Assert.Contains(list, c => c.Kind == "clinic" && c.Title == "Tout le cabinet");
-        Assert.Contains(list, c => c.Kind == "desk" && c.Key == StaffConversation.Desk(h.Owner.Id).Key && c.Title == "Dr Amine");
-        Assert.Contains(list, c => c.Kind == "desk" && c.Key == StaffConversation.Desk(h.Dentist.Id).Key && c.Title == "Dr Sami");
+        Assert.Contains(list, c => c.Kind == "desk" && c.Key == StaffConversation.Desk(h.Owner.Id).Key && c.Title == "Secrétariat · Dr Amine");
+        Assert.Contains(list, c => c.Kind == "desk" && c.Key == StaffConversation.Desk(h.Dentist.Id).Key && c.Title == "Secrétariat · Dr Sami");
         Assert.Equal(3, list.Count(c => c.Kind == "direct"));
         Assert.DoesNotContain(list, c => c.Title.Contains("Salma"));
     }
@@ -56,7 +56,7 @@ public class GetStaffConversationsQueryTests
     }
 
     [Fact]
-    public async Task Threads_With_History_Come_First_Newest_First_Then_The_Rest_A_To_Z() // AC-1.3
+    public async Task Threads_With_History_Come_First_Newest_First_Then_Shared_Threads_Then_Colleagues_A_To_Z() // AC-1.3
     {
         var h = new StaffChatHarness();
         h.ActAs(h.Owner);
@@ -70,7 +70,7 @@ public class GetStaffConversationsQueryTests
 
         var titles = (await h.Conversations().Handle(new GetStaffConversationsQuery(), default)).Value!.Select(c => c.Title).ToList();
 
-        Assert.Equal(new[] { "Dr Sami", "Tout le cabinet", "Amel", "Salma", "Secrétariat" }, titles);
+        Assert.Equal(new[] { "Dr Sami", "Tout le cabinet", "Secrétariat", "Amel", "Salma" }, titles);
     }
 
     [Fact]

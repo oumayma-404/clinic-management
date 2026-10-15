@@ -37,7 +37,9 @@ export function useClinicRealtime(
     const watched = new Set(resourceKey.split(",").filter(Boolean))
 
     return subscribe((resource) => {
-      if (resource === undefined || watched.has(resource)) callbackRef.current(resource)
+      if (resource === undefined) callbackRef.current(undefined)
+      // `watched` holds only resource keys, so a hit is one — the staff chat's key never reaches here.
+      else if (watched.has(resource)) callbackRef.current(resource as RealtimeResourceKey)
     })
   }, [subscribe, resourceKey])
 }
