@@ -504,6 +504,8 @@ public static class Extensions
             provider.GetRequiredService<ILogger<PushNotificationGeneratorDecorator>>()));
         // staff-chat Part 7: the chat's phone notifications, through the same outbox and dispatcher.
         services.AddScoped<IStaffChatPushQueue, StaffChatPushQueue>();
+        // The API host registers the real wake; elsewhere the minutely dispatcher is the only sender.
+        services.TryAddSingleton<IPushDispatchWake, NoPushDispatchWake>();
 
         // clinic-self-signup — the first email path in the product bound to NO clinic. It reads the per-install
         // `Notification:Smtp:*` section directly, and must keep doing so: its one caller runs before any clinic

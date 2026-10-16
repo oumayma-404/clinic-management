@@ -181,7 +181,7 @@ Phone notifications go through Google's Firebase Cloud Messaging. It works with 
    and recreate the API (`docker compose … up -d api`). `GET /api/push-devices/availability` then reports Android
    as supported. On another install the keys are `Push__Fcm__ProjectId` / `Push__Fcm__ServiceAccountKey`.
 
-What reaches a phone: chat messages (if still unread 30 s after they were sent) and the agenda's five time-critical
+What reaches a phone: chat messages (if still unread 3 s after they were sent — read in APEXA within that time, nothing is pushed) and the agenda's five time-critical
 events (new, cancelled, moved, the ~24 h reminder, the post-visit review). The lock screen shows the fixed phrase
 only — « Nouveau message », « Nouveau rendez-vous » — never a name or a message's text.
 

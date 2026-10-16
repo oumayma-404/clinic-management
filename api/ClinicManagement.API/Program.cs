@@ -673,6 +673,11 @@ try
         config.UsePostgreSqlStorage(hangfireConnectionString));
     builder.Services.AddHangfireServer();
 
+    // staff-chat: a chat message's phone notification leaves when its grace ends, not at the next minutely tick.
+    builder.Services.AddSingleton<ClinicManagement.API.BackgroundJobs.PushDispatchWake>();
+    builder.Services.AddSingleton<IPushDispatchWake>(sp => sp.GetRequiredService<ClinicManagement.API.BackgroundJobs.PushDispatchWake>());
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<ClinicManagement.API.BackgroundJobs.PushDispatchWake>());
+
     // A Windows service is killed by the SCM if it does not report "running" within its ~30s start timeout.
     // Applying the migrations synchronously on a fresh DB (see the migrate block below) exceeded that on first
     // boot and the service was killed before Kestrel bound. Where that applies, defer migrations to a

@@ -44,24 +44,41 @@ function audio(): AudioContext | null {
   return context
 }
 
-/** Resumes audio on the page's first press; safe to call more than once. */
+/**
+ * Resumes audio on every press while it is not running; safe to call more than once.
+ *
+ * ⚠️ `click` and `touchend` are the presses iOS counts as a gesture — `pointerdown` alone is not — and an iPhone
+ * suspends the audio again each time the app goes to the background, so this is needed after every return, not once.
+ */
 export function installAudioUnlock() {
   if (unlockInstalled || typeof window === "undefined") return
   unlockInstalled = true
   const unlock = () => {
+    if (context?.state === "running") return
     void resumeAudio()
   }
-  window.addEventListener("pointerdown", unlock, { capture: true })
-  window.addEventListener("keydown", unlock, { capture: true })
+  for (const type of ["pointerdown", "touchend", "click", "keydown"]) {
+    window.addEventListener(type, unlock, { capture: true, passive: true })
+  }
 }
 
 /** Called from a press: resumes a suspended context. */
 export async function resumeAudio(): Promise<boolean> {
-  const ctx = audio()
+  let ctx = audio()
   if (!ctx) return false
+  if (ctx.state === "closed") {
+    context = null
+    ctx = audio()
+    if (!ctx) return false
+  }
   if (ctx.state !== "running") {
     try {
       await ctx.resume()
+      // iOS lets the context run only once something has played inside the gesture: one silent sample.
+      const source = ctx.createBufferSource()
+      source.buffer = ctx.createBuffer(1, 1, ctx.sampleRate)
+      source.connect(ctx.destination)
+      source.start()
     } catch {
       // Still blocked: the flag below stays up.
     }
