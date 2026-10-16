@@ -48,5 +48,8 @@ public class PushPlatformAvailabilityDto
 public class PushAvailabilityDto
 {
     public bool AvailableAtAll { get; set; }
+
+    /// <summary>The VAPID public key to subscribe a browser with; null when Web Push cannot be sent here.</summary>
+    public string? WebPushPublicKey { get; set; }
     public List<PushPlatformAvailabilityDto> Platforms { get; set; } = new();
 }

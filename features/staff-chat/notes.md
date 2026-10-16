@@ -18,7 +18,8 @@ over the fiche de soins, or in the minimised Windows app. Built in six parts on 
 | Web | `StaffChatProvider` in `app/layout.tsx`: the panel, the header icon and the bottom-bar tab, the quick-message bar and editor, the patient picker and link chips, « Signaler l'arrivée » (RDV window button, agenda bell, agenda « ⋯ » row), the alert owner `lib/staff-chat/alerts.ts` + `chime.ts`, the notices, the panel's sound / notification settings |
 | Desktop 1.7.0 | `notify` on the bridge → `ShellNotifications` (silent toast + taskbar flash, click → window forward on that conversation) |
 | Phones (Part 7) | Server: `StaffChatPushQueue` (queued from `StaffMessagePosted`, audience `AlertsFor`), `NotificationCategory.StaffChatMessage`, `PushDelivery.StaffMessageId` (migration `AddPushDeliveryStaffMessage`), `PushDispatchJob`'s « déjà lu ? » check, `FcmAccessToken` + `FcmPushSender`'s channel/tag. Android 1.4.0: `ShellPush`, `PushTap`, the bridge's `onPushToken`/`notificationState`/`openNotificationSettings`. Web: `lib/push/phone-push.ts` (register at sign-in, release at sign-out), the phone line in `alert-settings.tsx` |
-| Guards | `StaffArrivalTests`, `StaffDeskTests`, `StaffQuickMessageTests`, `StaffMessageQuerySqlTests`, the domain tests; e2e CHAT-01…06, 08; `check:responsive` **N52**; `ShellNotifyMessageTests` |
+| iPhone & browsers (Part 8) | Server: `DevicePlatform.WebPush` + `DeviceRegistration.WebPushP256dh/Auth` (migration `AddWebPushSubscriptionKeys`), `WebPushSubscription` (the endpoint allow-list), `WebPushCrypto` (RFC 8291 aes128gcm + RFC 8292 VAPID), `WebPushSender`, `PushConfig`'s `Push:WebPush:*`, `POST /push-devices/release`, the `generate-vapid-keys` verb. Web: `public/sw.js`, `lib/push/web-push.ts`, the « home-screen » state and the `?chat=` deep link |
+| Guards | `StaffArrivalTests`, `StaffDeskTests`, `StaffQuickMessageTests`, `StaffMessageQuerySqlTests`, the domain tests; e2e CHAT-01…06, 08; `check:responsive` **N52**; `ShellNotifyMessageTests`; `WebPushCryptoTests` (the RFC 8291 test vector), `WebPushSenderTests`, `WebPushSubscriptionTests` |
 
 ## Decisions that are easy to undo by accident
 
@@ -84,6 +85,27 @@ over the fiche de soins, or in the minimised Windows app. Built in six parts on 
 - ⚠️ **Turning push on also turns on the agenda's five P6 notifications** (new, cancelled, moved, reminder, post-visit
   review) — they were built, and waited for a phone that could register.
 
+### iPhone and browsers (Part 8)
+
+- **Web Push is the only way an iPhone gets a notification without an App Store app**, and only from the home-screen
+  app (iOS 16.4+). Safari itself says « ajoutez APEXA à l'écran d'accueil » rather than offering a button that
+  cannot work.
+- **No library**: `WebPushCrypto` is ~150 lines over .NET's own ECDH, HKDF and AES-GCM, pinned to RFC 8291's test
+  vector byte for byte.
+- **The endpoint is an address the server will POST to**, so it is held to the push services' own hosts (FCM,
+  Mozilla, Apple, Windows) at registration **and** again at send — anything else would let a browser aim the server
+  at its internal network.
+- **Nothing ever prompts on its own.** Permission is asked only behind « Activer les notifications » (iOS refuses a
+  prompt with no tap); a browser that already allowed them re-subscribes silently at sign-in — which is how a shared
+  phone moves to its next user — and sign-out releases it first.
+- **The page's notice goes through the service worker, tagged by thread**, so the push arriving 30 s later keeps the
+  page's richer « who wrote, what » instead of replacing it with « Nouveau message ».
+- **A tap opens the thread** (`/?chat=…`, or a message to an open window); a message from the worker naming a URL is
+  followed only if it is one of this app's own paths.
+- **`sw.js` has no `fetch` handler**: it caches nothing, so a deploy can never be hidden behind a stale copy.
+- ⚠️ **The hosted compose never passed `Push__*` to the API**, so Part 7's « set it in the API's environment » did
+  nothing on the VPS. Both platforms now have empty-by-default slots in `docker-compose.hosted.yml`.
+
 ## Testing the Windows app locally
 
 The shell talks HTTPS only and the dev stack is HTTP. What worked, with nothing installed on the machine:
@@ -110,8 +132,12 @@ removes its notification registration.
   in code; the owner was using the machine.
 - Android notifications on a real phone: no Firebase project exists yet (`mobile/README.md` § Notifications Android
   has the three steps). Server, APK build and web are tested; the device walk is owed.
-- iPhone: no notifications. A home-screen app takes them only through Web Push (service worker + VAPID), which this
-  app does not have; the panel says « Notifications indisponibles sur ce téléphone » instead of a dead button.
+- Web Push on a real iPhone: no key pair is set on the VPS yet (`mobile/README.md` § Web Push). Verified end to
+  end in Chrome on the demo stack — the server encrypted, Google's push service accepted, the browser decrypted and
+  showed « Nouveau message » with no text, with the page closed. The iPhone walk is owed.
+- ⚠️ Testing it with Playwright: a plain context is incognito (Chrome refuses the Push API there) — use
+  `launchPersistentContext`; and drop `--disable-background-networking` (`ignoreDefaultArgs`), which switches off
+  Chrome's push channel. The first push after subscribing can take a while to arrive.
 
 ## Release
 

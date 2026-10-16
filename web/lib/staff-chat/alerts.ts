@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { pushDevicesApi } from "@/lib/api/push-devices"
+import { subscribeWebPush, webPushCapability, webPushPublicKey, workerRegistration } from "@/lib/push/web-push"
 import { staffChatApi, type StaffChatUnreadDto, type StaffMessageDto, type StaffQuickMessageDto } from "@/lib/api/staff-chat"
 import { useClinicRealtimeSubscribe } from "@/lib/realtime/clinic-realtime-provider"
 import { formatChatTime } from "./format"
@@ -178,8 +179,11 @@ function sound(urgent: boolean) {
   playChime(urgent)
 }
 
-/** `phone`: a phone browser or an iPhone home-screen app — no page can raise a notification there. */
-export type BrowserNotificationState = "unsupported" | "phone" | "default" | "granted" | "denied"
+/**
+ * `phone`: a phone where this deployment cannot push — no page can raise a notification there by itself.
+ * `home-screen`: an iPhone in Safari — Web Push exists, but only once the app is on the home screen (staff-chat Part 8).
+ */
+export type BrowserNotificationState = "unsupported" | "phone" | "home-screen" | "default" | "granted" | "denied"
 
 /**
  * In the Windows app: its own notifications (`notify`), or an app too old to have them (EC-10). In the Android app
@@ -233,6 +237,26 @@ function raiseSystemNotification(message: StaffMessageDto, open: (conversation: 
 
 function showBrowserNotification(message: StaffMessageDto, open: (conversation: string) => void) {
   if (browserNotificationState() !== "granted" || document.visibilityState === "visible") return
+  // Through the service worker when there is one, tagged by thread: a push arriving later keeps this richer notice.
+  void workerRegistration().then((registration) => {
+    if (registration) {
+      void registration
+        .showNotification(message.sender.name, {
+          body: noticeText(message),
+          tag: message.conversation,
+          icon: "/icon-192.png",
+          silent: true,
+          requireInteraction: isUrgent(message),
+          data: { conversation: message.conversation },
+        })
+        .catch(() => {})
+      return
+    }
+    showPageNotification(message, open)
+  })
+}
+
+function showPageNotification(message: StaffMessageDto, open: (conversation: string) => void) {
   try {
     const notification = new Notification(message.sender.name, {
       body: noticeText(message),
@@ -268,6 +292,16 @@ export function useAlertPreferences() {
   useEffect(() => {
     setNotifications(browserNotificationState())
     setShell(shellNotificationState())
+    // A browser this deployment can push to (Web Push): an iPhone or an Android phone gets a real answer instead of « phone ».
+    if (webPushCapability() === "unsupported") return
+    let cancelled = false
+    void webPushPublicKey().then((key) => {
+      if (cancelled || !key) return
+      setNotifications(webPushCapability() === "home-screen" ? "home-screen" : Notification.permission)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // The Android app: the phone's permission, re-read when the app says it changed or the page comes back.
@@ -307,9 +341,12 @@ export function useAlertPreferences() {
   }, [])
 
   const askNotifications = useCallback(async () => {
-    if (browserNotificationState() !== "default") return
+    if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "default") return
     try {
-      setNotifications(await Notification.requestPermission())
+      const answer = await Notification.requestPermission()
+      setNotifications(answer)
+      // Allowed: subscribe for Web Push too, so notifications arrive with the app closed (staff-chat Part 8).
+      if (answer === "granted") void subscribeWebPush().catch(() => {})
     } catch {
       setNotifications(browserNotificationState())
     }

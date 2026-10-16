@@ -161,6 +161,7 @@ Reads the auth mode from an early `ConfigurationBuilder` **before** `WebApplicat
   Hosted: `docker exec clinic-api-prod dotnet ClinicManagement.API.dll provision-clinic …` (env is inherited, so
   `AddInstallLayers()` resolves the running app's connection string).
 - `provision-cert` → `Maintenance/ProvisionCertCommand` (idempotently mints/reuses the CA + server cert into `.local/` and exits; the installer runs it before starting the service so first boot reuses the cert under the SCM timeout).
+- `generate-vapid-keys` → `Maintenance/GenerateVapidKeysCommand` (prints a fresh Web Push key pair as the two `Push__WebPush__*` lines and exits; touches nothing — `mobile/README.md` § Web Push).
 - `harden-permissions <dir>…` → `Maintenance/HardenPermissionsCommand`; `protect-credential`/`read-credential` → `Maintenance/CredentialProtectionCommand`.
 - **`restore-backup <folder> [--force]`** → `Maintenance/RestoreBackupCommand` (L4g). The answer to
   `packaging/README.md`'s former « There is no in-app restore ». A console verb and **not** an endpoint because a

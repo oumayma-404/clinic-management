@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPost } from './client';
 
-/** Matches the backend `DevicePlatform` enum (Android = 1, Ios = 2). */
-export type DevicePlatform = 1 | 2;
+/** Matches the backend `DevicePlatform` enum (Android = 1, Ios = 2, WebPush = 3). */
+export type DevicePlatform = 1 | 2 | 3;
 
 /** One platform's verdict on this installation (backend `PushPlatformAvailabilityDto`). */
 export interface PushPlatformAvailability {
@@ -24,6 +24,8 @@ export interface PushPlatformAvailability {
 export interface PushAvailability {
   availableAtAll: boolean;
   platforms: PushPlatformAvailability[];
+  /** The VAPID public key a browser subscribes with (staff-chat Part 8); null when Web Push cannot be sent here. */
+  webPushPublicKey: string | null;
 }
 
 export const pushDevicesApi = {
@@ -37,9 +39,18 @@ export const pushDevicesApi = {
   availability: (): Promise<PushAvailability> => apiGet<PushAvailability>('/push-devices/availability'),
 
   /** Registers, refreshes or rebinds this phone's token to the signed-in account — one call for all three. */
-  register: (body: { platform: DevicePlatform; token: string; shellVersion?: string }): Promise<unknown> =>
-    apiPost<unknown>('/push-devices', body),
+  register: (body: {
+    platform: DevicePlatform;
+    token: string;
+    shellVersion?: string;
+    /** Web Push only: the subscription's two keys (base64url). The token is its endpoint. */
+    webPushP256dh?: string;
+    webPushAuth?: string;
+  }): Promise<unknown> => apiPost<unknown>('/push-devices', body),
 
   /** Sign-out: this phone stops receiving the account's notifications. Idempotent on the server. */
   deregister: (token: string): Promise<unknown> => apiDelete<unknown>(`/push-devices/${encodeURIComponent(token)}`),
+
+  /** The same release for a Web Push endpoint, which is a URL and cannot travel in a path. */
+  release: (token: string): Promise<unknown> => apiPost<unknown>('/push-devices/release', { token }),
 };

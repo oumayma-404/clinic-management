@@ -1,4 +1,5 @@
 import { pushDevicesApi } from "@/lib/api/push-devices"
+import { releaseWebPush, resumeWebPush } from "./web-push"
 
 /**
  * Phone notifications (staff-chat Part 7): the Android app's token, tied to whoever is signed in on this phone.
@@ -19,7 +20,13 @@ let registered: string | null = null
 export function startPhonePush() {
   if (listening || typeof window === "undefined") return
   const shell = window.__clinicShell
-  if (shell?.platform !== "android" || typeof shell.onPushToken !== "function") return
+  // A browser or an iPhone home-screen app: Web Push, only if notifications were already allowed (staff-chat Part 8).
+  if (!shell) {
+    listening = true
+    void resumeWebPush()
+    return
+  }
+  if (shell.platform !== "android" || typeof shell.onPushToken !== "function") return
   listening = true
   shell.onPushToken((token) => {
     if (token === registered) return
@@ -36,6 +43,7 @@ export function startPhonePush() {
 
 /** Before signing out. Bounded, because nothing may hold the sign-out up. */
 export async function stopPhonePush() {
+  await releaseWebPush()
   const token = registered
   if (!token) return
   registered = null

@@ -34,6 +34,14 @@ public class DeviceRegistration : AggregateRoot<Guid>
     /// </summary>
     public string? ShellVersion { get; private set; }
 
+    /// <summary>
+    /// <see cref="DevicePlatform.WebPush"/> only: the browser's public key (P-256, base64url) and auth secret the
+    /// payload is encrypted to (RFC 8291). Null on every other platform.
+    /// </summary>
+    public string? WebPushP256dh { get; private set; }
+
+    public string? WebPushAuth { get; private set; }
+
     public DateTime LastSeenAt { get; private set; }
 
     /// <summary>
@@ -135,6 +143,18 @@ public class DeviceRegistration : AggregateRoot<Guid>
         IsActive = false;
         UpdatedAt = nowUtc;
         return true;
+    }
+
+    /// <summary>The keys a Web Push subscription was created with; a browser can rotate them for one endpoint.</summary>
+    public void SetWebPushKeys(string p256dh, string auth)
+    {
+        if (string.IsNullOrWhiteSpace(p256dh) || string.IsNullOrWhiteSpace(auth))
+        {
+            throw new ArgumentException("Les clés de l'abonnement sont obligatoires.");
+        }
+
+        WebPushP256dh = p256dh.Trim();
+        WebPushAuth = auth.Trim();
     }
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

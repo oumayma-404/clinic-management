@@ -82,6 +82,7 @@ Each exports a `<name>Api` object of async methods over `client.ts` (endpoints r
 
 - **`use-staff-chat.ts`** — the badge (`useStaffChatUnread`), the conversation list, the quick messages and one thread (merge by id, retries keep their Idempotency-Key); **`use-arrival-notice.ts`** — today's arrivals, one shared read while an arrival control is live.
 - **`lib/staff-chat/`** — `alerts.ts` (**the one alert owner**: sound, notices, browser / Windows notification, one sound per device, catch-up; N52), `chime.ts` (the two tones), `format.ts`, `quick-messages.ts` (`audiencesFor`), `desk.ts`, `drafts.ts`.
+- **`lib/push/`** — `phone-push.ts` (the Android app's token, registered at sign-in and released before sign-out) and `web-push.ts` (a browser or an iPhone home-screen app: subscribes through `public/sw.js` with the server's VAPID key, never prompts — `askNotifications` in `alerts.ts` does, behind a tap; `webPushCapability()` answers « home-screen » for an iPhone in Safari). ⚠️ Inside a shell Web Push is off: the Windows app has its own notifications and the Android app Firebase's.
 
 ## lib/query/ — the shared reference cache (`features/performance-caching` 2b)
 

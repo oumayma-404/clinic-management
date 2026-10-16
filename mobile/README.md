@@ -173,16 +173,44 @@ Phone notifications go through Google's Firebase Cloud Messaging. It works with 
    is git-ignored. Rebuild the APK: `BuildConfig.PUSH_CONFIGURED` becomes true. Without the file the APK still builds
    and simply says « Notifications indisponibles sur ce téléphone ».
 3. **The server's key** — Firebase → ⚙ Paramètres du projet → « Comptes de service » → « Générer une nouvelle clé
-   privée ». On the VPS set, in the API's environment (never in a committed file):
+   privée ». On the VPS, in `deploy/.env` (never in a committed file):
    ```
-   Push__Fcm__ProjectId=<project id, e.g. apexa-12345>
-   Push__Fcm__ServiceAccountKey=<the whole JSON file, on one line>
+   PUSH_FCM_PROJECT_ID=<project id, e.g. apexa-12345>
+   PUSH_FCM_SERVICE_ACCOUNT_KEY='<the whole JSON file, on one line>'
    ```
-   and restart the API. `GET /api/push-devices/availability` then reports Android as supported.
+   and recreate the API (`docker compose … up -d api`). `GET /api/push-devices/availability` then reports Android
+   as supported. On another install the keys are `Push__Fcm__ProjectId` / `Push__Fcm__ServiceAccountKey`.
 
 What reaches a phone: chat messages (if still unread 30 s after they were sent) and the agenda's five time-critical
 events (new, cancelled, moved, the ~24 h reminder, the post-visit review). The lock screen shows the fixed phrase
 only — « Nouveau message », « Nouveau rendez-vous » — never a name or a message's text.
+
+### Notifications iPhone et navigateurs — Web Push (staff-chat Part 8)
+
+An iPhone gets notifications only through Web Push, and only once APEXA is **on its home screen** (iOS 16.4+:
+Safari → Partager → « Sur l'écran d'accueil », then open it from that icon). The same mechanism serves Chrome,
+Edge and Firefox on a computer or an Android phone used without the app. No Apple or Google account is needed —
+only a key pair this server signs with.
+
+1. **The key pair, once** — on the VPS:
+   ```
+   docker exec clinic-api-prod dotnet ClinicManagement.API.dll generate-vapid-keys
+   ```
+   (or `dotnet run -- generate-vapid-keys` in `api/ClinicManagement.API` anywhere — the pair is not tied to a
+   machine). Put the two printed values in `deploy/.env`:
+   ```
+   PUSH_WEBPUSH_PUBLIC_KEY=<printed public key>
+   PUSH_WEBPUSH_PRIVATE_KEY=<printed private key>
+   ```
+   `PUSH_WEBPUSH_SUBJECT` is optional (a `mailto:` or `https:` contact; empty ⇒ `https://<DOMAIN>`).
+2. **Recreate the API** (`docker compose … up -d api`). `GET /api/push-devices/availability` then lists
+   « Navigateur » as supported and carries `webPushPublicKey`.
+3. **Each person**: Messages → « Activer les notifications » (on an iPhone, from the home-screen app). A browser
+   that already allowed them re-subscribes by itself at sign-in; signing out releases it.
+
+⚠️ **Never replace the pair once used.** Every subscription is bound to the public key, so a new pair silences
+every browser until each is opened again (the app re-subscribes on its next open).
+⚠️ A computer receives them only while the browser is running (closed tab is fine, closed browser is not).
 
 ### Trusting a self-signed (offline-LAN) server
 

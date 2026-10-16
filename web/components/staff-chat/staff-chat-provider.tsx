@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { usePathname } from "next/navigation"
 import { toast } from "sonner"
 import { useSession } from "@/lib/auth/session"
+import { replaceUrl } from "@/lib/history"
 import { useStaffChatUnread } from "@/lib/hooks/use-staff-chat"
 import { isChromeLessPath } from "@/lib/nav"
 import { useStaffChatAlerts } from "@/lib/staff-chat/alerts"
@@ -88,6 +89,29 @@ export function StaffChatProvider({ children }: { children: React.ReactNode }) {
     return () => {
       if (window.__clinicShellOpenStaffChat === openConversation) delete window.__clinicShellOpenStaffChat
     }
+  }, [available, openConversation])
+
+  // A tapped browser or iPhone notification (staff-chat Part 8): the service worker names the thread to open.
+  useEffect(() => {
+    if (!available) return
+    const chat = new URLSearchParams(window.location.search).get("chat")
+    if (chat) {
+      const url = new URL(window.location.href)
+      url.searchParams.delete("chat")
+      replaceUrl(url.pathname + url.search)
+      openConversation(chat)
+    }
+    if (!("serviceWorker" in navigator)) return
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; conversation?: unknown; url?: unknown } | null
+      if (data?.type === "apexa-open-staff-chat" && typeof data.conversation === "string") openConversation(data.conversation)
+      // Only this app's own paths: a message is data, never an address to follow off the site.
+      else if (data?.type === "apexa-open-url" && typeof data.url === "string" && /^\/(?!\/)/.test(data.url)) {
+        window.location.assign(data.url)
+      }
+    }
+    navigator.serviceWorker.addEventListener("message", onMessage)
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage)
   }, [available, openConversation])
 
   const closePanel = useCallback(() => {

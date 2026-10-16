@@ -46,6 +46,11 @@ export function AlertSettings() {
       {((shell === "android" && phone === "unavailable") || (browser && notifications === "phone")) && (
         <p className="text-xs text-muted-foreground">Notifications indisponibles sur ce téléphone</p>
       )}
+      {browser && notifications === "home-screen" && (
+        <p className="text-xs text-muted-foreground">
+          Pour recevoir les notifications, ajoutez APEXA à l&apos;écran d&apos;accueil (Partager → Sur l&apos;écran d&apos;accueil).
+        </p>
+      )}
       {browser && notifications === "default" && (
         <Button variant="outline" size="sm" className="coarse:min-h-11" onClick={() => void askNotifications()}>
           <BellRing className="h-4 w-4" aria-hidden="true" />

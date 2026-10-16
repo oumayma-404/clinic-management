@@ -203,7 +203,9 @@ public class PushDispatchJob
         }
 
         var credentials = PushConfig.Resolve(_configuration, device.Platform);
-        var message = new PushMessage(device.Token, delivery.Label, delivery.Category, delivery.AppointmentId, conversation);
+        var message = new PushMessage(
+            device.Token, delivery.Label, delivery.Category, delivery.AppointmentId, conversation,
+            device.WebPushP256dh, device.WebPushAuth);
         var result = await sender.SendAsync(message, credentials);
 
         switch (result.Outcome)

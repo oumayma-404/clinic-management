@@ -486,6 +486,7 @@ public static class Extensions
         services.AddSingleton<IOsPushAvailability, OsPushAvailability>();
         services.AddScoped<IPushSender, FcmPushSender>();
         services.AddScoped<IPushSender, ApnsPushSender>();
+        services.AddScoped<IPushSender, WebPushSender>();
         services.AddScoped<INotificationGenerator>(provider => new PushNotificationGeneratorDecorator(
             new NotificationGenerator(
                 provider.GetRequiredService<IStaffNotificationRepository>(),

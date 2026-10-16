@@ -50,7 +50,11 @@ public class GetPushAvailabilityQueryHandler
                 return Result<PushAvailabilityDto>.Failure(clinicResult.Error ?? "Cabinet introuvable.");
             }
 
-            var dto = new PushAvailabilityDto { AvailableAtAll = _availability.IsAvailableAtAll };
+            var dto = new PushAvailabilityDto
+            {
+                AvailableAtAll = _availability.IsAvailableAtAll,
+                WebPushPublicKey = _availability.WebPushPublicKey
+            };
 
             // Every platform, always, in enum order — « iOS : non configuré » is a true statement about this
             // installation, and omitting the row would leave the reader unable to tell « not configured » from
@@ -86,6 +90,7 @@ public class GetPushAvailabilityQueryHandler
     {
         DevicePlatform.Android => "Android",
         DevicePlatform.Ios => "iOS",
+        DevicePlatform.WebPush => "Navigateur",
         _ => platform.ToString()
     };
 }

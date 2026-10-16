@@ -138,6 +138,7 @@ public class SubscriptionExemptionCoverageTests
         "Notifications.DismissAll",
         "PushDevices.Register",                          // fired at every mobile sign-in (AC-4.7)
         "PushDevices.Deregister",
+        "PushDevices.Release",                           // Deregister for a Web Push endpoint, which is a URL
         "PatientFiles.InitializeDefaultFolders",         // fired on the first visit to the Files tab; a READ fails
         "Dashboard.UpdatePreferences",                   // personal interface state, not clinic work
         "Clinics.HideMoney",                             // « Mode discret » changes what is displayed, records no work

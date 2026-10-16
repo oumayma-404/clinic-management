@@ -43,6 +43,12 @@ public class DeviceRegistrationConfiguration : IEntityTypeConfiguration<DeviceRe
         builder.Property(d => d.ShellVersion)
             .HasMaxLength(50);
 
+        // Web Push's subscription keys, base64url: a 65-byte point (88 chars) and a 16-byte secret (22).
+        builder.Property(d => d.WebPushP256dh)
+            .HasMaxLength(128);
+        builder.Property(d => d.WebPushAuth)
+            .HasMaxLength(64);
+
         builder.Property(d => d.LastSeenAt)
             .IsRequired();
 

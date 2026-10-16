@@ -220,4 +220,49 @@ public class DeviceRegistrationTenantIsolationTests
         harness.Devices.Verify(
             d => d.GetByTokenAcrossClinicsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    // ---- staff-chat Part 8: a browser subscription is only ever stored for a real push service -------
+
+    private static readonly string P256dh =
+        ClinicManagement.Domain.Common.WebPushSubscription.ToBase64Url(new byte[] { 0x04 }.Concat(Enumerable.Repeat((byte)7, 64)).ToArray());
+    private static readonly string Auth =
+        ClinicManagement.Domain.Common.WebPushSubscription.ToBase64Url(Enumerable.Repeat((byte)9, 16).ToArray());
+
+    [Fact]
+    public async Task A_Browser_Subscription_Is_Stored_With_Its_Keys()
+    {
+        var harness = new Harness(ClinicA, UserA);
+
+        var result = await harness.Register().Handle(new RegisterPushDeviceCommand
+        {
+            Platform = DevicePlatform.WebPush,
+            Token = "https://web.push.apple.com/QGuQyavXutnMH7YKi3QrDYnOiBh0W7bpMzTRXm9h2Lbm",
+            WebPushP256dh = P256dh,
+            WebPushAuth = Auth
+        }, default);
+
+        Assert.True(result.IsSuccess);
+        var stored = Assert.Single(harness.Added);
+        Assert.Equal(P256dh, stored.WebPushP256dh);
+        Assert.Equal(Auth, stored.WebPushAuth);
+    }
+
+    // The dispatcher would POST to whatever is stored, so an address off the push services is refused before it is.
+    [Fact]
+    public async Task A_Subscription_Pointing_Anywhere_Else_Is_Refused_And_Not_Stored()
+    {
+        var harness = new Harness(ClinicA, UserA);
+
+        var result = await harness.Register().Handle(new RegisterPushDeviceCommand
+        {
+            Platform = DevicePlatform.WebPush,
+            Token = "https://10.0.0.5/internal",
+            WebPushP256dh = P256dh,
+            WebPushAuth = Auth
+        }, default);
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(harness.Added);
+        Assert.Empty(harness.Updated);
+    }
 }

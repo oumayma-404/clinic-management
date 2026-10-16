@@ -1677,6 +1677,14 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
+                    b.Property<string>("WebPushAuth")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("WebPushP256dh")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Token")

@@ -493,6 +493,11 @@ no consent flag and no audit of which patient was sent.
   failure it would burn every future notification's retry budget for an app that no longer exists. Recognising it
   is the one genuinely per-platform thing, hence the abstract `IsTokenInvalid` hook. APNs carries its topic and
   priority as **headers**, which is why the base takes an extra-headers argument.
+- **`WebPushSender`** + **`WebPushCrypto`** (staff-chat Part 8) — a browser or an iPhone home-screen app. The token
+  is the subscription's endpoint; the body is encrypted to the browser's keys (RFC 8291, pinned to its test vector)
+  and signed with the install's VAPID pair (`Push:WebPush:{PublicKey,PrivateKey,Subject}`, Subject defaulting to an
+  https `FrontendUrl`). ⚠️ **The endpoint is re-checked against `WebPushSubscription`'s allow-list at send**, not only
+  at registration — this is the code that opens the connection. 404/410 is `TokenInvalid`, 401/403 `NotConfigured`.
 - **`PushNotificationGeneratorDecorator`** (`INotificationGenerator`) — queues push alongside the in-app feed by
   **decorating** the generator: one hook reaches every category the feed has or will have, so a notification added
   later cannot be the one that silently never pushes (`fixes-dont-propagate`). The inner generator is awaited
