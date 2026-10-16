@@ -7,6 +7,18 @@ plugins {
 }
 
 /**
+ * Phone notifications (staff-chat Part 7) need the Firebase project's `google-services.json` beside this file.
+ *
+ * ⚠️ **Absent is a first-class case**, exactly like `keystore.properties`: the file is git-ignored, so CI and every
+ * machine without it still build — `BuildConfig.PUSH_CONFIGURED` is then false, the app never asks Firebase for a
+ * token and the chat's settings say notifications are unavailable on this phone. Nothing else changes.
+ */
+val pushConfigured = file("google-services.json").exists()
+if (pushConfigured) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
+/**
  * The release signing material, read from a **git-ignored** `keystore.properties` beside `settings.gradle.kts`.
  *
  * ⚠️ **Absent is a first-class case, not an error.** A machine without the keystore still builds `assembleRelease`
@@ -28,12 +40,12 @@ val keystoreProperties: Properties? = rootProject.file("keystore.properties")
  * The shell's version, and the release workflow's way in: `-PshellVersion=1.2.3` (`android-release.yml`). The
  * default is the version a local build reports.
  */
-val shellVersion: String = providers.gradleProperty("shellVersion").getOrElse("1.4.0").trim()
+val shellVersion: String = providers.gradleProperty("shellVersion").getOrElse("1.5.0").trim()
 
 /**
  * `versionCode` derived from the version — `major·10000 + minor·100 + patch` — so the two cannot disagree and the
  * code rises with every release by construction. ⚠️ Android refuses an update whose code is not higher than the
- * installed one, and the last hand-set code was 6: every derived code is far above it.
+ * installed one, and the last hand-set code was 7: every derived code is far above it.
  */
 fun versionCodeOf(version: String): Int {
     val parts = version.split('.').map { it.toIntOrNull() ?: error("shellVersion must be N.N.N, got '$version'") }
@@ -58,9 +70,11 @@ android {
         targetSdk = 36
 
         // ⚠️ Must increase on every release, and it can never go back down for this `applicationId` — Android
-        // refuses the update otherwise. Derived from `shellVersion` (see `versionCodeOf`); 1.4.0 → 10400.
+        // refuses the update otherwise. Derived from `shellVersion` (see `versionCodeOf`); 1.5.0 → 10500.
         // History: 1–2 never left this machine, 3 was 1.1.0, 4 was 1.1.1 rebuilt with app.apexa.tn,
-        // 5 added `relayProbe` (clinic-pc-copy AC-6.2), 6 was 1.3.0 with `relayPrepare` + `relaySwitch` (Part 3).
+        // 5 added `relayProbe` (clinic-pc-copy AC-6.2), 6 was 1.3.0 with `relayPrepare` + `relaySwitch` (Part 3),
+        // 7 was 1.4.0 with phone notifications — `onPushToken` delivers, `notificationState` +
+        // `openNotificationSettings` (staff-chat Part 7).
         versionCode = versionCodeOf(shellVersion)
 
         // The single source of the shell's version. `BuildConfig.VERSION_NAME` is what reaches
@@ -71,8 +85,11 @@ android {
         // ⚠️ A change to the bridge's method set edits `mobile/shared/bridge.md` **and** bumps this — one without
         // the other ships a build reporting a capability set it does not have. 1.1.0 added `confirmIdentity`
         // (Part 7); its version history is the table at the foot of that file. 1.3.0 added the PC de secours
-        // members (clinic-pc-copy); 1.4.0 adds the in-app updater, a native change with no bridge member.
+        // members (clinic-pc-copy), 1.4.0 phone notifications (staff-chat); 1.5.0 adds the in-app updater, a native
+        // change with no bridge member.
         versionName = shellVersion
+
+        buildConfigField("boolean", "PUSH_CONFIGURED", pushConfigured.toString())
 
         // The address a fresh install starts on, so a phone that downloads this build from the product's own
         // download page connects with nothing typed — the friction the iOS route does not have, because there the
@@ -193,4 +210,11 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.webkit:webkit:1.12.1")
+    // Linked always, initialised only when `google-services.json` was present at build time (PUSH_CONFIGURED).
+    implementation("com.google.firebase:firebase-messaging:24.1.0")
+    constraints {
+        // Play Services, reached through Firebase, pulls androidx.fragment 1.0.0, whose activity results predate
+        // registerForActivityResult — the file chooser's camera and the notification prompt both depend on it.
+        implementation("androidx.fragment:fragment:1.8.5")
+    }
 }

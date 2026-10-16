@@ -30,6 +30,19 @@ Feature/screen components for the clinic frontend; `components/ui/` holds shadcn
 
 > ⚠️ **Treatment flow UX (2026-09-24, `features/treatment-flow-ux/notes.md`) reworded and restructured the booking dialogs, the fiche de soins, the treatment workspace and the patient band.** Where a row below quotes an older on-screen string, the notes file is current: one vocabulary (Traitement · Devis n° / Pas de devis · Séance · Fait · Prix du traitement · Payé / Encaisser · Reste à payer · Non réclamé · Remettre à faire · par dent / pour tout), no instruction captions, consequences as bold bullets (`treatment-plans/plan-consequences.tsx`), `seance-strip.tsx` everywhere. New shared modules: `plan-amend-payload.ts` (the ONE amend builder — the full form and the in-row price/remise editor both use it), `plan-consequences.tsx`, `use-booking-plan-steps.tsx` (the treatment's séances window opened from either booking dialog). The continuation dialog is inline in the booking picker now (`continue-session-dialog.tsx` keeps only the loader + `ContinuationChoice`); `plan-step-suggestion-notice.tsx` exports `ContinueTreatmentList`; the edit dialog's footer is « ⋯ » · Fermer · Enregistrer.
 
+## Messagerie interne (`staff-chat`)
+
+| File | What it renders / does |
+|------|------------------------|
+| `staff-chat/staff-chat-provider.tsx` | Mounted in `app/layout.tsx`: panel state, « Ouvrir » that waits for an open dialog, the alerts hook, the notices, and `window.__clinicShellOpenStaffChat` for the Windows app. |
+| `staff-chat/staff-chat-panel.tsx` · `conversation-list.tsx` · `message-thread.tsx` · `message-bubble.tsx` · `message-composer.tsx` | The non-modal panel (full screen below `md:`): list ↔ thread, « Je m'en occupe » / « Pris par » / « Vu par », drafts, retry. |
+| `staff-chat/staff-chat-launcher.tsx` | « Messages » + badge in the header (from `md:`) and the bottom bar. |
+| `staff-chat/quick-message-bar.tsx` · `quick-messages-editor-dialog.tsx` | One-press messages in the person's own order, frozen while the thread is open; the cabinet's editor (409 « Recharger »). |
+| `staff-chat/patient-link-picker.tsx` · `patient-link-chip.tsx` | Attach a patient (+ today's RDV); chips read « archivé » / « RDV annulé » / « introuvable ». |
+| `staff-chat/arrival-action.tsx` | « Signaler l'arrivée »: the RDV window's button, the agenda's bell on today's waiting visits, the agenda « ⋯ » row (the one place with the reason). |
+| `staff-chat/staff-chat-notices.tsx` · `alert-settings.tsx` | The notices (top; over every dialog; never on the lock screen) and « Son des messages » / notifications in the panel. ⚠️ Only the notices may render `data-staff-chat-notice` (N52); `ui/dialog.tsx` and `ui/sheet.tsx` let presses on it through (`ui/floating-notice.ts`). |
+
+
 ## Appointments
 
 | File | What it renders / does |

@@ -108,7 +108,7 @@ public class MetaController : ApiControllerBase
     /// <summary>
     /// The Android half of the same fill, on the same « the operator's setting wins » rule.
     ///
-    /// <para>⚠️ <b>It also fills <c>storeUrls.android</c></b> when that is empty. That field is what the pre-1.4.0
+    /// <para>⚠️ <b>It also fills <c>storeUrls.android</c></b> when that is empty. That field is what the pre-1.5.0
     /// shells — which have no updater — open in the browser from their « Mise à jour requise » wall, and an
     /// <c>https</c> link to an APK is a download the browser then installs. So it is their one way onto a build
     /// that can update itself.</para>
@@ -166,7 +166,7 @@ public class MetaController : ApiControllerBase
     /// The newest Android APK on this server (see <see cref="AndroidUpdatePackage"/>) — what the phone's
     /// « Mettre à jour » downloads. Under <see cref="ClientDownloadPath"/>, so it is floor-exempt by the same prefix.
     ///
-    /// <para>⚠️ The APK media type, not <c>octet-stream</c>: a browser handed the link (a pre-1.4.0 phone's wall, the
+    /// <para>⚠️ The APK media type, not <c>octet-stream</c>: a browser handed the link (a pre-1.5.0 phone's wall, the
     /// marketing site) offers to install an <c>application/vnd.android.package-archive</c> and merely saves an
     /// opaque file.</para>
     /// </summary>

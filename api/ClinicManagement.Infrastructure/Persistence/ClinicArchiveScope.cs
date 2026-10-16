@@ -77,6 +77,9 @@ public static class ClinicArchiveScope
         // about a StaffNotification the archive already excludes, and it is keyed on a User the archive
         // deliberately does not carry.
         nameof(NotificationDismissal),
+        // staff-chat FR-8: the cabinet's internal chat, keyed on accounts the archive does not carry.
+        nameof(StaffMessage),
+        nameof(StaffChatReadMarker),
         nameof(DeviceRegistration),
         nameof(BackupRun),
         // ⚠️ Beside BackupRun, but for a sharper reason than transience: a ClinicRecoveryPoint names a STORAGE KEY.

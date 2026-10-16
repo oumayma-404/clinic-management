@@ -32,6 +32,7 @@ public class PushDispatchJobTests
         public Mock<IPushDeliveryRepository> Deliveries { get; } = new();
         public Mock<IDeviceRegistrationRepository> Devices { get; } = new();
         public Mock<IAppointmentRepository> Appointments { get; } = new();
+        public Mock<IStaffMessageRepository> StaffMessages { get; } = new();
         public Mock<IOsPushAvailability> Availability { get; } = new();
         public FakeSender Sender { get; } = new();
         public Mock<ITenantScope> TenantScope { get; } = new();
@@ -86,7 +87,7 @@ public class PushDispatchJobTests
             policy.Setup(p => p.RequiresSubscription).Returns(false);
 
             Job = new PushDispatchJob(
-                Deliveries.Object, Devices.Object, Appointments.Object, unitOfWork.Object,
+                Deliveries.Object, Devices.Object, Appointments.Object, StaffMessages.Object, unitOfWork.Object,
                 probe.Object, Availability.Object, new ConfigurationBuilder().Build(),
                 new[] { (IPushSender)Sender }, policy.Object,
                 new Mock<IClinicSubscriptionRepository>().Object,
@@ -352,5 +353,68 @@ public class PushDispatchJobTests
         Assert.Equal("Nouveau rendez-vous", message.Label);
         Assert.Equal(NotificationCategory.AppointmentCreated, message.Category);
         Assert.Equal(AppointmentId, message.AppointmentId);
+    }
+
+    // ---- staff-chat Part 7: a chat push waits to see the message unread -------------------------------
+
+    private static (StaffMessage Message, PushDelivery Row) ChatRow(DeviceRegistration device)
+    {
+        var conversation = ClinicManagement.Domain.ValueObjects.StaffConversation.Direct("local|salma", UserId);
+        var message = StaffMessage.Create(
+            ClinicId, conversation, "local|salma", "La patiente est arrivée", null, null, null, DateTime.UtcNow.AddMinutes(-1));
+        var row = PushDelivery.Create(
+            ClinicId, device.Id, UserId, NotificationCategory.StaffChatMessage, "Nouveau message", null,
+            DateTime.UtcNow.AddSeconds(-1), DateTime.UtcNow.AddMinutes(-1), message.Id);
+        return (message, row);
+    }
+
+    // Read on the PC during the grace period: the phone stays quiet.
+    [Fact]
+    public async Task A_Chat_Message_Already_Read_Is_Not_Pushed()
+    {
+        var device = Device();
+        var (message, row) = ChatRow(device);
+        var harness = new Harness(due: new[] { row }, device: device);
+        harness.StaffMessages.Setup(m => m.GetByIdAsync(message.Id, It.IsAny<CancellationToken>())).ReturnsAsync(message);
+        harness.StaffMessages.Setup(m => m.GetMarkerAsync(ClinicId, UserId, message.ConversationKey, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StaffChatReadMarker(ClinicId, UserId, message.ConversationKey, message.SentAt));
+
+        await harness.Job.DispatchQueuedPushes();
+
+        Assert.Empty(harness.Sender.Sent);
+        Assert.Equal(PushDeliveryStatus.Failed, Assert.Single(harness.Saved).Status);
+    }
+
+    // Unread: it goes, carrying the thread a tap opens and nothing of the text.
+    [Fact]
+    public async Task An_Unread_Chat_Message_Is_Pushed_With_Its_Thread_And_No_Text()
+    {
+        var device = Device();
+        var (message, row) = ChatRow(device);
+        var harness = new Harness(due: new[] { row }, device: device);
+        harness.StaffMessages.Setup(m => m.GetByIdAsync(message.Id, It.IsAny<CancellationToken>())).ReturnsAsync(message);
+        harness.StaffMessages.Setup(m => m.GetMarkerAsync(ClinicId, UserId, message.ConversationKey, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new StaffChatReadMarker(ClinicId, UserId, message.ConversationKey, message.SentAt.AddMinutes(-5)));
+
+        await harness.Job.DispatchQueuedPushes();
+
+        var sent = Assert.Single(harness.Sender.Sent);
+        Assert.Equal(message.ConversationKey, sent.Conversation);
+        Assert.Equal("Nouveau message", sent.Label);
+        Assert.DoesNotContain("arrivée", sent.Label);
+        Assert.Equal(PushDeliveryStatus.Sent, Assert.Single(harness.Saved).Status);
+    }
+
+    [Fact]
+    public async Task A_Chat_Push_Whose_Message_Is_Gone_Fails_Without_Sending()
+    {
+        var device = Device();
+        var (_, row) = ChatRow(device);
+        var harness = new Harness(due: new[] { row }, device: device);
+
+        await harness.Job.DispatchQueuedPushes();
+
+        Assert.Empty(harness.Sender.Sent);
+        Assert.Equal(PushDeliveryStatus.Failed, Assert.Single(harness.Saved).Status);
     }
 }

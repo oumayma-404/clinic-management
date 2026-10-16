@@ -244,7 +244,7 @@ Still to do:
       untrusted-certificate message, and `delete window.__clinicShell`.
       ⚠️ The `@JavascriptInterface` keep rule has never run on a device; if the bridge fails only in release, start there.
 - [ ] **Ship it to the pilot clinics as a file.** No store, no account, no company. The update channel is decided
-      (in-app, §4); phones below 1.4.0 install 1.4.0 by hand once, then update themselves.
+      (in-app, §4); phones below 1.5.0 install 1.5.0 by hand once, then update themselves.
 - [ ] Verify the **installable web app** on a real Android phone and a real iPhone (`web/app/manifest.ts` is
       complete, but there is no service worker, so Chrome may make a shortcut rather than a full WebAPK).
 - [ ] *(Needs 2.2)* Play Console: listing, screenshots, **feature graphic 1024×500**, **privacy policy URL**,

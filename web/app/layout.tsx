@@ -8,6 +8,7 @@ import { MoneyVisibilityProvider } from "@/lib/money-visibility/money-visibility
 import { ClinicRealtimeProvider } from "@/lib/realtime/clinic-realtime-provider"
 import { QueryProvider } from "@/lib/query/query-provider"
 import { SidebarProvider } from "@/contexts/sidebar-context"
+import { StaffChatProvider } from "@/components/staff-chat/staff-chat-provider"
 import { AppToaster } from "@/components/app-toaster"
 import { ClientVersionGate } from "@/components/client-version-gate"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -131,7 +132,7 @@ export default function RootLayout({
                   <MoneyVisibilityProvider>
                     <ConnectivityProvider>
                       <SidebarProvider>
-                        {children}
+                        <StaffChatProvider>{children}</StaffChatProvider>
                       </SidebarProvider>
                     </ConnectivityProvider>
                   </MoneyVisibilityProvider>

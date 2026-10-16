@@ -29,6 +29,12 @@ public interface IOsPushAvailability
     bool IsAvailableAtAll { get; }
 
     /// <summary>
+    /// The VAPID public key a browser subscribes with (staff-chat Part 8) — null unless Web Push can be sent. It is
+    /// public by design: every push service sees it, and the page needs it before it can ask for a subscription.
+    /// </summary>
+    string? WebPushPublicKey { get; }
+
+    /// <summary>
     /// Why <paramref name="platform"/> cannot be pushed to, in French, or null when it can. One wording for the
     /// refusal a client sees, the reason a parked row records and the sentence a settings screen shows — three
     /// surfaces that would otherwise each invent their own explanation of the same fact.

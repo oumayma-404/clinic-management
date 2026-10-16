@@ -7,6 +7,8 @@ local.properties
 # publish as — and losing it ends this listing's ability to ever be updated, so it is backed up off this machine
 # rather than committed. `keystore.properties.example` records the shape; see `mobile/README.md` § Signing.
 keystore.properties
+# The Firebase project's client config (staff-chat Part 7) — kept with the signing material, off the public repo.
+app/google-services.json
 *.jks
 *.keystore
 .idea/

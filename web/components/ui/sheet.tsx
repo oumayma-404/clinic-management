@@ -5,6 +5,7 @@ import { XIcon } from "lucide-react"
 import * as SheetPrimitive from "@radix-ui/react-dialog"
 
 import { DIALOG_CLOSE_BUTTON, useReturnFocusToTrigger } from "@/components/ui/dialog"
+import { unlessOnFloatingNotice } from "@/components/ui/floating-notice"
 import { cn } from "@/lib/utils"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
@@ -136,6 +137,9 @@ function SheetContent({
         )}
         // Spread before the handlers — see the note in `DialogContent`; after it, the chaining below is dead code.
         {...props}
+        onPointerDownOutside={unlessOnFloatingNotice(props.onPointerDownOutside)}
+        onFocusOutside={unlessOnFloatingNotice(props.onFocusOutside)}
+        onInteractOutside={unlessOnFloatingNotice(props.onInteractOutside)}
         onOpenAutoFocus={(event) => {
           captureTrigger()
           props.onOpenAutoFocus?.(event)

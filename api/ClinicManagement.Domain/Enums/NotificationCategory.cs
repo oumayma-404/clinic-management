@@ -184,5 +184,12 @@ public enum NotificationCategory
     ///
     /// <para>In-app only: what it asks for — switching a PC on, freeing its disk — happens at the cabinet.</para>
     /// </summary>
-    RelayAttention = 18
+    RelayAttention = 18,
+
+    /// <summary>
+    /// A staff chat message (<c>staff-chat</c> Part 7) — a <b>push-only</b> category: it never becomes a feed row,
+    /// because the message itself is the record. Its push is queued for whoever the message rings
+    /// (<c>StaffConversation.AlertsFor</c>) and sent only if they have not read it by then.
+    /// </summary>
+    StaffChatMessage = 19
 }

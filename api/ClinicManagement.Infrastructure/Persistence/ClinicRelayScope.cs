@@ -22,6 +22,8 @@ public static class ClinicRelayScope
         [nameof(StaffNotification)] = "the clinic's bell (FR-1)",
         [nameof(NotificationRead)] = "who read which bell row",
         [nameof(NotificationDismissal)] = "who cleared which bell row",
+        [nameof(StaffMessage)] = "the cabinet's chat keeps working during a cut (staff-chat FR-8)",
+        [nameof(StaffChatReadMarker)] = "who read which chat thread",
     };
 
     /// <summary>Never carried. The archive's exclusions minus <see cref="Added"/>, plus what only the cloud may hold.</summary>

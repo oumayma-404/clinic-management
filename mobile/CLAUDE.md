@@ -22,7 +22,9 @@ mobile/
 │       │                          (reads the `android` block; the top-level floor only from an older server)
 │       ├── ShellUpdater.kt        the in-app update: download the server's APK, check its SHA-256, hand it to
 │       │                          PackageInstaller — Android always shows its own confirm (android-in-app-update)
-│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · confirmIdentity · relayProbe · relayPrepare · relaySwitch · carryDraft · takeCarriedDraft
+│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · notificationState · openNotificationSettings · confirmIdentity · relayProbe · relayPrepare · relaySwitch · carryDraft · takeCarriedDraft
+│       ├── ShellPush.kt           phone notifications: the two channels, the Firebase token, the permission (1.4)
+│       ├── PushTap.kt             what a tapped notification asks to open, checked before it reaches the page
 │       ├── RelayProbe.kt          AC-6.2: the PC de secours probed through its pinned certificate + this phone's gateway
 │       ├── RelaySwitch.kt         Part 3: the prepared session on the PC (D22), « does it hold? », where the PC is
 │       ├── CarriedDraftSlot.kt    D23: the open form's state, in memory, handed to the next clinic page once

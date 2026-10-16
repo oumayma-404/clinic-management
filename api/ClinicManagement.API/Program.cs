@@ -106,6 +106,13 @@ if (args.Length > 0 && string.Equals(args[0], ProvisionCertCommand.CommandName, 
     return ProvisionCertCommand.Run(args);
 }
 
+// A fresh VAPID key pair for Web Push (staff-chat Part 8), printed as the two environment lines. Usage:
+//   ClinicManagement.API.exe generate-vapid-keys
+if (args.Length > 0 && string.Equals(args[0], GenerateVapidKeysCommand.CommandName, StringComparison.OrdinalIgnoreCase))
+{
+    return GenerateVapidKeysCommand.Run();
+}
+
 // Money reconciliation (Data & Money Integrity, slice H): a read-only, cross-clinic report of every figure a
 // data migration must not move. Runs without starting the web server so it can be used on a stopped app —
 // run it before a migration, keep the output, run it after, and diff. Usage:
@@ -560,6 +567,8 @@ try
     // to broadcast "appointments changed" to a clinic's connected clients. Runs in both auth modes.
     builder.Services.AddSignalR();
     builder.Services.AddScoped<IRealtimeNotifier, SignalRRealtimeNotifier>();
+    builder.Services.AddSingleton<StaffPresence>();
+    builder.Services.AddSingleton<IStaffPresence>(sp => sp.GetRequiredService<StaffPresence>());
 
     // Add Hangfire for background jobs
     var hangfireConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");

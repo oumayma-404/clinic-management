@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -30,6 +31,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
@@ -38,6 +40,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import androidx.webkit.ScriptHandler
+import org.json.JSONObject
 import java.util.concurrent.Executors
 
 /**
@@ -137,6 +140,15 @@ class MainActivity : ComponentActivity() {
     private val relayTick = Runnable { relayTick() }
     private val offerTick = Runnable { offerTick() }
 
+    // ── Phone notifications (staff-chat Part 7) ──
+    /** Android 13's prompt; registered as a property because registering once the activity is STARTED throws. */
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { notifyPageOfNotificationState() }
+    /** What a tapped notification asked to open, until the page is ready to open it. */
+    private var pendingTap: PushTap? = null
+    private var pendingTapTries = 0
+    private val tapTick = Runnable { tapTick() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -164,6 +176,8 @@ class MainActivity : ComponentActivity() {
         applyWindowInsets()
         wireControls()
         installBackHandler()
+        ShellPush.createChannels(this)
+        takePushTap(intent)
 
         config = store.load()
         relayTarget = RelaySwitch.load(this)
@@ -538,6 +552,8 @@ class MainActivity : ComponentActivity() {
                 onRelayPrepare = { request, done -> prepareRelay(request, done) },
                 onRelaySwitch = { done -> switchToPcIfHolding(done) },
                 isClinicPage = { page -> config.isSameOrigin(page) || RelaySwitch.isPcOrigin(page, relayTarget) },
+                onPushWanted = { pushWanted() },
+                onOpenNotificationSettings = { openNotificationSettings() },
             ),
             ShellBridge.NATIVE_OBJECT,
         )
@@ -958,8 +974,16 @@ class MainActivity : ComponentActivity() {
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────────────────────────────────
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takePushTap(intent)
+    }
+
     override fun onResume() {
         super.onResume()
+        // Back from Android's notification settings: the page re-reads what it shows.
+        notifyPageOfNotificationState()
         // Coming back from a Custom Tab: the state the user left to change (a connected Google calendar) is on the
         // server now, so the page they came from has to be re-read. See ExternalNavigation.handOffInFlight.
         if (externalNavigation.consumeHandOff() && state == ShellState.WebPage) {
@@ -997,6 +1021,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         relayHandler.removeCallbacks(relayTick)
+        relayHandler.removeCallbacks(tapTick)
+        ShellPush.forget()
         relayWorker.shutdownNow()
         background.shutdownNow()
         removeBridgeScript()
@@ -1004,9 +1030,101 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    // ── Phone notifications (staff-chat Part 7) ───────────────────────────────────────────────────────────
+
+    /** The signed-in page registered for a token: hand it over, and ask for the permission the first time. */
+    private fun pushWanted() {
+        if (!ShellPush.isConfigured) return
+        ShellPush.requestToken { token -> runOnUiThread { deliverPushToken(token) } }
+        if (ShellPush.needsRuntimePermission(this) && !ShellPush.wasAsked(this)) {
+            ShellPush.markAsked(this)
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    /** Android asks only twice; after that the only door left is the app's own notification settings. */
+    private fun openNotificationSettings() {
+        if (!ShellPush.isConfigured) return
+        if (ShellPush.needsRuntimePermission(this) && !ShellPush.wasAsked(this)) {
+            ShellPush.markAsked(this)
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        val settings = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        try {
+            startActivity(settings)
+        } catch (t: Throwable) {
+            Log.w(TAG, "notification settings could not be opened", t)
+        }
+    }
+
+    private fun deliverPushToken(token: String) {
+        if (!webViewConfigured) return
+        webView.evaluateJavascript(
+            "window.__clinicShellDeliverPushToken && window.__clinicShellDeliverPushToken(${JSONObject.quote(token)});",
+            null,
+        )
+    }
+
+    private fun notifyPageOfNotificationState() {
+        if (!webViewConfigured || state != ShellState.WebPage) return
+        webView.evaluateJavascript(
+            "window.__clinicShellNotificationsChanged && window.__clinicShellNotificationsChanged();",
+            null,
+        )
+    }
+
+    /** A tapped notification's routing ids, read off the launch intent once and then removed from it. */
+    private fun takePushTap(intent: Intent?) {
+        val tap = PushTap.from(intent) ?: return
+        intent?.removeExtra(PushTap.CONVERSATION)
+        intent?.removeExtra(PushTap.APPOINTMENT)
+        pendingTap = tap
+        pendingTapTries = 0
+        relayHandler.removeCallbacks(tapTick)
+        relayHandler.post(tapTick)
+    }
+
+    /**
+     * Opens what the notification named once the page can: the chat's own hook for a conversation (the one the Windows
+     * app calls), the agenda's deep link for an appointment. A cold start has no page yet, hence the retries.
+     */
+    private fun tapTick() {
+        val tap = pendingTap ?: return
+        if (++pendingTapTries > TAP_TRIES) {
+            pendingTap = null
+            return
+        }
+        if (!webViewConfigured || state != ShellState.WebPage) {
+            relayHandler.postDelayed(tapTick, TAP_RETRY_MS)
+            return
+        }
+        val conversation = tap.conversation
+        if (conversation != null) {
+            val call = "(function(){var o=window.__clinicShellOpenStaffChat;" +
+                "if(typeof o!=='function'){return 'waiting';}o(${JSONObject.quote(conversation)});return 'opened';})()"
+            webView.evaluateJavascript(call) { answer ->
+                if (answer?.contains("opened") == true) pendingTap = null else relayHandler.postDelayed(tapTick, TAP_RETRY_MS)
+            }
+            return
+        }
+        val origin = webView.url?.let { runCatching { it.toUri() }.getOrNull() }
+            ?.takeIf { config.isSameOrigin(it) }
+            ?.let { "${it.scheme}://${it.authority}" }
+        if (origin == null) {
+            relayHandler.postDelayed(tapTick, TAP_RETRY_MS)
+            return
+        }
+        pendingTap = null
+        webView.loadUrl("$origin/appointments?appointmentId=${tap.appointmentId}")
+    }
+
     private companion object {
         const val TAG = "ClinicShell"
         const val UPDATE_RECHECK_MS = 30L * 60 * 1000
+        const val TAP_RETRY_MS = 500L
+        const val TAP_TRIES = 120
         const val RELAY_RETRY_MS = 10_000L
         const val OFFER_POLL_MS = 3_000L
         const val RELAY_BACK_CHECK_MS = 20_000L

@@ -1080,7 +1080,7 @@ folder is just a folder.
 
 ## Mettre à jour l'application Android
 
-The phone app (1.4.0 and later) updates itself from this server: « Une nouvelle version (X) est disponible »
+The phone app (1.5.0 and later) updates itself from this server: « Une nouvelle version (X) est disponible »
 → « Mettre à jour » → Android's own « Mettre à jour cette application ? ». Android always asks; the first time it
 also asks to allow « Installer des applis inconnues » for APEXA. See `features/android-in-app-update/notes.md`.
 
@@ -1099,16 +1099,18 @@ uploads it to `updates/APEXA-<version>.apk` — as `.apk.part`, then renamed —
 | `ANDROID_KEYSTORE_PASSWORD` | `storePassword` |
 | `ANDROID_KEY_ALIAS` | `keyAlias` |
 | `ANDROID_KEY_PASSWORD` | `keyPassword` |
+| `ANDROID_GOOGLE_SERVICES_JSON` | the whole content of `mobile/android/app/google-services.json` (phone notifications) |
 
 ⚠️ Every release must be signed with **this** key: Android refuses an update signed by another, so losing it
-means no installed phone can ever update again. Keep a copy off the build machine. Without the secrets the job
-fails rather than publish an APK no phone would accept.
+means no installed phone can ever update again. Keep a copy off the build machine. Without the four key secrets the job
+fails rather than publish an APK no phone would accept. Without the Firebase one it still releases, with a warning,
+but that APK has **phone notifications off** — the file is git-ignored and only compiled in when present.
 
 **The Android minimum** is `Clients__Android__MinimumVersion` (empty = none), separate from the desktop's
 `Clients:MinimumShellVersion` — raising the desktop floor never locks out a phone. ⚠️ Do not set it while any
-phone is still below 1.4.0: those builds have no updater, so their button cannot download anything.
+phone is still below 1.5.0: those builds have no updater, so their button cannot download anything.
 
-**Phones below 1.4.0** (1.1.1, 1.3.0) must install 1.4.0 by hand, once — from the download page or the file sent to them.
+**Phones below 1.5.0** (1.1.1 – 1.4.0) must install 1.5.0 by hand, once — from the download page or the file sent to them.
 
 ---
 

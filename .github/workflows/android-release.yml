@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # Releases the Android shell: builds a SIGNED release APK and puts it in the hosted deployment's `updates/`
-# folder, where `GET /api/meta/client-download/android` serves it. Installed phones (1.4.0 and later) then see
+# folder, where `GET /api/meta/client-download/android` serves it. Installed phones (1.5.0 and later) then see
 # « Une nouvelle version est disponible » and update in two taps — see `features/android-in-app-update`.
 #
 # The Android twin of `client-installer.yml`, and deliberately shaped like it: same triggers, same version
@@ -116,6 +116,19 @@ jobs:
             echo "keyPassword=$KEY_PASSWORD"
           } > keystore.properties
 
+      # ⚠️ Phone notifications (staff-chat) are compiled in only when `app/google-services.json` exists at build
+      # time, and the file is git-ignored — so without this secret every released APK would quietly ship with
+      # notifications off, on phones that had them. Optional only so a first release is not blocked on Firebase.
+      - name: Install the Firebase config (phone notifications)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "::warning::ANDROID_GOOGLE_SERVICES_JSON is not set: this APK has phone notifications OFF."
+          else
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          fi
+
       - name: Build the release APK
         run: ./gradlew --no-daemon assembleRelease -PshellVersion=${{ steps.version.outputs.version }}
 
@@ -179,4 +192,4 @@ jobs:
 
       - name: Remove the signing material
         if: always()
-        run: rm -f release.jks keystore.properties ~/.ssh/id_deploy
+        run: rm -f release.jks keystore.properties app/google-services.json ~/.ssh/id_deploy

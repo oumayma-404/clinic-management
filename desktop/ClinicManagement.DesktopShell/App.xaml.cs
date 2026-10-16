@@ -38,6 +38,8 @@ public partial class App : Application
         // ⚠️ Nothing above this line, and nothing between it and base.OnStartup that shows UI.
         VelopackApp.Build()
             .SetAutoApplyOnStartup(false)
+            // The chat notifications' app id and click handler are registered per user; leave nothing behind.
+            .OnBeforeUninstallFastCallback(_ => ShellNotifications.Unregister())
             .Run();
 
         base.OnStartup(e);

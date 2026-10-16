@@ -21,7 +21,9 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | `maxFileBytes` | `number?` | 1 | Ceiling for `saveFile`. **25 MB** on Android. |
 | `saveFile(base64, filename, mimeType)` | `void \| Promise<void>` | 1 | Write the file and offer to open or share it. Base64 **without** a `data:` prefix. |
 | `print()` | `void` | 1 | Print the current page through the OS print service. |
-| `onPushToken(listener)` | `void` | 1 | Register for the OS push token. Inert until Part 6 delivers one. |
+| `onPushToken(listener)` | `void` | 1 | Register for the OS push token. **Android 1.4 delivers it** (staff-chat Part 7); the first listener makes the shell fetch it and ask for the notification permission once. |
+| `notificationState()` | `"granted" \| "default" \| "denied" \| "unavailable"` | Android 1.4 | Whether this phone shows notifications. `unavailable` = a build with no `google-services.json`. Synchronous. |
+| `openNotificationSettings()` | `void` | Android 1.4 | The Android 13 permission prompt if it can still be shown, else the app's notification settings. |
 | `confirmIdentity()` | `Promise<IdentityOutcome>` | 4 | Ask the OS to confirm the device owner. Never rejects — the failure *is* an outcome. |
 | `relayHostFacts()` | `Promise<RelayHostFacts \| null>` | Windows 1.4 | This PC's name, battery, disk encryption (three-valued) and free space, for the PC de secours offer. Never rejects. |
 | `installRelay({ code, needBytes })` | `Promise<RelayInstallOutcome>` | Windows 1.4 | Make this PC the cabinet's PC de secours with a one-time code. Never rejects. |
@@ -29,6 +31,7 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | `relayPrepare({ assertion, addresses, port, fingerprint })` | `Promise<boolean>` | Windows 1.6 · Android 1.3.0 | `clinic-pc-copy` D22: trade the cloud's ticket on the PC de secours (pinned certificate) and keep that session in the app's cookie for the PC — **one holder**: the shell never refreshes it. `relayId` (optional) lets the shell find the PC again by UDP discovery (D21) when its address changed. Never rejects. |
 | `carryDraft(draft)` | `void` | Windows 1.6 · Android 1.3.0 | `clinic-pc-copy` D23: keep the open form's state (a JSON string ≤ 2 MB) in the shell's **memory** for this window, replacing what it held; `null` forgets it. Only from the cloud's page or the PC de secours's. |
 | `takeCarriedDraft()` | `Promise<string \| null>` | Windows 1.6 · Android 1.3.0 | D23: the held state, handed over once and forgotten; `null` when none or older than 2 h. Never rejects. |
+| `notify({ title, body, tag, urgent })` | `void` | Windows 1.7 | staff-chat AC-4.3: a Windows notification and a flashing taskbar button for a chat message, while the window is not in front. `tag` is the conversation; a click brings the window forward and calls the page's `window.__clinicShellOpenStaffChat(tag)`. Silent — the page already played its tone. Only from the cloud's page or the PC de secours's. |
 | `relaySwitch()` | `Promise<boolean>` | Windows 1.6 · Android 1.3.0 | Part 3: the cloud says the cabinet works on the PC — or the open page lost the cloud (`offline`, a request with no reply) — ask the PC and move the window there if it holds. Otherwise, if the shell's own check finds the cloud really silent, it shows the cut at once: « disponible dans N secondes », then « Travailler sur le PC de secours », updated in place every 3 s (manual takeover, 2026-10-12). Never rejects. |
 
 ### The per-phase method set (FR-6)
@@ -135,11 +138,25 @@ must behave exactly as it does in a WebView with no shell — do nothing — rat
 What comes out honours the app's `@media print` rules, so the rail, the header, the bottom bar, the assistant
 launcher and the toaster are absent and the page prints as document content.
 
-## `onPushToken` — registered, inert
+## `onPushToken` — live on Android since 1.4
 
-Phase 1 registers the listener and never calls it: nothing produces a token until Part 6 wires FCM/APNs. The
-delivery seam is a separate global (`window.__clinicShellDeliverPushToken`) that the native side invokes; it is
+The delivery seam is a separate global (`window.__clinicShellDeliverPushToken`) that the native side invokes; it is
 deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot leave a half-live subscription.
+
+Android 1.4 (staff-chat Part 7) fills it in: the **first** listener calls the native `pushWanted()` — only on the
+configured server's own page — which asks Firebase for the token, delivers it through the seam and, on Android 13+,
+shows the notification permission prompt **once**. The wrapper keeps the last token, so a listener registered later
+still gets it. `lib/push/phone-push.ts` is the web caller: it registers the token to the signed-in account and
+releases it before sign-out.
+
+⚠️ **The server sends a `notification` payload, so Android draws the banner itself** while the app is in the
+background or the screen is off; in the foreground the page already rang and the shell shows nothing. A tap opens the
+app on what the push named — the chat's `__clinicShellOpenStaffChat(conversation)` (the hook the Windows app's
+`notify` uses), or `/appointments?appointmentId=…` — retried for up to a minute while a cold start loads the page.
+`__clinicShellNotificationsChanged()` is the page's hook the shell calls when the permission may have changed.
+
+⚠️ **Without `app/google-services.json` at build time push is off and nothing touches Firebase** — `notificationState()`
+answers `unavailable`. That is a supported build, not a broken one: CI builds exactly that.
 
 ---
 
@@ -168,12 +185,13 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
 | `maxFileBytes` | ✅ | ⚠️ written | — n/a: no `saveFile` to bound |
 | `saveFile` | ✅ | ⚠️ written — `QLPreviewController`, else the share sheet | — a WebView2 download works |
 | `print` | ✅ | ⚠️ written — `UIPrintInteractionController` | — `window.print()` works |
-| `onPushToken` | ✅ registered, inert | ⚠️ written, inert — and free signing has no APNs entitlement | — |
+| `onPushToken` · `notificationState` · `openNotificationSettings` | ✅ since 1.4.0 — built, lint + R8 green, not run on a phone; needs a Firebase project | ⚠️ `onPushToken` written, inert — and free signing has no APNs entitlement | — |
 | `confirmIdentity` | ✅ API 28+, else `unavailable` | ⚠️ written — `LAContext.deviceOwnerAuthentication` | ✅ since 1.3 — Windows Hello |
 | the coffre seam (below) | — | — | ✅ since 1.2 |
 | `relayHostFacts` · `installRelay` | — n/a: a phone cannot be the PC de secours (AC-1.12) | — n/a | ✅ since 1.4 — UAC run not yet rehearsed |
 | `relayProbe` | ✅ since 1.2.0 — built, lint + R8 green, not run on a phone | — not written | ✅ since 1.5 — run live against the rig's PC |
 | `relayPrepare` · `relaySwitch` · `carryDraft` · `takeCarriedDraft` | ✅ since 1.3.0 — built, lint + R8 green, not run on a phone | — not written | ✅ since 1.6 — built and unit-tested; trade + pinning run against the rig's PC; the window switch is owed to the Windows rehearsal |
+| `notify` | — n/a: the server pushes to the phone instead (1.4) | — | ✅ since 1.7 — parser unit-tested; toast, flash and click run on a built shell |
 
 ⚠️ **Every iOS cell says *written*, not *implemented*.** The Swift has never been compiled, signed or run — see
 `mobile/ios/README.md`. Read it as a proposal until a green CI run exists.
@@ -311,5 +329,6 @@ this probe alone**: the WebView's own TLS never sees it. ⚠️ Answered only fo
 | `1.4.0` | Desktop: `relayHostFacts` + `installRelay` (`clinic-pc-copy`). Nothing removed; the page detects both methods, so an older shell simply never makes the offer. |
 | `1.5.0` · Android `1.2.0` | `relayProbe` (`clinic-pc-copy` AC-6.2) on both shells. Nothing removed; without it the page never asks the cloud anything. |
 | `1.6.0` | Desktop: `relayPrepare` + `relaySwitch` + `carryDraft` + `takeCarriedDraft` (`clinic-pc-copy` Part 3). Nothing removed; an older shell is simply never switched and carries nothing. |
-| Android `1.4.0` | No bridge change: the in-app updater (`ShellUpdater.kt`, `android-in-app-update`) is native. The web now also sends `X-Client-Platform` from `platform`. |
+| `1.7.0` | Desktop: `notify` (staff-chat). Nothing removed; an older shell gets the in-app notice and the tone, and the chat panel asks for the update. |
 | Android `1.3.0` | `relayPrepare` + `relaySwitch` on Android (`RelaySwitch.kt`): the same trade through the same pin, the session in `CookieManager` for the PC's origin, `onReceivedSslError` proceeding for the PC's certificate alone; `carryDraft` + `takeCarriedDraft` (`CarriedDraftSlot.kt`), with the bridge script also installed on the PC's origin. Nothing removed. |
+| Android `1.5.0` | No bridge change: the in-app updater (`ShellUpdater.kt`, `android-in-app-update`) is native. The web now also sends `X-Client-Platform` from `platform`. |

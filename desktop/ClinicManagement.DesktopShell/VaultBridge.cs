@@ -195,6 +195,18 @@ public static class VaultBridge
               return relayRequest('carry-take', null, null, 5000);
             }
 
+            /*
+             * staff-chat (since 1.7): a Windows notification and a flashing taskbar for a chat message, while this
+             * window is not in front. `{ title, body, tag, urgent }` — `tag` is the conversation a click opens.
+             */
+            function notify(n) {
+              try {
+                window.chrome.webview.postMessage('notify:' + JSON.stringify({
+                  title: n && n.title, body: n && n.body, tag: n && n.tag, urgent: !!(n && n.urgent)
+                }));
+              } catch (e) { /* the in-app notice and the tone still say it */ }
+            }
+
             window.__clinicShellDeliverRelayResult = function (id, value) {
               try {
                 var settle = relayPending[id];
@@ -205,7 +217,7 @@ public static class VaultBridge
             Object.defineProperty(window, '__clinicShell', {
               // ⚠️ The method set and the version move together — bridge.md's rule. `confirmIdentity` took this
               // shell from 1.2 to 1.3, `relayHostFacts` + `installRelay` from 1.3 to 1.4, `relayProbe` to 1.5,
-              // `relayPrepare` + `relaySwitch` (and `carryDraft` + `takeCarriedDraft`) to 1.6.
+              // `relayPrepare` + `relaySwitch` (and `carryDraft` + `takeCarriedDraft`) to 1.6, `notify` to 1.7.
               value: Object.freeze({
                 version: '{{version}}',
                 platform: 'windows',
@@ -216,7 +228,8 @@ public static class VaultBridge
                 relayPrepare: relayPrepare,
                 relaySwitch: relaySwitch,
                 carryDraft: carryDraft,
-                takeCarriedDraft: takeCarriedDraft
+                takeCarriedDraft: takeCarriedDraft,
+                notify: notify
               }),
               configurable: true,
               writable: false,

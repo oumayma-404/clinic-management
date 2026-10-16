@@ -50,6 +50,18 @@ export const RealtimeResource = {
 export type RealtimeResourceKey = (typeof RealtimeResource)[keyof typeof RealtimeResource]
 
 /**
+ * The staff chat's own server → client event (mirrors ClinicHub.StaffChatChanged), sent to a message's members only.
+ * ⚠️ Deliberately outside `RealtimeResource`: the resolver test parses that block and requires each key to be emitted
+ * clinic-wide by a command, which is exactly what a private message must not be.
+ */
+export const STAFF_CHAT_EVENT = "staffChatChanged"
+
+/** The internal key the provider fans that event out as, so cached chat reads refresh like any other. */
+export const STAFF_CHAT_KEY = "staffchat"
+
+export type RealtimeKey = RealtimeResourceKey | typeof STAFF_CHAT_KEY
+
+/**
  * Resolves the SignalR hub URL. The hub is hosted at `/hub/clinic` on the API HOST ROOT — not under
  * the `/api` base. `NEXT_PUBLIC_API_URL` may be absolute (cloud/dev, e.g. `http://localhost:5000/api`)
  * or relative (`/api`, the Local same-origin front-door build), so resolve its origin and swap in the

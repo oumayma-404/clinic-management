@@ -1,9 +1,9 @@
-import { RealtimeResource, type RealtimeResourceKey } from "@/lib/realtime/clinic-hub"
+import { RealtimeResource, STAFF_CHAT_KEY, type RealtimeKey } from "@/lib/realtime/clinic-hub"
 
 declare module "@tanstack/react-query" {
   interface Register {
     // The broadcasts that make a query stale; `ClinicRealtimeProvider` invalidates on them.
-    queryMeta: { realtime?: readonly RealtimeResourceKey[] }
+    queryMeta: { realtime?: readonly RealtimeKey[] }
   }
 }
 
@@ -13,6 +13,10 @@ export const queryKeys = {
   procedureTypes: (includeInactive: boolean) => ["proceduretypes", "list", { includeInactive }] as const,
   medications: (includeInactive: boolean) => ["medications", "list", { includeInactive }] as const,
   unreadCount: ["notifications", "unread-count"] as const,
+  staffChatUnread: ["staffchat", "unread"] as const,
+  staffChatConversations: ["staffchat", "conversations"] as const,
+  staffChatQuickMessages: ["staffchat", "quick-messages"] as const,
+  staffChatArrivals: ["staffchat", "arrivals", "today"] as const,
 }
 
 export const realtimeMeta = {
@@ -21,4 +25,6 @@ export const realtimeMeta = {
   procedureTypes: { realtime: [RealtimeResource.ProcedureTypes] },
   medications: { realtime: [RealtimeResource.Medications] },
   unreadCount: { realtime: [RealtimeResource.Notifications] },
+  // A staff chat message signals only its members' tabs (staffChatChanged); only a quick-message list edit reaches the whole cabinet.
+  staffChat: { realtime: [STAFF_CHAT_KEY] },
 } as const
