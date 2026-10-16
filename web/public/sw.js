@@ -22,23 +22,34 @@ self.addEventListener("push", (event) => {
   }
   const tag = typeof data.tag === "string" && data.tag ? data.tag : "apexa"
   const routing = { conversation: data.conversation || null, appointmentId: data.appointmentId || null }
+  const plain = () => self.registration.showNotification(data.title || "APEXA", { tag, icon: "/icon-192.png", data: routing })
 
+  // Every push must show a notification — iOS withdraws a subscription whose pushes show nothing — so no step here may
+  // stop it: an engine without getNotifications, or a failed re-show, falls back to the plain one.
   event.waitUntil(
-    self.registration.getNotifications({ tag }).then((shown) => {
-      // Every push must show a notification (iOS withdraws the subscription otherwise): re-show the richer one.
-      const kept = shown[0]
-      if (kept) {
+    shownWithTag(tag)
+      .then((shown) => {
+        const kept = shown[0]
+        if (!kept) return plain()
+        // The page already said who wrote and what: keep that richer notice rather than the bare label.
         return self.registration.showNotification(kept.title, {
           body: kept.body,
           tag,
           icon: kept.icon || "/icon-192.png",
           data: kept.data || routing,
         })
-      }
-      return self.registration.showNotification(data.title || "APEXA", { tag, icon: "/icon-192.png", data: routing })
-    }),
+      })
+      .catch(plain),
   )
 })
+
+function shownWithTag(tag) {
+  try {
+    return Promise.resolve(self.registration.getNotifications({ tag })).catch(() => [])
+  } catch (e) {
+    return Promise.resolve([])
+  }
+}
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
