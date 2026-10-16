@@ -147,6 +147,10 @@ public class ControllerAuthorizationCoverageTests
                                      // {app}\updates, matched by name and version. It takes no path, no id and
                                      // no query, so it cannot be steered at anything else, and it is the same
                                      // installer the clinic already ran to get the shell it is using.
+        "Meta.ClientDownloadAndroid", // the newest Android APK in the same updates folder — what the phone's
+                                     // « Mettre à jour » downloads (android-in-app-update). Anonymous and
+                                     // floor-exempt for ClientDownload's reason, under its path prefix. It takes
+                                     // no name, id or query: it serves the one highest-versioned APEXA-x.y.z.apk.
         "Meta.ClientFeed",           // one file out of the Velopack update feed — how the desktop shell updates
                                      // itself per-user, silently, with delta packages and no elevation.
                                      // Anonymous and floor-exempt for the same reason as its two neighbours, and

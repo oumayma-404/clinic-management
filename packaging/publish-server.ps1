@@ -350,6 +350,22 @@ if (-not $SkipInstallers) {
             throw 'vpk not found. Install it with `dotnet tool install -g vpk`. Without the Velopack feed this server ships no client installer at all, so no staff PC could be set up from it.'
         }
 
+        # The Android APK, when a SIGNED release build is on this machine (android-in-app-update). The phones of
+        # an offline-LAN clinic can reach nothing but this server, so this is the only way they can update.
+        # ⚠️ Optional, unlike the feed: a server with no APK simply offers no Android update. Named after the
+        # versionName the build recorded, because the API reads the version from the file name.
+        $ApkOut  = Join-Path $RepoRoot 'mobile\android\app\build\outputs\apk\release'
+        $ApkFile = Join-Path $ApkOut 'app-release.apk'
+        $ApkMeta = Join-Path $ApkOut 'output-metadata.json'
+        if ((Test-Path $ApkFile) -and (Test-Path $ApkMeta)) {
+            $ApkVersion = (Get-Content $ApkMeta -Raw | ConvertFrom-Json).elements[0].versionName
+            Copy-Item $ApkFile (Join-Path $UpdatesStage "APEXA-$ApkVersion.apk") -Force
+            Write-Host "  staged the Android app $ApkVersion"
+        }
+        else {
+            Write-Warning 'No signed Android release APK found (mobile/android: gradlew assembleRelease) -- this server will offer phones no update.'
+        }
+
         # ⚠️ The .iss takes nssm.exe with `skipifsourcedoesntexist`, so a build without it compiles and installs a
         # server with no web service — pages answer 502 and nothing says why (the installer's own message is
         # suppressed in a silent install). A real build refuses instead.

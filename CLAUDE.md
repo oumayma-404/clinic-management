@@ -113,6 +113,10 @@ clinic-management/
 │                                                       feed with `vpk`, scp's it to the VPS's `deploy/updates/`, and
 │                                                       tags the release. Clients then self-update silently — per-user,
 │                                                       delta (~160 KB), no UAC. `windows-latest`; `contents: write`
+│                                   android-release.yml = « Android release ». Same triggers (`mobile/android/**`
+│                                                       on main, `android-v*`): a SIGNED APK (four ANDROID_* secrets)
+│                                                       → `deploy/updates/APEXA-<v>.apk`, which phones 1.5.0+ fetch
+│                                                       through « Mettre à jour » (features/android-in-app-update)
 │                                   deploy-hosted.yml = `workflow_dispatch` deploy to a VPS: build the three heavy
 │                                                       images → GHCR → ssh `pull` + `up -d --no-build` → /health →
 │                                                       verify-schema. Builds THROUGH compose, so `web`'s build args
@@ -275,6 +279,7 @@ how it was built, `notes.md` is what shipped.
 
 - [`adoption-qa-l-residual-blockers`](features/adoption-qa-l-residual-blockers/notes.md) — A reminder queue that cannot starve, and never announces the wrong day (L3) · Backup is automatic, verified, and restorable (L4) · A cheque has an identity, and it travels with the money (L8, slice A) · Data comes back in as CSV, and the dry run is the product (L5, import half) · Data leaves the product as CSV (L5, export half) · La caisse says *how* the money came in, and a cheque has somewhere to be chased (L8 slice B) · A reimbursement estimate now knows what is left (L10) · An arrêt de travail is printed on the caisse's own form (L11) · Money and clinical work know who earned them (L9)
 - [`mobile-native-shells`](features/mobile-native-shells/notes.md) — A backgrounded phone still knows, and a lock screen learns nothing (P6) · The clinic runs on a phone, and the phone is a shell not a second frontend (Part 4) · A phone that has been in a pocket is unlocked, not signed out (P7 step 2) · A stale app says so, once, instead of failing screen by screen (P3)
+- [`android-in-app-update`](features/android-in-app-update/notes.md) — The sideloaded APK updates itself from the cabinet's own server · the phone has its own floor and release, so a desktop release can never lock it out
 - [`staff-chat`](features/staff-chat/notes.md) — Les comptes du cabinet s'écrivent depuis chaque écran : messages rapides, « Secrétariat » partagé, « Signaler l'arrivée », alertes jusque dans l'application Windows · un message n'est ni journalisé, ni archivé, ni purgé · une pression sur la notification n'est pas « en dehors » d'une fenêtre
 
 ## Traps that bite (each one fails silently)

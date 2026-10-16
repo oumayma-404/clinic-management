@@ -116,7 +116,9 @@ Verified by building it, on 2026-08-19:
 - [ ] **Privacy policy, published at a public URL.** There is **no such page** in `web/app/` today. Both stores
       require the URL, and clinics will ask for it before the stores do.
 - [ ] **Terms of service** (French).
-- [ ] Decide the **update channel** for sideloaded builds (see § Consequence above).
+- [x] Decide the **update channel** for sideloaded builds — **in-app**, decided 2026-10-16: the shell downloads
+      the APK from the cabinet's own server and hands it to Android's installer
+      (`features/android-in-app-update/notes.md`).
 
 ---
 

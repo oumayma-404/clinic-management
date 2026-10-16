@@ -25,6 +25,8 @@ public class MetaController : ApiControllerBase
     private const string ClientRequirementsRoute = "client-requirements";
     private const string ClientDownloadRoute = "client-download";
     private const string ClientFeedRoute = "client-feed";
+    private const string AndroidDownloadSegment = "android";
+    private const string AndroidPackageContentType = "application/vnd.android.package-archive";
 
     /// <summary>
     /// The absolute path <c>ClientVersionMiddleware</c> exempts from the floor. Stated once, here, because the
@@ -64,11 +66,16 @@ public class MetaController : ApiControllerBase
     public IActionResult ClientRequirements()
     {
         var requirements = Models.ClientRequirements.Read(_configuration);
+        return Ok(WithAndroidPackage(WithWindowsPackage(requirements)));
+    }
+
+    private Models.ClientRequirements WithWindowsPackage(Models.ClientRequirements requirements)
+    {
         var package = ClientUpdatePackage.Resolve(_configuration, AppContext.BaseDirectory);
 
         if (package is null)
         {
-            return Ok(requirements);
+            return requirements;
         }
 
         // ⚠️ **The configured URL WINS.** An operator who has deliberately pointed clients at their own mirror
@@ -90,12 +97,47 @@ public class MetaController : ApiControllerBase
             ? package.Version
             : requirements.CurrentShellVersion;
 
-        return Ok(requirements with
+        return requirements with
         {
             CurrentShellVersion = current,
             StoreUrls = requirements.StoreUrls with { Windows = url },
             WindowsSetupSha256 = sha,
-        });
+        };
+    }
+
+    /// <summary>
+    /// The Android half of the same fill, on the same « the operator's setting wins » rule.
+    ///
+    /// <para>⚠️ <b>It also fills <c>storeUrls.android</c></b> when that is empty. That field is what the pre-1.5.0
+    /// shells — which have no updater — open in the browser from their « Mise à jour requise » wall, and an
+    /// <c>https</c> link to an APK is a download the browser then installs. So it is their one way onto a build
+    /// that can update itself.</para>
+    /// </summary>
+    private Models.ClientRequirements WithAndroidPackage(Models.ClientRequirements requirements)
+    {
+        var package = AndroidUpdatePackage.Resolve(_configuration, AppContext.BaseDirectory);
+
+        if (package is null)
+        {
+            return requirements;
+        }
+
+        var android = requirements.Android;
+        var ownUrl = string.IsNullOrWhiteSpace(android.DownloadUrl);
+
+        return requirements with
+        {
+            Android = android with
+            {
+                CurrentVersion = string.IsNullOrWhiteSpace(android.CurrentVersion) ? package.Version : android.CurrentVersion,
+                DownloadUrl = ownUrl ? BuildAndroidDownloadUrl() : android.DownloadUrl,
+                // Our hash travels only with our URL, as on the Windows side.
+                Sha256 = ownUrl ? package.Sha256 : android.Sha256,
+            },
+            StoreUrls = string.IsNullOrWhiteSpace(requirements.StoreUrls.Android)
+                ? requirements.StoreUrls with { Android = ownUrl ? BuildAndroidDownloadUrl() : android.DownloadUrl }
+                : requirements.StoreUrls,
+        };
     }
 
     /// <summary>
@@ -118,6 +160,28 @@ public class MetaController : ApiControllerBase
         // ⚠️ `enableRangeProcessing` so an interrupted 50 MB download resumes rather than restarting, on a LAN
         // where the transfer competes with everything else the practice is doing.
         return PhysicalFile(package.FullPath, "application/octet-stream", package.FileName, enableRangeProcessing: true);
+    }
+
+    /// <summary>
+    /// The newest Android APK on this server (see <see cref="AndroidUpdatePackage"/>) — what the phone's
+    /// « Mettre à jour » downloads. Under <see cref="ClientDownloadPath"/>, so it is floor-exempt by the same prefix.
+    ///
+    /// <para>⚠️ The APK media type, not <c>octet-stream</c>: a browser handed the link (a pre-1.5.0 phone's wall, the
+    /// marketing site) offers to install an <c>application/vnd.android.package-archive</c> and merely saves an
+    /// opaque file.</para>
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet(ClientDownloadRoute + "/" + AndroidDownloadSegment)]
+    [AllowsWithoutSubscription("Not clinic work — the APK a refused phone needs in order to stop being refused.")]
+    public IActionResult ClientDownloadAndroid()
+    {
+        var package = AndroidUpdatePackage.Resolve(_configuration, AppContext.BaseDirectory);
+        if (package is null)
+        {
+            return NotFound(new { error = "Aucune application Android n'est disponible sur ce serveur." });
+        }
+
+        return PhysicalFile(package.FullPath, AndroidPackageContentType, package.FileName, enableRangeProcessing: true);
     }
 
     /// <summary>
@@ -196,6 +260,9 @@ public class MetaController : ApiControllerBase
     /// </summary>
     private string BuildDownloadUrl() =>
         $"{Request.Scheme}://{Request.Host}{ClientDownloadPath}";
+
+    private string BuildAndroidDownloadUrl() =>
+        $"{Request.Scheme}://{Request.Host}{ClientDownloadPath}/{AndroidDownloadSegment}";
 
     /// <summary>
     /// What an upload door accepts, projected from the catalog (AC-5.1). Deliberately <b>not</b> exempt

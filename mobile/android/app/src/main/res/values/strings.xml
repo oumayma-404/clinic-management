@@ -41,6 +41,17 @@
     <string name="update_detail_no_floor">Ce serveur ne prend plus en charge cette version de l\'application. Mettez-la à jour pour continuer.</string>
     <string name="update_open_store">Mettre à jour</string>
 
+    <!-- The in-app update (the strip above the page, and the wall's own button) -->
+    <string name="update_strip_available">Une nouvelle version (%1$s) est disponible.</string>
+    <string name="update_strip_install">Mettre à jour</string>
+    <string name="update_strip_dismiss">✕</string>
+    <string name="update_strip_dismiss_description">Masquer</string>
+    <string name="update_downloading">Téléchargement…</string>
+    <string name="update_downloading_percent">Téléchargement… %1$d %%</string>
+    <string name="update_installing">Installation…</string>
+    <string name="update_failed">La mise à jour n\'a pas pu être téléchargée. Vérifiez votre connexion, puis réessayez.</string>
+    <string name="update_install_failed">L\'installation n\'a pas abouti. Vous pouvez réessayer.</string>
+
     <!-- The renderer, not the app. Names the component to update, because « Android System WebView » is not
          something a dentist would guess from « la page s\'affiche mal ». -->
     <string name="update_webview_title">Mise à jour du système requise</string>

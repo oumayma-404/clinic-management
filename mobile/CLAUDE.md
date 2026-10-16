@@ -19,6 +19,9 @@ mobile/
 │       ├── MainActivity.kt        the five states, the WebView, insets, back, the launch version check
 │       ├── ServerConfig.kt        the address + SharedPreferences; a port of desktop/ServerConfig.cs
 │       ├── ClientRequirements.kt  the native pre-launch read of GET /api/meta/client-requirements
+│       │                          (reads the `android` block; the top-level floor only from an older server)
+│       ├── ShellUpdater.kt        the in-app update: download the server's APK, check its SHA-256, hand it to
+│       │                          PackageInstaller — Android always shows its own confirm (android-in-app-update)
 │       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · notificationState · openNotificationSettings · confirmIdentity · relayProbe · relayPrepare · relaySwitch · carryDraft · takeCarriedDraft
 │       ├── ShellPush.kt           phone notifications: the two channels, the Firebase token, the permission (1.4)
 │       ├── PushTap.kt             what a tapped notification asks to open, checked before it reaches the page

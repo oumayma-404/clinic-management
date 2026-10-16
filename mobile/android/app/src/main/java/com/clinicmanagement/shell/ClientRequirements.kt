@@ -25,8 +25,26 @@ object ClientRequirements {
     private const val PATH = "/api/meta/client-requirements"
     private const val TIMEOUT_MS = 8_000
 
-    /** What the probe learned. `minimumShellVersion` and `storeUrlAndroid` are blank when the server said nothing. */
-    data class Requirements(val minimumShellVersion: String, val storeUrlAndroid: String)
+    /** `window.__clinicShell.platform` on this shell; the server measures it against the Android floor. */
+    const val PLATFORM = "android"
+
+    /**
+     * What the probe learned; every field is blank when the server said nothing.
+     *
+     * `minimumShellVersion` is the floor THIS shell is measured by: the server's `android` block when it sends one,
+     * the shared top-level floor only from a server older than that block. The shared pair is the desktop's, so
+     * reading it next to an `android` block would wall every phone the day a desktop release raised it.
+     */
+    data class Requirements(
+        val minimumShellVersion: String,
+        val storeUrlAndroid: String,
+        /** The newest Android release this server offers (`android-in-app-update`). */
+        val currentVersion: String = "",
+        /** The APK to fetch it from — the cabinet's own server unless the operator named a mirror. */
+        val downloadUrl: String = "",
+        /** Uppercase hex SHA-256 of that APK, or blank when the server could not state one. */
+        val sha256: String = "",
+    )
 
     /** `null` when the answer could not be read at all — see the class note on why that must pass. */
     fun fetch(baseUrl: String): Requirements? {
@@ -41,14 +59,23 @@ object ClientRequirements {
                 // The header the floor is measured against. Sent here too so the one route exempt from the floor
                 // is still asked the same question every other call asks.
                 setRequestProperty("X-Client-Version", BuildConfig.VERSION_NAME)
+                setRequestProperty("X-Client-Platform", PLATFORM)
             }
             if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
 
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(body)
+            val android = json.optJSONObject("android")
             Requirements(
-                minimumShellVersion = json.optString("minimumShellVersion").orEmpty(),
+                minimumShellVersion = if (android != null) {
+                    android.optString("minimumVersion").orEmpty()
+                } else {
+                    json.optString("minimumShellVersion").orEmpty()
+                },
                 storeUrlAndroid = json.optJSONObject("storeUrls")?.optString("android").orEmpty(),
+                currentVersion = android?.optString("currentVersion").orEmpty(),
+                downloadUrl = android?.optString("downloadUrl").orEmpty(),
+                sha256 = android?.optString("sha256").orEmpty(),
             )
         } catch (t: Throwable) {
             Log.i(TAG, "Client requirements unreadable — proceeding with no floor: ${t.javaClass.simpleName}")
