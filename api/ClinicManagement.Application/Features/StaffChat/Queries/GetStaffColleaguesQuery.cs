@@ -49,7 +49,7 @@ public class GetStaffColleaguesQueryHandler : IRequestHandler<GetStaffColleagues
                 .Where(c => c.IsActive && c.UserId != roster.Viewer.UserId)
                 .OrderBy(c => c.Name, FrenchOrder)
                 .ThenBy(c => c.UserId, StringComparer.Ordinal)
-                .Select(c => StaffChatInbox.ToColleagueDto(c, roster.ClinicId, _presence))
+                .Select(c => StaffChatInbox.ToColleagueDto(c, roster, _presence))
                 .ToList();
 
             return Result<List<StaffColleagueDto>>.Success(colleagues);

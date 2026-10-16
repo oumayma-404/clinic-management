@@ -8,12 +8,14 @@ export interface StaffColleagueDto {
   isSecretary: boolean
   online: boolean
   active: boolean
+  /** Their colour in the chat (`lib/staff-chat/person-tone.ts`); null for an account that is gone. */
+  tone: number | null
 }
 
 export interface StaffMessageDto {
   id: string
   conversation: string
-  sender: { userId: string; name: string }
+  sender: { userId: string; name: string; tone?: number | null }
   sentAt: string
   body: string | null
   quickMessage: { key: string; label: string; urgent: boolean } | null

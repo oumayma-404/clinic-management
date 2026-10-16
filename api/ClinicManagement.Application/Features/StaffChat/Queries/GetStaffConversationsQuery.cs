@@ -72,7 +72,7 @@ public class GetStaffConversationsQueryHandler : IRequestHandler<GetStaffConvers
                     Kind = StaffChatInbox.KindOf(c),
                     Title = StaffChatInbox.TitleOf(c, roster),
                     Members = c.Members(roster.Members)
-                        .Select(id => StaffChatInbox.ToColleagueDto(roster.Find(id)!, roster.ClinicId, _presence))
+                        .Select(id => StaffChatInbox.ToColleagueDto(roster.Find(id)!, roster, _presence))
                         .ToList(),
                     LastMessage = lastDtos.GetValueOrDefault(c.Key),
                     UnreadCount = unread[c.Key].Sum(u => u.Count),

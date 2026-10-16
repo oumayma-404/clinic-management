@@ -67,21 +67,26 @@ public static class StaffChatInbox
         _ => "clinic",
     };
 
-    public static StaffColleagueDto ToColleagueDto(StaffChatColleague colleague, Guid clinicId, IStaffPresence presence) => new()
+    public static StaffColleagueDto ToColleagueDto(StaffChatColleague colleague, StaffChatRoster roster, IStaffPresence presence) => new()
     {
         UserId = colleague.UserId,
         Name = colleague.Name,
         IsDentist = colleague.IsDentist,
         IsSecretary = colleague.IsSecretary,
-        Online = colleague.IsActive && presence.IsOnline(clinicId, colleague.UserId),
+        Online = colleague.IsActive && presence.IsOnline(roster.ClinicId, colleague.UserId),
         Active = colleague.IsActive,
+        Tone = roster.ToneOf(colleague.UserId),
     };
+
+    /// <summary>A person named on a message — its author, a reader, whoever signalled an arrival.</summary>
+    public static StaffMessageSenderDto PersonOf(string userId, StaffChatRoster roster) =>
+        new() { UserId = userId, Name = roster.NameOf(userId), Tone = roster.ToneOf(userId) };
 
     public static StaffMessageDto ToMessageDto(StaffMessage message, StaffChatRoster roster) => new()
     {
         Id = message.Id,
         Conversation = message.ConversationKey,
-        Sender = new StaffMessageSenderDto { UserId = message.SenderUserId, Name = roster.NameOf(message.SenderUserId) },
+        Sender = PersonOf(message.SenderUserId, roster),
         SentAt = message.SentAt,
         Body = message.Body,
         QuickMessage = message.QuickMessageKey is null
@@ -113,7 +118,7 @@ public static class StaffChatInbox
             .Where(r => r.UserId != message.SenderUserId && members.Contains(r.UserId) && r.LastReadAt >= message.SentAt)
             .OrderBy(r => r.LastReadAt)
             .ThenBy(r => r.UserId, StringComparer.Ordinal)
-            .Select(r => new StaffMessageSenderDto { UserId = r.UserId, Name = roster.NameOf(r.UserId) })
+            .Select(r => PersonOf(r.UserId, roster))
             .ToList();
         return dto;
     }

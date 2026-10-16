@@ -6,11 +6,14 @@ import type { ThreadMessage } from "@/lib/hooks/use-staff-chat"
 import type { ClaimView } from "@/lib/staff-chat/desk"
 import { PatientLinkChips } from "./patient-link-chip"
 import { formatChatTime } from "@/lib/staff-chat/format"
+import { personToneClass } from "@/lib/staff-chat/person-tone"
 import { cn } from "@/lib/utils"
 
 interface MessageBubbleProps {
   message: ThreadMessage
   mine: boolean
+  /** The author's colour — the same person is the same colour on every screen, mine included. */
+  tone: number | null | undefined
   /** On a shared conversation each colleague's message names its author. */
   showSender: boolean
   onRetry: (localId: string) => void
@@ -26,6 +29,7 @@ interface MessageBubbleProps {
 export function MessageBubble({
   message,
   mine,
+  tone,
   showSender,
   onRetry,
   claim = null,
@@ -43,8 +47,9 @@ export function MessageBubble({
       {showSender && !mine && <span className="px-1 text-2xs font-medium text-muted-foreground">{message.sender.name}</span>}
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-3 py-2 text-sm",
-          mine ? "rounded-ee-sm bg-primary/10 text-foreground" : "rounded-es-sm bg-muted text-foreground",
+          "max-w-[85%] rounded-2xl px-3 py-2 text-sm text-foreground",
+          mine ? "rounded-ee-sm" : "rounded-es-sm",
+          personToneClass(tone),
           quick?.urgent && "ring-1 ring-destructive/40",
           message.state === "failed" && "ring-1 ring-destructive",
         )}

@@ -67,6 +67,11 @@ over the fiche de soins, or in the minimised Windows app. Built in six parts on 
   caps it at 64 characters); an urgent one is a `Reminder` and stays. It is raised only when the shell is not
   active **and** the page has no focus. WebView2 runs with `--autoplay-policy=no-user-gesture-required` so the tone
   rings after a restart. The Velopack uninstall hook removes the notification registration.
+- **Each person has one pastel colour, the same on every screen** — their own messages included. The server ranks the
+  cabinet's accounts by creation date, inactive ones included (`StaffChatRoster.ToneOf`, sent as `tone` on every
+  sender and colleague), so a new colleague takes the next colour and changes nobody's; the browser owns the eight
+  `--person-*` pastels (`lib/staff-chat/person-tone.ts`). A message still being sent takes its colour from the member
+  list, so it does not flash grey.
 - **Shell 1.7.0 must not raise the server's client-version floor**: an older app keeps the tone and the in-app
   notice, and the panel asks for the update (EC-10).
 

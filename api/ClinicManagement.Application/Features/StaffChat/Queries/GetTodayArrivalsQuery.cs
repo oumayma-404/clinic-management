@@ -62,7 +62,7 @@ public class GetTodayArrivalsQueryHandler : IRequestHandler<GetTodayArrivalsQuer
                         SentAt = sent?.SentAt,
                         SentBy = sent is null
                             ? null
-                            : new StaffMessageSenderDto { UserId = sent.SenderUserId, Name = roster.NameOf(sent.SenderUserId) },
+                            : StaffChatInbox.PersonOf(sent.SenderUserId, roster),
                         Unavailable = ArrivalTarget.For(a, roster, now).Refusal?.Message,
                     };
                 })

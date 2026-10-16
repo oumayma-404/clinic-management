@@ -9,6 +9,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { useSession } from "@/lib/auth/session"
 import type { StaffConversationDto } from "@/lib/api/staff-chat"
 import { formatChatTime, previewOf } from "@/lib/staff-chat/format"
+import { personToneClass } from "@/lib/staff-chat/person-tone"
 import { cn } from "@/lib/utils"
 import { StaffChatCount } from "./staff-chat-launcher"
 
@@ -103,7 +104,7 @@ function ConversationRow({
     >
       <span className="relative shrink-0">
         {c.kind === "direct" ? (
-          <InitialsAvatar name={c.title} className="size-9 text-xs" />
+          <InitialsAvatar name={c.title} className={cn("size-9 text-xs", other?.tone != null && personToneClass(other.tone))} />
         ) : (
           <span aria-hidden="true" className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary">
             {c.kind === "clinic" ? <Building2 className="h-4 w-4" /> : <Headset className="h-4 w-4" />}

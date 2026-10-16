@@ -149,6 +149,8 @@ export function MessageThread({ conversationKey, conversation, viewer }: Message
                     <MessageBubble
                       message={message}
                       mine={mine}
+                      // A message still being sent has no colour of its own yet: the member list knows its author's.
+                      tone={message.sender.tone ?? conversation?.members.find((m) => m.userId === message.sender.userId)?.tone}
                       showSender={shared && previous?.sender.userId !== message.sender.userId}
                       onRetry={thread.retry}
                       claim={conversation ? claimViewFor(message, conversation, viewer?.userId) : null}

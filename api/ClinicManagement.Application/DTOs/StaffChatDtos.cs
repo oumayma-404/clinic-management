@@ -9,12 +9,16 @@ public class StaffColleagueDto
     public bool IsSecretary { get; set; }
     public bool Online { get; set; }
     public bool Active { get; set; }
+    /// <summary>The person's colour in the chat — their place in the cabinet's order of arrival; the browser owns the palette.</summary>
+    public int? Tone { get; set; }
 }
 
 public class StaffMessageSenderDto
 {
     public string UserId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    /// <summary>As <see cref="StaffColleagueDto.Tone"/>; null for an account that no longer exists.</summary>
+    public int? Tone { get; set; }
 }
 
 public class StaffQuickMessageRefDto

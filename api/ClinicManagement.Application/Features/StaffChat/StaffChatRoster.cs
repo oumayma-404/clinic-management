@@ -31,9 +31,20 @@ public sealed class StaffChatRoster
         Colleagues = colleagues;
         Dentists = dentists ?? Array.Empty<StaffChatDentist>();
         Members = colleagues.Select(c => new StaffChatMember(c.UserId, c.IsSecretary, c.IsActive)).ToList();
+        // Order of arrival, inactive accounts included: a new colleague takes the next colour and changes nobody's.
+        _ranks = colleagues
+            .OrderBy(c => c.CreatedAt)
+            .ThenBy(c => c.UserId, StringComparer.Ordinal)
+            .Select((c, index) => (c.UserId, index))
+            .ToDictionary(e => e.UserId, e => e.index, StringComparer.Ordinal);
     }
 
+    private readonly Dictionary<string, int> _ranks;
+
     public StaffChatColleague? Find(string userId) => Colleagues.FirstOrDefault(c => c.UserId == userId);
+
+    /// <summary>The account's place in the cabinet's order of arrival — its colour in the chat; null for an account that is gone.</summary>
+    public int? ToneOf(string userId) => _ranks.TryGetValue(userId, out var rank) ? rank : null;
 
     public string NameOf(string userId) => Find(userId)?.Name ?? "Ancien compte";
 
