@@ -118,6 +118,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // « Je ne veux plus voir cette ligne » — the per-user twin of NotificationReads, and for the same reason it
     // is a marker rather than a delete: a StaffNotification row is shared with every colleague it targets.
     public DbSet<NotificationDismissal> NotificationDismissals { get; set; }
+    // Internal staff chat (staff-chat): both clinic-owned and filtered; the marker carries a ClinicId unlike NotificationRead.
+    public DbSet<StaffMessage> StaffMessages { get; set; }
+    public DbSet<StaffChatReadMarker> StaffChatReadMarkers { get; set; }
+    public DbSet<StaffQuickMessageList> StaffQuickMessageLists { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
     // Avoirs (credit notes) — clinic-scoped aggregate root offsetting a paid invoice's collected amount.
     public DbSet<CreditNote> CreditNotes { get; set; }
@@ -324,6 +328,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // clinic-filtered notification (a user belongs to one clinic), so neither needs a filter of its own
         // (plan R-5).
         modelBuilder.Entity<StaffNotification>().HasQueryFilter(n => IsSystemWide || n.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<StaffMessage>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<StaffChatReadMarker>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<StaffQuickMessageList>().HasQueryFilter(l => IsSystemWide || l.ClinicId == ScopedClinicId);
         // Invoice is directly clinic-owned → filtered like the other aggregate roots. Its children
         // (InvoiceLine/Payment) are reached only through the invoice, so they need no filter of their own.
         modelBuilder.Entity<Invoice>().HasQueryFilter(i => IsSystemWide || i.ClinicId == ScopedClinicId);

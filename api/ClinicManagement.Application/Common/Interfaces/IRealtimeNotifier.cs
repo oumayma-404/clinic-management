@@ -15,4 +15,10 @@ public interface IRealtimeNotifier
     /// feature area. Carries no other payload — clients refetch on the signal.
     /// </summary>
     Task NotifyEntityChangedAsync(Guid clinicId, string resource, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Signals the staff chat's own event to <paramref name="userIds"/>' tabs only, or to the whole clinic when null —
+    /// so a two-person message never makes a third colleague's browser refetch. Carries no payload; must not throw.
+    /// </summary>
+    Task NotifyStaffChatAsync(Guid clinicId, IReadOnlyCollection<string>? userIds, CancellationToken cancellationToken = default);
 }

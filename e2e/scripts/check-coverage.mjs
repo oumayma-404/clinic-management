@@ -64,7 +64,7 @@ const SPECS_DIR = join(REPO, "e2e", "specs")
 const LEDGER = join(REPO, "features", "e2e-hot-paths", "coverage.tsv")
 
 /** The id shape every scenario uses. Kept in one place so the catalogue and the specs are read the same way. */
-const ID = "(?:CAT|BOOK|EDIT|STEP|FICHE|FEDIT|PLAN|CONT|DONE|MONEY|ODO|HIST|XCUT|DEL|STOP|INACH|REDO)-[0-9]+[a-z]?"
+const ID = "(?:CAT|BOOK|EDIT|STEP|FICHE|FEDIT|PLAN|CONT|DONE|MONEY|ODO|HIST|XCUT|DEL|STOP|INACH|REDO|CHAT)-[0-9]+[a-z]?"
 
 // ── The catalogue ────────────────────────────────────────────────────────────────────────────────────────────
 

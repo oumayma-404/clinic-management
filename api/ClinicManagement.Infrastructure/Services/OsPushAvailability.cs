@@ -26,6 +26,9 @@ public sealed class OsPushAvailability : IOsPushAvailability
     public bool IsAvailableAtAll =>
         Enum.GetValues<DevicePlatform>().Any(SupportsPush);
 
+    public string? WebPushPublicKey =>
+        SupportsPush(DevicePlatform.WebPush) ? PushConfig.Resolve(_configuration, DevicePlatform.WebPush).Identity : null;
+
     public string? UnavailableReason(DevicePlatform platform)
     {
         if (!_profile.PermitsOsPush(platform))
@@ -48,6 +51,7 @@ public sealed class OsPushAvailability : IOsPushAvailability
     {
         DevicePlatform.Android => "Android",
         DevicePlatform.Ios => "iOS",
+        DevicePlatform.WebPush => "Web",
         _ => platform.ToString()
     };
 }

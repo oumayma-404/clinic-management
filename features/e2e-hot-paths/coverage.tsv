@@ -64,6 +64,14 @@ CAT-11	1	wire-or-unit	none		HP-1 · Types de procédure — the catalogue every 
 CAT-12	1	wire-or-unit	none		HP-1 · Types de procédure — the catalogue every protocol comes from
 CAT-13	2	browser	none		HP-1 · Types de procédure — the catalogue every protocol comes from
 CAT-14	2	browser	none		HP-1 · Types de procédure — the catalogue every protocol comes from
+CHAT-01	1	browser	browser	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+CHAT-02	1	browser	browser	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+CHAT-03	1	wire-or-unit	wire	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+CHAT-04	2	browser	browser	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+CHAT-05	2	browser	browser	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+CHAT-06	2	browser	browser	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+CHAT-07	2	browser	none		HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
+CHAT-08	2	wire-or-unit	wire	staff-chat.spec.ts	HP-18 · Messagerie interne du cabinet (`features/staff-chat`)
 CONT-01	1	wire-or-unit	wire	continuation.spec.ts	HP-8 · La suite d'un acte non terminé
 CONT-02	0	wire-or-unit	wire	continuation.spec.ts	HP-8 · La suite d'un acte non terminé
 CONT-03	0	wire-or-unit	wire	continuation.spec.ts,money-reads.spec.ts	HP-8 · La suite d'un acte non terminé
@@ -163,7 +171,7 @@ FEDIT-12	1	browser	none		HP-6 · Éditer une fiche
 FEDIT-13	1	browser	none		HP-6 · Éditer une fiche
 FEDIT-14	0	browser	wire	fiche-correctness.spec.ts	HP-6 · Éditer une fiche
 FEDIT-15	1	browser	none		HP-6 · Éditer une fiche
-FEDIT-16	0	wire-or-unit	wire	delete-fiche.spec.ts,document-integrity.spec.ts	HP-6 · Éditer une fiche
+FEDIT-16	0	wire-or-unit	wire	document-integrity.spec.ts	HP-6 · Éditer une fiche
 FEDIT-17	0	wire-or-unit	wire	money-boundaries.spec.ts	HP-6 · Éditer une fiche
 FEDIT-18	1	browser	wire	document-integrity.spec.ts	HP-6 · Éditer une fiche
 FEDIT-19	2	wire-or-unit	none		HP-6 · Éditer une fiche

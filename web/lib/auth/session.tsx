@@ -13,6 +13,7 @@ import {
 import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
 import { idleExpiryEnding, idleLimitMinutes } from "@/lib/auth/idle-limit"
 import { isPublicRoute } from "@/lib/auth/public-routes"
+import { startPhonePush, stopPhonePush } from "@/lib/push/phone-push"
 
 /**
  * ⚠️ One member, and that is the point.
@@ -42,6 +43,8 @@ export interface SessionState {
    * permission: nothing in the app should branch on it to decide what a user may do.</p>
    */
   trusted: boolean
+  /** The inactivity cover is up: nothing may be drawn over it that names a patient or a colleague's words. */
+  locked: boolean
   /** Logs the user out — clears the local session cookie and returns to the login screen. */
   logout: () => void
 }
@@ -56,6 +59,7 @@ const DEFAULT_SESSION: SessionState = {
   // decoded, and being wrong in this direction costs a user one extra sign-in; being wrong in the other leaves an
   // unattended browser open for eight hours because a fetch had not resolved yet.
   trusted: false,
+  locked: false,
   logout: () => {},
 }
 
@@ -107,16 +111,24 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
      * `Content-Type` is set explicitly: without it the route's `request.json()` still parses, but a proxy that
      * strips an unlabelled body would silently turn every timeout back into « demandée par l'utilisateur ».
      */
-    fetch("/bff/auth/local-logout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: options?.reason ?? "user" }),
-    })
-      .catch(() => {})
-      .finally(() => {
-        window.location.href = target
+    // The phone stops receiving this account's notifications first: releasing it needs the session (staff-chat Part 7).
+    void stopPhonePush().finally(() => {
+      fetch("/bff/auth/local-logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: options?.reason ?? "user" }),
       })
+        .catch(() => {})
+        .finally(() => {
+          window.location.href = target
+        })
+    })
   }, [])
+
+  // Signed in on the Android app: its push token is tied to this account (staff-chat Part 7).
+  useEffect(() => {
+    if (user) startPhonePush()
+  }, [user])
 
   useEffect(() => {
     let active = true
@@ -351,7 +363,7 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
     }
   }, [user, locked, logout, trusted])
 
-  const value: SessionState = { user, isLoading, mode: "local", trusted, logout }
+  const value: SessionState = { user, isLoading, mode: "local", trusted, locked, logout }
   return (
     <SessionContext.Provider value={value}>
       {children}

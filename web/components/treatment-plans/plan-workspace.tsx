@@ -173,6 +173,7 @@ const CARD_GAP = "gap-4"
 const CARD_HEADER = "gap-0"
 import { planItemState } from "./plan-next-action"
 import { PatientNameLink } from "@/components/patient-name-link"
+import { replaceUrl, pushMarker } from "@/lib/history"
 
 interface PlanWorkspaceProps {
   plan: TreatmentPlanDto
@@ -356,7 +357,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   // AC-3.2) comes back through this door and refills itself.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("editPlan") !== "1") return
-    window.history.replaceState({}, "", window.location.pathname)
+    replaceUrl(window.location.pathname)
     openAmend()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
   }, [])
@@ -1022,12 +1023,12 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
     const marker = { planEditsGuard: true }
     let pushed = false
     const timer = window.setTimeout(() => {
-      window.history.pushState(marker, "")
+      pushMarker(marker)
       pushed = true
     }, 0)
     const onPop = () => {
       if (window.history.state?.planEditsGuard) return
-      window.history.pushState(marker, "")
+      pushMarker(marker)
       setDiscardRequest(() => () => {
         leavingByBack.current = true
         window.history.go(-2)

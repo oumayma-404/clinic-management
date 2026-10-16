@@ -59,4 +59,50 @@ public class SignalRRealtimeNotifierTests
 
         Assert.Null(exception);
     }
+
+    // staff-chat: a two-person message reaches those two people's tabs, never the whole clinic group.
+    [Fact]
+    public async Task NotifyStaffChat_Sends_To_The_Named_Users_Groups_Only()
+    {
+        var (notifier, clients, proxy) = CreateNotifier();
+        IReadOnlyList<string>? groups = null;
+        clients.Setup(c => c.Groups(It.IsAny<IReadOnlyList<string>>()))
+            .Callback<IReadOnlyList<string>>(g => groups = g)
+            .Returns(proxy.Object);
+
+        await notifier.NotifyStaffChatAsync(ClinicId, new[] { "local|a", "local|b", "local|a" }, CancellationToken.None);
+
+        Assert.Equal(new[] { ClinicGroups.User(ClinicId, "local|a"), ClinicGroups.User(ClinicId, "local|b") }, groups);
+        clients.Verify(c => c.Group(It.IsAny<string>()), Times.Never);
+        proxy.Verify(
+            p => p.SendCoreAsync(ClinicHub.StaffChatChanged, It.Is<object?[]>(a => a.Length == 0), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    // staff-chat: no audience named means the whole cabinet (a shared quick-message list, a presence change).
+    [Fact]
+    public async Task NotifyStaffChat_Without_Users_Goes_To_The_Clinic_Group()
+    {
+        var (notifier, clients, proxy) = CreateNotifier();
+
+        await notifier.NotifyStaffChatAsync(ClinicId, null, CancellationToken.None);
+
+        clients.Verify(c => c.Group($"clinic-{ClinicId}"), Times.Once);
+        proxy.Verify(
+            p => p.SendCoreAsync(ClinicHub.StaffChatChanged, It.IsAny<object?[]>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task NotifyStaffChat_Swallows_Broadcast_Failure()
+    {
+        var (notifier, _, proxy) = CreateNotifier();
+        proxy
+            .Setup(p => p.SendCoreAsync(It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("hub unreachable"));
+
+        var exception = await Record.ExceptionAsync(() => notifier.NotifyStaffChatAsync(ClinicId, null, CancellationToken.None));
+
+        Assert.Null(exception);
+    }
 }

@@ -37,6 +37,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { showErrorToast } from "@/lib/errors"
 import { quoteFr, todayLocalIso } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { replaceUrl } from "@/lib/history"
 
 /** How far back the log looks by default. Wide enough that last week's failure is on the first screen. */
 const DEFAULT_WINDOW_DAYS = 14
@@ -148,7 +149,7 @@ export function RappelsScreen() {
     const incoming = asStatusFilter(new URLSearchParams(window.location.search).get("status"))
     if (incoming) {
       setStatus(incoming)
-      window.history.replaceState({}, "", "/rappels")
+      replaceUrl("/rappels")
     }
   }, [])
 

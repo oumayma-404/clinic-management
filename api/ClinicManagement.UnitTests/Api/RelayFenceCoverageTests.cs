@@ -34,6 +34,7 @@ public class RelayFenceCoverageTests
         ["CreateClinicCommand:Clinic"] = "the first-run setup creates an install's first cabinet; no PC de secours yet",
         ["CreateClinicCommand:ProcedureType"] = "seeds that new cabinet's catalogue; no PC de secours yet",
         ["MarkRelayReviewItemSeenCommand:Patient"] = "reads the patients' names a review line shows; it writes the cloud-only line",
+        ["ChangeUserRoleCommand:StaffMessage"] = "marks a new secretary's secretariat history read (staff-chat EC-14) only when IClinicWriteFence lets the save through; on a fenced cloud the role changes and that history reads unread",
     };
 
     /// <summary>All-cabinet paths that never write a carried table the net refuses, each with its reason.</summary>

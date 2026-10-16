@@ -68,6 +68,23 @@ public class PushDevicesController : ApiControllerBase
     }
 
     /// <summary>
+    /// Sign-out for a token that cannot travel in a path — a Web Push endpoint is a URL (staff-chat Part 8). Same
+    /// command and same idempotence as <see cref="Deregister"/>.
+    /// </summary>
+    [HttpPost("release")]
+    [AllowsWithoutSubscription("FR-3 — the mirror of registration: signing out must not depend on an invoice.")]
+    public async Task<IActionResult> Release([FromBody] DeletePushDeviceCommand command)
+    {
+        if (!_availability.IsAvailableAtAll)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(command);
+        return result.IsSuccess ? NoContent() : HandleFailure(result);
+    }
+
+    /// <summary>
     /// What this installation can do, per platform (AC-51, AC-52).
     ///
     /// <para>⚠️ <b>Deliberately NOT behind the availability 404 the two writes are behind.</b> It is the endpoint

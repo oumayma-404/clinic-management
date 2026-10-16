@@ -18,6 +18,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useSession } from "@/lib/auth/session"
 import { isAdminOrDoctor } from "@/lib/nav"
 import { formatDateFr } from "@/lib/format"
+import { replaceUrl } from "@/lib/history"
 
 export default function PatientsPage() {
   const router = useRouter()
@@ -56,7 +57,7 @@ export default function PatientsPage() {
     const url = new URL(window.location.href)
     if (url.searchParams.get("newPatient") !== "1") return
     url.searchParams.delete("newPatient")
-    window.history.replaceState({}, "", url.pathname + url.search)
+    replaceUrl(url.pathname + url.search)
     setCreateDialogOpen(true)
   }, [])
 
@@ -79,7 +80,7 @@ export default function PatientsPage() {
     const url = new URL(window.location.href)
     url.searchParams.delete("createdFrom")
     url.searchParams.delete("createdTo")
-    window.history.replaceState({}, "", url)
+    replaceUrl(url)
   }
 
   const hasDateWindow = Boolean(createdFrom || createdTo)
@@ -91,7 +92,7 @@ export default function PatientsPage() {
     const url = new URL(window.location.href)
     if (next) url.searchParams.set("pendingCalendarReview", "1")
     else url.searchParams.delete("pendingCalendarReview")
-    window.history.replaceState({}, "", url)
+    replaceUrl(url)
   }
 
   return (

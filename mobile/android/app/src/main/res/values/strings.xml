@@ -11,6 +11,10 @@
 <resources>
     <string name="app_name">APEXA</string>
 
+    <!-- Phone notifications (staff-chat Part 7): the two channels a person can silence one by one. -->
+    <string name="push_channel_messages">Messages de l\'équipe</string>
+    <string name="push_channel_agenda">Rendez-vous</string>
+
     <!-- State: connecting -->
     <string name="connecting_title">Connexion au serveur du cabinet…</string>
 

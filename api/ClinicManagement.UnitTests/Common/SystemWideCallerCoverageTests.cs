@@ -31,6 +31,7 @@ public class SystemWideCallerCoverageTests
     private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
     {
         ["ProvisionCertCommand.cs"] = "mints certificates into .local/; never opens a DbContext",
+        ["GenerateVapidKeysCommand.cs"] = "prints a fresh key pair to the console; never opens a DbContext",
         ["PairRelayConsoleCommand.cs"] = "pairs over HTTPS and writes .local/relay.json; never opens a DbContext",
         ["RelayBuildConsoleCommand.cs"] = "prints the compiled build identity; reads no configuration, opens no DbContext",
         ["SignRelayPromotionConsoleCommand.cs"] = "signs a code with a key file on the vendor's machine; reads no "

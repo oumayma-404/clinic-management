@@ -7,6 +7,18 @@ plugins {
 }
 
 /**
+ * Phone notifications (staff-chat Part 7) need the Firebase project's `google-services.json` beside this file.
+ *
+ * ⚠️ **Absent is a first-class case**, exactly like `keystore.properties`: the file is git-ignored, so CI and every
+ * machine without it still build — `BuildConfig.PUSH_CONFIGURED` is then false, the app never asks Firebase for a
+ * token and the chat's settings say notifications are unavailable on this phone. Nothing else changes.
+ */
+val pushConfigured = file("google-services.json").exists()
+if (pushConfigured) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
+/**
  * The release signing material, read from a **git-ignored** `keystore.properties` beside `settings.gradle.kts`.
  *
  * ⚠️ **Absent is a first-class case, not an error.** A machine without the keystore still builds `assembleRelease`
@@ -42,9 +54,10 @@ android {
         // 1 and 2 were pre-store builds that never left this machine; 3 is the first that may.
         // 4 is 3 rebuilt with app.apexa.tn as the starting address — same code, so a new number is the only
         // thing that lets the server and a phone tell the two binaries apart.
-        versionCode = 6
+        versionCode = 7
         // 5: `relayProbe` (clinic-pc-copy AC-6.2) — a new bridge member is a new build.
         // 6: `relayPrepare` + `relaySwitch` (clinic-pc-copy Part 3).
+        // 7: phone notifications — `onPushToken` delivers, `notificationState` + `openNotificationSettings` (staff-chat Part 7).
 
         // The single source of the shell's version. `BuildConfig.VERSION_NAME` is what reaches
         // `window.__clinicShell.version` and therefore `X-Client-Version`, so the build and the bridge cannot
@@ -54,7 +67,9 @@ android {
         // ⚠️ A change to the bridge's method set edits `mobile/shared/bridge.md` **and** bumps this — one without
         // the other ships a build reporting a capability set it does not have. 1.1.0 added `confirmIdentity`
         // (Part 7); its version history is the table at the foot of that file.
-        versionName = "1.3.0"
+        versionName = "1.4.0"
+
+        buildConfigField("boolean", "PUSH_CONFIGURED", pushConfigured.toString())
 
         // The address a fresh install starts on, so a phone that downloads this build from the product's own
         // download page connects with nothing typed — the friction the iOS route does not have, because there the
@@ -175,4 +190,11 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.webkit:webkit:1.12.1")
+    // Linked always, initialised only when `google-services.json` was present at build time (PUSH_CONFIGURED).
+    implementation("com.google.firebase:firebase-messaging:24.1.0")
+    constraints {
+        // Play Services, reached through Firebase, pulls androidx.fragment 1.0.0, whose activity results predate
+        // registerForActivityResult — the file chooser's camera and the notification prompt both depend on it.
+        implementation("androidx.fragment:fragment:1.8.5")
+    }
 }

@@ -80,6 +80,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         FitToWorkArea();
+        ShellNotifications.Listen(OpenStaffChatFromNotification);
     }
 
     /// <summary>
@@ -166,7 +167,10 @@ public partial class MainWindow : Window
                 "ClinicManagement", "WebView2");
             System.IO.Directory.CreateDirectory(userDataFolder);
 
-            var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: userDataFolder);
+            // The chat's tone must ring after a restart, before anybody has pressed anything (staff-chat R-9).
+            var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
+            var env = await CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: null, userDataFolder: userDataFolder, options: options);
             await WebView.EnsureCoreWebView2Async(env);
 
             WebView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
@@ -531,7 +535,47 @@ public partial class MainWindow : Window
                 {
                     AnswerCarryTakeAsync(e.Source, message[CarryTakePrefix.Length..]);
                 }
+                // `notify:<json>` — staff-chat: a chat message while this window is not in front.
+                else if (message.StartsWith(NotifyPrefix, StringComparison.Ordinal))
+                {
+                    if (IsClinicPage(e.Source) && !IsActive
+                        && ShellNotifyMessage.TryParse(message[NotifyPrefix.Length..]) is { } notice)
+                    {
+                        ShellNotifications.Show(this, notice);
+                    }
+                }
                 break;
+        }
+    }
+
+    private const string NotifyPrefix = "notify:";
+
+    /// <summary>A click on a chat notification: the window comes forward and the page opens that conversation.</summary>
+    private async void OpenStaffChatFromNotification(string conversation)
+    {
+        ShellNotifications.BringForward(this);
+        var key = System.Text.Json.JsonSerializer.Serialize(conversation);
+        // After a restart the page is still loading: give it up to thirty seconds to register its handler.
+        for (var attempt = 0; attempt < 30; attempt++)
+        {
+            try
+            {
+                if (_coreReady && IsClinicPage(WebView.CoreWebView2.Source))
+                {
+                    var opened = await WebView.CoreWebView2.ExecuteScriptAsync(
+                        $"typeof window.__clinicShellOpenStaffChat === 'function' ? (window.__clinicShellOpenStaffChat({key}), true) : false");
+                    if (opened == "true")
+                    {
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                // The page is navigating; try again.
+            }
+
+            await System.Threading.Tasks.Task.Delay(1000);
         }
     }
 

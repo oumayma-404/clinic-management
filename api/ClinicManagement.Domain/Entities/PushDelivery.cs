@@ -37,6 +37,12 @@ public class PushDelivery : AggregateRoot<Guid>
     public Guid? AppointmentId { get; private set; }
 
     /// <summary>
+    /// The staff chat message this rings for (<see cref="NotificationCategory.StaffChatMessage"/>) — re-read at dispatch
+    /// so a message already read on another screen is not pushed. An opaque routing key, never the text.
+    /// </summary>
+    public Guid? StaffMessageId { get; private set; }
+
+    /// <summary>
     /// Earliest moment this may be sent — how the clinic-local quiet-hours floor is applied (AC-46).
     ///
     /// <para>Set <b>once, at enqueue</b>, deliberately: re-testing the clock on every scan would mean a row's
@@ -70,7 +76,8 @@ public class PushDelivery : AggregateRoot<Guid>
         string label,
         Guid? appointmentId,
         DateTime sendNotBeforeUtc,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        Guid? staffMessageId = null)
     {
         if (clinicId == Guid.Empty)
         {
@@ -96,6 +103,7 @@ public class PushDelivery : AggregateRoot<Guid>
             Category = category,
             Label = label,
             AppointmentId = appointmentId,
+            StaffMessageId = staffMessageId,
             SendNotBefore = sendNotBeforeUtc,
             Status = PushDeliveryStatus.Pending,
             CreatedAt = nowUtc

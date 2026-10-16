@@ -19,7 +19,9 @@ mobile/
 │       ├── MainActivity.kt        the five states, the WebView, insets, back, the launch version check
 │       ├── ServerConfig.kt        the address + SharedPreferences; a port of desktop/ServerConfig.cs
 │       ├── ClientRequirements.kt  the native pre-launch read of GET /api/meta/client-requirements
-│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · confirmIdentity · relayProbe · relayPrepare · relaySwitch · carryDraft · takeCarriedDraft
+│       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · notificationState · openNotificationSettings · confirmIdentity · relayProbe · relayPrepare · relaySwitch · carryDraft · takeCarriedDraft
+│       ├── ShellPush.kt           phone notifications: the two channels, the Firebase token, the permission (1.4)
+│       ├── PushTap.kt             what a tapped notification asks to open, checked before it reaches the page
 │       ├── RelayProbe.kt          AC-6.2: the PC de secours probed through its pinned certificate + this phone's gateway
 │       ├── RelaySwitch.kt         Part 3: the prepared session on the PC (D22), « does it hold? », where the PC is
 │       ├── CarriedDraftSlot.kt    D23: the open form's state, in memory, handed to the next clinic page once

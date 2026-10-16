@@ -14,5 +14,11 @@ public enum DevicePlatform
     Android = 1,
 
     /// <summary>Apple Push Notification service.</summary>
-    Ios = 2
+    Ios = 2,
+
+    /// <summary>
+    /// Web Push (RFC 8030/8291) — a browser, or an iPhone home-screen app, through its vendor's push service
+    /// (staff-chat Part 8). The token is the subscription's endpoint URL; its two keys live on the registration.
+    /// </summary>
+    WebPush = 3
 }

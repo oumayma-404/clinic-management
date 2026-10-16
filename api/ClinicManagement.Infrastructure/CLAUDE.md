@@ -394,6 +394,7 @@ Concrete EF Core impls of Domain repo interfaces. Pattern: ctor-inject `Applicat
 | `IAppointmentRepository` | `AppointmentRepository` |
 | `INotificationRepository` | `NotificationRepository` (reminder outbox rows) |
 | `IStaffNotificationRepository` | `StaffNotificationRepository` (in-app feed: newest-first/actor-excluded/50-cap, unread gated on viewer join time, read-marker existence+insert, reminder-by-appointment lookup). ⚠️ Both feed predicates hide a post-visit review whose séance is supprimée / annulée / absente — « Supprimer » never removed it, so the popup nagged forever |
+| `IStaffMessageRepository` · `IStaffQuickMessageListRepository` | `StaffMessageRepository` (staff-chat: keyset page on `(SentAt, Id)`, the latest message per thread in one `ROW_NUMBER` query, unread = `NOT EXISTS` against the reader's marker with messages older than the account excluded, today's arrivals), `StaffQuickMessageListRepository`. ⚠️ Messages and markers are **excluded** from `ClinicArchiveScope` and **carried** by `ClinicRelayScope` (FR-8) |
 | `ISupplierRepository` | `SupplierRepository` (`stock-fournisseurs`). Its search covers nom / catégorie / téléphone / adresse; `GetUsageAsync` is one `GROUP BY` per referencing table over the page, never a count per row. ⚠️ `StockItemRepository`'s own search term became a correlated **`EXISTS`** over `Suppliers` once the column was an FK rather than a name — a join was the other option and is wrong here, since an article may have no supplier and an inner join would drop exactly the rows a search for « composite » must still return |
 | `IStockItemRepository` | `StockItemRepository` |
 | `IProcedureTypeRepository` | `ProcedureTypeRepository` (`GetFilteredAsync` gained a `category` argument — compared on the **canonical** spelling so a stale « endodontie » link still matches — and orders by category then name with `Category == null` **first in the predicate** so unfiled acts land at the *end*, a decision this read makes rather than inheriting from PostgreSQL's NULLS-LAST default; `GetCategoriesAsync` returns the clinic's distinct categories, **including those of deactivated acts**, since a discipline the practice files work under does not stop being one because one act in it was archived) |
@@ -492,6 +493,11 @@ no consent flag and no audit of which patient was sent.
   failure it would burn every future notification's retry budget for an app that no longer exists. Recognising it
   is the one genuinely per-platform thing, hence the abstract `IsTokenInvalid` hook. APNs carries its topic and
   priority as **headers**, which is why the base takes an extra-headers argument.
+- **`WebPushSender`** + **`WebPushCrypto`** (staff-chat Part 8) — a browser or an iPhone home-screen app. The token
+  is the subscription's endpoint; the body is encrypted to the browser's keys (RFC 8291, pinned to its test vector)
+  and signed with the install's VAPID pair (`Push:WebPush:{PublicKey,PrivateKey,Subject}`, Subject defaulting to an
+  https `FrontendUrl`). ⚠️ **The endpoint is re-checked against `WebPushSubscription`'s allow-list at send**, not only
+  at registration — this is the code that opens the connection. 404/410 is `TokenInvalid`, 401/403 `NotConfigured`.
 - **`PushNotificationGeneratorDecorator`** (`INotificationGenerator`) — queues push alongside the in-app feed by
   **decorating** the generator: one hook reaches every category the feed has or will have, so a notification added
   later cannot be the one that silently never pushes (`fixes-dont-propagate`). The inner generator is awaited

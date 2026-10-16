@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -29,31 +30,55 @@ public class ClinicHub : Hub
     /// </summary>
     public const string EntityChanged = "entityChanged";
 
-    private readonly IUserRepository _userRepository;
+    /// <summary>Server → client, no argument: something in the staff chat changed for this tab (staff-chat).</summary>
+    public const string StaffChatChanged = "staffChatChanged";
 
-    public ClinicHub(IUserRepository userRepository)
+    private const string PresenceKey = "staff-chat-presence";
+
+    private readonly IUserRepository _userRepository;
+    private readonly StaffPresence _presence;
+
+    public ClinicHub(IUserRepository userRepository, StaffPresence presence)
     {
         _userRepository = userRepository;
+        _presence = presence;
     }
 
     public override async Task OnConnectedAsync()
     {
-        var clinicId = await ResolveClinicIdAsync();
-        if (clinicId.HasValue)
+        var user = await ResolveUserAsync();
+        if (user is not null)
         {
-            await Groups.AddToGroupAsync(Context.ConnectionId, ClinicGroups.Name(clinicId.Value));
+            await Groups.AddToGroupAsync(Context.ConnectionId, ClinicGroups.Name(user.ClinicId));
+            await Groups.AddToGroupAsync(Context.ConnectionId, ClinicGroups.User(user.ClinicId, user.Id));
+
+            Context.Items[PresenceKey] = (user.ClinicId, user.Id);
+            if (_presence.Connected(user.ClinicId, user.Id))
+            {
+                await Clients.Group(ClinicGroups.Name(user.ClinicId)).SendAsync(StaffChatChanged);
+            }
         }
 
         await base.OnConnectedAsync();
     }
 
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        if (Context.Items.TryGetValue(PresenceKey, out var value)
+            && value is (Guid clinicId, string userId)
+            && _presence.Disconnected(clinicId, userId))
+        {
+            await Clients.Group(ClinicGroups.Name(clinicId)).SendAsync(StaffChatChanged);
+        }
+
+        await base.OnDisconnectedAsync(exception);
+    }
+
     /// <summary>
-    /// Resolves the connected user's clinic id from the authenticated principal. Reads the user id
-    /// from the connection's claims (mirrors <c>ClinicContext.GetUserId</c>) then looks up the clinic
-    /// via the same repository the REST handlers use — <c>IHttpContextAccessor</c> is not reliable in
-    /// a hub connection, so the principal on <see cref="HubCallerContext.User"/> is the correct source.
+    /// Resolves the connected user from the authenticated principal (mirrors <c>ClinicContext.GetUserId</c>) through
+    /// the repository the REST handlers use — <c>IHttpContextAccessor</c> is not reliable in a hub connection.
     /// </summary>
-    private async Task<Guid?> ResolveClinicIdAsync()
+    private async Task<User?> ResolveUserAsync()
     {
         var userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
             ?? Context.User?.FindFirst("sub")?.Value;
@@ -63,7 +88,6 @@ public class ClinicHub : Hub
             return null;
         }
 
-        var user = await _userRepository.GetByAuth0SubAsync(userId, Context.ConnectionAborted);
-        return user?.ClinicId;
+        return await _userRepository.GetByAuth0SubAsync(userId, Context.ConnectionAborted);
     }
 }

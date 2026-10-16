@@ -23,6 +23,7 @@ import { useSession } from "@/lib/auth/session"
 import { isAdminOrDoctor } from "@/lib/nav"
 import { formatDateFr, toLocalIso } from "@/lib/format"
 import { Search, X } from "lucide-react"
+import { replaceUrl } from "@/lib/history"
 
 const ALL_STATUSES = "all"
 
@@ -193,7 +194,7 @@ export default function TreatmentPlansPage() {
   const clearUrl = () => {
     const url = new URL(window.location.href)
     url.search = ""
-    window.history.replaceState({}, "", url)
+    replaceUrl(url)
   }
 
   const changePeriod = (next: PeriodKey) => {

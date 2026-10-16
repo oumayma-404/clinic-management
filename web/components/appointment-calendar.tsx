@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { AppointmentQuickActions } from "@/components/appointment-quick-actions"
+import { ArrivalBell } from "@/components/staff-chat/arrival-action"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ExportButton } from "@/components/ui/export-button"
@@ -1887,6 +1888,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             >
               {actsCount} actes
             </Badge>
+          )}
+          {/* « Patient arrivé » in one press, on today's waiting visits — 20 px fits the half-hour block the « ⋯ » cannot. */}
+          {height >= 20 && (
+            <span {...{ [AGENDA_NO_DRAG_ATTR]: "" }} className="contents">
+              <ArrivalBell appointment={appointment} />
+            </span>
           )}
           {/*
             AC-24: advance the visit's statut — or delete a séance booked by mistake — without opening the edit

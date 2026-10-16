@@ -131,6 +131,7 @@ import { useFilePreview } from "@/components/patients/files/use-file-preview"
 import { isImageFile, isPreviewableFile } from "@/components/patients/files/file-kind"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import { useVault } from "@/lib/hooks/use-vault"
+import { replaceUrl } from "@/lib/history"
 
 const calculateAge = (dob: string | null | undefined) => {
   if (!dob) return null
@@ -1404,7 +1405,7 @@ export default function PatientDetailsPage() {
 
   // Deep-link from the post-visit "record the visit" bell (?addRecord=1&appointmentId=…): open the
   // add-record modal (finding #4) and thread the appointment id so saving closes the prompt (finding #10).
-  // Uses window.location.search + history.replaceState (no useSearchParams) so a refresh doesn't reopen it,
+  // Uses window.location.search + `replaceUrl` (no useSearchParams) so a refresh doesn't reopen it,
   // matching the appointments page's deep-link pattern.
   useEffect(() => {
     const query = new URLSearchParams(window.location.search)
@@ -1412,7 +1413,7 @@ export default function PatientDetailsPage() {
       setReviewAppointmentId(query.get("appointmentId"))
       setEditingRecord(null)
       setRecordModalOpen(true)
-      window.history.replaceState({}, "", `/patients/${patientId}`)
+      replaceUrl(`/patients/${patientId}`)
     }
   }, [patientId])
 
@@ -1446,7 +1447,7 @@ export default function PatientDetailsPage() {
   useEffect(() => {
     if (!pendingEditPatient || !patient) return
     setPendingEditPatient(false)
-    window.history.replaceState({}, "", `/patients/${patientId}`)
+    replaceUrl(`/patients/${patientId}`)
     setEditSection(null)
     setEditDialogOpen(true)
   }, [pendingEditPatient, patient, patientId])
@@ -1481,7 +1482,7 @@ export default function PatientDetailsPage() {
     // ⚠️ Dropped HERE, not when the param was read: `router.push` rewrites the URL *after* the destination
     // page's effects run, so a `replaceState` on mount is silently overwritten and the param survives — which
     // reopens the editor on every refresh. By now the navigation has settled.
-    window.history.replaceState({}, "", `/patients/${patientId}?tab=medical-records`)
+    replaceUrl(`/patients/${patientId}?tab=medical-records`)
     // Cleared either way: a fiche deleted between the two screens must not leave the link armed for ever, and
     // silence would read as « the button does nothing ».
     if (!record) {
@@ -1516,7 +1517,7 @@ export default function PatientDetailsPage() {
     if (!pendingCollectId || billingSummary === null || detailsLoading) return
     const line = billingSummary.lines.find((l) => l.documentId === pendingCollectId)
     setPendingCollectId(null)
-    window.history.replaceState({}, "", `/patients/${patientId}?tab=${PATIENT_OUTSTANDING_TAB}`)
+    replaceUrl(`/patients/${patientId}?tab=${PATIENT_OUTSTANDING_TAB}`)
     // ⚠️ Instant, not smooth — see `openOutstandingSection`: the payment dialog opened below would cancel an
     // animation still in flight.
     openOutstandingSection("auto")

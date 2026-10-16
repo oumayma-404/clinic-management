@@ -44,6 +44,9 @@ public class PushDeliveryConfiguration : IEntityTypeConfiguration<PushDelivery>
 
         builder.Property(p => p.AppointmentId);
 
+        // A soft routing key like AppointmentId: no FK, so a purged message fails the row at dispatch instead of cascading.
+        builder.Property(p => p.StaffMessageId);
+
         builder.Property(p => p.SendNotBefore)
             .IsRequired();
 

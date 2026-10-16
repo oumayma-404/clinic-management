@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.StaffChat;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
@@ -34,6 +35,8 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
 {
     private readonly IUserRepository _userRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly IStaffMessageRepository _staffMessages;
+    private readonly IClinicWriteFence _writeFence;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ChangeUserRoleCommandHandler> _logger;
@@ -41,12 +44,16 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
     public ChangeUserRoleCommandHandler(
         IUserRepository userRepository,
         IDoctorRepository doctorRepository,
+        IStaffMessageRepository staffMessages,
+        IClinicWriteFence writeFence,
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
         ILogger<ChangeUserRoleCommandHandler> logger)
     {
         _userRepository = userRepository;
         _doctorRepository = doctorRepository;
+        _staffMessages = staffMessages;
+        _writeFence = writeFence;
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -122,6 +129,7 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
 
             // Returns false when the account already holds that role — do not bump TokenVersion (and log the
             // user out) for a re-selection that changes nothing.
+            var wasSecretary = target.IsSecretary();
             if (target.ChangeRole(role))
             {
                 /*
@@ -152,6 +160,19 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
                         email: target.Email);
                     doctor.LinkToUser(target.Id);
                     await _doctorRepository.AddAsync(doctor, cancellationToken);
+                }
+
+                // staff-chat EC-14: a new secretary joins every secretariat thread with its history already read.
+                // Not while a PC de secours holds the saves: chat tables are refused there, and the role must still change.
+                if (!wasSecretary && target.IsSecretary()
+                    && !await _writeFence.RefusesAsync(target.ClinicId, cancellationToken))
+                {
+                    var deskOwners = (await _userRepository.GetByClinicIdAsync(
+                        target.ClinicId, cancellationToken: cancellationToken)).Items
+                        .Where(u => !u.IsSecretary())
+                        .Select(u => u.Id);
+                    await StaffChatHistory.MarkDesksReadAsync(
+                        _staffMessages, target.ClinicId, target.Id, deskOwners, DateTime.UtcNow, cancellationToken);
                 }
 
                 // Band B — two admins on the users screen at once must not silently overwrite each other's choice.

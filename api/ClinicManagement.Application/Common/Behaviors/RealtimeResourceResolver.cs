@@ -46,9 +46,11 @@ public static class RealtimeResourceResolver
     // ordinary re-read its « Rappels » screen already does; the counter that moves minutely is `ClinicMessagingMonth`,
     // which is not an aggregate root and emits nothing by design (D-6).
     // "Relay" (clinic-pc-copy): the PC de secours heartbeats every few seconds; no screen refreshes on that.
+    // "StaffChat": a message signals its own members on `staffChatChanged`; a clinic-wide broadcast would wake every colleague.
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "Backup", "Connectivity", "Dashboard", "Messaging", "Platform", "PushDevices", "Relay", "Subscriptions"
+        "Auth", "Backup", "Connectivity", "Dashboard", "Messaging", "Platform", "PushDevices", "Relay", "StaffChat",
+        "Subscriptions"
     };
 
     /// <summary>
