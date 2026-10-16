@@ -173,5 +173,16 @@ public enum NotificationCategory
     /// (<see cref="Entities.Patient.CalendarImportPendingReviewSince"/>), so the fact survives the bell being
     /// cleared. That column, not this row, is what the « À compléter » filter reads.</para>
     /// </summary>
-    PatientImportedNeedsReview = 17
+    PatientImportedNeedsReview = 17,
+
+    /// <summary>
+    /// The PC de secours cannot take over right now, or needs a person (<c>clinic-pc-copy</c> AC-2.2, EC-9, EC-10).
+    ///
+    /// <para><b>Administrators only</b> (<see cref="Entities.StaffNotification.TargetRole"/>): AC-2.3 — nobody else
+    /// sees anything about the PC de secours. One row per <see cref="RelayAlert"/>, added when the problem starts and
+    /// removed when it ends, so the bell always says what is true now.</para>
+    ///
+    /// <para>In-app only: what it asks for — switching a PC on, freeing its disk — happens at the cabinet.</para>
+    /// </summary>
+    RelayAttention = 18
 }

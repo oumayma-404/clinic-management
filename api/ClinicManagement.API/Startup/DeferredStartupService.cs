@@ -73,6 +73,14 @@ public sealed class DeferredStartupService : IHostedService
             await context.Database.MigrateAsync(cancellationToken);
             _logger.LogInformation("Database migrations applied; API fully ready.");
 
+            // clinic-pc-copy: a PC de secours holds a copy whose every row is the cloud's — a backfill here would write
+            // rows the cloud never made, which the next copy overwrites and the hourly check reports as a difference.
+            if (scope.ServiceProvider.GetRequiredService<ClinicManagement.Infrastructure.Deployment.DeploymentProfile>()
+                .MirrorsCloudClinic)
+            {
+                return;
+            }
+
             // Backfill per-clinic reference catalogs for any existing clinic missing one (#5). Idempotent —
             // a clinic that already has its catalog is skipped; new clinics are seeded on creation instead.
             var catalogSeeder = scope.ServiceProvider.GetRequiredService<IClinicCatalogSeeder>();
@@ -96,6 +104,7 @@ public sealed class DeferredStartupService : IHostedService
                 context,
                 scope.ServiceProvider.GetRequiredService<IGoogleTokenProtector>(),
                 scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                scope.ServiceProvider.GetRequiredService<IClinicWriteFence>(),
                 cancellationToken);
             if (converted > 0)
             {

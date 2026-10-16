@@ -146,4 +146,11 @@ public interface IStaffNotificationRepository
     /// </summary>
     Task<IReadOnlyList<StaffNotification>> GetByPatientAsync(
         Guid patientId, CancellationToken cancellationToken = default);
+
+    /// <summary>The cabinet's PC de secours rows (<c>clinic-pc-copy</c>), one per <see cref="Enums.RelayAlert"/> at most.</summary>
+    Task<IReadOnlyList<StaffNotification>> GetRelayAlertsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>Every cabinet carrying one — so the rows of a PC retired or deleted since are withdrawn too.</summary>
+    Task<IReadOnlyList<Guid>> GetClinicIdsWithRelayAlertsAsync(CancellationToken cancellationToken = default);
 }

@@ -9,10 +9,10 @@ namespace ClinicManagement.DesktopShell;
 /// plain browser: it exposed no <c>window.__clinicShell</c> at all, which is why its version floor had to be read
 /// over native HTTP before navigation instead of from the object every other client carries.
 ///
-/// <para>It exposes two facts, one method and one seam: <c>version</c>, <c>platform: "windows"</c>,
-/// <c>confirmIdentity</c>, and the coffre folder. <c>saveFile</c> and <c>print</c> are still absent — a WebView2
-/// download works and the page's own <c>window.print()</c> works, so each would solve a problem this shell does
-/// not have.</para>
+/// <para>It exposes two facts, three methods and one seam: <c>version</c>, <c>platform: "windows"</c>,
+/// <c>confirmIdentity</c>, <c>relayHostFacts</c> + <c>installRelay</c> (the PC de secours, since 1.4), and the coffre
+/// folder. <c>saveFile</c> and <c>print</c> are still absent — a WebView2 download works and the page's own
+/// <c>window.print()</c> works, so each would solve a problem this shell does not have.</para>
 ///
 /// <para>⚠️ <b><c>confirmIdentity</c> was absent for the opposite reason, and its absence was a defect rather
 /// than a decision.</b> The note here used to say this shell had « no biometric prompt » alongside the two
@@ -103,10 +103,121 @@ public static class VaultBridge
               } catch (e) { /* the lock gate only — never the page's problem */ }
             };
 
+            /*
+             * The PC de secours (clinic-pc-copy, since 1.4). Same shape as confirmIdentity: a pending map in this
+             * closure, a request id, and a deliver seam outside the frozen object, for the same AC-26 reason.
+             *
+             * ⚠️ Never rejects: a shell that cannot answer resolves `fallback` — null facts (the offer is not shown)
+             * or a 'failed' outcome with a sentence. The install timeout is longer than the shell's own (a download
+             * plus an installer), so the shell is always the one that speaks first.
+             */
+            var relayPending = {};
+            var relayCounter = 0;
+
+            function relayRequest(kind, body, fallback, timeoutMs) {
+              return new Promise(function (resolve) {
+                try {
+                  var id = 'r' + (++relayCounter);
+                  var settled = false;
+                  var settle = function (value) {
+                    if (settled) { return; }
+                    settled = true;
+                    delete relayPending[id];
+                    resolve(value);
+                  };
+                  relayPending[id] = settle;
+                  setTimeout(function () { settle(fallback); }, timeoutMs);
+                  window.chrome.webview.postMessage(kind + ':' + id + (body === null ? '' : ':' + JSON.stringify(body)));
+                } catch (e) {
+                  resolve(fallback);
+                }
+              });
+            }
+
+            function relayHostFacts() {
+              return relayRequest('relay-facts', null, null, 30000);
+            }
+
+            function installRelay(request) {
+              var code = request && typeof request.code === 'string' ? request.code : '';
+              var needBytes = request && typeof request.needBytes === 'number' ? request.needBytes : 0;
+              return relayRequest('relay-install', { code: code, needBytes: needBytes }, {
+                outcome: 'failed',
+                sentence: "L'installation du PC de secours ne répond plus. « Paramètres → PC de secours » dira où elle en est."
+              }, 7200000);
+            }
+
+            /*
+             * AC-6.2 (since 1.5): while the cloud is locked for a silent PC de secours, does this device reach it, and
+             * which box is it behind? Null when the shell cannot answer — the page then sends no report.
+             */
+            function relayProbe(request) {
+              var body = {
+                addresses: request && Array.isArray(request.addresses) ? request.addresses : [],
+                port: request && typeof request.port === 'number' ? request.port : 0,
+                fingerprint: request && typeof request.fingerprint === 'string' ? request.fingerprint : ''
+              };
+              return relayRequest('relay-probe', body, null, 20000);
+            }
+
+            /*
+             * clinic-pc-copy Part 3 (since 1.6). `relayPrepare`: the cloud's ticket and where the PC is — the shell trades
+             * it there and keeps the session in this WebView's cookie for the PC (true when it did). `relaySwitch`: the
+             * cloud says the cabinet works on the PC — the shell asks the PC and moves there if it holds (true when it
+             * moved). Both resolve false when the shell cannot.
+             */
+            function relayPrepare(request) {
+              var body = {
+                assertion: request && typeof request.assertion === 'string' ? request.assertion : '',
+                relayId: request && typeof request.relayId === 'string' ? request.relayId : '',
+                addresses: request && Array.isArray(request.addresses) ? request.addresses : [],
+                port: request && typeof request.port === 'number' ? request.port : 0,
+                fingerprint: request && typeof request.fingerprint === 'string' ? request.fingerprint : ''
+              };
+              return relayRequest('relay-prepare', body, false, 30000);
+            }
+
+            function relaySwitch() {
+              return relayRequest('relay-switch', null, false, 20000);
+            }
+
+            /*
+             * clinic-pc-copy D23 (since 1.6): the open form's state, kept by the shell for this window so it survives a
+             * switch of server — `null` forgets it — and taken back once by the next clinic page.
+             */
+            function carryDraft(draft) {
+              try {
+                window.chrome.webview.postMessage('carry-draft:' + (typeof draft === 'string' ? draft : ''));
+              } catch (e) { /* the form still works; it would not survive a switch */ }
+            }
+
+            function takeCarriedDraft() {
+              return relayRequest('carry-take', null, null, 5000);
+            }
+
+            window.__clinicShellDeliverRelayResult = function (id, value) {
+              try {
+                var settle = relayPending[id];
+                if (typeof settle === 'function') { settle(value); }
+              } catch (e) { /* the offer only — never the page's problem */ }
+            };
+
             Object.defineProperty(window, '__clinicShell', {
-              // ⚠️ The method set and the version move together — bridge.md's rule. `confirmIdentity` arriving
-              // here is what took this shell from 1.2 to 1.3.
-              value: Object.freeze({ version: '{{version}}', platform: 'windows', confirmIdentity: confirmIdentity }),
+              // ⚠️ The method set and the version move together — bridge.md's rule. `confirmIdentity` took this
+              // shell from 1.2 to 1.3, `relayHostFacts` + `installRelay` from 1.3 to 1.4, `relayProbe` to 1.5,
+              // `relayPrepare` + `relaySwitch` (and `carryDraft` + `takeCarriedDraft`) to 1.6.
+              value: Object.freeze({
+                version: '{{version}}',
+                platform: 'windows',
+                confirmIdentity: confirmIdentity,
+                relayHostFacts: relayHostFacts,
+                installRelay: installRelay,
+                relayProbe: relayProbe,
+                relayPrepare: relayPrepare,
+                relaySwitch: relaySwitch,
+                carryDraft: carryDraft,
+                takeCarriedDraft: takeCarriedDraft
+              }),
               configurable: true,
               writable: false,
               enumerable: true,
@@ -170,7 +281,7 @@ public static class VaultBridge
     /// Whether the loaded document is the server this shell was pointed at. Compared on <b>scheme, host and
     /// port</b> — the page's path is its own business, and a query string must not be able to change the answer.
     /// </summary>
-    private static bool IsExpectedOrigin(string? source, ServerConfig config)
+    public static bool IsExpectedOrigin(string? source, ServerConfig config)
     {
         if (string.IsNullOrWhiteSpace(source) || !config.IsConfigured)
         {

@@ -50,6 +50,16 @@ export default function PatientsPage() {
   // Dashboard drill-throughs: ?createdFrom/?createdTo narrow the list
   // to the patients registered in the window the KPI counted. Read from window.location (client-only, in an effect)
   // to avoid a useSearchParams Suspense boundary.
+  // `?newPatient=1` — the creation form, opened empty. A form carried across a switch of server (`clinic-pc-copy`
+  // AC-3.2) comes back through this door and refills itself.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get("newPatient") !== "1") return
+    url.searchParams.delete("newPatient")
+    window.history.replaceState({}, "", url.pathname + url.search)
+    setCreateDialogOpen(true)
+  }, [])
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     // Seeded from the same key the chip writes, so a link this page emits is a link it honours.

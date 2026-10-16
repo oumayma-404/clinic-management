@@ -71,6 +71,7 @@ public class PlatformAccessLedgerTests
             PlatformMessagingReadStubs.NoAllowances(),
             PlatformMessagingReadStubs.NoReminderSettings(),
             PlatformMessagingReadStubs.NotSold(),
+            PlatformRelayReadStubs.NoRelays(),
             NullLogger<GetPlatformClinicDetailQueryHandler>.Instance);
 
     private GetPlatformAccessLogQueryHandler JournalHandler() =>

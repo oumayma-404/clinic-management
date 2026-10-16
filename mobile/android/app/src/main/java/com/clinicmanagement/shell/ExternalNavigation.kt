@@ -53,13 +53,16 @@ class ExternalNavigation(private val activity: Activity) {
      * Only **top-level** navigations are intercepted. A cross-origin subframe (an embedded map, a tracking pixel)
      * is the page's business, and opening a browser tab for one would be a tab the user never asked for.
      */
-    fun handle(request: WebResourceRequest, config: ServerConfig): Boolean {
+    fun handle(request: WebResourceRequest, config: ServerConfig, pc: RelaySwitch.Target? = null): Boolean {
         if (!request.isForMainFrame) return false
 
         val uri = request.url
         val scheme = uri.scheme?.lowercase()
 
         if (scheme == "https" && config.isSameOrigin(uri)) return false
+        // Part 3: the PC de secours's own origin is the clinic's own app — opened in a browser it would be a login
+        // screen behind a certificate warning. Nothing else on that machine is.
+        if (RelaySwitch.isPcOrigin(uri, pc)) return false
         if (scheme == "http" || scheme == "https") return openInBrowser(uri)
 
         // mailto:, tel:, sms:, geo: — a WebView resolves none of them.

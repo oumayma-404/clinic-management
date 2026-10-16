@@ -78,6 +78,28 @@ public class LocalAuthService : ILocalAuthService
     public LocalAuthToken GenerateScopedToken(User user, string scope) =>
         GenerateToken(user, scope, sessionFamilyId: null);
 
+    public LocalAuthToken GenerateRelayToken(ClinicRelay relay)
+    {
+        var expiresAt = DateTime.UtcNow.AddMinutes(LocalAuthConfig.AccessTokenLifetimeMinutes(_configuration));
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, relay.Subject),
+            new("clinic_id", relay.ClinicId.ToString()),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(LocalAuthClaims.Scope, LocalAuthScopes.ClinicRelay),
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: LocalAuthConfig.Issuer(_configuration),
+            audience: LocalAuthConfig.Audience(_configuration),
+            claims: claims,
+            notBefore: DateTime.UtcNow,
+            expires: expiresAt,
+            signingCredentials: new SigningCredentials(LocalAuthConfig.SecurityKey(_configuration), SecurityAlgorithms.HmacSha256));
+
+        return new LocalAuthToken(new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
     private LocalAuthToken GenerateToken(User user, string? scope, Guid? sessionFamilyId)
     {
         // The browser-held credential: short-lived on purpose, renewed silently from the cookie (AC-5.3).

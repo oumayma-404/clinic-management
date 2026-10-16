@@ -326,4 +326,12 @@ public interface INotificationGenerator
     /// </summary>
     Task PatientImportedFromCalendarAsync(
         Guid clinicId, Guid patientId, string patientName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Makes the cabinet's PC de secours rows exactly <paramref name="wanted"/> (<c>clinic-pc-copy</c> AC-2.2): a new
+    /// problem is a new row (so it badges the bell again), an unchanged one is left alone, a reworded one is restated,
+    /// and one that ended is removed. Admins only (<c>StaffNotification.TargetRole</c>); in-app only.
+    /// </summary>
+    Task SyncRelayAlertsAsync(
+        Guid clinicId, IReadOnlyList<Features.Relay.RelayAlertRow> wanted, CancellationToken cancellationToken = default);
 }

@@ -46,6 +46,22 @@ public class ScopedTokenCoverageTests
         ["Backup.GetFileManifest"] = LocalAuthScopes.ClinicArchive,
         ["Backup.ReportVaultCopy"] = LocalAuthScopes.ClinicArchive,
         ["PatientFiles.DownloadFile"] = LocalAuthScopes.ClinicArchive,
+        // clinic-pc-copy: what the PC de secours calls with its own token — its report, the copy, the check, the files.
+        ["RelayPeer.Heartbeat"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.Promises"] = LocalAuthScopes.ClinicRelay,
+        // D18: the return — the cut's rows, then the files its rows name.
+        ["RelayPeer.HandBack"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.HandbackFiles"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.HandbackFile"] = LocalAuthScopes.ClinicRelay,
+        // US-7: an overruled cut, listed « À reprendre ».
+        ["RelayPeer.ListOverruledCut"] = LocalAuthScopes.ClinicRelay,
+        // AC-9.4: a restored cloud's row hashes, and what it lost, sent back by its PC.
+        ["RelayPeer.GapHashes"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.ReturnGap"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.Changes"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.Snapshot"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.Digest"] = LocalAuthScopes.ClinicRelay,
+        ["RelayPeer.Blob"] = LocalAuthScopes.ClinicRelay,
     };
 
     [Fact]

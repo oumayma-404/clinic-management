@@ -57,6 +57,7 @@ public class AppointmentProgressJob
     private readonly IRealtimeNotifier _realtime;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
+    private readonly IClinicWriteFence _fence;
     private readonly ILogger<AppointmentProgressJob> _logger;
 
     public AppointmentProgressJob(
@@ -65,8 +66,10 @@ public class AppointmentProgressJob
         IRealtimeNotifier realtime,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
+        IClinicWriteFence fence,
         ILogger<AppointmentProgressJob> logger)
     {
+        _fence = fence;
         _appointmentRepository = appointmentRepository;
         _unitOfWork = unitOfWork;
         _realtime = realtime;
@@ -108,6 +111,11 @@ public class AppointmentProgressJob
         {
             try
             {
+                if (await SkipsAsync(clinic.Key))
+                {
+                    continue;
+                }
+
                 await StartClinicAsync(clinic.Key, clinic.ToList());
             }
             catch (Exception ex)
@@ -141,6 +149,11 @@ public class AppointmentProgressJob
         {
             try
             {
+                if (await SkipsAsync(clinic.Key))
+                {
+                    continue;
+                }
+
                 await CloseClinicAsync(clinic.Key, clinic.ToList());
             }
             catch (Exception ex)
@@ -148,6 +161,22 @@ public class AppointmentProgressJob
                 _logger.LogError(ex, "Elapse pass failed for clinic {ClinicId}", clinic.Key);
             }
         }
+    }
+
+    /// <summary>
+    /// clinic-pc-copy D15: a cabinet whose saves belong to its PC de secours is skipped before anything is touched —
+    /// the change capture would refuse the save, and the rows it left tracked would then fail every later cabinet's.
+    /// </summary>
+    private async Task<bool> SkipsAsync(Guid clinicId)
+    {
+        if (!await _fence.RefusesAsync(clinicId))
+        {
+            return false;
+        }
+
+        // The elapse pass reaches 30 days back, so the visits it skips now are advanced once the cabinet is back.
+        _logger.LogInformation("Clinic {ClinicId} is on its PC de secours; its visits are left as they are", clinicId);
+        return true;
     }
 
     private async Task CloseClinicAsync(Guid clinicId, IReadOnlyList<Appointment> appointments)

@@ -684,8 +684,8 @@ public class SchemaVerificationService
         Add("clinic-activity-snapshot-covers-every-clinic", counts.ClinicsWithoutActivitySnapshot,
             n => n == 0
                 ? "every cabinet has an activity snapshot"
-                : $"{n} cabinet(s) have no activity snapshot — either the nightly pass has not run yet on this "
-                  + "deployment, or it has been failing for those cabinets while logging a clean run",
+                : $"{n} cabinet(s) older than a day have no activity snapshot — the nightly pass has been failing "
+                  + "for those cabinets while logging a clean run, or is not running",
             n => n == 0);
 
         // The relations one Restate call makes true by construction. A violation is a second writer, and its
@@ -1067,21 +1067,30 @@ public class SchemaVerificationService
             return;
         }
 
-        findings.Add(new SchemaVerificationFinding(
-            scope,
-            "key-ring-protection",
-            protection.KeyRingIsCertificateProtected
-                ? "the key ring is encrypted by the deployment's certificate"
-                  + (protection.ProtectingCertificateDaysRemaining is { } days
-                      ? $" ({days} day(s) remaining on it)"
-                      : string.Empty)
-                : "the key ring is NOT encrypted at rest — its keys, which decrypt every cabinet's reminder "
-                  + "credentials and every administrator's second factor, are readable from a copy of the volume "
-                  + "(set DataProtection:CertificatePath, or DataProtection:CertificateBase64 where the host "
-                  + "passes only environment variables — deploy/KEY-CUSTODY.md)",
-            protection.KeyRingIsCertificateProtected
-                ? SchemaVerificationSeverity.Info
-                : SchemaVerificationSeverity.Drift));
+        // Drift only where a certificate is required (the hosted deployment). A LAN install running as a Windows
+        // service encrypts the ring with DPAPI instead; reading that as « NOT encrypted » flagged every LAN install.
+        var (keyRingDetail, keyRingSeverity) = protection switch
+        {
+            { KeyRingIsCertificateProtected: true } =>
+                ("the key ring is encrypted by the deployment's certificate"
+                 + (protection.ProtectingCertificateDaysRemaining is { } days
+                     ? $" ({days} day(s) remaining on it)"
+                     : string.Empty),
+                 SchemaVerificationSeverity.Info),
+            { ProtectedByDpapi: true } =>
+                ("the key ring is encrypted by Windows DPAPI, bound to this machine", SchemaVerificationSeverity.Info),
+            { CertificateRequired: false } =>
+                ("not applicable — this deployment kind needs no certificate (a LAN install running as a Windows "
+                 + "service encrypts the ring with DPAPI; this run is not one)",
+                 SchemaVerificationSeverity.Info),
+            _ =>
+                ("the key ring is NOT encrypted at rest — its keys, which decrypt every cabinet's reminder "
+                 + "credentials and every administrator's second factor, are readable from a copy of the volume "
+                 + "(set DataProtection:CertificatePath, or DataProtection:CertificateBase64 where the host "
+                 + "passes only environment variables — deploy/KEY-CUSTODY.md)",
+                 SchemaVerificationSeverity.Drift),
+        };
+        findings.Add(new SchemaVerificationFinding(scope, "key-ring-protection", keyRingDetail, keyRingSeverity));
 
         // Per family, never one total: « 3 remaining » does not say which recovery an operator needs, and the
         // six families recover four different ways.

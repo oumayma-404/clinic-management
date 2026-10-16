@@ -228,6 +228,12 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         Guid clinicId, Guid patientId, string patientName, CancellationToken cancellationToken = default) =>
         _inner.PatientImportedFromCalendarAsync(clinicId, patientId, patientName, cancellationToken);
 
+    // Pass-through: RelayAttention is in-app only — switching a PC on or freeing its disk happens at the cabinet.
+    public Task SyncRelayAlertsAsync(
+        Guid clinicId, IReadOnlyList<ClinicManagement.Application.Features.Relay.RelayAlertRow> wanted,
+        CancellationToken cancellationToken = default) =>
+        _inner.SyncRelayAlertsAsync(clinicId, wanted, cancellationToken);
+
     // Pass-through: the export has already completed by the time this is written, so there is nothing a banner
     // could let anybody intervene in.
     // Pass-through: ArchiveStale is in-app only (StaffNotificationRules.ReachesALockedPhone answers false), and

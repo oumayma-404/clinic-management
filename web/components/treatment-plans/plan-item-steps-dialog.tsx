@@ -18,6 +18,7 @@ import {
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { useConflict } from "@/lib/hooks/use-conflict"
+import { mergeVerdict, takenOverSentence } from "@/lib/forms/form-merge"
 import { treatmentPlansApi, type TreatmentPlanItemStepInput } from "@/lib/api/treatment-plans"
 import type { TreatmentPlanDto, TreatmentPlanItemDto } from "@/lib/api/types"
 import { quoteFr } from "@/lib/format"
@@ -27,6 +28,11 @@ import { seanceDay } from "./seance-strip"
 import { Consequences } from "./plan-consequences"
 
 /** One row of the editor. `id` present = an existing step whose identity must survive the save. */
+/** The protocol as the save sends it — local keys and display-only fields left out. */
+function stepsSnapshot(rows: readonly StepRow[]): string {
+  return JSON.stringify(rows.map((r) => [r.id, r.label.trim(), r.duration.trim(), r.minDays.trim()]))
+}
+
 interface StepRow {
   key: string
   id: string | null
@@ -175,8 +181,19 @@ export function PlanItemStepsDialog({
    */
   const seededVersionRef = useRef(0)
   const seededForRef = useRef<string | null>(null)
-  /** Set after a detach or « Recharger »: the next copy of the act from the server is taken in full. */
+  /** Set after a detach: the next copy of the act from the server is taken in full. */
   const reseedRef = useRef(false)
+  /**
+   * Set by « Recharger »: the next copy of the act is RECONCILED with the screen (`lib/forms/form-merge.ts`) — the
+   * retyped protocol stays unless the colleague changed the séances too, in which case theirs is shown and named.
+   * It used to be taken in full, dropping every edit.
+   */
+  const reconcileNextRef = useRef(false)
+  /** The rows as they were seeded (or last reconciled) — the « opened » of the three ways. */
+  const seededRowsRef = useRef<StepRow[]>([])
+  const rowsRef = useRef<StepRow[]>([])
+  rowsRef.current = rows
+  const [takenOver, setTakenOver] = useState(false)
 
   // Seed once per open (and after a detach or a reload), never on every new `item`: that discarded typing and
   // took the colleague's version with it.
@@ -185,12 +202,37 @@ export function PlanItemStepsDialog({
       if (!open) seededForRef.current = null
       return
     }
-    if (seededForRef.current === item.id && !reseedRef.current) return
+    if (seededForRef.current === item.id && !reseedRef.current && !reconcileNextRef.current) return
+    const fromServer: StepRow[] = (item.steps ?? []).map((step) => ({
+      key: step.id,
+      id: step.id,
+      label: step.label,
+      duration: step.estimatedDurationMinutes?.toString() ?? "",
+      minDays: step.minDaysAfterPrevious?.toString() ?? "",
+      doneDate: step.doneDate,
+      linkedDentalRecordId: step.linkedDentalRecordId,
+    }))
+    if (reconcileNextRef.current && seededForRef.current === item.id) {
+      reconcileNextRef.current = false
+      seededVersionRef.current = plan.version
+      const verdict = mergeVerdict(
+        stepsSnapshot(seededRowsRef.current),
+        stepsSnapshot(rowsRef.current),
+        stepsSnapshot(fromServer),
+      )
+      if (verdict !== "keep") setRows(fromServer)
+      if (verdict === "takeOver") setTakenOver(true)
+      seededRowsRef.current = fromServer
+      return
+    }
+    reconcileNextRef.current = false
     seededForRef.current = item.id
     const firstSeed = !reseedRef.current
     reseedRef.current = false
     seededVersionRef.current = plan.version
     conflict.reset()
+    setTakenOver(false)
+    seededRowsRef.current = fromServer
     const seeded: StepRow[] = (item.steps ?? []).map((step) => ({
       key: step.id,
       id: step.id,
@@ -249,6 +291,7 @@ export function PlanItemStepsDialog({
 
   const handleSave = async () => {
     if (!item) return
+    setTakenOver(false)
 
     const trimmed = rows.map((r) => ({ ...r, label: r.label.trim() }))
     if (trimmed.some((r) => r.label.length === 0)) {
@@ -325,10 +368,15 @@ export function PlanItemStepsDialog({
             className="mb-2"
             action={
               conflict.isConflict
-                ? { label: "Recharger", onClick: () => { reseedRef.current = true; onSaved() }, disabled: saving || detachBusy }
+                ? { label: "Recharger", onClick: () => { reconcileNextRef.current = true; conflict.clearMessage(); onSaved() }, disabled: saving || detachBusy }
                 : undefined
             }
           />
+          {takenOver && (
+            <p role="status" className="mb-2 rounded-md bg-warning-wash px-3 py-2 text-sm text-warning-ink">
+              {takenOverSentence(["Séances"])}
+            </p>
+          )}
 
           {rows.length === 0 && (
             <p className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">

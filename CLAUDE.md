@@ -65,6 +65,10 @@ clinic-management/
 │                                   ⚠️ Serve `web` with `node .next/standalone/server.js` — `npm run start`
 │                                   binds, says « Ready », then EXITS (output: 'standalone'), and the browser
 │                                   half then reports ten product defects. e2e/README.md § Running it locally.
+├── e2e/relay-roundtrip/          The PC de secours's cut test (clinic-pc-copy D26): cloud + PC + two Postgres in
+│                                   containers, the cabinet's network cut with `docker network disconnect`, work on
+│                                   both sides, back. `bash e2e/relay-roundtrip/run.sh` (Docker + node); CI job
+│                                   `relay-roundtrip`
 ├── web/                          Next.js frontend
 │   ├── (root)                            → CLAUDE.md  (stack, routing, API/auth integration)
 │   ├── components/                       → CLAUDE.md  (feature components + shadcn/ui primitives)
@@ -111,7 +115,7 @@ clinic-management/
 │                                                       delta (~160 KB), no UAC. `windows-latest`; `contents: write`
 │                                   android-release.yml = « Android release ». Same triggers (`mobile/android/**`
 │                                                       on main, `android-v*`): a SIGNED APK (four ANDROID_* secrets)
-│                                                       → `deploy/updates/APEXA-<v>.apk`, which phones 1.2.0+ fetch
+│                                                       → `deploy/updates/APEXA-<v>.apk`, which phones 1.4.0+ fetch
 │                                                       through « Mettre à jour » (features/android-in-app-update)
 │                                   deploy-hosted.yml = `workflow_dispatch` deploy to a VPS: build the three heavy
 │                                                       images → GHCR → ssh `pull` + `up -d --no-build` → /health →

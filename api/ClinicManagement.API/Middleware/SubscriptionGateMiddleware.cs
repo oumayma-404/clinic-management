@@ -69,7 +69,7 @@ public class SubscriptionGateMiddleware
             return;
         }
 
-        var status = SubscriptionStateReader.Read(subscription, ClinicClock.ClinicToday());
+        var status = SubscriptionStateReader.Read(subscription, DayToJudge(context, ClinicClock.ClinicToday()));
 
         if (status.AllowsWrites)
         {
@@ -107,6 +107,16 @@ public class SubscriptionGateMiddleware
         && !IsRead(context.Request.Method)
         && context.GetEndpoint() is { } endpoint
         && endpoint.Metadata.GetMetadata<AllowsWithoutSubscriptionAttribute>() is null;
+
+    /// <summary>
+    /// EC-15: a PC de secours holding the cabinet's saves keeps them working up to this many days past the end date — the
+    /// cabinet cannot reach the vendor to pay during a cut. The cloud applies the ordinary rule at the return.
+    /// </summary>
+    public const int CutGraceDays = 7;
+
+    /// <summary>The day the entitlement is judged on: today — or, on a PC holding a cut, <see cref="CutGraceDays"/> earlier.</summary>
+    public static DateTime DayToJudge(HttpContext context, DateTime today) =>
+        context.RequestServices?.GetService<IRelayLocalStatus>() is { IsHolding: true } ? today.AddDays(-CutGraceDays) : today;
 
     private static bool IsRead(string method) =>
         HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);

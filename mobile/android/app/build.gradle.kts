@@ -28,12 +28,12 @@ val keystoreProperties: Properties? = rootProject.file("keystore.properties")
  * The shell's version, and the release workflow's way in: `-PshellVersion=1.2.3` (`android-release.yml`). The
  * default is the version a local build reports.
  */
-val shellVersion: String = providers.gradleProperty("shellVersion").getOrElse("1.2.0").trim()
+val shellVersion: String = providers.gradleProperty("shellVersion").getOrElse("1.4.0").trim()
 
 /**
  * `versionCode` derived from the version — `major·10000 + minor·100 + patch` — so the two cannot disagree and the
  * code rises with every release by construction. ⚠️ Android refuses an update whose code is not higher than the
- * installed one, and the last hand-set code was 4: every derived code is far above it.
+ * installed one, and the last hand-set code was 6: every derived code is far above it.
  */
 fun versionCodeOf(version: String): Int {
     val parts = version.split('.').map { it.toIntOrNull() ?: error("shellVersion must be N.N.N, got '$version'") }
@@ -58,8 +58,9 @@ android {
         targetSdk = 36
 
         // ⚠️ Must increase on every release, and it can never go back down for this `applicationId` — Android
-        // refuses the update otherwise. Derived from `shellVersion` (see `versionCodeOf`); 1.2.0 → 10200.
-        // History: 1–2 never left this machine, 3 was 1.1.0, 4 was 1.1.1 rebuilt with app.apexa.tn.
+        // refuses the update otherwise. Derived from `shellVersion` (see `versionCodeOf`); 1.4.0 → 10400.
+        // History: 1–2 never left this machine, 3 was 1.1.0, 4 was 1.1.1 rebuilt with app.apexa.tn,
+        // 5 added `relayProbe` (clinic-pc-copy AC-6.2), 6 was 1.3.0 with `relayPrepare` + `relaySwitch` (Part 3).
         versionCode = versionCodeOf(shellVersion)
 
         // The single source of the shell's version. `BuildConfig.VERSION_NAME` is what reaches
@@ -69,8 +70,8 @@ android {
         //
         // ⚠️ A change to the bridge's method set edits `mobile/shared/bridge.md` **and** bumps this — one without
         // the other ships a build reporting a capability set it does not have. 1.1.0 added `confirmIdentity`
-        // (Part 7); its version history is the table at the foot of that file. 1.2.0 adds the in-app updater,
-        // a native change with no bridge member.
+        // (Part 7); its version history is the table at the foot of that file. 1.3.0 added the PC de secours
+        // members (clinic-pc-copy); 1.4.0 adds the in-app updater, a native change with no bridge member.
         versionName = shellVersion
 
         // The address a fresh install starts on, so a phone that downloads this build from the product's own
@@ -167,6 +168,9 @@ android {
         // bumped as a side effect of an SDK bump, because a dependency upgrade that rides along in another commit
         // is one nobody reviewed as an upgrade.
         disable += "GradleDependency"
+        // ⚠️ The third, for the same reason: « A newer version of Gradle than 8.13 is available » reddened CI on
+        // every run once Gradle 8.14.6 shipped. Gradle is pinned with AGP and Kotlin as one set (mobile/CLAUDE.md).
+        disable += "AndroidGradlePluginVersion"
     }
 }
 

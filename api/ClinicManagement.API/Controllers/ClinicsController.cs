@@ -68,6 +68,7 @@ public class ClinicsController : ApiControllerBase
     // that default dies on a framework 413 the app never sees and cannot explain in French.
     [RequestSizeLimit(FileTypeCatalog.ProfileImageBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.ProfileImageBytes)]
+    [OnlineOnly("FR-5 — a cabinet and its first account are created on the cloud, never on a copy.")]
     [HttpPost]
     public async Task<IActionResult> CreateClinic()
     {
@@ -176,6 +177,7 @@ public class ClinicsController : ApiControllerBase
     /// <summary>
     /// Join an existing clinic using a clinic code
     /// </summary>
+    [OnlineOnly("FR-5 — creating an account waits for the internet: accounts stay on the cloud during a cut (FR-11).")]
     [HttpPost("join")]
     public async Task<IActionResult> JoinClinic([FromBody] JoinClinicRequest request)
     {
@@ -275,6 +277,7 @@ public class ClinicsController : ApiControllerBase
     /// Regenerate the clinic's self-registration code (admin-only, AC-4.5). Invalidates the
     /// old code for future staff registrations.
     /// </summary>
+    [OnlineOnly("FR-5 — the clinic code creates accounts, which wait for the internet (FR-11).")]
     [HttpPost("regenerate-code")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> RegenerateCode()
@@ -347,6 +350,7 @@ public class ClinicsController : ApiControllerBase
     /// Update the current clinic's reminder settings (admin-only, AC-2). Secrets are write-only — an
     /// omitted/blank secret leaves the stored value unchanged; a provided one is encrypted and replaces it.
     /// </summary>
+    [OnlineOnly("FR-5 — « Rappels » settings wait for the internet: the reminders are sent by the cloud.")]
     [HttpPut("reminder-settings")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> UpdateReminderSettings(
@@ -484,6 +488,7 @@ public class ClinicsController : ApiControllerBase
     /// one-time code, subscribes the app, registers the phone number, and stores the encrypted credentials —
     /// atomically. Returns the secret-masked settings (status Connected). 404 in Local mode.
     /// </summary>
+    [OnlineOnly("FR-5 — « Rappels » settings wait for the internet: the reminders are sent by the cloud.")]
     [HttpPost("whatsapp/connect")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> ConnectWhatsApp(
@@ -509,6 +514,7 @@ public class ClinicsController : ApiControllerBase
     /// Disconnect the current clinic's WhatsApp (admin-only, Cloud-only). Clears the stored credentials,
     /// disables the channel and resets the status to NotConnected (best-effort Meta unsubscribe). 404 in Local.
     /// </summary>
+    [OnlineOnly("FR-5 — « Rappels » settings wait for the internet: the reminders are sent by the cloud.")]
     [HttpDelete("whatsapp/connect")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> DisconnectWhatsApp(CancellationToken cancellationToken = default)

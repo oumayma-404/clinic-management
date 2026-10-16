@@ -74,6 +74,20 @@ public class StaffNotification : AggregateRoot<Guid>
     /// </summary>
     public string? MessagingAllowanceMonth { get; private set; }
 
+    /// <summary>
+    /// When set, only users holding this role (<see cref="User.RoleAdmin"/> …) see the row — on top of
+    /// <see cref="TargetUserId"/> and the actor exclusion (<c>clinic-pc-copy</c> D9). Null keeps the row clinic-wide.
+    ///
+    /// <para>⚠️ A column the feed checks rather than one row per admin: rows fanned out per person go stale the day an
+    /// admin is added or demoted, and an audience read at display time cannot.</para>
+    /// </summary>
+    public string? TargetRole { get; private set; }
+
+    /// <summary>Which PC de secours problem this row names. Written only by <see cref="ForRelay"/>; the dedupe key.</summary>
+    public RelayAlert? RelayAlert { get; private set; }
+
+    public const int MaxTargetRoleLength = 20;
+
     public DateTime CreatedAt { get; private set; }
 
     private StaffNotification() { } // For EF Core
@@ -168,6 +182,21 @@ public class StaffNotification : AggregateRoot<Guid>
             id, clinicId, NotificationCategory.PatientImportedNeedsReview, title, message,
             effectiveFeedTimeUtc, NotificationTargetKind.Patient);
         notification.PatientId = patientId;
+        return notification;
+    }
+
+    /// <summary>
+    /// A PC de secours problem, for the clinic's administrators only (<c>clinic-pc-copy</c> AC-2.2, AC-2.3). No actor
+    /// (nobody « did » a PC going quiet) and no target user.
+    /// </summary>
+    public static StaffNotification ForRelay(
+        Guid id, Guid clinicId, RelayAlert alert, string title, string message, DateTime effectiveFeedTimeUtc)
+    {
+        var notification = new StaffNotification(
+            id, clinicId, NotificationCategory.RelayAttention, title, message,
+            effectiveFeedTimeUtc, NotificationTargetKind.RelaySettings);
+        notification.TargetRole = User.RoleAdmin;
+        notification.RelayAlert = alert;
         return notification;
     }
 

@@ -49,6 +49,10 @@ services:
     build:
       context: ../api
       dockerfile: Dockerfile
+      args:
+        # clinic-pc-copy D10: the commit, so the cloud's build identity equals the PC de secours installer's (built
+        # on Windows from the same commit). The deploy workflow sets CLINIC_IMAGE_TAG to the commit SHA.
+        SOURCE_REVISION: ${CLINIC_IMAGE_TAG:-}
     container_name: clinic-api-prod
     restart: unless-stopped
     depends_on:

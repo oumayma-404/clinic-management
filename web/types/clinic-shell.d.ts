@@ -21,6 +21,37 @@
  */
 type ShellIdentityOutcome = "confirmed" | "rejected" | "cancelled" | "unavailable"
 
+/**
+ * What the Windows app knows about the PC it runs on, for the PC de secours offer (`clinic-pc-copy` AC-1.6–1.8).
+ * `diskEncrypted` is **three-valued**: `null` is « je ne sais pas », which is the common answer without elevation,
+ * and the offer must not turn it into « non chiffré ». `freeBytes` is the drive the server installs to.
+ */
+interface ShellRelayHostFacts {
+  machineName: string
+  hasBattery: boolean
+  diskEncrypted: boolean | null
+  freeBytes: number | null
+}
+
+/**
+ * How an `installRelay` ended (AC-1.4, AC-1.11). `declined` is Windows' permission prompt answered « Non » — nothing
+ * installed. `refused` is the installer refusing before copying (too little room, already the cabinet's server) or
+ * the code refused at pairing. `sentence` is always French and always set: the shell words what only it can know.
+ */
+interface ShellRelayInstallOutcome {
+  outcome: "installed" | "declined" | "refused" | "failed"
+  sentence: string
+}
+
+/**
+ * `relayProbe`'s answer (`clinic-pc-copy` AC-6.2): whether this device reached the PC de secours through its pinned
+ * certificate, and this device's own default gateways — the cloud counts the report only from the cabinet's box.
+ */
+interface ShellRelayProbeResult {
+  reached: boolean
+  gateways: string[]
+}
+
 interface ClinicShell {
   /**
    * The shell's own version, injected before first paint.
@@ -68,6 +99,52 @@ interface ClinicShell {
    * lands on `/login` with their place remembered (AC-58).
    */
   confirmIdentity?(): Promise<ShellIdentityOutcome>
+
+  /**
+   * This PC's facts for the PC de secours offer — Windows app only (since 1.4). Never rejects: `null` when the shell
+   * cannot say, and then the offer is not made. Absent in every browser and on Android, which is AC-1.12.
+   */
+  relayHostFacts?(): Promise<ShellRelayHostFacts | null>
+
+  /**
+   * Turns this PC into the cabinet's PC de secours with a one-time code the cloud issued (AC-1.4): the shell fetches
+   * the server installer from the cloud it already uses, shows Windows' permission prompt once, and runs it. Never
+   * rejects; the code goes to a file the installer reads and deletes, never onto a command line.
+   */
+  installRelay?(request: { code: string; needBytes: number }): Promise<ShellRelayInstallOutcome>
+
+  /**
+   * While the cloud is locked for a PC de secours that said nothing (AC-6.2): try the PC at the addresses the cloud
+   * gave, recognising it only by its certificate's SHA-256. Windows since 1.5, Android since 1.2.0 — never a browser,
+   * which cannot tell an untrusted certificate from a PC that is down. Never rejects: `null` when it cannot answer.
+   */
+  relayProbe?(request: { addresses: string[]; port: number; fingerprint: string }): Promise<ShellRelayProbeResult | null>
+
+  /**
+   * `clinic-pc-copy` Part 3 (Windows since 1.6): trade the cloud's ticket on the PC de secours through its pinned
+   * certificate and keep that session in the app's cookie for the PC — so after a switch nobody signs in again. Never
+   * rejects: `false` when the shell could not.
+   */
+  relayPrepare?(request: {
+    assertion: string
+    /** D21 — which relay, so the app can find the PC again by UDP discovery after its address changed. */
+    relayId?: string
+    addresses: string[]
+    port: number
+    fingerprint: string
+  }): Promise<boolean>
+
+  /** Part 3: the cloud says the cabinet works on the PC — the shell asks the PC and moves there when it holds. */
+  relaySwitch?(): Promise<boolean>
+
+  /**
+   * `clinic-pc-copy` D23 (Windows 1.6 · Android 1.3.0): keep the open form's state (a JSON string) in the shell's memory
+   * for this window, replacing what it held — `null` forgets it. So a form survives the app switching server.
+   */
+  carryDraft?(draft: string | null): void
+
+  /** D23: the form state the shell holds, handed over once (and forgotten) — `null` when there is none. Never rejects. */
+  takeCarriedDraft?(): Promise<string | null>
 }
 
 interface Window {

@@ -1080,7 +1080,7 @@ folder is just a folder.
 
 ## Mettre à jour l'application Android
 
-The phone app (1.2.0 and later) updates itself from this server: « Une nouvelle version (X) est disponible »
+The phone app (1.4.0 and later) updates itself from this server: « Une nouvelle version (X) est disponible »
 → « Mettre à jour » → Android's own « Mettre à jour cette application ? ». Android always asks; the first time it
 also asks to allow « Installer des applis inconnues » for APEXA. See `features/android-in-app-update/notes.md`.
 
@@ -1106,11 +1106,30 @@ fails rather than publish an APK no phone would accept.
 
 **The Android minimum** is `Clients__Android__MinimumVersion` (empty = none), separate from the desktop's
 `Clients:MinimumShellVersion` — raising the desktop floor never locks out a phone. ⚠️ Do not set it while any
-phone is still on 1.1.1: that build has no updater, so its button cannot download anything.
+phone is still below 1.4.0: those builds have no updater, so their button cannot download anything.
 
-**Phones on 1.1.1** must install 1.2.0 by hand, once — from the download page or the file sent to them.
+**Phones below 1.4.0** (1.1.1, 1.3.0) must install 1.4.0 by hand, once — from the download page or the file sent to them.
 
 ---
+
+## L'installateur du PC de secours (`clinic-pc-copy`)
+
+A cabinet's PC de secours is installed — and later updated — from `GET /api/relay/installer`. **The cloud serves
+only the installer of its own build**: a PC on another build is refused every copy, so an installer one deploy behind
+would set up a PC that can never copy.
+
+- **Built by every deploy.** `deploy-hosted.yml`'s `relay-installer` job (Windows) builds the real server installer
+  from the deployed commit — PostgreSQL 16 and Node fetched, everything else from the repo — and the deploy job puts
+  it in `deploy/updates/relay/` **before** the new API starts. A deploy whose installer did not build is refused.
+- **One manifest per build**: `relay-<sha12>.json` (`{"build": "...", "file": "APEXA-PC-de-secours-<sha12>.exe"}`).
+  The three newest stay, so a rollback (`image_tag`) keeps its installer.
+- **The build identity** is `<newest migration>+1.0.0+<commit>`. The API image is stamped with the commit through the
+  `SOURCE_REVISION` build arg (set from `CLINIC_IMAGE_TAG`), the installer through `publish-server.ps1 -SourceRevision`.
+  To read either: `docker exec clinic-api-prod dotnet ClinicManagement.API.dll relay-build` · `ClinicManagement.API.exe relay-build`.
+
+To check it on the server: `ls -l deploy/updates/relay/`, then `curl -sI https://<domain>/api/relay/installer` →
+`200` with `X-Content-SHA256` and `X-Relay-Build`. A `404` « Le cloud ne propose pas encore l'installation du PC de
+secours » means no installer of the running build is there.
 
 ## Two things this topology does not solve
 

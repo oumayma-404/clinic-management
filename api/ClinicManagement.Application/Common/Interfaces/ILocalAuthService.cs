@@ -62,6 +62,9 @@ public interface ILocalAuthService
     /// <param name="scope">One of <c>LocalAuthScopes</c>' constants.</param>
     LocalAuthToken GenerateScopedToken(User user, string scope);
 
+    /// <summary>A short token for a PC de secours (<c>clinic-pc-copy</c>): subject <c>relay|{id}</c>, no role, scope <c>clinic-relay</c>.</summary>
+    LocalAuthToken GenerateRelayToken(ClinicRelay relay);
+
     /// <summary>
     /// Issues the <b>durable session</b> credential stored in the HttpOnly cookie (security-hardening US-5).
     ///

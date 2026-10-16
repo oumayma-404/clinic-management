@@ -71,6 +71,17 @@ public static class RateLimiting
     /// </summary>
     public const string ArchiveGrantTokenPolicy = "clinic-archive-grant-token";
 
+    /// <summary>The PC de secours's anonymous pairing and token exchange (clinic-pc-copy), on the archive grant's terms.</summary>
+    public const string RelayTokenPolicy = "clinic-relay-token";
+
+    /// <summary>
+    /// The PC de secours installer download (clinic-pc-copy). ⚠️ <b>Not <see cref="RelayTokenPolicy"/></b>, and it was:
+    /// a PC fetches the 361 Mo file in 8 Mo pieces, one request each, so twenty requests per ten minutes stopped every
+    /// update half-way with 429s and stretched it over half an hour (prod, 2026-10-12). The file is the same public
+    /// product for every cabinet and names nothing secret; what this bounds is a flood, per address.
+    /// </summary>
+    public const string RelayInstallerPolicy = "clinic-relay-installer";
+
     /// <summary>
     /// « Exporter » on a list screen — the patient roster and the agenda, as CSV.
     ///
@@ -122,6 +133,10 @@ public static class RateLimiting
     // verify it, and still have the scheduled copy work.
     private const int DefaultArchiveGrantTokenPermitLimit = 20;
     private const int DefaultArchiveGrantTokenWindowSeconds = 600;
+
+    // Five whole installers (44 pieces each) per address in ten minutes: several PCs behind one cabinet line, retries.
+    private const int DefaultRelayInstallerPermitLimit = 240;
+    private const int DefaultRelayInstallerWindowSeconds = 600;
 
     private const int DefaultCspReportPermitLimit = 60;
     private const int DefaultCspReportWindowSeconds = 60;
@@ -183,6 +198,10 @@ public static class RateLimiting
             configuration, "RateLimiting:ArchiveGrantToken:PermitLimit", DefaultArchiveGrantTokenPermitLimit);
         var grantTokenWindow = TimeSpan.FromSeconds(Read(
             configuration, "RateLimiting:ArchiveGrantToken:WindowSeconds", DefaultArchiveGrantTokenWindowSeconds));
+        var relayInstallerPermitLimit = Read(
+            configuration, "RateLimiting:RelayInstaller:PermitLimit", DefaultRelayInstallerPermitLimit);
+        var relayInstallerWindow = TimeSpan.FromSeconds(Read(
+            configuration, "RateLimiting:RelayInstaller:WindowSeconds", DefaultRelayInstallerWindowSeconds));
         var cspReportPermitLimit = Read(
             configuration, "RateLimiting:CspReport:PermitLimit", DefaultCspReportPermitLimit);
         var cspReportWindow = TimeSpan.FromSeconds(
@@ -259,6 +278,28 @@ public static class RateLimiting
                     {
                         PermitLimit = grantTokenPermitLimit,
                         Window = grantTokenWindow,
+                        SegmentsPerWindow = SegmentsPerWindow,
+                        QueueLimit = 0
+                    }));
+
+            options.AddPolicy(RelayTokenPolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    $"relay-token:{ClientIp.Resolve(httpContext, trustedProxies)}",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = grantTokenPermitLimit,
+                        Window = grantTokenWindow,
+                        SegmentsPerWindow = SegmentsPerWindow,
+                        QueueLimit = 0
+                    }));
+
+            options.AddPolicy(RelayInstallerPolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    $"relay-installer:{ClientIp.Resolve(httpContext, trustedProxies)}",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = relayInstallerPermitLimit,
+                        Window = relayInstallerWindow,
                         SegmentsPerWindow = SegmentsPerWindow,
                         QueueLimit = 0
                     }));

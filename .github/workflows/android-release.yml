@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # Releases the Android shell: builds a SIGNED release APK and puts it in the hosted deployment's `updates/`
-# folder, where `GET /api/meta/client-download/android` serves it. Installed phones (1.2.0 and later) then see
+# folder, where `GET /api/meta/client-download/android` serves it. Installed phones (1.4.0 and later) then see
 # « Une nouvelle version est disponible » and update in two taps — see `features/android-in-app-update`.
 #
 # The Android twin of `client-installer.yml`, and deliberately shaped like it: same triggers, same version

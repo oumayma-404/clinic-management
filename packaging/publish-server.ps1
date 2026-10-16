@@ -49,6 +49,10 @@ param(
     # The release being built. Omit it and the shell project's own <Version> is used, which is the point:
     # there is ONE source for this number and everything downstream is stamped from it. See Resolve-Version.
     [string]$Version,
+    # The commit, stamped into the API's informational version (clinic-pc-copy D10). The cloud image is built with
+    # the same value, so a PC de secours installed from this build has the cloud's build identity. Omit it and a git
+    # checkout stamps its own HEAD, which is the same commit when CI builds both.
+    [string]$SourceRevision,
     [switch]$SkipInstallers
 )
 
@@ -129,11 +133,14 @@ Clear-Dir $ClientOut
 # --- 1. Publish the API (self-contained win-x64, Windows-service capable) -----------------------
 Write-Step 'Publishing ClinicManagement.API (self-contained win-x64)'
 $ApiOut = Join-Path $ServerOut 'api'
+$RevisionArgs = @()
+if ($SourceRevision) { $RevisionArgs = @("/p:SourceRevisionId=$SourceRevision") }
 dotnet publish $ApiProject `
     -c $Configuration `
     -r $Rid `
     --self-contained true `
     /p:UseAppHost=true `
+    @RevisionArgs `
     -o $ApiOut
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish (API) failed with exit code $LASTEXITCODE." }
 
@@ -357,6 +364,13 @@ if (-not $SkipInstallers) {
         }
         else {
             Write-Warning 'No signed Android release APK found (mobile/android: gradlew assembleRelease) -- this server will offer phones no update.'
+        }
+
+        # ⚠️ The .iss takes nssm.exe with `skipifsourcedoesntexist`, so a build without it compiles and installs a
+        # server with no web service — pages answer 502 and nothing says why (the installer's own message is
+        # suppressed in a silent install). A real build refuses instead.
+        if (-not (Test-Path (Join-Path $PackagingDir 'server\tools\nssm.exe'))) {
+            throw 'packaging\server\tools\nssm.exe is missing: the installed server would have no web service. Run fetch-build-tools.ps1 first.'
         }
 
         & $Iscc "/DAppVersion=$Version" (Join-Path $PackagingDir 'setup\clinic-setup.iss')

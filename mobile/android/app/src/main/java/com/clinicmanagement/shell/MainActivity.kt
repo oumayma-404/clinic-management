@@ -9,6 +9,8 @@ import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.View
@@ -121,6 +123,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ── The PC de secours (clinic-pc-copy Part 3) ──
+    /** Where the PC this app prepared a session on answers, or null. */
+    private var relayTarget: RelaySwitch.Target? = null
+    /** Whether the document on screen is the PC's, and whether the load in flight is aimed at it. */
+    private var onPc = false
+    private var navigatingToPc = false
+    /** Since when the cloud has been unreachable with a PC that does not hold yet (AC-3.3, then AC-3.8). */
+    private var cloudLostAtMs: Long? = null
+    /** Its own thread: a pinned GET can take five seconds and must never queue behind the launch probe. */
+    private val relayWorker = Executors.newSingleThreadExecutor()
+    private val relayHandler = Handler(Looper.getMainLooper())
+    private val relayTick = Runnable { relayTick() }
+    private val offerTick = Runnable { offerTick() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -150,6 +166,7 @@ class MainActivity : ComponentActivity() {
         installBackHandler()
 
         config = store.load()
+        relayTarget = RelaySwitch.load(this)
         if (config.isConfigured) startSession() else showServerAddress()
     }
 
@@ -190,7 +207,7 @@ class MainActivity : ComponentActivity() {
         }
 
         findViewById<Button>(R.id.unreachable_retry).setOnClickListener { startSession() }
-        findViewById<Button>(R.id.unreachable_change_server).setOnClickListener { showServerAddress() }
+        findViewById<Button>(R.id.unreachable_take_over).setOnClickListener { takeOver() }
         findViewById<Button>(R.id.update_retry).setOnClickListener { startSession() }
         findViewById<Button>(R.id.update_change_server).setOnClickListener { showServerAddress() }
         findViewById<Button>(R.id.update_open_store).setOnClickListener {
@@ -308,6 +325,7 @@ class MainActivity : ComponentActivity() {
         configureWebView()
         installBridgeScript()
         mainFrameFailed = false
+        navigatingToPc = false
         // `loadUrl` on the same address re-requests it, which is what makes « Réessayer » and « Recharger »
         // re-attempt an unchanged server (`MainWindow.xaml.cs:85-87`'s Navigate(), not Source=).
         webView.loadUrl(config.baseUrl)
@@ -512,11 +530,21 @@ class MainActivity : ComponentActivity() {
         }
 
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
-        webView.addJavascriptInterface(ShellBridge(this, webView), ShellBridge.NATIVE_OBJECT)
+        webView.addJavascriptInterface(
+            ShellBridge(
+                this,
+                webView,
+                isOwnPage = { page -> config.isSameOrigin(page) },
+                onRelayPrepare = { request, done -> prepareRelay(request, done) },
+                onRelaySwitch = { done -> switchToPcIfHolding(done) },
+                isClinicPage = { page -> config.isSameOrigin(page) || RelaySwitch.isPcOrigin(page, relayTarget) },
+            ),
+            ShellBridge.NATIVE_OBJECT,
+        )
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                externalNavigation.handle(request, config)
+                externalNavigation.handle(request, config, relayTarget)
 
             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                 // The fallback path when `DOCUMENT_START_SCRIPT` is unsupported — see installBridgeScript.
@@ -526,7 +554,10 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onPageFinished(view: WebView, url: String) {
-                if (!mainFrameFailed) showWebPage()
+                if (!mainFrameFailed) {
+                    followRelayAfterSuccess(url)
+                    showWebPage()
+                }
             }
 
             override fun onReceivedError(
@@ -538,7 +569,7 @@ class MainActivity : ComponentActivity() {
                 // an error screen because one image 404'd is the blank-app failure AC-74 forbids.
                 if (!request.isForMainFrame) return
                 mainFrameFailed = true
-                showUnreachable(error.description?.toString().orEmpty())
+                followRelayAfterFailure(error.description?.toString().orEmpty())
             }
 
             /**
@@ -551,10 +582,23 @@ class MainActivity : ComponentActivity() {
              * main frame, so `mainFrameFailed` stayed false, `onPageFinished` still fired, and the shell
              * switched to an empty WebView. A white rectangle is the one outcome AC-74 forbids.
              *
-             * `handler.cancel()` is kept — the certificate is still refused, and `proceed()` appears nowhere in
-             * this project. What changes is only that the user is told, and told what to do about it.
+             * `handler.cancel()` is kept — the certificate is still refused. What changes is only that the user is
+             * told, and told what to do about it.
+             *
+             * ⚠️ The ONE `proceed()` (since 1.3.0, `clinic-pc-copy` Part 3): the PC de secours's own self-issued
+             * certificate, at the address and port this app traded a session on, matched by its DER SHA-256 — the pin
+             * the cloud handed over (D21). Any other certificate, anywhere, is still cancelled and reported.
              */
+            @android.annotation.SuppressLint("WebViewClientOnReceivedSslError")
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                // Part 3: the PC de secours's own certificate, at its own address, and nothing else. Its certificate is
+                // self-issued, so this is the only way the WebView can show it — a pin, never « ignore errors ».
+                val pc = relayTarget
+                val at = runCatching { error.url?.toUri() }.getOrNull()
+                if (pc != null && RelaySwitch.isPcOrigin(at, pc) && RelaySwitch.isThePcsCertificate(error.certificate, pc.fingerprint)) {
+                    handler.proceed()
+                    return
+                }
                 handler.cancel()
                 mainFrameFailed = true
                 showUnreachable(getString(R.string.unreachable_certificate))
@@ -600,7 +644,7 @@ class MainActivity : ComponentActivity() {
                 // `bridgeOrigins`, not `baseUrl`: a page served on 443 reports `https://host` as its origin — the
                 // URL spec omits a default port — so granting only `https://host:443` would leave the bridge
                 // silently uninstalled on exactly the deployment that has no other way in.
-                WebViewCompat.addDocumentStartJavaScript(webView, bridgeSource(), config.bridgeOrigins)
+                WebViewCompat.addDocumentStartJavaScript(webView, bridgeSource(), bridgeOrigins())
             } catch (t: Throwable) {
                 Log.w(TAG, "document-start script rejected — falling back to page-start injection", t)
                 null
@@ -622,8 +666,199 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** The cloud's origins, and the PC de secours's once one was prepared — a carried form is taken back there (D23). */
+    private fun bridgeOrigins(): Set<String> = config.bridgeOrigins + listOfNotNull(relayTarget?.origin)
+
     private fun bridgeSource(): String =
         ShellBridge.injectedScript(BuildConfig.VERSION_NAME, ShellBridge.MAX_FILE_BYTES)
+
+    // ── The PC de secours (clinic-pc-copy Part 3) ──────────────────────────────────────────────────────────
+
+    /** `relayPrepare`: trade the ticket on the PC (pinned), write the PC's session cookie, remember where the PC is. */
+    private fun prepareRelay(request: RelaySwitch.Prepare, done: (Boolean) -> Unit) {
+        relayWorker.execute {
+            val traded = RelaySwitch.trade(request)
+            runOnUiThread {
+                if (traded == null || isDestroyed) {
+                    done(false)
+                    return@runOnUiThread
+                }
+                val (target, session) = traded
+                val (sessionCookie, mustChange) = RelaySwitch.cookies(session)
+                val cookies = CookieManager.getInstance()
+                cookies.setCookie(target.origin, sessionCookie)
+                cookies.setCookie(target.origin, mustChange)
+                cookies.flush()
+                RelaySwitch.save(this, target, session.expiresAt)
+                val moved = relayTarget?.origin != target.origin
+                relayTarget = target
+                // A new PC origin needs the bridge too (D23); the page in front is the cloud's, so this changes nothing on screen.
+                if (moved) installBridgeScript()
+                done(true)
+            }
+        }
+    }
+
+    /** `relaySwitch`: the cloud says the cabinet works on the PC — move there if the PC says it holds. */
+    private fun switchToPcIfHolding(done: (Boolean) -> Unit) {
+        val known = relayTarget ?: return done(false)
+        relayWorker.execute {
+            val (pc, holding) = askPc(known)
+            // The open page lost the cloud (Wi-Fi off, a request with no reply): if the cloud really does not answer,
+            // the cut is shown at once — the countdown, then the button — with no reload (owner, 2026-10-12).
+            val cut = holding != true && !RelaySwitch.cloudAnswers(config.baseUrl)
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread done(false)
+                if (holding == true) {
+                    adoptMovedPc(known, pc)
+                    loadPc(pc)
+                    done(true)
+                } else if (cut) {
+                    followRelayAfterFailure(getString(R.string.unreachable_title))
+                    done(true)
+                } else {
+                    done(false)
+                }
+            }
+        }
+    }
+
+    /**
+     * « Do you hold? », and when the PC no longer answers as itself at the address the app knew, UDP discovery (D21).
+     * Blocking — on [relayWorker]. Returns the PC as found (maybe at a new address) and its answer.
+     */
+    private fun askPc(known: RelaySwitch.Target): Pair<RelaySwitch.Target, Boolean?> {
+        val holding = RelaySwitch.holding(known)
+        if (holding != null) return known to holding
+        val moved = RelayDiscovery.find(this, known) ?: return known to null
+        return moved to RelaySwitch.holding(moved)
+    }
+
+    /** The PC moved: carry the prepared session to its new origin and keep the new address. On the UI thread. */
+    private fun adoptMovedPc(old: RelaySwitch.Target, moved: RelaySwitch.Target) {
+        if (old.origin == moved.origin || isDestroyed) return
+        val cookies = CookieManager.getInstance()
+        val credential = RelaySwitch.cookieValue(cookies.getCookie(old.origin), RelaySwitch.SESSION_COOKIE)
+        if (credential != null) {
+            val mustChange = RelaySwitch.cookieValue(cookies.getCookie(old.origin), RelaySwitch.MUST_CHANGE_COOKIE) == "1"
+            val (sessionCookie, mustChangeCookie) =
+                RelaySwitch.cookies(RelaySwitch.Session(credential, RelaySwitch.sessionExpires(this), mustChange))
+            cookies.setCookie(moved.origin, sessionCookie)
+            cookies.setCookie(moved.origin, mustChangeCookie)
+            cookies.flush()
+        }
+        RelaySwitch.save(this, moved)
+        relayTarget = moved
+        installBridgeScript()
+    }
+
+    private fun loadPc(pc: RelaySwitch.Target) {
+        mainFrameFailed = false
+        navigatingToPc = true
+        webView.loadUrl(pc.origin + "/")
+    }
+
+    private fun followRelayAfterSuccess(url: String) {
+        onPc = RelaySwitch.isPcOrigin(runCatching { url.toUri() }.getOrNull(), relayTarget)
+        navigatingToPc = false
+        cloudLostAtMs = null
+        scheduleRelayTick(if (onPc) RELAY_BACK_CHECK_MS else null)
+    }
+
+    /**
+     * The clinic's document did not load. From the PC: back to the cloud. From the cloud: if the PC holds the cabinet's
+     * saves, move there (already signed in, D22); if it answers without holding, say it is about to (AC-3.3) or that it
+     * was not ready (AC-3.8), and try again every few seconds. With no PC prepared: the panel exactly as before.
+     */
+    private fun followRelayAfterFailure(reason: String) {
+        if (navigatingToPc || onPc) {
+            navigatingToPc = false
+            onPc = false
+            loadApp()
+            return
+        }
+        val pc = relayTarget
+        if (pc == null) {
+            showUnreachable(reason)
+            return
+        }
+        val now = System.currentTimeMillis()
+        val lostAt = cloudLostAtMs ?: now.also { cloudLostAtMs = it }
+        showUnreachable(reason)
+        relayWorker.execute {
+            val (found, holding) = askPc(pc)
+            runOnUiThread {
+                if (isDestroyed || state != ShellState.Unreachable) return@runOnUiThread
+                adoptMovedPc(pc, found)
+                if (holding == true) {
+                    loadPc(found)
+                    return@runOnUiThread
+                }
+                if (holding == false) {
+                    showUnreachable(waitingText())
+                    findViewById<Button>(R.id.unreachable_take_over).visibility =
+                        if (RelaySwitch.lastCanTakeOver) View.VISIBLE else View.GONE
+                    relayHandler.removeCallbacks(offerTick)
+                    relayHandler.postDelayed(offerTick, OFFER_POLL_MS)
+                }
+                scheduleRelayTick(null)
+            }
+        }
+    }
+
+    private fun waitingText(): String = RelaySwitch.waitingLine(
+        RelaySwitch.lastArmed, RelaySwitch.lastCanTakeOver,
+        cloudLostAtMs?.let { RelaySwitch.secondsLeft(it, System.currentTimeMillis()) } ?: 0,
+    )
+
+    /** While the cut panel is up: ask the PC every 3 s, update the countdown and show the button the moment it is offered. */
+    private fun offerTick() {
+        val pc = relayTarget ?: return
+        if (state != ShellState.Unreachable || onPc || cloudLostAtMs == null) return
+        relayWorker.execute {
+            val holding = RelaySwitch.holding(pc)
+            runOnUiThread {
+                if (isDestroyed || state != ShellState.Unreachable || onPc) return@runOnUiThread
+                val button = findViewById<Button>(R.id.unreachable_take_over)
+                if (holding == true) {
+                    loadPc(pc)
+                    return@runOnUiThread
+                }
+                if (holding == false && button.isEnabled) {
+                    findViewById<TextView>(R.id.unreachable_detail).text = waitingText()
+                    button.visibility = if (RelaySwitch.lastCanTakeOver) View.VISIBLE else View.GONE
+                }
+                relayHandler.postDelayed(offerTick, OFFER_POLL_MS)
+            }
+        }
+    }
+
+    /** One loop: on the PC, « does it still hold? » every 20 s; while the cloud is unreachable, try it again every 10 s. */
+    private fun scheduleRelayTick(backCheckMs: Long?) {
+        relayHandler.removeCallbacks(relayTick)
+        if (relayTarget == null || (backCheckMs == null && cloudLostAtMs == null)) return
+        relayHandler.postDelayed(relayTick, backCheckMs ?: RELAY_RETRY_MS)
+    }
+
+    private fun relayTick() {
+        val pc = relayTarget ?: return
+        if (onPc) {
+            relayWorker.execute {
+                val holding = RelaySwitch.holding(pc)
+                runOnUiThread {
+                    if (isDestroyed || !onPc) return@runOnUiThread
+                    if (holding != true) {
+                        onPc = false
+                        loadApp()
+                    } else {
+                        scheduleRelayTick(RELAY_BACK_CHECK_MS)
+                    }
+                }
+            }
+        } else if (cloudLostAtMs != null && state == ShellState.Unreachable) {
+            loadApp()
+        }
+    }
 
     // ── State switching ───────────────────────────────────────────────────────────────────────────────────
 
@@ -655,8 +890,28 @@ class MainActivity : ComponentActivity() {
         findViewById<EditText>(R.id.config_address).requestFocus()
     }
 
+    /** « Travailler sur le PC de secours » (manual takeover): the PC takes over, then the app moves there. */
+    private fun takeOver() {
+        val pc = relayTarget ?: return
+        val button = findViewById<Button>(R.id.unreachable_take_over)
+        button.isEnabled = false
+        relayWorker.execute {
+            val held = RelaySwitch.takeOver(pc)
+            runOnUiThread {
+                button.isEnabled = true
+                if (isDestroyed) return@runOnUiThread
+                if (held) {
+                    loadPc(pc)
+                } else {
+                    findViewById<TextView>(R.id.unreachable_detail).setText(R.string.unreachable_take_over_failed)
+                }
+            }
+        }
+    }
+
     /** Names both the address and the reason (AC-15) — « ça ne marche pas » is not a diagnosis an operator can act on. */
     private fun showUnreachable(reason: String) {
+        findViewById<Button>(R.id.unreachable_take_over).visibility = View.GONE
         findViewById<TextView>(R.id.unreachable_detail).text =
             getString(R.string.unreachable_detail, config.baseUrl, reason)
         show(ShellState.Unreachable)
@@ -741,6 +996,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        relayHandler.removeCallbacks(relayTick)
+        relayWorker.shutdownNow()
         background.shutdownNow()
         removeBridgeScript()
         unregisterReceiver(installStatusReceiver)
@@ -750,5 +1007,8 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val TAG = "ClinicShell"
         const val UPDATE_RECHECK_MS = 30L * 60 * 1000
+        const val RELAY_RETRY_MS = 10_000L
+        const val OFFER_POLL_MS = 3_000L
+        const val RELAY_BACK_CHECK_MS = 20_000L
     }
 }

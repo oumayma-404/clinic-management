@@ -435,6 +435,8 @@ interface SessionState {
 
 export type SessionAction =
   | { type: "reset"; record?: DentalRecordDto | null }
+  /** `clinic-pc-copy` D23: the acts as they were on screen before the app switched server — nothing armed. */
+  | { type: "restoreActs"; acts: SessionAct[] }
   | { type: "focusAct"; key: string }
   | { type: "addAct" }
   | { type: "addFromProcedure"; procedure: ProcedureTypeDto; agreedCost?: number | null }
@@ -744,6 +746,11 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
     case "reset":
       return initialState(action.record)
 
+    case "restoreActs": {
+      const highest = action.acts.reduce((max, a) => Math.max(max, Number(a.key.replace(/^act-/, "")) || 0), -1)
+      return { acts: action.acts, focusKey: null, nextKey: highest + 1 }
+    }
+
     case "focusAct":
       return { ...state, focusKey: action.key }
 
@@ -1047,6 +1054,24 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
  * <p>A single reducer rather than a pile of `useState` + effects, so prefilling (edit mode, a linked plan step, a
  * catalogue pick) is always an explicit dispatch and can never race user input.</p>
  */
+/** The acts as JSON can carry them (`clinic-pc-copy` D23) — the one `Set` becomes an array. */
+export function carriedActs(acts: readonly SessionAct[]): unknown[] {
+  return acts.map((a) => ({ ...a, surfaces: [...a.surfaces], picking: false }))
+}
+
+/** The carried acts back as `SessionAct`s, or null when the shape is not one this build wrote. */
+export function actsFromCarried(raw: unknown): SessionAct[] | null {
+  if (!Array.isArray(raw)) return null
+  const acts: SessionAct[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== "object") return null
+    const a = item as Record<string, unknown>
+    if (typeof a.key !== "string" || !Array.isArray(a.toothNumbers) || !Array.isArray(a.surfaces)) return null
+    acts.push({ ...emptyAct(a.key), ...(a as Partial<SessionAct>), surfaces: new Set(a.surfaces as string[]) } as SessionAct)
+  }
+  return acts
+}
+
 export function useSessionActs(record?: DentalRecordDto | null) {
   const [state, dispatch] = useReducer(reducer, record, initialState)
 

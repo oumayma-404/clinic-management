@@ -76,6 +76,11 @@ public class SecretProtectionCoverageTests
                 + "exact inversion this product avoids everywhere else. It is also compared on every exchange, "
                 + "and ciphertext is not equality-searchable.",
 
+            [$"{nameof(ClinicRelay)}.{nameof(ClinicRelay.SecretHash)}"] =
+                "A hash of the PC de secours's own secret, on ClinicArchiveGrant.SecretHash's reasoning: the "
+                + "plaintext lives only on that PC, the column is irreversible, and encrypting it would put the "
+                + "copy of the cabinet's records behind the key ring it is meant to survive.",
+
             [$"{nameof(DeviceRegistration)}.{nameof(DeviceRegistration.Token)}"] =
                 "The OS-issued push routing token. It is not our credential — sending to it requires the "
                 + "deployment's own FCM/APNs keys, which are configuration and never in this database — and it "
