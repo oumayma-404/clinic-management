@@ -34,6 +34,7 @@ public class SendArrivalNoticeCommandHandler : IRequestHandler<SendArrivalNotice
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IRealtimeNotifier _realtime;
+    private readonly IStaffChatPushQueue _push;
     private readonly ILogger<SendArrivalNoticeCommandHandler> _logger;
 
     public SendArrivalNoticeCommandHandler(
@@ -45,6 +46,7 @@ public class SendArrivalNoticeCommandHandler : IRequestHandler<SendArrivalNotice
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
         IRealtimeNotifier realtime,
+        IStaffChatPushQueue push,
         ILogger<SendArrivalNoticeCommandHandler> logger)
     {
         _messages = messages;
@@ -55,6 +57,7 @@ public class SendArrivalNoticeCommandHandler : IRequestHandler<SendArrivalNotice
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
         _realtime = realtime;
+        _push = push;
         _logger = logger;
     }
 
@@ -118,7 +121,7 @@ public class SendArrivalNoticeCommandHandler : IRequestHandler<SendArrivalNotice
         }
 
         return Result<StaffMessageDto>.Success(await StaffMessagePosted.AnnounceAsync(
-            message, conversation, roster, _realtime, _patients, _messages, _logger, cancellationToken));
+            message, conversation, roster, _realtime, _push, _patients, _messages, _logger, cancellationToken));
     }
 
     private static Result<StaffMessageDto> Refuse(string message, string code) => Result<StaffMessageDto>.Failure(message, code);

@@ -9,7 +9,7 @@ import { useAlertPreferences } from "@/lib/staff-chat/alerts"
 
 /** « Son » and browser notifications for this person on this device (staff-chat AC-4.4, AC-4.6). */
 export function AlertSettings() {
-  const { muted, setMuted, notifications, askNotifications, shell } = useAlertPreferences()
+  const { muted, setMuted, notifications, askNotifications, shell, phone, askPhoneNotifications } = useAlertPreferences()
   // In the Windows app its own notifications stand in for the browser's (EC-10 when it is too old to have them).
   const browser = shell === "none"
   const soundId = useId()
@@ -24,6 +24,27 @@ export function AlertSettings() {
       </div>
       {shell === "outdated" && (
         <p className="text-xs text-muted-foreground">Mettez à jour l&apos;application Windows pour recevoir ses notifications.</p>
+      )}
+      {shell === "android-outdated" && (
+        <p className="text-xs text-muted-foreground">Mettez à jour l&apos;application Android pour recevoir ses notifications.</p>
+      )}
+      {shell === "android" && phone === "granted" && (
+        <p className="text-xs text-muted-foreground">Notifications du téléphone activées</p>
+      )}
+      {shell === "android" && phone === "default" && (
+        <Button variant="outline" size="sm" className="coarse:min-h-11" onClick={askPhoneNotifications}>
+          <BellRing className="h-4 w-4" aria-hidden="true" />
+          Activer les notifications
+        </Button>
+      )}
+      {shell === "android" && phone === "denied" && (
+        <Button variant="outline" size="sm" className="coarse:min-h-11" onClick={askPhoneNotifications}>
+          <BellRing className="h-4 w-4" aria-hidden="true" />
+          Autoriser les notifications
+        </Button>
+      )}
+      {((shell === "android" && phone === "unavailable") || (browser && notifications === "phone")) && (
+        <p className="text-xs text-muted-foreground">Notifications indisponibles sur ce téléphone</p>
       )}
       {browser && notifications === "default" && (
         <Button variant="outline" size="sm" className="coarse:min-h-11" onClick={() => void askNotifications()}>

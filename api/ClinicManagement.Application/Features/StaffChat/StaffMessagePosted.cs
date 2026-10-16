@@ -7,12 +7,13 @@ using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.StaffChat;
 
-/// <summary>What every saved message does next, typed or announced: wake its thread's tabs, then answer with its links.</summary>
+/// <summary>What every saved message does next, typed or announced: wake its thread's tabs, queue the phones it rings, then answer with its links.</summary>
 internal static class StaffMessagePosted
 {
     public static async Task<StaffMessageDto> AnnounceAsync(
         StaffMessage message, StaffConversation conversation, StaffChatRoster roster, IRealtimeNotifier realtime,
-        IPatientRepository patients, IStaffMessageRepository messages, ILogger logger, CancellationToken cancellationToken)
+        IStaffChatPushQueue push, IPatientRepository patients, IStaffMessageRepository messages, ILogger logger,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -22,6 +23,9 @@ internal static class StaffMessagePosted
         {
             logger.LogWarning(ex, "Staff chat message {MessageId} saved but its members were not signalled", message.Id);
         }
+
+        // The same people the screen rings (FR-2); the queue never throws.
+        await push.QueueAsync(message, conversation.AlertsFor(message.SenderUserId, roster.Members), cancellationToken);
 
         return await DtoAsync(message, roster, patients, messages, logger, cancellationToken);
     }

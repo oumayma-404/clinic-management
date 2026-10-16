@@ -10,4 +10,6 @@
 plugins {
     id("com.android.application") version "8.13.0" apply false
     id("org.jetbrains.kotlin.android") version "2.2.20" apply false
+    // Phone notifications (staff-chat Part 7). Applied by `app/` only when `google-services.json` is present.
+    id("com.google.gms.google-services") version "4.4.2" apply false
 }

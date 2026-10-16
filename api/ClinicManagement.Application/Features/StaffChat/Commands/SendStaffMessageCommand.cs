@@ -35,6 +35,7 @@ public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCo
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IRealtimeNotifier _realtime;
+    private readonly IStaffChatPushQueue _push;
     private readonly ILogger<SendStaffMessageCommandHandler> _logger;
 
     public SendStaffMessageCommandHandler(
@@ -46,6 +47,7 @@ public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCo
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
         IRealtimeNotifier realtime,
+        IStaffChatPushQueue push,
         ILogger<SendStaffMessageCommandHandler> logger)
     {
         _messages = messages;
@@ -56,6 +58,7 @@ public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCo
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
         _realtime = realtime;
+        _push = push;
         _logger = logger;
     }
 
@@ -131,6 +134,6 @@ public class SendStaffMessageCommandHandler : IRequestHandler<SendStaffMessageCo
         }
 
         return Result<StaffMessageDto>.Success(await StaffMessagePosted.AnnounceAsync(
-            message, conversation, roster, _realtime, _patients, _messages, _logger, cancellationToken));
+            message, conversation, roster, _realtime, _push, _patients, _messages, _logger, cancellationToken));
     }
 }

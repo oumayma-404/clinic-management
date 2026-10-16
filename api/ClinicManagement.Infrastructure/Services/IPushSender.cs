@@ -44,7 +44,9 @@ public sealed record PushMessage(
     string Token,
     string Label,
     NotificationCategory Category,
-    Guid? AppointmentId);
+    Guid? AppointmentId,
+    // The staff chat thread a tap opens — an opaque key of account ids, never the text (staff-chat Part 7).
+    string? Conversation = null);
 
 /// <summary>
 /// Platform-generic sender for one push. Matched to a queued row by its <see cref="Platform"/>, exactly as

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { pushDevicesApi } from "@/lib/api/push-devices"
 import { staffChatApi, type StaffChatUnreadDto, type StaffMessageDto, type StaffQuickMessageDto } from "@/lib/api/staff-chat"
 import { useClinicRealtimeSubscribe } from "@/lib/realtime/clinic-realtime-provider"
 import { formatChatTime } from "./format"
@@ -177,20 +178,44 @@ function sound(urgent: boolean) {
   playChime(urgent)
 }
 
-export type BrowserNotificationState = "unsupported" | "default" | "granted" | "denied"
+/** `phone`: a phone browser or an iPhone home-screen app — no page can raise a notification there. */
+export type BrowserNotificationState = "unsupported" | "phone" | "default" | "granted" | "denied"
 
-/** In the Windows app: its own notifications (`notify`), or an app too old to have them (EC-10). */
-export type ShellNotificationState = "none" | "windows" | "outdated"
+/**
+ * In the Windows app: its own notifications (`notify`), or an app too old to have them (EC-10). In the Android app
+ * (1.4): the phone's own notifications, sent by the server (staff-chat Part 7), or a build too old to receive them.
+ */
+export type ShellNotificationState = "none" | "windows" | "outdated" | "android" | "android-outdated"
+
+/** What the Android app's notifications can do on this phone — the permission AND whether the server can send. */
+export type PhoneNotificationState = "granted" | "default" | "denied" | "unavailable"
 
 function shellNotificationState(): ShellNotificationState {
   const shell = typeof window === "undefined" ? undefined : window.__clinicShell
+  if (shell?.platform === "android") return typeof shell.notificationState === "function" ? "android" : "android-outdated"
   if (!shell || shell.platform !== "windows") return "none"
   return typeof shell.notify === "function" ? "windows" : "outdated"
 }
 
+/**
+ * ⚠️ A phone's browser exposes `Notification` and still cannot show one from a page: Android's Chrome refuses the
+ * constructor, and an iPhone home-screen app only takes them through a push subscription this app does not have. So the
+ * question is answered before the API is consulted, and the screen says so instead of offering a button that does nothing.
+ */
+function isPhoneBrowser(): boolean {
+  const ua = navigator.userAgent
+  return /Android|iPhone|iPad|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+}
+
 function browserNotificationState(): BrowserNotificationState {
   if (typeof window === "undefined" || !("Notification" in window)) return "unsupported"
+  if (isPhoneBrowser()) return "phone"
   return Notification.permission
+}
+
+function phonePermission(): PhoneNotificationState {
+  const shell = typeof window === "undefined" ? undefined : window.__clinicShell
+  return shell?.notificationState?.() ?? "unavailable"
 }
 
 /** Windows' own notification in the desktop app (AC-4.3), else the browser's (AC-4.4). */
@@ -239,10 +264,37 @@ export function useAlertPreferences() {
   const audioBlocked = useSyncExternalStore(subscribe, isAudioBlocked, () => false)
   const [notifications, setNotifications] = useState<BrowserNotificationState>("unsupported")
   const [shell, setShell] = useState<ShellNotificationState>("none")
+  const [phone, setPhone] = useState<PhoneNotificationState>("unavailable")
   useEffect(() => {
     setNotifications(browserNotificationState())
     setShell(shellNotificationState())
   }, [])
+
+  // The Android app: the phone's permission, re-read when the app says it changed or the page comes back.
+  useEffect(() => {
+    if (shell !== "android") return
+    let serverSends = false
+    let cancelled = false
+    const refresh = () => setPhone(serverSends ? phonePermission() : "unavailable")
+    pushDevicesApi
+      .availability()
+      .then((availability) => {
+        serverSends = availability.platforms.some((p) => p.platform === 1 && p.supported)
+      })
+      .catch(() => {
+        serverSends = false
+      })
+      .finally(() => {
+        if (!cancelled) refresh()
+      })
+    window.__clinicShellNotificationsChanged = refresh
+    document.addEventListener("visibilitychange", refresh)
+    return () => {
+      cancelled = true
+      if (window.__clinicShellNotificationsChanged === refresh) delete window.__clinicShellNotificationsChanged
+      document.removeEventListener("visibilitychange", refresh)
+    }
+  }, [shell])
 
   const setMuted = useCallback((value: boolean) => {
     try {
@@ -263,7 +315,22 @@ export function useAlertPreferences() {
     }
   }, [])
 
-  return { muted, setMuted, audioBlocked, enableAudio: resumeAudio, notifications, askNotifications, shell }
+  // Android asks once by itself; after that the only door is the app's own notification settings.
+  const askPhoneNotifications = useCallback(() => {
+    window.__clinicShell?.openNotificationSettings?.()
+  }, [])
+
+  return {
+    muted,
+    setMuted,
+    audioBlocked,
+    enableAudio: resumeAudio,
+    notifications,
+    askNotifications,
+    shell,
+    phone,
+    askPhoneNotifications,
+  }
 }
 
 // ── The decision ─────────────────────────────────────────────────────────────────────────────────────────────

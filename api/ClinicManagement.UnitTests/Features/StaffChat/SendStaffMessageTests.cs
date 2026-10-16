@@ -9,6 +9,36 @@ namespace ClinicManagement.UnitTests.Features.StaffChat;
 
 public class SendStaffMessageTests
 {
+    // staff-chat Part 7: the phones a message reaches are exactly the people the screen rings, never the sender.
+    [Fact]
+    public async Task A_Message_Queues_The_Phones_Of_The_People_It_Rings()
+    {
+        var h = new StaffChatHarness();
+        h.ActAs(h.Salma);
+        var key = StaffConversation.Direct(h.Salma.Id, h.Owner.Id).Key;
+
+        var result = await h.Send().Handle(new SendStaffMessageCommand { Conversation = key, Body = "La patiente est arrivée" }, default);
+
+        Assert.True(result.IsSuccess);
+        h.Push.Verify(p => p.QueueAsync(
+            It.Is<StaffMessage>(m => m.ConversationKey == key),
+            It.Is<IReadOnlyCollection<string>>(ids => ids.SequenceEqual(new[] { h.Owner.Id })),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // A refused message queues nothing.
+    [Fact]
+    public async Task A_Refused_Message_Queues_No_Phone()
+    {
+        var h = new StaffChatHarness();
+        h.ActAs(h.Salma);
+
+        var result = await h.Send().Handle(new SendStaffMessageCommand { Conversation = "clinic", Body = "   " }, default);
+
+        Assert.False(result.IsSuccess);
+        h.Push.Verify(p => p.QueueAsync(It.IsAny<StaffMessage>(), It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     [Fact]
     public async Task A_Message_Is_Saved_And_Signals_The_Two_People_Of_The_Thread_Only() // AC-2.3, FR-2
     {

@@ -162,6 +162,28 @@ values are **operator-owned** and take effect without a restart (`appsettings.Pr
 Raise `MinimumShellVersion` only once the newer build is actually **live in the store** — a floor above the highest
 published version bricks every phone with no route forward.
 
+### Notifications Android (staff-chat Part 7)
+
+Phone notifications go through Google's Firebase Cloud Messaging. It works with the sideloaded APK — FCM needs Play
+**Services** on the phone, not a Play Store listing. One Firebase project serves every cabinet.
+
+1. **Firebase project** — [console.firebase.google.com](https://console.firebase.google.com) → « Ajouter un projet »
+   (Google Analytics: off). Then « Ajouter une application » → Android, package name **`com.clinicmanagement.shell`**.
+2. **The app's file** — download `google-services.json` and put it at `mobile/android/app/google-services.json`. It
+   is git-ignored. Rebuild the APK: `BuildConfig.PUSH_CONFIGURED` becomes true. Without the file the APK still builds
+   and simply says « Notifications indisponibles sur ce téléphone ».
+3. **The server's key** — Firebase → ⚙ Paramètres du projet → « Comptes de service » → « Générer une nouvelle clé
+   privée ». On the VPS set, in the API's environment (never in a committed file):
+   ```
+   Push__Fcm__ProjectId=<project id, e.g. apexa-12345>
+   Push__Fcm__ServiceAccountKey=<the whole JSON file, on one line>
+   ```
+   and restart the API. `GET /api/push-devices/availability` then reports Android as supported.
+
+What reaches a phone: chat messages (if still unread 30 s after they were sent) and the agenda's five time-critical
+events (new, cancelled, moved, the ~24 h reminder, the post-visit review). The lock screen shows the fixed phrase
+only — « Nouveau message », « Nouveau rendez-vous » — never a name or a message's text.
+
 ### Trusting a self-signed (offline-LAN) server
 
 A `SelfHostedLan` install serves a certificate the API mints itself, so the phone must be told to trust the

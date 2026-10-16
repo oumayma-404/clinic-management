@@ -4,9 +4,9 @@
  * ⚠️ **This type is not the contract.** `mobile/shared/bridge.md` is (it lands with the Android shell), and a
  * change there bumps `version`. This file only describes the part of it the web app actually consumes, and it is
  * deliberately grown one phase at a time: a method declared here with no caller is an API that looks supported and
- * is not, which on a shell means a French error nobody can explain. `print()` and `onPushToken()` are real parts of
- * the Phase 1 contract and are absent below **because nothing in the web bundle calls them yet** — the shell owns
- * both ends of those.
+ * is not, which on a shell means a French error nobody can explain. `print()` is a real part of the Phase 1 contract
+ * and is absent below **because nothing in the web bundle calls it** — the shell owns both ends (`window.print` is
+ * shimmed). `onPushToken()` joined the list below once phone notifications had a caller (staff-chat Part 7).
  *
  * ⚠️ **Every read of this object is a feature detection, never an assumption.** With `__clinicShell` absent —
  * i.e. in every browser, which is where this app is used today — behaviour must be byte-identical to what it was
@@ -151,13 +151,28 @@ interface ClinicShell {
    * not in front. `tag` is the conversation a click opens, through `__clinicShellOpenStaffChat`.
    */
   notify?(notice: { title: string; body: string; tag: string; urgent: boolean }): void
+
+  /**
+   * Android 1.4 (staff-chat Part 7): this install's push token, now and whenever it changes. The first listener
+   * makes the shell fetch it and ask for the notification permission once. `lib/push/phone-push.ts` is the caller.
+   */
+  onPushToken?(listener: (token: string) => void): void
+
+  /** Android 1.4: whether this phone shows notifications — `unavailable` is a build with no Firebase project. */
+  notificationState?(): "granted" | "default" | "denied" | "unavailable"
+
+  /** Android 1.4: the permission prompt if it can still be shown, else the app's notification settings. */
+  openNotificationSettings?(): void
 }
 
 interface Window {
   readonly __clinicShell?: ClinicShell
 
-  /** The page defines this; the Windows app calls it when its chat notification is clicked. */
+  /** The page defines this; the Windows app and the Android app call it when a chat notification is tapped. */
   __clinicShellOpenStaffChat?: (conversation: string) => void
+
+  /** The page defines this; the Android app calls it when the notification permission may have changed. */
+  __clinicShellNotificationsChanged?: () => void
 
   /**
    * How the desktop shell hands the page its coffre folder — a `FileSystemDirectoryHandle` for

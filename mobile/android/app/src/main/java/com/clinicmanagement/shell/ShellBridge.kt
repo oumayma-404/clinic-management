@@ -21,8 +21,8 @@ import java.io.File
  * The native half of `window.__clinicShell`. `mobile/shared/bridge.md` is the contract itself; this class
  * implements it and [injectedScript] is the JavaScript face the web bundle sees.
  *
- * Three native methods (`saveFile`, `print`, `confirmIdentity`) plus a JS-only `onPushToken`, which needs no
- * native counterpart yet because nothing produces a token until Part 6.
+ * Since 1.4.0 `onPushToken` delivers (staff-chat Part 7): the page's first listener calls the native `pushWanted`,
+ * which fetches the Firebase token and answers through `window.__clinicShellDeliverPushToken`.
  *
  * ⚠️ **Every `@JavascriptInterface` method runs on the WebView's JavaScript thread, not the UI thread.** Anything
  * touching a view, a dialog or the print service must be posted, or it throws from a stack trace that names
@@ -44,7 +44,27 @@ class ShellBridge(
     private val onRelaySwitch: ((Boolean) -> Unit) -> Unit = { done -> done(false) },
     /** D23: the cloud's page or the PC de secours's — the only two that may hand over or take a form. */
     private val isClinicPage: (Uri) -> Boolean = isOwnPage,
+    /** staff-chat Part 7: the signed-in page wants this install's push token (and the permission, once). */
+    private val onPushWanted: () -> Unit = {},
+    /** staff-chat Part 7: « Activer les notifications » — the permission prompt, else the app's notification settings. */
+    private val onOpenNotificationSettings: () -> Unit = {},
 ) {
+
+    /** `onPushToken`'s native half — only the configured server's own page receives a token. */
+    @JavascriptInterface
+    fun pushWanted() {
+        activity.runOnUiThread { if (onOwnPage()) onPushWanted() }
+    }
+
+    /** `notificationState` (1.4.0): `granted` · `default` · `denied` · `unavailable`. Synchronous, so the page can render it. */
+    @JavascriptInterface
+    fun notificationState(): String = ShellPush.state(activity)
+
+    /** `openNotificationSettings` (1.4.0). */
+    @JavascriptInterface
+    fun openNotificationSettings() {
+        activity.runOnUiThread { if (onOwnPage()) onOpenNotificationSettings() }
+    }
 
     /**
      * Hand a file to the OS: write it into app-private cache, then offer to open or share it.
@@ -302,6 +322,8 @@ class ShellBridge(
                   var nativeBridge = window.$NATIVE_OBJECT;
                   if (!nativeBridge) { return; }
                   var pushListeners = [];
+                  var lastPushToken = null;
+                  var pushAsked = false;
                   var pendingIdentity = {};
                   var nextIdentityId = 0;
                   var pendingRelay = {};
@@ -315,7 +337,19 @@ class ShellBridge(
                     },
                     print: function () { nativeBridge.print(); },
                     onPushToken: function (listener) {
-                      if (typeof listener === "function") { pushListeners.push(listener); }
+                      if (typeof listener !== "function") { return; }
+                      pushListeners.push(listener);
+                      if (lastPushToken) { try { listener(lastPushToken); } catch (e) {} }
+                      if (!pushAsked) {
+                        pushAsked = true;
+                        try { nativeBridge.pushWanted(); } catch (e) {}
+                      }
+                    },
+                    notificationState: function () {
+                      try { return String(nativeBridge.notificationState()); } catch (e) { return "unavailable"; }
+                    },
+                    openNotificationSettings: function () {
+                      try { nativeBridge.openNotificationSettings(); } catch (e) {}
                     },
                     confirmIdentity: function () {
                       return new Promise(function (resolve) {
@@ -434,6 +468,8 @@ class ShellBridge(
                     resolve(outcome);
                   };
                   window.__clinicShellDeliverPushToken = function (token) {
+                    if (typeof token !== "string" || !token) { return; }
+                    lastPushToken = token;
                     for (var i = 0; i < pushListeners.length; i++) {
                       try { pushListeners[i](token); } catch (e) {}
                     }

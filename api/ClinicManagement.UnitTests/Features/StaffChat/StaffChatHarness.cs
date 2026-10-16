@@ -34,6 +34,7 @@ internal sealed class StaffChatHarness
     public Mock<IUnitOfWork> UnitOfWork { get; } = new();
     public Mock<IRealtimeNotifier> Realtime { get; } = new();
     public Mock<IStaffPresence> Presence { get; } = new();
+    public Mock<IStaffChatPushQueue> Push { get; } = new();
 
     public List<User> ClinicUsers { get; }
 
@@ -102,7 +103,7 @@ internal sealed class StaffChatHarness
 
     public SendStaffMessageCommandHandler Send() => new(
         Messages.Object, QuickMessageLists.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
-        NullLogger<SendStaffMessageCommandHandler>.Instance);
+        Push.Object, NullLogger<SendStaffMessageCommandHandler>.Instance);
 
     public MarkStaffConversationReadCommandHandler MarkRead() => new(
         Messages.Object, Users.Object, Doctors.Object, Context.Object, UnitOfWork.Object, Realtime.Object,
@@ -130,7 +131,7 @@ internal sealed class StaffChatHarness
 
     public SendArrivalNoticeCommandHandler Arrival() => new(
         Messages.Object, QuickMessageLists.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object,
-        UnitOfWork.Object, Realtime.Object, NullLogger<SendArrivalNoticeCommandHandler>.Instance);
+        UnitOfWork.Object, Realtime.Object, Push.Object, NullLogger<SendArrivalNoticeCommandHandler>.Instance);
 
     public GetTodayArrivalsQueryHandler TodayArrivals() => new(Messages.Object, Users.Object, Doctors.Object, Context.Object);
 

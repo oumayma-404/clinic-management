@@ -1,4 +1,4 @@
-import { apiGet } from './client';
+import { apiDelete, apiGet, apiPost } from './client';
 
 /** Matches the backend `DevicePlatform` enum (Android = 1, Ios = 2). */
 export type DevicePlatform = 1 | 2;
@@ -35,4 +35,11 @@ export const pushDevicesApi = {
    * call that cannot be made.
    */
   availability: (): Promise<PushAvailability> => apiGet<PushAvailability>('/push-devices/availability'),
+
+  /** Registers, refreshes or rebinds this phone's token to the signed-in account — one call for all three. */
+  register: (body: { platform: DevicePlatform; token: string; shellVersion?: string }): Promise<unknown> =>
+    apiPost<unknown>('/push-devices', body),
+
+  /** Sign-out: this phone stops receiving the account's notifications. Idempotent on the server. */
+  deregister: (token: string): Promise<unknown> => apiDelete<unknown>(`/push-devices/${encodeURIComponent(token)}`),
 };

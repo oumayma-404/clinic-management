@@ -13,6 +13,7 @@ import {
 import { canConfirmIdentityInShell, SessionLockGate } from "@/components/session-lock-gate"
 import { idleExpiryEnding, idleLimitMinutes } from "@/lib/auth/idle-limit"
 import { isPublicRoute } from "@/lib/auth/public-routes"
+import { startPhonePush, stopPhonePush } from "@/lib/push/phone-push"
 
 /**
  * ⚠️ One member, and that is the point.
@@ -110,16 +111,24 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
      * `Content-Type` is set explicitly: without it the route's `request.json()` still parses, but a proxy that
      * strips an unlabelled body would silently turn every timeout back into « demandée par l'utilisateur ».
      */
-    fetch("/bff/auth/local-logout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: options?.reason ?? "user" }),
-    })
-      .catch(() => {})
-      .finally(() => {
-        window.location.href = target
+    // The phone stops receiving this account's notifications first: releasing it needs the session (staff-chat Part 7).
+    void stopPhonePush().finally(() => {
+      fetch("/bff/auth/local-logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: options?.reason ?? "user" }),
       })
+        .catch(() => {})
+        .finally(() => {
+          window.location.href = target
+        })
+    })
   }, [])
+
+  // Signed in on the Android app: its push token is tied to this account (staff-chat Part 7).
+  useEffect(() => {
+    if (user) startPhonePush()
+  }, [user])
 
   useEffect(() => {
     let active = true

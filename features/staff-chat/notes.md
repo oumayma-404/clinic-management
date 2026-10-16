@@ -17,6 +17,7 @@ over the fiche de soins, or in the minimised Windows app. Built in six parts on 
 | API | `StaffChatController` (`/api/staff-chat/…`); `ClinicHub` joins `ClinicGroups.User(clinic, user)`; `IRealtimeNotifier.NotifyStaffChatAsync` → `staffChatChanged`; `StaffPresence` (« En ligne ») |
 | Web | `StaffChatProvider` in `app/layout.tsx`: the panel, the header icon and the bottom-bar tab, the quick-message bar and editor, the patient picker and link chips, « Signaler l'arrivée » (RDV window button, agenda bell, agenda « ⋯ » row), the alert owner `lib/staff-chat/alerts.ts` + `chime.ts`, the notices, the panel's sound / notification settings |
 | Desktop 1.7.0 | `notify` on the bridge → `ShellNotifications` (silent toast + taskbar flash, click → window forward on that conversation) |
+| Phones (Part 7) | Server: `StaffChatPushQueue` (queued from `StaffMessagePosted`, audience `AlertsFor`), `NotificationCategory.StaffChatMessage`, `PushDelivery.StaffMessageId` (migration `AddPushDeliveryStaffMessage`), `PushDispatchJob`'s « déjà lu ? » check, `FcmAccessToken` + `FcmPushSender`'s channel/tag. Android 1.4.0: `ShellPush`, `PushTap`, the bridge's `onPushToken`/`notificationState`/`openNotificationSettings`. Web: `lib/push/phone-push.ts` (register at sign-in, release at sign-out), the phone line in `alert-settings.tsx` |
 | Guards | `StaffArrivalTests`, `StaffDeskTests`, `StaffQuickMessageTests`, `StaffMessageQuerySqlTests`, the domain tests; e2e CHAT-01…06, 08; `check:responsive` **N52**; `ShellNotifyMessageTests` |
 
 ## Decisions that are easy to undo by accident
@@ -68,6 +69,21 @@ over the fiche de soins, or in the minimised Windows app. Built in six parts on 
 - **Shell 1.7.0 must not raise the server's client-version floor**: an older app keeps the tone and the in-app
   notice, and the panel asks for the update (EC-10).
 
+### Phones (Part 7)
+
+- **The push follows the screen's rule.** Its audience is `StaffConversation.AlertsFor` — the people the message
+  rings in the app, never the sender — so a phone and a screen cannot disagree about who is told.
+- **It waits 30 s and asks « déjà lu ? » before leaving** (`StaffChatPushQueue.Grace`, re-checked by
+  `PushDispatchJob` against the read marker): somebody at the PC who reads it there must not also have their phone
+  buzz. The dispatcher is minutely, so a push lands 30–90 s after the message.
+- **The lock screen learns nothing**: « Nouveau message », the P6 rule (AC-47). The text, the sender and the patient
+  stay behind the app's sign-in.
+- **The server was sending the Firebase key as the bearer**, which Google refuses: `FcmPushSender` could never have
+  delivered with the value its configuration asked for. `FcmAccessToken` exchanges the key for a one-hour token.
+- **Two channels** (« Messages de l'équipe », « Rendez-vous ») so a dentist can silence the agenda and keep the chat.
+- ⚠️ **Turning push on also turns on the agenda's five P6 notifications** (new, cancelled, moved, reminder, post-visit
+  review) — they were built, and waited for a phone that could register.
+
 ## Testing the Windows app locally
 
 The shell talks HTTPS only and the dev stack is HTTP. What worked, with nothing installed on the machine:
@@ -92,7 +108,10 @@ removes its notification registration.
   render nothing; sound and badge are untouched by it.
 - The urgent Windows toast staying on screen, and « app in front → in-app notice only » in the shell — both guarded
   in code; the owner was using the machine.
-- Phones get no OS notification (no phone push exists yet — out of scope).
+- Android notifications on a real phone: no Firebase project exists yet (`mobile/README.md` § Notifications Android
+  has the three steps). Server, APK build and web are tested; the device walk is owed.
+- iPhone: no notifications. A home-screen app takes them only through Web Push (service worker + VAPID), which this
+  app does not have; the panel says « Notifications indisponibles sur ce téléphone » instead of a dead button.
 
 ## Release
 
