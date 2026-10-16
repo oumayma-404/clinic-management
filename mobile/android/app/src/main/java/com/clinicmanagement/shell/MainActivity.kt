@@ -1,10 +1,15 @@
 package com.clinicmanagement.shell
 
 import android.app.AlertDialog
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -23,6 +28,8 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -50,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var panelConfig: View
     private lateinit var panelUnreachable: View
     private lateinit var panelUpdate: View
+    private lateinit var updateStrip: View
 
     private lateinit var store: ServerConfigStore
     private lateinit var fileChooser: FileChooser
@@ -74,6 +82,45 @@ class MainActivity : ComponentActivity() {
     /** One thread for the launch probe. A coroutine dependency for a single GET is not worth its version pairing. */
     private val background = Executors.newSingleThreadExecutor()
 
+    /** The last answer from `client-requirements` — the floor, and the update on offer (see [ShellUpdater]). */
+    private var requirements: ClientRequirements.Requirements? = null
+    private var lastRequirementsReadAt = 0L
+
+    /** « ✕ » hides one VERSION until the next cold start, like the desktop strip — never every future one. */
+    private var dismissedUpdateVersion: String? = null
+
+    /** A download or an install is running; both the strip and the wall report it, never start a second. */
+    private var updateInFlight = false
+    private var updateFromWall = false
+
+    /**
+     * What Android's installer says about the APK [ShellUpdater.install] handed it. Registered on this activity,
+     * not exported: the status arrives through the PendingIntent this app created, i.e. as this app.
+     */
+    private val installStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
+                // Android's own « Mettre à jour cette application ? » — and, the first time, the
+                // « Installer des applis inconnues » screen before it.
+                PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                    val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)
+                    try {
+                        if (confirm == null) error("no confirmation intent")
+                        startActivity(confirm)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "installer confirmation could not be shown", t)
+                        failUpdate(R.string.update_install_failed)
+                    }
+                }
+                // Android replaces the app and ends this process; there is nothing left to report.
+                PackageInstaller.STATUS_SUCCESS -> Unit
+                // The user said no. Not a failure: put the offer back as it was.
+                PackageInstaller.STATUS_FAILURE_ABORTED -> restoreUpdateOffer()
+                else -> failUpdate(R.string.update_install_failed)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -84,6 +131,14 @@ class MainActivity : ComponentActivity() {
         panelConfig = findViewById(R.id.panel_config)
         panelUnreachable = findViewById(R.id.panel_unreachable)
         panelUpdate = findViewById(R.id.panel_update)
+        updateStrip = findViewById(R.id.update_strip)
+
+        ContextCompat.registerReceiver(
+            this,
+            installStatusReceiver,
+            IntentFilter(ShellUpdater.INSTALL_STATUS_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         store = ServerConfigStore(this)
         // Both must be built here: `registerForActivityResult` throws once the activity has reached STARTED.
@@ -138,7 +193,20 @@ class MainActivity : ComponentActivity() {
         findViewById<Button>(R.id.unreachable_change_server).setOnClickListener { showServerAddress() }
         findViewById<Button>(R.id.update_retry).setOnClickListener { startSession() }
         findViewById<Button>(R.id.update_change_server).setOnClickListener { showServerAddress() }
-        findViewById<Button>(R.id.update_open_store).setOnClickListener { openStoreListing() }
+        findViewById<Button>(R.id.update_open_store).setOnClickListener {
+            // The app's own wall installs in place when this server publishes an APK; the WebView wall (and an
+            // operator who listed a store instead) still opens a listing.
+            if (updateTargetPackage == null && ShellUpdater.availableUpdate(requirements) != null) {
+                startUpdate(fromWall = true)
+            } else {
+                openStoreListing()
+            }
+        }
+        findViewById<Button>(R.id.update_strip_install).setOnClickListener { startUpdate(fromWall = false) }
+        findViewById<Button>(R.id.update_strip_dismiss).setOnClickListener {
+            dismissedUpdateVersion = ShellUpdater.availableUpdate(requirements)?.version
+            updateStrip.visibility = View.GONE
+        }
     }
 
     /**
@@ -222,12 +290,15 @@ class MainActivity : ComponentActivity() {
                     store.save(resolved)
                     showConnecting() // Re-render: the target line was showing the unresolved port.
                 }
+                this.requirements = requirements
+                lastRequirementsReadAt = SystemClock.elapsedRealtime()
                 val floor = requirements?.minimumShellVersion.orEmpty()
                 storeUrl = requirements?.storeUrlAndroid.orEmpty()
                 if (ClientRequirements.isBelowFloor(BuildConfig.VERSION_NAME, floor)) {
                     showUpdateRequired(floor)
                 } else {
                     loadApp()
+                    offerUpdate()
                 }
             }
         }
@@ -284,6 +355,121 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // ── In-app update ─────────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Show the strip when this server offers a newer APK. Never on the wall (that panel has its own button) and
+     * never for a version the user dismissed this session.
+     */
+    private fun offerUpdate() {
+        if (updateInFlight) return
+        val update = ShellUpdater.availableUpdate(requirements)
+        if (update == null || update.version == dismissedUpdateVersion) {
+            updateStrip.visibility = View.GONE
+            return
+        }
+        findViewById<TextView>(R.id.update_strip_text).text = getString(R.string.update_strip_available, update.version)
+        setStripButtonsVisible(true)
+        updateStrip.visibility = View.VISIBLE
+    }
+
+    private fun startUpdate(fromWall: Boolean) {
+        if (updateInFlight) return
+        val update = ShellUpdater.availableUpdate(requirements) ?: return
+        updateInFlight = true
+        updateFromWall = fromWall
+        reportUpdate(getString(R.string.update_downloading))
+
+        background.execute {
+            val apk = ShellUpdater.download(this, update) { percent ->
+                val status = if (percent == null) {
+                    getString(R.string.update_downloading)
+                } else {
+                    getString(R.string.update_downloading_percent, percent)
+                }
+                runOnUiThread { if (updateInFlight) reportUpdate(status) }
+            }
+            if (apk == null) {
+                runOnUiThread { failUpdate(R.string.update_failed) }
+                return@execute
+            }
+            runOnUiThread { reportUpdate(getString(R.string.update_installing)) }
+            if (!ShellUpdater.install(this, apk)) {
+                runOnUiThread { failUpdate(R.string.update_install_failed) }
+            }
+        }
+    }
+
+    /**
+     * The page asked for the APK — the web app's « Mise à jour requise » button, which inside this WebView is a
+     * same-origin download with nowhere to go. Re-read the requirements when the launch answer offers nothing:
+     * the floor may have been raised since.
+     */
+    private fun requestUpdateFromPage() {
+        if (updateInFlight) return
+        if (ShellUpdater.availableUpdate(requirements) != null) {
+            startUpdate(fromWall = false)
+            return
+        }
+        val base = config.baseUrl
+        background.execute {
+            val fresh = ClientRequirements.fetch(base) ?: return@execute
+            runOnUiThread {
+                if (isFinishing || isDestroyed || base != config.baseUrl) return@runOnUiThread
+                requirements = fresh
+                lastRequirementsReadAt = SystemClock.elapsedRealtime()
+                startUpdate(fromWall = false)
+            }
+        }
+    }
+
+    /** Progress goes where the press happened: under the wall's button, or into the strip. */
+    private fun reportUpdate(status: String) {
+        if (updateFromWall) {
+            findViewById<TextView>(R.id.update_progress).apply {
+                text = status
+                visibility = View.VISIBLE
+            }
+            findViewById<Button>(R.id.update_open_store).isEnabled = false
+        } else {
+            findViewById<TextView>(R.id.update_strip_text).text = status
+            setStripButtonsVisible(false)
+            updateStrip.visibility = View.VISIBLE
+        }
+    }
+
+    private fun failUpdate(message: Int) {
+        updateInFlight = false
+        if (updateFromWall) {
+            findViewById<TextView>(R.id.update_progress).apply {
+                setText(message)
+                visibility = View.VISIBLE
+            }
+            findViewById<Button>(R.id.update_open_store).isEnabled = true
+        } else {
+            // The button stays « Mettre à jour », which is now « réessayer ».
+            findViewById<TextView>(R.id.update_strip_text).setText(message)
+            setStripButtonsVisible(true)
+            updateStrip.visibility = View.VISIBLE
+        }
+    }
+
+    private fun restoreUpdateOffer() {
+        updateInFlight = false
+        if (updateFromWall) {
+            findViewById<TextView>(R.id.update_progress).visibility = View.GONE
+            findViewById<Button>(R.id.update_open_store).isEnabled = true
+        } else {
+            offerUpdate()
+        }
+    }
+
+    private fun setStripButtonsVisible(visible: Boolean) {
+        val visibility = if (visible) View.VISIBLE else View.GONE
+        findViewById<Button>(R.id.update_strip_install).visibility = visibility
+        findViewById<Button>(R.id.update_strip_dismiss).visibility = visibility
     }
 
     // ── WebView ───────────────────────────────────────────────────────────────────────────────────────────
@@ -377,6 +563,15 @@ class MainActivity : ComponentActivity() {
             // `onReceivedHttpError` is deliberately NOT overridden. An HTTP status means the server answered, and
             // what it answered with is the app's own French error page — which AC-74 requires be *shown* rather
             // than replaced by a shell state. Only a transport failure is the shell's to report.
+        }
+
+        // ⚠️ Only the clinic server's own APK. Every other download already goes through the bridge's `saveFile`,
+        // and a WebView with no listener drops the rest — which this keeps true for anything that is not an update.
+        webView.setDownloadListener { url, _, _, mimeType, _ ->
+            val uri = url.toUri()
+            val isApk = ShellUpdater.APK_MIME_TYPE.equals(mimeType, ignoreCase = true) ||
+                uri.path.orEmpty().endsWith("/client-download/android")
+            if (isApk && uri.scheme == "https" && config.isSameOrigin(uri)) requestUpdateFromPage()
         }
 
         webView.webChromeClient = object : WebChromeClient() {
@@ -495,10 +690,14 @@ class MainActivity : ComponentActivity() {
         } else {
             getString(R.string.update_detail, floor, BuildConfig.VERSION_NAME)
         }
-        // A button that cannot go anywhere is worse than no button: the operator publishes the listing URL, and
-        // a LAN install has no store at all.
-        findViewById<Button>(R.id.update_open_store).visibility =
-            if (storeUrl.isBlank()) View.GONE else View.VISIBLE
+        // A button that cannot go anywhere is worse than no button: it installs the APK this server publishes, or
+        // opens the listing the operator named — and with neither there is nothing to press.
+        val canUpdate = ShellUpdater.availableUpdate(requirements) != null || storeUrl.isNotBlank()
+        findViewById<Button>(R.id.update_open_store).apply {
+            visibility = if (canUpdate) View.VISIBLE else View.GONE
+            isEnabled = !updateInFlight
+        }
+        if (!updateInFlight) findViewById<TextView>(R.id.update_progress).visibility = View.GONE
         show(ShellState.UpdateRequired)
     }
 
@@ -510,6 +709,26 @@ class MainActivity : ComponentActivity() {
         // server now, so the page they came from has to be re-read. See ExternalNavigation.handOffInFlight.
         if (externalNavigation.consumeHandOff() && state == ShellState.WebPage) {
             webView.reload()
+        }
+        recheckForUpdate()
+    }
+
+    /**
+     * A phone is resumed far more often than it is launched, so the launch read alone would leave a release
+     * unseen for days. Re-asked at most every [UPDATE_RECHECK_MS], the desktop shell's own interval.
+     */
+    private fun recheckForUpdate() {
+        if (state != ShellState.WebPage || updateInFlight) return
+        if (SystemClock.elapsedRealtime() - lastRequirementsReadAt < UPDATE_RECHECK_MS) return
+        lastRequirementsReadAt = SystemClock.elapsedRealtime()
+        val base = config.baseUrl
+        background.execute {
+            val fresh = ClientRequirements.fetch(base) ?: return@execute
+            runOnUiThread {
+                if (isFinishing || isDestroyed || base != config.baseUrl) return@runOnUiThread
+                requirements = fresh
+                offerUpdate()
+            }
         }
     }
 
@@ -524,10 +743,12 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         background.shutdownNow()
         removeBridgeScript()
+        unregisterReceiver(installStatusReceiver)
         super.onDestroy()
     }
 
     private companion object {
         const val TAG = "ClinicShell"
+        const val UPDATE_RECHECK_MS = 30L * 60 * 1000
     }
 }

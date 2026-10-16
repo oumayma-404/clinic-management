@@ -54,10 +54,20 @@ export function ClientVersionGate() {
   if (!refused) return null
 
   const platform = typeof window !== "undefined" ? window.__clinicShell?.platform : undefined
+  // ⚠️ Android has no store listing: its link is the APK this server serves, which the shell downloads and hands to
+  // Android's installer — so the label names the action, never « Google Play ».
   const stores = [
-    { key: "android", label: "Google Play", href: requirements?.storeUrls.android },
-    { key: "ios", label: "App Store", href: requirements?.storeUrls.ios },
+    {
+      key: "android",
+      label: "Mettre à jour l'application",
+      href: requirements?.android?.downloadUrl || requirements?.storeUrls.android,
+    },
+    { key: "ios", label: "Mettre à jour sur App Store", href: requirements?.storeUrls.ios },
   ].filter((store) => store.href && (platform === undefined || store.key === platform))
+
+  // The floor THIS shell was refused by: the top-level pair is the desktop's, Android has its own.
+  const requiredVersion =
+    platform === "android" ? requirements?.android?.minimumVersion : requirements?.minimumShellVersion
 
   return (
     /*
@@ -96,7 +106,7 @@ export function ClientVersionGate() {
                 <Button key={store.key} asChild className="min-h-11 w-full gap-2">
                   <a href={store.href} target="_blank" rel="noreferrer">
                     <ExternalLink className="size-4" aria-hidden="true" />
-                    Mettre à jour sur {store.label}
+                    {store.label}
                   </a>
                 </Button>
               ))}
@@ -109,9 +119,9 @@ export function ClientVersionGate() {
             </p>
           )}
 
-          {requirements?.currentShellVersion && (
+          {requiredVersion && (
             <p className="text-center text-xs text-muted-foreground">
-              Version requise : {requirements.currentShellVersion}
+              Version requise : {requiredVersion}
               {typeof window !== "undefined" && window.__clinicShell?.version
                 ? ` · version installée : ${window.__clinicShell.version}`
                 : ""}

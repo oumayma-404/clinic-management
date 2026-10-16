@@ -809,6 +809,12 @@ async function fetchAccessToken(): Promise<string | null> {
 export const CLIENT_VERSION_HEADER = 'X-Client-Version';
 
 /**
+ * Which shell is calling (`ClientVersionMiddleware.PlatformHeaderName`). The server measures `android` against
+ * its own floor, so a desktop release can never lock out the phones. Sent beside the version, from the same bridge.
+ */
+export const CLIENT_PLATFORM_HEADER = 'X-Client-Platform';
+
+/**
  * Whether this request declares a JSON body — the only thing that ever differed between the two header shapes.
  * `'none'` covers both callers that need it: a multipart upload (the browser must add its own boundary) and a
  * GET that downloads a blob (no body to describe at all).
@@ -897,9 +903,12 @@ export function apiHeaders(
     headers[STEP_UP_HEADER] = stepUpToken;
   }
 
-  const shellVersion = typeof window !== 'undefined' ? window.__clinicShell?.version : undefined;
-  if (shellVersion) {
-    headers[CLIENT_VERSION_HEADER] = shellVersion;
+  const shell = typeof window !== 'undefined' ? window.__clinicShell : undefined;
+  if (shell?.version) {
+    headers[CLIENT_VERSION_HEADER] = shell.version;
+  }
+  if (shell?.platform) {
+    headers[CLIENT_PLATFORM_HEADER] = shell.platform;
   }
 
   return headers;

@@ -19,6 +19,9 @@ mobile/
 │       ├── MainActivity.kt        the five states, the WebView, insets, back, the launch version check
 │       ├── ServerConfig.kt        the address + SharedPreferences; a port of desktop/ServerConfig.cs
 │       ├── ClientRequirements.kt  the native pre-launch read of GET /api/meta/client-requirements
+│       │                          (reads the `android` block; the top-level floor only from an older server)
+│       ├── ShellUpdater.kt        the in-app update: download the server's APK, check its SHA-256, hand it to
+│       │                          PackageInstaller — Android always shows its own confirm (android-in-app-update)
 │       ├── ShellBridge.kt         window.__clinicShell — saveFile · print · onPushToken · confirmIdentity
 │       ├── BiometricGate.kt       the OS owner check behind confirmIdentity (AC-57…AC-60, API 28+)
 │       ├── FileChooser.kt         WebChromeClient.onShowFileChooser + the camera

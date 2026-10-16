@@ -1078,6 +1078,40 @@ folder is just a folder.
 
 ---
 
+## Mettre à jour l'application Android
+
+The phone app (1.2.0 and later) updates itself from this server: « Une nouvelle version (X) est disponible »
+→ « Mettre à jour » → Android's own « Mettre à jour cette application ? ». Android always asks; the first time it
+also asks to allow « Installer des applis inconnues » for APEXA. See `features/android-in-app-update/notes.md`.
+
+**How a release reaches the phones.** `.github/workflows/android-release.yml` (« Android release ») builds a
+signed APK on every `mobile/android/**` change landing on `main` (or an `android-v*` tag, or a manual run),
+uploads it to `updates/APEXA-<version>.apk` — as `.apk.part`, then renamed — and tags `android-v<version>`.
+`GET /api/meta/client-requirements` then reports it in its `android` block and
+`GET /api/meta/client-download/android` serves it. Nothing is restarted.
+
+**One-time setup — the signing key.** Four repository secrets, from `mobile/android/keystore.properties` and
+`clinic-pilot.jks` on the build machine:
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 clinic-pilot.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | `storePassword` |
+| `ANDROID_KEY_ALIAS` | `keyAlias` |
+| `ANDROID_KEY_PASSWORD` | `keyPassword` |
+
+⚠️ Every release must be signed with **this** key: Android refuses an update signed by another, so losing it
+means no installed phone can ever update again. Keep a copy off the build machine. Without the secrets the job
+fails rather than publish an APK no phone would accept.
+
+**The Android minimum** is `Clients__Android__MinimumVersion` (empty = none), separate from the desktop's
+`Clients:MinimumShellVersion` — raising the desktop floor never locks out a phone. ⚠️ Do not set it while any
+phone is still on 1.1.1: that build has no updater, so its button cannot download anything.
+
+**Phones on 1.1.1** must install 1.2.0 by hand, once — from the download page or the file sent to them.
+
+---
+
 ## Two things this topology does not solve
 
 - **Per-clinic backup and restore.** `backup`/`pitr` protect the whole cluster; restoring one clinic's data without

@@ -10,6 +10,11 @@ export interface ClientRequirementsDto {
   // `windows` is a plain installer download URL, not a store listing — the desktop shell is distributed by the
   // operator. The web gate never reads it (a browser is never out of date); the WPF shell does, natively.
   storeUrls: { android: string; ios: string; windows: string };
+  /**
+   * The Android shell's own floor and release. The two top-level versions above are the desktop's, so an Android
+   * shell is measured by — and must be told about — this block only. Absent on a server older than the split.
+   */
+  android?: { minimumVersion: string; currentVersion: string; downloadUrl: string; sha256: string };
 }
 
 export const metaApi = {

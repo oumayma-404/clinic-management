@@ -143,7 +143,10 @@ deliberately **not** a member of `__clinicShell`, so deleting the bridge cannot 
   is read over **native HTTP at launch** and why the in-session 426 and the `must_change_password` 403 are handled
   in `web/lib/api/client.ts`. A shell cannot route either one.
 - **Not a header writer.** A WebView can add headers to a document load, never to a subresource request, so
-  `X-Client-Version` is attached by `apiHeaders(...)` in `web/lib/api/client.ts` from `__clinicShell?.version`.
+  `X-Client-Version` is attached by `apiHeaders(...)` in `web/lib/api/client.ts` from `__clinicShell?.version`,
+  and **`X-Client-Platform`** beside it from `__clinicShell?.platform` (`android-in-app-update`): the server
+  measures an `android` caller against `Clients:Android:MinimumVersion` and never against the shared floor,
+  which is the desktop's. Both come from members every shipped bridge already has, so no bridge change was needed.
 - **Not origin-checked by itself.** The native `@JavascriptInterface` object is reachable from any page the WebView
   holds; what keeps `__clinicShell` off a foreign origin is that the wrapper above is installed through
   `addDocumentStartJavaScript` scoped to the configured origin, and that every off-origin top-level navigation

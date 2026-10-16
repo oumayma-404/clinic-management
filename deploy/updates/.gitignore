@@ -3,3 +3,8 @@
 # deploy. The operator drops it here ON THE SERVER; a tar extract adds files and deletes none, so it survives
 # a deploy untouched.
 *.exe
+
+# The Android APK (android-in-app-update), uploaded by .github/workflows/android-release.yml as
+# APEXA-<version>.apk and served by /api/meta/client-download/android. Never committed, for the same reasons.
+*.apk
+*.apk.part

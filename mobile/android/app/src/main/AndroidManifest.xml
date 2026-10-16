@@ -11,6 +11,14 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!--
+      The in-app update (`ShellUpdater`, android-in-app-update): handing a downloaded APK to Android's installer.
+      Granted per app by the user (« Installer des applis inconnues »), which Android asks for on the first update.
+      ⚠️ Google Play restricts this permission; it is here because this build is sideloaded, and a Play build
+      would update through the store and must drop it.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
       Without this, `resolveActivity` for ACTION_IMAGE_CAPTURE returns null on API 30+ (package visibility) and
       the camera would silently disappear from the file chooser (AC-18). There is deliberately NO
       `android.permission.CAMERA`: declaring it would oblige us to request it at runtime, while the camera app

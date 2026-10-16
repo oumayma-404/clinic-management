@@ -26,6 +26,12 @@ public class ClientVersionMiddleware
     /// <summary>What the shells send. A browser sends nothing, which is what keeps the floor off it (AC-32).</summary>
     public const string HeaderName = "X-Client-Version";
 
+    /// <summary>
+    /// Which shell is calling — <c>window.__clinicShell.platform</c>, attached by the web app's <c>apiHeaders</c>.
+    /// Only <c>android</c> changes anything: it selects the Android floor instead of the shared one.
+    /// </summary>
+    public const string PlatformHeaderName = "X-Client-Platform";
+
     /// <summary>The machine-readable tag on the 426 body — mirrored by <c>ApiErrorCode.ClientTooOld</c>.</summary>
     public const string TooOldCode = "client_too_old";
 
@@ -44,11 +50,12 @@ public class ClientVersionMiddleware
     public async Task InvokeAsync(HttpContext context, IConfiguration configuration)
     {
         var reported = context.Request.Headers[HeaderName].ToString();
+        var platform = context.Request.Headers[PlatformHeaderName].ToString();
 
         // Read per request rather than once at construction so an operator can raise the floor under a running
         // server — which is AC-33's mid-session case, not a hypothetical.
         if (Applies(context.Request.Path)
-            && ClientRequirements.Read(configuration).IsBelowFloor(reported))
+            && ClientRequirements.Read(configuration).IsBelowFloor(reported, platform))
         {
             context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
             await context.Response.WriteAsJsonAsync(new { error = RefusalMessage, code = TooOldCode });

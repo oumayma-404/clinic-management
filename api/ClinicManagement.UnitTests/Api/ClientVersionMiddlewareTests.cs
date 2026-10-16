@@ -27,7 +27,7 @@ public class ClientVersionMiddlewareTests
     /// <summary>An ordinary guarded route — anything under <c>/api</c> that is not the meta one.</summary>
     private const string GuardedPath = "/api/patients";
 
-    private static IConfiguration Configuration(string? minimumShellVersion) =>
+    private static IConfiguration Configuration(string? minimumShellVersion, string? androidFloor = null) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -35,6 +35,7 @@ public class ClientVersionMiddlewareTests
                 ["Clients:CurrentShellVersion"] = "1.4.0",
                 ["Clients:StoreUrls:Android"] = "https://play.google.com/store/apps/details?id=test",
                 ["Clients:StoreUrls:Ios"] = "https://apps.apple.com/app/id000000000",
+                ["Clients:Android:MinimumVersion"] = androidFloor,
             })
             .Build();
 
@@ -45,13 +46,19 @@ public class ClientVersionMiddlewareTests
     private static async Task<(int Status, string Body, bool ReachedNext)> InvokeAsync(
         string path,
         string? clientVersion,
-        string? floor = Floor)
+        string? floor = Floor,
+        string? platform = null,
+        string? androidFloor = null)
     {
         var context = new DefaultHttpContext();
         context.Request.Path = path;
         if (clientVersion is not null)
         {
             context.Request.Headers[ClientVersionMiddleware.HeaderName] = clientVersion;
+        }
+        if (platform is not null)
+        {
+            context.Request.Headers[ClientVersionMiddleware.PlatformHeaderName] = platform;
         }
 
         var body = new MemoryStream();
@@ -64,7 +71,7 @@ public class ClientVersionMiddlewareTests
             return Task.CompletedTask;
         });
 
-        await middleware.InvokeAsync(context, Configuration(floor));
+        await middleware.InvokeAsync(context, Configuration(floor, androidFloor));
 
         body.Position = 0;
         return (context.Response.StatusCode, await new StreamReader(body).ReadToEndAsync(), reachedNext);
@@ -176,5 +183,87 @@ public class ClientVersionMiddlewareTests
         Assert.Equal(string.Empty, requirements.CurrentShellVersion);
         Assert.Equal(string.Empty, requirements.StoreUrls.Android);
         Assert.Equal(string.Empty, requirements.StoreUrls.Ios);
+        Assert.Equal(string.Empty, requirements.Android.MinimumVersion);
+        Assert.Equal(string.Empty, requirements.Android.CurrentVersion);
+        Assert.Equal(string.Empty, requirements.Android.DownloadUrl);
+        Assert.Equal(string.Empty, requirements.Android.Sha256);
+    }
+
+    // ── android-in-app-update: the phone has its own floor ──────────────────────────────────────────────────
+
+    [Fact] // the Android floor refuses an Android caller below it
+    public async Task An_android_caller_below_the_android_floor_is_refused()
+    {
+        var (status, body, reachedNext) =
+            await InvokeAsync(GuardedPath, "1.1.1", floor: null, platform: "android", androidFloor: "1.2.0");
+
+        Assert.Equal(StatusCodes.Status426UpgradeRequired, status);
+        Assert.False(reachedNext);
+        Assert.Contains("\"code\":\"client_too_old\"", body);
+    }
+
+    [Fact] // the case the split exists for: a desktop release must never lock out every phone
+    public async Task The_shared_floor_never_refuses_an_android_caller()
+    {
+        var (_, _, reachedNext) =
+            await InvokeAsync(GuardedPath, "1.1.1", floor: "1.3.0", platform: "android", androidFloor: null);
+
+        Assert.True(reachedNext);
+    }
+
+    [Theory] // anything that is not "android" keeps today's behaviour: the shared floor
+    [InlineData(null)]
+    [InlineData("windows")]
+    [InlineData("ios")]
+    [InlineData("")]
+    public async Task A_caller_not_naming_android_is_measured_by_the_shared_floor(string? platform)
+    {
+        var (status, _, reachedNext) =
+            await InvokeAsync(GuardedPath, "1.1.9", floor: Floor, platform: platform, androidFloor: "9.0.0");
+
+        Assert.Equal(StatusCodes.Status426UpgradeRequired, status);
+        Assert.False(reachedNext);
+    }
+
+    [Theory] // the platform is matched loosely; the version rules stay strict
+    [InlineData("Android")]
+    [InlineData(" android ")]
+    public async Task The_android_platform_is_matched_case_and_space_insensitively(string platform)
+    {
+        var (_, _, reachedNext) =
+            await InvokeAsync(GuardedPath, "1.1.1", floor: null, platform: platform, androidFloor: "1.2.0");
+
+        Assert.False(reachedNext);
+    }
+
+    [Theory] // an unset or typo'd Android floor refuses nothing, exactly like the shared one
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("latest")]
+    public async Task An_unset_or_unparseable_android_floor_refuses_nothing(string? androidFloor)
+    {
+        var (_, _, reachedNext) =
+            await InvokeAsync(GuardedPath, "0.0.1", floor: null, platform: "android", androidFloor: androidFloor);
+
+        Assert.True(reachedNext);
+    }
+
+    [Fact] // the APK a refused phone must download is under the exempt download prefix
+    public async Task The_android_download_is_exempt_from_the_floor()
+    {
+        var (status, _, reachedNext) = await InvokeAsync(
+            MetaController.ClientDownloadPath + "/android", "0.0.1", floor: Floor, platform: "android", androidFloor: "9.0.0");
+
+        Assert.True(reachedNext);
+        Assert.Equal(StatusCodes.Status200OK, status);
+    }
+
+    [Fact] // the Android floor is read from operator configuration, like the shared one
+    public void The_android_floor_comes_from_operator_configuration()
+    {
+        var requirements = ClientRequirements.Read(Configuration(Floor, androidFloor: "1.2.0"));
+
+        Assert.Equal("1.2.0", requirements.Android.MinimumVersion);
+        Assert.Equal(Floor, requirements.MinimumShellVersion);
     }
 }
