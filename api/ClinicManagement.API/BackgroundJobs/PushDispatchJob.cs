@@ -74,11 +74,27 @@ public class PushDispatchJob
         _logger = logger;
     }
 
+    // One run at a time in this process: PushDispatchWake calls this directly, outside Hangfire's lock.
+    private static readonly SemaphoreSlim RunGate = new(1, 1);
+
     // Serialize runs: each send has a bounded timeout, but a batch can still outlast the minutely tick, and two
     // runs reading the same row as Pending would both send it.
     [DisableConcurrentExecution(timeoutInSeconds: 600)]
     [AutomaticRetry(Attempts = 3)]
     public async Task DispatchQueuedPushes()
+    {
+        await RunGate.WaitAsync();
+        try
+        {
+            await DispatchOnceAsync();
+        }
+        finally
+        {
+            RunGate.Release();
+        }
+    }
+
+    private async Task DispatchOnceAsync()
     {
         _auditActor.RunAs(nameof(PushDispatchJob));
 

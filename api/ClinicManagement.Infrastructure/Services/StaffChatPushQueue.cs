@@ -16,14 +16,15 @@ namespace ClinicManagement.Infrastructure.Services;
 /// </summary>
 public sealed class StaffChatPushQueue : IStaffChatPushQueue
 {
-    /// <summary>How long a message has to be read somewhere before the phone is told.</summary>
-    public static readonly TimeSpan Grace = TimeSpan.FromSeconds(30);
+    /// <summary>How long a message has to be read somewhere before the phone is told — short, or it arrives late.</summary>
+    public static readonly TimeSpan Grace = TimeSpan.FromSeconds(3);
 
     private readonly IDeviceRegistrationRepository _devices;
     private readonly IPushDeliveryRepository _deliveries;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IOsPushAvailability _availability;
     private readonly IConfiguration _configuration;
+    private readonly IPushDispatchWake _wake;
     private readonly ILogger<StaffChatPushQueue> _logger;
 
     public StaffChatPushQueue(
@@ -32,6 +33,7 @@ public sealed class StaffChatPushQueue : IStaffChatPushQueue
         IUnitOfWork unitOfWork,
         IOsPushAvailability availability,
         IConfiguration configuration,
+        IPushDispatchWake wake,
         ILogger<StaffChatPushQueue> logger)
     {
         _devices = devices;
@@ -39,6 +41,7 @@ public sealed class StaffChatPushQueue : IStaffChatPushQueue
         _unitOfWork = unitOfWork;
         _availability = availability;
         _configuration = configuration;
+        _wake = wake;
         _logger = logger;
     }
 
@@ -57,6 +60,8 @@ public sealed class StaffChatPushQueue : IStaffChatPushQueue
                 _devices, _deliveries, _unitOfWork, _configuration, message.ClinicId,
                 NotificationCategory.StaffChatMessage, audience, appointmentId: null, message.Id,
                 message.SentAt + Grace, cancellationToken);
+            // Leave as soon as the grace is over, not at the next minutely tick.
+            _wake.Request(message.SentAt + Grace + TimeSpan.FromSeconds(1));
         }
         catch (Exception ex)
         {

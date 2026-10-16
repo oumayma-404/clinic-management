@@ -79,9 +79,13 @@ over the fiche de soins, or in the minimised Windows app. Built in six parts on 
 
 - **The push follows the screen's rule.** Its audience is `StaffConversation.AlertsFor` — the people the message
   rings in the app, never the sender — so a phone and a screen cannot disagree about who is told.
-- **It waits 30 s and asks « déjà lu ? » before leaving** (`StaffChatPushQueue.Grace`, re-checked by
+- **It waits 3 s and asks « déjà lu ? » before leaving** (`StaffChatPushQueue.Grace`, re-checked by
   `PushDispatchJob` against the read marker): somebody at the PC who reads it there must not also have their phone
-  buzz. The dispatcher is minutely, so a push lands 30–90 s after the message.
+  buzz. ⚠️ **A message read anywhere in that window never pushes** — reading it in APEXA on the phone itself
+  counts — which is what a tester sees as « it worked once ». `PushDispatchWake` runs the dispatcher the second the
+  grace ends: with the minutely tick alone it was 30 s + up to 60 s, measured at ~1 min on a real iPhone and
+  reported as « very late ». It calls the job directly, so the job's in-process gate is what keeps a wake and a tick
+  from sending one row twice.
 - **The lock screen learns nothing**: « Nouveau message », the P6 rule (AC-47). The text, the sender and the patient
   stay behind the app's sign-in.
 - **The server was sending the Firebase key as the bearer**, which Google refuses: `FcmPushSender` could never have
@@ -103,7 +107,7 @@ over the fiche de soins, or in the minimised Windows app. Built in six parts on 
 - **Nothing ever prompts on its own.** Permission is asked only behind « Activer les notifications » (iOS refuses a
   prompt with no tap); a browser that already allowed them re-subscribes silently at sign-in — which is how a shared
   phone moves to its next user — and sign-out releases it first.
-- **The page's notice goes through the service worker, tagged by thread**, so the push arriving 30 s later keeps the
+- **The page's notice goes through the service worker, tagged by thread**, so the push arriving seconds later keeps the
   page's richer « who wrote, what » instead of replacing it with « Nouveau message ».
 - **A tap opens the thread** (`/?chat=…`, or a message to an open window); a message from the worker naming a URL is
   followed only if it is one of this app's own paths.

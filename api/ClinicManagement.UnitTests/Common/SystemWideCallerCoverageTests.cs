@@ -52,7 +52,10 @@ public class SystemWideCallerCoverageTests
         // implementation.
         ["CountActivityCommand.cs"] = "delegates wholly to ClinicActivityCounterJob, which declares UseSystemWide "
                                       + "as its first act; ITenantScope is single-assignment so a second "
-                                      + "declaration here would throw"
+                                      + "declaration here would throw",
+        // The same shape: it opens a scope and calls PushDispatchJob.DispatchQueuedPushes, nothing else.
+        ["PushDispatchWake.cs"] = "delegates wholly to PushDispatchJob, which declares UseSystemWide in the scope "
+                                  + "this opens for it; a second declaration there would throw"
     };
 
     /// <summary>

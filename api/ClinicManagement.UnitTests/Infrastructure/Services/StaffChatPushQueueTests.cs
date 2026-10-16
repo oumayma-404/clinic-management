@@ -21,6 +21,7 @@ public class StaffChatPushQueueTests
     private sealed class Harness
     {
         public List<PushDelivery> Rows { get; } = new();
+        public List<DateTime> Wakes { get; } = new();
         public StaffChatPushQueue Queue { get; }
 
         public Harness(bool available = true, IEnumerable<DeviceRegistration>? devices = null, bool deliveriesThrow = false)
@@ -47,9 +48,12 @@ public class StaffChatPushQueueTests
             var unitOfWork = new Mock<IUnitOfWork>();
             unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
 
+            var wake = new Mock<IPushDispatchWake>();
+            wake.Setup(w => w.Request(It.IsAny<DateTime>())).Callback<DateTime>(Wakes.Add);
+
             Queue = new StaffChatPushQueue(
                 deviceRepo.Object, deliveries.Object, unitOfWork.Object, availability.Object,
-                new ConfigurationBuilder().Build(), NullLogger<StaffChatPushQueue>.Instance);
+                new ConfigurationBuilder().Build(), wake.Object, NullLogger<StaffChatPushQueue>.Instance);
         }
     }
 
@@ -75,7 +79,7 @@ public class StaffChatPushQueueTests
         Assert.Null(row.AppointmentId);
     }
 
-    // The grace period: a message read on the PC in the next 30 s must have a chance to stop the phone.
+    // The grace period: a message read on the PC in the next few seconds must have a chance to stop the phone.
     [Fact]
     public async Task The_Push_Waits_The_Grace_Period_Before_It_May_Leave()
     {
@@ -85,6 +89,31 @@ public class StaffChatPushQueueTests
         await harness.Queue.QueueAsync(message, new[] { Amine });
 
         Assert.True(Assert.Single(harness.Rows).SendNotBefore >= message.SentAt + StaffChatPushQueue.Grace);
+    }
+
+    // It leaves when the grace ends, not at the next minutely tick — which made it arrive 30–90 s late.
+    [Fact]
+    public async Task The_Dispatcher_Is_Woken_Just_After_The_Grace_Ends()
+    {
+        var harness = new Harness();
+        var message = Message(DateTime.UtcNow);
+
+        await harness.Queue.QueueAsync(message, new[] { Amine });
+
+        var wake = Assert.Single(harness.Wakes);
+        Assert.True(wake >= Assert.Single(harness.Rows).SendNotBefore);
+        Assert.True(wake <= message.SentAt + StaffChatPushQueue.Grace + TimeSpan.FromSeconds(2));
+        Assert.True(StaffChatPushQueue.Grace <= TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Nothing_Wakes_Where_Push_Is_Unavailable()
+    {
+        var harness = new Harness(available: false);
+
+        await harness.Queue.QueueAsync(Message(DateTime.UtcNow), new[] { Amine });
+
+        Assert.Empty(harness.Wakes);
     }
 
     [Fact]
