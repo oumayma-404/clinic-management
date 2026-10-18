@@ -3,7 +3,7 @@
 import { useEffect } from "react"
 
 import { useSession } from "@/lib/auth/session"
-import { handBack, takeCarriedOnce } from "@/lib/forms/carried-draft"
+import { handBack, resumeTarget, takeCarriedOnce } from "@/lib/forms/carried-draft"
 
 /**
  * `clinic-pc-copy` D23 / AC-3.2 — after the app switched server, the form that was open comes back. The shell opens
@@ -12,6 +12,8 @@ import { handBack, takeCarriedOnce } from "@/lib/forms/carried-draft"
  *
  * ⚠️ Compares the PATH only, never the query: a deep link drops its own query once read, so comparing it would send
  * the page round in a circle. ⚠️ Inert without the shell's `takeCarriedDraft` (a browser, an older shell).
+ * ⚠️ Decides once per page load (`resumeTarget`): this mounts again on every navigation, and deciding again sent
+ * every later click back to the draft's page.
  */
 export function CarriedDraftResume() {
   const { user } = useSession()
@@ -20,8 +22,10 @@ export function CarriedDraftResume() {
   useEffect(() => {
     if (!userId) return
     let cancelled = false
-    void takeCarriedOnce(userId).then((draft) => {
-      if (cancelled || !draft) return
+    void takeCarriedOnce(userId).then(() => {
+      if (cancelled) return
+      const draft = resumeTarget()
+      if (!draft) return
       const target = new URL(draft.path, window.location.origin)
       if (target.pathname === window.location.pathname) return
       handBack(draft)

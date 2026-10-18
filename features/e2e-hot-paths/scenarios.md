@@ -89,6 +89,10 @@ wrong; `PLAN-01` is the proof (`tsc`, `check:responsive` and `next build` were a
 states are decided in the browser from what the server sends.
 `CHAT-01` `CHAT-02` `CHAT-04` `CHAT-05` `CHAT-06` `CHAT-07`
 
+**8 · Where the page sends the browser.** A carried form's resume is page state between two loads; nothing reaches
+the server.
+`CARRY-01` `CARRY-02`
+
 <!-- LAYER:BROWSER:END -->
 
 ⚠️ **The markers are load-bearing** — `check-coverage.mjs` reads the block between them, so a row moved outside
@@ -714,6 +718,18 @@ would end it. Who rings, « Je m'en occupe » and « Vu par » are held by the d
 | CHAT-08 | 2 | a deactivated colleague | Post to their conversation | Refused, `staffchat-recipient-inactive` | EC-7 |
 | CHAT-06 | 2 | a colleague | At 320 px: bottom bar « Messages » → their conversation | The panel takes the whole width; composer, send and the quick messages are on screen; no page scroll | spec § Device |
 | CHAT-07 | 2 | a fiche de soins open with typing in it; a colleague's message arrives | Press « J'arrive » on the notice | Sent; the fiche stays open with its typing; « Ouvrir » waits for the dialog to close. **Held by the browser pass** — it needs a second signed-in person | AC-4.2, R-1 |
+
+---
+
+# HP-19 · Un formulaire porté d'une page à l'autre (`clinic-pc-copy` D23)
+
+The Windows app carries an open form across a page load (a switch of server, F5, the shell reopening the page). The
+shell's slot is emulated per tab in the test — the server never sees a carried draft.
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| CARRY-01 | 1 | a patient form typed into, carried | Reload, then « À clôturer », « Patients », « Rendez-vous » from the rail | Each lands where it was sent, and stays | `CarriedDraftResume` re-deciding on every remount — every click went back to the carried form's patient for two hours (PC de secours, 2026-10-18) |
+| CARRY-02 | 1 | the same form carried | Load « / » (the shell opening the other server) | Sent ONCE to the patient's page, the form reopened with its typing; the next click is honoured | AC-3.2 — the resume the fix must keep |
 
 ---
 

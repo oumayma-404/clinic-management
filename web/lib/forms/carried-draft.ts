@@ -145,6 +145,22 @@ export function pendingCarried(): CarriedDraft | null {
   return pending
 }
 
+let resumeAsked = false
+
+/**
+ * The draft this page load should go and reopen — answered ONCE per page load, and only while no form has claimed it.
+ *
+ * ⚠️ The app shell remounts on every navigation and `takeCarriedOnce` hands every caller the same answer for the whole
+ * load, so reading that answer on each mount sent every later click back to the draft's page, handing the draft back to
+ * the shell each time — whatever was opened, the browser landed on the one patient whose form had been open, for the
+ * draft's two hours (PC de secours, 2026-10-18).
+ */
+export function resumeTarget(): CarriedDraft | null {
+  if (resumeAsked) return null
+  resumeAsked = true
+  return pending
+}
+
 /** Puts a taken draft back in the shell (before the page goes to the screen that will claim it). */
 export function handBack(draft: CarriedDraft): void {
   const s = shell()

@@ -31,7 +31,8 @@ Rules: write the blast-radius table first, run the whole unit suite (never `--fi
 ## Major — ops / updates
 | # | Problem | Where | Fix |
 |---|---|---|---|
-| 15 | A failed update leaves the PC de secours off | `clinic-setup.iss` `CurStepChanged`/`DeinitializeSetup` ~l.1604; `DeferredStartupService` | `InstallFinished` only on success, else restart services; `sc failureflag 1` + non-zero exit on fatal startup |
+| 15 | A failed update leaves the PC de secours off | `clinic-setup.iss` `CurStepChanged`/`DeinitializeSetup` ~l.1604; `DeferredStartupService` | `InstallFinished` only on success, else restart services; `sc failureflag 1` + non-zero exit on fatal startup. ⚠️ Its worse twin is fixed (2026-10-18, `investigation-2026-10-18.md`): a web service that never stopped made the copy fail on `node.exe` and the rollback left a half-replaced web — the install now refuses before copying |
+| 21–22 | **Seen in use 2026-10-18**: « Remplir la fiche » → the dashboard, with Wi-Fi off on the PC itself | (below) | the shell's only « / » navigation is these two paths; not reproduced without the real app |
 | 16 | Each migration deploy leaves a full backup copy on the PC, never pruned → disk full → PC silently can't take over | `DeferredStartupService` l.67 | skip the files copy (or the backup) on a relay; DB-only, keep 1 |
 | 18 | Owner bug #5: a normal update reads « Éteint », then « Copie en retard », and e-mails the vendor | `RelayFollower.StandDownAsync` l.208, `ClinicRelayHealth` l.146 | pass `isUpdating: null`; keep « mise à jour » until first catch-up |
 | 19 | Every deploy reinstalls every PC (10–25 min unprotected); installer never run in CI | `RelayServices.cs` `RelayBuildInfo.Compute`, `deploy-hosted.yml` | identity = newest migration + relay protocol version; Windows CI job that installs + updates; keep previous installer as fallback |
