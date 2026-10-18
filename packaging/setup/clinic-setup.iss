@@ -123,6 +123,14 @@ Name: "{app}\updates"; Check: IsServerRole
 Name: "{app}\pgdata"; Check: IsServerRole
 Name: "{commonappdata}\ClinicManagement"; Check: IsServerRole
 
+[InstallDelete]
+; Next.js keeps every page it has served in web\.next\server\route-cache, keyed by the ROUTE and not by the build, and
+; an update that only overwrites files leaves it there -- so the new web server goes on serving the previous build's
+; pages, and with them the previous build's JavaScript, for good. Measured on a PC de secours on 2026-10-18: all 24 main
+; pages still the 12/10 build after two updates. The services are already stopped (PrepareToInstall), and the hosted
+; web never meets this: each of its deploys is a fresh container.
+Type: filesandordirs; Name: "{app}\web\.next\server\route-cache"; Check: IsServerRole
+
 [Files]
 ; Payloads staged by ..\publish-server.ps1 into build-output\server\.
 Source: "{#SourcePath}\..\build-output\server\api\*";      DestDir: "{app}\api";      Flags: recursesubdirs createallsubdirs ignoreversion; Check: IsServerRole
@@ -961,32 +969,88 @@ end;
 //
 // PrepareToInstall is the correct hook: Inno calls it after the wizard and BEFORE the file copy, and a
 // non-empty return value aborts the install with that message. It is deliberately tolerant of "service
-// not found" (a first install has none) -- sc.exe's exit code is ignored for exactly that reason.
+// not found" (a first install has none).
 // ============================================================================================
-procedure StopClinicServices;
+
+// The old STOP sequence, for a PC where PowerShell cannot run -- nothing better is available there.
+procedure SendStops(const WithDb: Boolean);
 var
   Rc: Integer;
   Nssm: string;
 begin
   Nssm := ExpandConstant('{app}\tools\nssm.exe');
-
-  { API first, then the web front end it proxies to: stopping the proxy target first would leave the
-    front door briefly answering 502s to anyone still on a page. }
   Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
-
   if FileExists(Nssm) then
     RunWait(Nssm, 'stop {#ServiceWeb}', '', Rc)
   else
     Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
-
-  // The database last: its binaries are replaced too, and a running postgres.exe locks them. It is started again
-  // after the copy (SetupDatabase), and on a failed install by DeinitializeSetup.
-  Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceDb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
-
-  { `sc stop` returns as soon as the STOP control is ACCEPTED, not once the process has exited -- so
-    without this wait the copy can still hit a locked image. Kestrel and Node both shut down in well
-    under this; the cost is a few seconds on an upgrade nobody is watching. }
+  if WithDb then
+    Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceDb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
   Sleep(5000);
+end;
+
+// Stops the tiers named ('api,web' or 'api,web,db') in that order -- API first, so the front door never answers 502s to
+// a page still open -- each one STOPPED before the next is asked; then makes sure nothing of this install still runs
+// from their executables: the web host and the API are ended if they linger (nssm first, so it cannot restart node),
+// PostgreSQL is only ever waited for. False = something still holds its files.
+// ⚠️ The waits are the 2026-10-16 failure. The API depends on the web service and `sc stop` returns once a STOP is
+// ACCEPTED, so the web's STOP went out while the API was still stopping and the SCM refused it outright (1051, « a stop
+// control has been sent to a service that other running services are dependent on ») -- nssm never heard of it, the
+// database's STOP was refused the same way, node.exe stayed locked and the copy failed on it. Inno's rollback then
+// deletes the files it added and KEEPS the ones it had overwritten: a PC de secours left serving a web half old, half new.
+function StopTiers(const Tiers: string): Boolean;
+var
+  Script, OutFile: string;
+  Report: AnsiString;
+  Rc: Integer;
+begin
+  Result := True;
+  Script := ExpandConstant('{tmp}\stop-tiers.ps1');
+  OutFile := ExpandConstant('{tmp}\stopped-tiers.txt');
+  SaveStringToFile(Script,
+    'param([string]$App, [string]$Tiers, [string]$ApiService, [string]$WebService, [string]$DbService, [string]$Out)' + #13#10 +
+    '$order = $Tiers.Split('','')' + #13#10 +
+    '$service = @{ api = $ApiService; web = $WebService; db = $DbService }' + #13#10 +
+    '$image = @{ api = @(''api\ClinicManagement.API.exe''); web = @(''tools\nssm.exe'', ''node\node.exe''); db = @(''postgres\bin\postgres.exe'') }' + #13#10 +
+    '$log = @()' + #13#10 +
+    'function Running($names) { $paths = @($names | ForEach-Object { Join-Path $App $_ }); @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and ($paths -contains $_.ExecutablePath) }) }' + #13#10 +
+    'function StopTier($t) {' + #13#10 +
+    '  $s = Get-Service -Name $service[$t] -ErrorAction SilentlyContinue' + #13#10 +
+    '  if (-not $s -or $s.Status -eq ''Stopped'') { return }' + #13#10 +
+    '  try { $s.Stop() } catch { $script:log += "$t refused: $($_.Exception.GetBaseException().Message)" }' + #13#10 +
+    '  try { $s.WaitForStatus(''Stopped'', [TimeSpan]::FromSeconds(30)) } catch { $script:log += "$t not stopped after 30 s" }' + #13#10 +
+    '}' + #13#10 +
+    'foreach ($t in $order) { StopTier $t }' + #13#10 +
+    '$ends = @($order | Where-Object { $_ -ne ''db'' } | ForEach-Object { $image[$_] })' + #13#10 +
+    'foreach ($p in (Running $ends | Sort-Object { -not ($_.ExecutablePath -like ''*\nssm.exe'') })) {' + #13#10 +
+    '  Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue' + #13#10 +
+    '  $log += "ended $($p.ProcessId) $($p.ExecutablePath)"' + #13#10 +
+    '}' + #13#10 +
+    'if ($order -contains ''db'') { StopTier ''db'' }' + #13#10 +
+    '$all = @($order | ForEach-Object { $image[$_] })' + #13#10 +
+    '$until = (Get-Date).AddSeconds(30)' + #13#10 +
+    'while (@(Running $all).Count -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 500 }' + #13#10 +
+    '$left = @(Running $all | ForEach-Object { "$($_.ProcessId) $($_.ExecutablePath)" })' + #13#10 +
+    'Set-Content -Path $Out -Value (($log + @(''still running: '' + ($left -join '', ''))) -join '' | '') -Encoding ascii' + #13#10 +
+    'if ($left.Count) { exit 1 }' + #13#10, False);
+
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+              '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' + Quoted(Script) +
+              ' -App ' + Quoted(ExpandConstant('{app}')) + ' -Tiers ' + Tiers +
+              ' -ApiService {#ServiceApi} -WebService {#ServiceWeb} -DbService {#ServiceDb} -Out ' + Quoted(OutFile),
+              '', SW_HIDE, ewWaitUntilTerminated, Rc) then
+  begin
+    SendStops(Pos('db', Tiers) > 0);
+    Exit;   // unknown either way: the copy's own « file in use » stays the last word, as before this existed
+  end;
+  if LoadStringFromFile(OutFile, Report) then
+    Log('Stopping ' + Tiers + ' -- ' + String(Report));
+  Result := Rc = 0;
+end;
+
+procedure StopClinicServices;
+begin
+  StopTiers('api,web,db');
 end;
 
 // ============================================================================================
@@ -1591,10 +1655,14 @@ begin
   if IsRelayRole then
     ChooseRelayPorts;
 
-  StopClinicServices;
-  { '' = proceed. Nothing here is fatal: a first install has no services to stop, and a service that
-    refuses to stop surfaces as a file-in-use error from the copy itself, which Inno already reports
-    with a retry. }
+  if not StopTiers('api,web,db') then
+  begin
+    Result := 'Le logiciel du cabinet ne s''est pas arrêté sur ce PC : la mise à jour n''a rien modifié. ' +
+              'Redémarrez le PC, puis relancez-la.';
+    WriteResult(Result);
+    Exit;
+  end;
+  // '' = proceed. DeinitializeSetup starts again whatever was stopped, should the copy fail all the same.
   Result := '';
 end;
 
@@ -1704,17 +1772,8 @@ end;
 // Review finding 17: the API and the web front end only. The erase runs against PostgreSQL, so the database must still
 // be running when `uninstall-relay --erase` starts; CurUninstallStepChanged stops it once the verb has run.
 procedure StopRelayAppServices;
-var
-  Rc: Integer;
-  Nssm: string;
 begin
-  Nssm := ExpandConstant('{app}\tools\nssm.exe');
-  Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceApi}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
-  if FileExists(Nssm) then
-    RunWait(Nssm, 'stop {#ServiceWeb}', '', Rc)
-  else
-    Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceWeb}', '', SW_HIDE, ewWaitUntilTerminated, Rc);
-  Sleep(5000);
+  StopTiers('api,web');
 end;
 
 // ⚠️ Before [UninstallRun] stops PostgreSQL, which the erase needs, and with the API stopped first so the copy loop

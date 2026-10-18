@@ -19,6 +19,18 @@ Build recipe + **one** Inno Setup installer that turns the app into a self-conta
 | `build-tools/` | Fetched build-time tools (PostgreSQL, NSSM). Gitignored. |
 | `build-output/` | Staged payloads + the compiled `ClinicManagementSetup-<version>.exe`. Gitignored. |
 
+> ⚠️ **A STOP sent is not a service stopped.** `StopTiers` stops API → web → DB **each to STOPPED before the next**
+> (the API depends on the web service, and a web STOP sent while the API is still stopping is refused outright with
+> `1051`), then checks this install's own executables **by path**, ends a lingering web host or API (nssm first), only
+> *waits* for PostgreSQL, and `PrepareToInstall` refuses **before any file is copied** if one still runs. Before it, the
+> refused STOP (2026-10-16, a PC de secours) left `node\node.exe` locked, the copy failed on it, and Inno's rollback —
+> which deletes added files and keeps overwritten ones — left a half-replaced web whose pages point at deleted chunks.
+> See `features/clinic-pc-copy/investigation-2026-10-18.md`.
+>
+> ⚠️ **`[InstallDelete]` empties `web\.next\server\route-cache` on every install.** Next keeps the pages it served
+> there keyed by the route, not the build, so an install that only overwrites files went on serving the previous
+> build's pages and JavaScript for good (a PC de secours: the 12/10 front-end, still, after two updates).
+
 ## Flow
 1. `fetch-build-tools.ps1` (once) → runtimes into `build-tools/` + `server/tools/nssm.exe`.
 2. `publish-server.ps1 -PostgresDir … -NodeDir …` → stages `build-output/server/{api,web,node,postgres}` and `build-output/client/{shell,releases}`, packs the Velopack feed into `server/updates/`, then compiles the one `.iss` (unless `-SkipInstallers`).
