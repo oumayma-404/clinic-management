@@ -46,7 +46,7 @@ async function carryPatientForm(page: Page, text: string) {
 
 /** Follows a rail link and asserts the page STAYS there — a resume redirect is a full load a moment later. */
 async function railTo(page: Page, href: string) {
-  await page.locator(`a[href="${href}"]`).filter({ visible: true }).first().click()
+  await page.locator(`a[href="${href}"]`).locator("visible=true").first().click()
   await page.waitForLoadState("networkidle")
   await page.waitForTimeout(1500)
   expect(new URL(page.url()).pathname, `a click on ${href} was sent elsewhere`).toBe(href)
