@@ -1,0 +1,78 @@
+<!--{
+  "path": "agenda-rendez-vous-cabinet-dentaire.html",
+  "root": "",
+  "home": "index.html",
+  "nav": "",
+  "bodyClass": "",
+  "barClass": "on-light",
+  "title": "Agenda et rendez-vous du cabinet dentaire | APEXA",
+  "desc": "L'agenda du cabinet dentaire : jour, semaine ou mois, plusieurs actes par séance, et les séances à clôturer. Sur ordinateur et sur téléphone."
+}-->
+
+<!--
+  Page de longue traîne : « logiciel rendez-vous dentiste », « agenda cabinet dentaire », « planning dentiste ».
+  ⚠️ PAS de rappels SMS / WhatsApp (pas en service), PAS de Google Agenda (dépend de clés que l'hébergé n'a
+  pas forcément), PAS de « fauteuil » comme colonne de l'agenda.
+  ⚠️ La semaine pleine est GÉNÉRÉE à la capture (capture-screens.mjs § the week) : la base de dev a deux
+  rendez-vous par jour.
+  ⚠️ Les noms sont ceux de « Friends », posés à la capture (capture-screens.mjs § the cast) : aucun
+  patient réel ni de démonstration n'apparaît sur le site (propriétaire, 18/10/2026).
+
+  ⚠️ PAGE EN IMAGES (propriétaire, 18/10/2026 : « trop de texte, les gens préfèrent voir »). Une phrase
+  par image, pas plus. Le vocabulaire `.vp-*` est components.css § 9 ; les captures et comment les
+  refaire : features/site-seo-pages/notes.md.
+-->
+
+<section class="vp">
+  <div class="wrap">
+
+    <header class="vp-head">
+      <p class="eyebrow rise">Agenda</p>
+      <h1 class="vp-h1 rise d1">L’agenda de rendez-vous du cabinet dentaire.</h1>
+      <p class="vp-lede rise d2">Jour, semaine ou mois. Chaque séance garde son patient, ses actes et sa durée.</p>
+      <p class="vp-ctas rise d3">
+        <a class="btn btn-primary" href="index.html#demande">Demander une démo</a>
+        <a class="btn btn-ghost" href="index.html#telecharger">Essayer gratuitement</a>
+      </p>
+    </header>
+
+    <div class="vp-stage rise d3">
+      <figure class="vp-screen">
+        <div class="vp-bar" aria-hidden="true"><span class="vp-dots"><i></i><i></i><i></i></span><span class="vp-url">app.apexa.tn</span></div>
+        <img src="assets/img/v-agenda-semaine.webp" width="2000" height="1399" alt="Agenda du logiciel dentaire APEXA en vue semaine : une semaine pleine, du lundi au samedi" fetchpriority="high">
+      </figure>
+      <figure class="vp-phone"><img src="assets/img/p-agenda.webp" width="780" height="1688" alt="La journée du mercredi sur un téléphone" loading="lazy" decoding="async"></figure>
+    </div>
+
+    <div class="vp-rows">
+      <div class="vp-row rise">
+        <figure class="vp-shot vp-shot--sm"><img src="assets/img/v-seance-actes.webp" width="530" height="338" alt="Le récapitulatif d’un rendez-vous : une séance de 09:00 à 10:15 avec deux actes, une couronne et une radiographie panoramique" loading="lazy" decoding="async"></figure>
+        <div class="vp-txt">
+          <h2 class="vp-t">Plusieurs actes, une séance</h2>
+          <p class="vp-p">Une couronne et une radio dans le même rendez-vous, et la durée suit.</p>
+        </div>
+      </div>
+      <div class="vp-row rise">
+        <figure class="vp-shot"><img src="assets/img/v-cloturer.webp" width="2000" height="831" alt="Liste À clôturer : pour chaque séance, venu, fiche de soins et paiement" loading="lazy" decoding="async"></figure>
+        <div class="vp-txt">
+          <h2 class="vp-t">Aucune séance oubliée</h2>
+          <p class="vp-p">Venu&nbsp;? Fiche faite&nbsp;? Payé&nbsp;? Tant qu’une réponse manque, la séance attend ici.</p>
+        </div>
+      </div>
+      <div class="vp-row rise">
+        <div class="vp-phones"><figure class="vp-phone"><img src="assets/img/p-agenda.webp" width="780" height="1688" alt="La journée du cabinet sur un téléphone" loading="lazy" decoding="async"></figure></div>
+        <div class="vp-txt">
+          <h2 class="vp-t">La journée dans la poche</h2>
+          <p class="vp-p">Le même agenda sur Android et sur iPhone.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="vp-end rise">
+      <h2>Voyons l’agenda sur votre semaine</h2>
+      <a class="btn btn-primary" href="index.html#demande">Demander une démo</a>
+      <p class="vp-more">Voir aussi&nbsp;: <a href="dossier-patient-dentaire.html">le dossier patient</a> · <a href="odontogramme.html">l’odontogramme</a> · <a href="application-web-cabinet-dentaire.html">l’application web</a></p>
+    </div>
+
+  </div>
+</section>

@@ -1,0 +1,46 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://apexa.tn/dossier-patient-dentaire.html#page",
+      "url": "https://apexa.tn/dossier-patient-dentaire.html",
+      "name": "Dossier patient dentaire et ordonnances",
+      "description": "Le dossier patient du cabinet dentaire : odontogramme, fiches de soins, traitements, ordonnances, radios et documents, au même endroit.",
+      "inLanguage": "fr",
+      "isPartOf": {
+        "@id": "https://apexa.tn/#website"
+      },
+      "about": {
+        "@id": "https://apexa.tn/#logiciel"
+      },
+      "publisher": {
+        "@id": "https://apexa.tn/#organization"
+      },
+      "primaryImageOfPage": {
+        "@type": "ImageObject",
+        "url": "https://apexa.tn/assets/img/v-odonto-actes.webp"
+      },
+      "breadcrumb": {
+        "@id": "https://apexa.tn/dossier-patient-dentaire.html#fil"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://apexa.tn/dossier-patient-dentaire.html#fil",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "APEXA",
+          "item": "https://apexa.tn/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Dossier patient"
+        }
+      ]
+    }
+  ]
+}

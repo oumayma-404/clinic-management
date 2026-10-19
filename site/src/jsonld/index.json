@@ -23,13 +23,19 @@
         "email": "contact@apexa.tn",
         "availableLanguage": ["fr", "ar"],
         "areaServed": "TN"
-      }
+      },
+      "alternateName": ["Apexa Tunisie", "apexa.tn"],
+      "sameAs": [
+        "https://www.instagram.com/apexa.tn/",
+        "https://www.facebook.com/profile.php?id=61594891902273"
+      ]
     },
     {
       "@type": "WebSite",
       "@id": "https://apexa.tn/#website",
       "url": "https://apexa.tn/",
       "name": "APEXA",
+      "alternateName": ["Apexa Tunisie", "apexa.tn"],
       "inLanguage": "fr-TN",
       "publisher": { "@id": "https://apexa.tn/#organization" }
     },
@@ -39,10 +45,10 @@
       "name": "APEXA",
       "alternateName": "APEXA — logiciel de gestion de cabinet dentaire",
       "url": "https://apexa.tn/",
-      "description": "Logiciel de gestion de cabinet dentaire conçu en Tunisie : agenda, dossier patient, odontogramme, fiche de soins, devis, caisse et sauvegardes vérifiées, dans un seul logiciel. Essai de 30 jours sans carte bancaire.",
+      "description": "Logiciel de gestion de cabinet dentaire conçu en Tunisie : agenda, dossier patient, odontogramme, fiche de soins, devis, caisse et sauvegardes automatiques, en ligne ou installé au cabinet. Essai de 30 jours sans carte bancaire.",
       "applicationCategory": "HealthApplication",
       "applicationSubCategory": "Logiciel de gestion de cabinet dentaire",
-      "operatingSystem": "Windows 10, Windows 11, Android, iOS",
+      "operatingSystem": "Windows 10, Windows 11, Android, navigateur web",
       "inLanguage": "fr",
       "isAccessibleForFree": false,
       "publisher": { "@id": "https://apexa.tn/#organization" },
@@ -65,9 +71,10 @@
         "Fiche de soins et ordonnances",
         "Devis et plans de traitement",
         "Caisse, encaissements et chèques postdatés",
-        "Sauvegardes horaires vérifiées et restaurables",
+        "Sauvegardes automatiques et restaurables",
         "Export des données en CSV",
-        "Applications Android et iPhone"
+        "Application Android, et l’iPhone par le navigateur",
+        "Application web : app.apexa.tn, dans le navigateur"
       ],
       "softwareHelp": { "@id": "https://apexa.tn/#faq" }
     },

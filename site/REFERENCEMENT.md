@@ -41,7 +41,7 @@ Requête visée : **« logiciel de gestion de cabinet dentaire »**, seule et av
 
 *Sitemaps*, dans le menu de gauche → tape `sitemap.xml` → **Envoyer**.
 
-Il contient les cinq pages, l'accueil en premier. Sous 24 h le statut doit lire « Réussite » avec
+Il contient les huit pages, l'accueil en premier. Sous 24 h le statut doit lire « Réussite » avec
 le nombre d'URL découvertes. S'il lit « Impossible de récupérer », ouvre
 <https://apexa.tn/sitemap.xml> dans un navigateur : si la page s'affiche, c'est que Google n'a pas
 encore repassé, attends.
@@ -60,9 +60,12 @@ https://apexa.tn/odontogramme.html
 https://apexa.tn/logiciel-dentaire-hors-ligne.html
 https://apexa.tn/guide-choisir-logiciel-cabinet-dentaire.html
 https://apexa.tn/confidentialite.html
+https://apexa.tn/application-web-cabinet-dentaire.html
+https://apexa.tn/agenda-rendez-vous-cabinet-dentaire.html
+https://apexa.tn/dossier-patient-dentaire.html
 ```
 
-⚠️ Le quota est d'une dizaine de demandes par jour. Inutile de réclamer deux fois la même URL :
+⚠️ Le quota est d'une dizaine de demandes par jour : huit URL, c'est une journée. Inutile de réclamer deux fois la même URL :
 ça ne va pas plus vite.
 
 ---
@@ -77,7 +80,7 @@ corrigé, et voici comment tu vérifies que Google l'a compris :
 |---|---|
 | *Inspection de l'URL* sur `https://apexa.tn/`, ligne « Canonique sélectionné par Google » | `https://apexa.tn/` |
 | *Indexation → Pages* | **pas** de motif « Autre page avec balise canonique correcte » pour l'accueil |
-| *Indexation → Pages* | les 5 pages en « Indexée », pas en « Détectée, actuellement non indexée » |
+| *Indexation → Pages* | les 8 pages en « Indexée », pas en « Détectée, actuellement non indexée » |
 
 Si « Autre page avec balise canonique correcte » revient sur l'accueil, dis-le-moi : ça voudrait
 dire qu'un canonique est resté faux quelque part.
@@ -91,6 +94,14 @@ dire qu'un canonique est resté faux quelque part.
 <https://www.bing.com/webmasters> → **Importer depuis Google Search Console** → un clic, tout est
 repris. Ça vaut le coup ici : tes acheteurs sont devant un PC Windows où Edge cherche sur Bing par
 défaut.
+
+### Facebook et Instagram
+
+- **Facebook → Paramètres de la Page → Nom d'utilisateur : `apexa.tn`.** Aujourd'hui l'adresse est
+  `facebook.com/profile.php?id=61594891902273`, un numéro qui ne dit pas « APEXA » à Google. Une fois
+  le nom choisi, dis-le-moi : l'adresse est dans `src/jsonld/index.json`.
+- **Dans la bio des deux comptes : `https://apexa.tn`.** Le site désigne les comptes, les comptes
+  doivent désigner le site.
 
 ### Le test des résultats enrichis
 
@@ -152,3 +163,6 @@ condition pour que le reste serve à quelque chose, pas le résultat lui-même.
 | Les données structurées | `src/jsonld/` — **lis le README avant d'y toucher**, quatre règles y font rejeter le balisage entier |
 | Les trois scènes d'animation hors de l'index | `src/scenes/*.html`, `noindex` + `Disallow` |
 | Titre et description d'une page | le front-matter JSON en tête de `src/pages/<page>.html` |
+| La marque : « Apexa Tunisie », Instagram et Facebook (`alternateName`, `sameAs`) | `src/jsonld/index.json` — invisible sur la page : l'accueil et le pied de page ne changent pas (propriétaire, 18/10/2026) |
+| Aucune affirmation interdite (CNAM, SMS, TVA…) sur aucune page | `check-tokens.mjs` : il lit **toutes** les pages qu'il trouve, une nouvelle page est vérifiée sans rien ajouter |
+| Aucun lien interne mort, aucune image du balisage introuvable | `build.mjs`, étape 7 : le build échoue |

@@ -1,0 +1,46 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://apexa.tn/application-web-cabinet-dentaire.html#page",
+      "url": "https://apexa.tn/application-web-cabinet-dentaire.html",
+      "name": "Application web de gestion de cabinet dentaire",
+      "description": "APEXA s'ouvre dans le navigateur, sur ordinateur, tablette ou téléphone : agenda, dossiers patients et odontogramme du cabinet dentaire, en ligne.",
+      "inLanguage": "fr",
+      "isPartOf": {
+        "@id": "https://apexa.tn/#website"
+      },
+      "about": {
+        "@id": "https://apexa.tn/#logiciel"
+      },
+      "publisher": {
+        "@id": "https://apexa.tn/#organization"
+      },
+      "primaryImageOfPage": {
+        "@type": "ImageObject",
+        "url": "https://apexa.tn/assets/img/v-agenda-semaine.webp"
+      },
+      "breadcrumb": {
+        "@id": "https://apexa.tn/application-web-cabinet-dentaire.html#fil"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://apexa.tn/application-web-cabinet-dentaire.html#fil",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "APEXA",
+          "item": "https://apexa.tn/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Application web"
+        }
+      ]
+    }
+  ]
+}

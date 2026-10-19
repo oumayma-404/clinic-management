@@ -1,0 +1,76 @@
+<!--{
+  "path": "dossier-patient-dentaire.html",
+  "root": "",
+  "home": "index.html",
+  "nav": "",
+  "bodyClass": "",
+  "barClass": "on-light",
+  "title": "Dossier patient dentaire et ordonnances | APEXA",
+  "desc": "Le dossier patient du cabinet dentaire : odontogramme, fiches de soins, traitements, ordonnances, radios et documents, au même endroit."
+}-->
+
+<!--
+  Page de longue traîne : « dossier patient dentaire », « fiche de soins dentaire », « ordonnance dentiste logiciel ».
+  ⚠️ SIX onglets = web/app/patients/[id]/page.tsx. Ordonnance / examens à part = features/prescription-fiche-de-soins.
+  ⚠️ PAS de CNAM : les deux formulaires CNAM n'ont plus d'écran.
+  ⚠️ Les noms sont ceux de « Friends », posés à la capture (capture-screens.mjs § the cast) : aucun
+  patient réel ni de démonstration n'apparaît sur le site (propriétaire, 18/10/2026).
+
+  ⚠️ PAGE EN IMAGES (propriétaire, 18/10/2026 : « trop de texte, les gens préfèrent voir »). Une phrase
+  par image, pas plus. Le vocabulaire `.vp-*` est components.css § 9 ; les captures et comment les
+  refaire : features/site-seo-pages/notes.md.
+-->
+
+<section class="vp">
+  <div class="wrap">
+
+    <header class="vp-head">
+      <p class="eyebrow rise">Dossier patient</p>
+      <h1 class="vp-h1 rise d1">Le dossier patient dentaire, d’un coup d’œil.</h1>
+      <p class="vp-lede rise d2">L’odontogramme, les séances, les ordonnances et les radios, au même endroit.</p>
+      <p class="vp-ctas rise d3">
+        <a class="btn btn-primary" href="index.html#demande">Demander une démo</a>
+        <a class="btn btn-ghost" href="index.html#telecharger">Essayer gratuitement</a>
+      </p>
+    </header>
+
+    <div class="vp-stage rise d3">
+      <figure class="vp-screen">
+        <div class="vp-bar" aria-hidden="true"><span class="vp-dots"><i></i><i></i><i></i></span><span class="vp-url">app.apexa.tn</span></div>
+        <img src="assets/img/v-odonto-actes.webp" width="2000" height="863" alt="Le dossier patient du logiciel dentaire APEXA : l’odontogramme, onglet Actes faits, avec chaque acte réalisé sur sa dent" fetchpriority="high">
+      </figure>
+      <figure class="vp-phone"><img src="assets/img/p-odonto.webp" width="780" height="1688" alt="L’odontogramme sur un téléphone" loading="lazy" decoding="async"></figure>
+    </div>
+
+    <div class="vp-rows">
+      <div class="vp-row rise">
+        <figure class="vp-shot"><img src="assets/img/v-onglets.webp" width="2000" height="552" alt="Les six onglets du dossier : fiches de soins, traitements, rendez-vous, documents, fichiers, factures" loading="lazy" decoding="async"></figure>
+        <div class="vp-txt">
+          <h2 class="vp-t">Six onglets, un patient</h2>
+          <p class="vp-p">Fiches de soins, traitements, rendez-vous, documents, fichiers et factures.</p>
+        </div>
+      </div>
+      <div class="vp-row rise">
+        <figure class="vp-shot"><img src="assets/img/v-ordonnance.webp" width="916" height="197" alt="Une fiche de soins avec l’ordonnance prescrite et une demande de radiographie panoramique" loading="lazy" decoding="async"></figure>
+        <div class="vp-txt">
+          <h2 class="vp-t">L’ordonnance part de la séance</h2>
+          <p class="vp-p">Prescrite dans la fiche de soins, prête à imprimer. Les examens sur une ordonnance à part.</p>
+        </div>
+      </div>
+      <div class="vp-row rise">
+        <figure class="vp-shot"><img src="assets/img/v-sante.webp" width="2000" height="324" alt="La santé du patient en haut du dossier : allergies, maladies, médicaments, tabac" loading="lazy" decoding="async"></figure>
+        <div class="vp-txt">
+          <h2 class="vp-t">La santé en premier</h2>
+          <p class="vp-p">Allergies, maladies et médicaments, en haut du dossier.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="vp-end rise">
+      <h2>Voyons un dossier de votre cabinet</h2>
+      <a class="btn btn-primary" href="index.html#demande">Demander une démo</a>
+      <p class="vp-more">Voir aussi&nbsp;: <a href="odontogramme.html">l’odontogramme</a> · <a href="agenda-rendez-vous-cabinet-dentaire.html">l’agenda</a> · <a href="application-web-cabinet-dentaire.html">l’application web</a></p>
+    </div>
+
+  </div>
+</section>

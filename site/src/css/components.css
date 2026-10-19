@@ -4567,3 +4567,85 @@
 /* Sans JS la section rendrait VIDE — même garde-fou que .jour-copy. */
 .no-js .dl-rise, .no-js .dl-cin { opacity: 1; transform: none; filter: none; }
 @media (prefers-reduced-motion: reduce) { .dl-rise, .dl-cin { transition: none; } }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   9 · PAGES EN IMAGES — agenda, caisse, dossier patient, application web.
+
+   La propriétaire, 18/10/2026 : « trop de texte, les gens préfèrent voir ».
+   Chaque page est un écran du logiciel avec un téléphone posé dessus, puis
+   trois gros plans d'une ligne chacun. Le texte qui reste est ce que Google
+   lit : le h1, une phrase, un titre et une phrase par gros plan, et le `alt`
+   de chaque image — qui décrit l'écran, pas la page.
+
+   ⚠️ Les captures sont le logiciel réel, menu de gauche coupé : il affiche
+   « Rappels », qui n'est pas encore en service. Les refaire :
+   features/site-seo-pages/notes.md § Les captures.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.vp { padding-block: clamp(2.5rem, 1.6rem + 3vw, 4.5rem) var(--sec-y); }
+.vp-head { display: grid; gap: 1rem; max-width: 46rem; }
+.vp-head > * { margin: 0; }
+.vp-h1 { font-size: var(--t-h1); font-weight: 500; line-height: 1.08; letter-spacing: -0.025em; }
+.vp-lede { font-size: var(--t-body); line-height: 1.55; color: var(--text-muted); max-width: 42ch; }
+.vp-ctas { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
+
+/* L'écran : une fenêtre de navigateur, et le téléphone posé sur son coin. */
+.vp-stage { position: relative; margin: clamp(2rem, 1.4rem + 2.4vw, 3.5rem) 0 0; padding-bottom: clamp(1.75rem, 1rem + 3vw, 3.5rem); }
+.vp-screen, .vp-shot { margin: 0; overflow: hidden; border: 1px solid var(--rule); background: var(--white); }
+.vp-screen { border-radius: var(--r-card); box-shadow: var(--shadow-shot); }
+.vp-screen img, .vp-shot img { display: block; width: 100%; height: auto; }
+.vp-bar { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.875rem; border-bottom: 1px solid var(--rule-soft); }
+.vp-dots { display: flex; flex: none; gap: 0.375rem; }
+.vp-dots i { width: 0.625rem; height: 0.625rem; border-radius: var(--r-pill); background: var(--rule-strong); }
+.vp-url {
+  flex: 1; min-width: 0; max-width: 18rem; margin-inline: auto; padding: 0.25rem 0.875rem;
+  border-radius: var(--r-pill); background: var(--page); color: var(--text-muted);
+  font-size: var(--t-xs); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Graphite, comme le matériel et comme les téléphones de « Mobile » (.s4-phone). */
+.vp-phone {
+  margin: 0; padding: 0.3125rem; border-radius: 1.5em;
+  background: linear-gradient(148deg, var(--device-2) 0%, var(--device) 24%, var(--device) 74%, var(--device-2) 100%);
+  box-shadow: var(--shadow-device);
+}
+.vp-phone img { display: block; width: 100%; height: auto; border-radius: 1.25em; }
+/* Hung half off the screen's edge, so it covers the frame and not the end of an arch. */
+.vp-stage > .vp-phone { position: absolute; right: -2%; bottom: 0; width: clamp(5.5rem, 16%, 11rem); }
+
+/* Les gros plans : l'image d'un côté, une ligne de l'autre, en alternance. */
+.vp-rows { display: grid; gap: clamp(3rem, 2rem + 4vw, 6rem); margin-top: clamp(3.5rem, 2.4rem + 4vw, 6.5rem); }
+.vp-row { display: grid; gap: 1.25rem; align-items: center; }
+@media (min-width: 56rem) {
+  .vp-row { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: clamp(2rem, 1rem + 3vw, 4rem); }
+  .vp-row:nth-child(even) > :first-child { order: 2; }
+}
+.vp-shot { border-radius: var(--r-med); box-shadow: var(--shadow-card); }
+.vp-txt { display: grid; gap: 0.5rem; }
+.vp-txt > * { margin: 0; }
+.vp-t { font-size: var(--t-h3); font-weight: 500; line-height: 1.2; letter-spacing: -0.015em; }
+.vp-p { font-size: var(--t-body); line-height: 1.55; color: var(--text-muted); max-width: 34ch; }
+.vp-p a { color: var(--accent-ink); }
+
+/* Plusieurs téléphones côte à côte. */
+.vp-phones { display: flex; justify-content: center; align-items: flex-end; gap: clamp(0.75rem, 0.4rem + 1.6vw, 1.75rem); }
+.vp-phones > .vp-phone { width: clamp(5.5rem, 30%, 10.5rem); }
+
+/* Les vignettes qui mènent aux autres pages. */
+.vp-tiles { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
+.vp-tile { display: grid; gap: 0.625rem; color: inherit; text-decoration: none; }
+.vp-tile b { font-size: var(--t-lg); font-weight: 500; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.2em; }
+@media (hover: hover) and (pointer: fine) { .vp-tile:hover b { text-decoration-thickness: 2px; } }
+
+.vp-end { display: grid; justify-items: center; gap: 1rem; margin-top: clamp(4rem, 3rem + 4vw, 7rem); text-align: center; }
+.vp-end > * { margin: 0; }
+.vp-end h2 { font-size: var(--t-h2); font-weight: 500; line-height: 1.15; letter-spacing: -0.02em; max-width: 20ch; }
+.vp-more { font-size: var(--t-sm); color: var(--text-muted); }
+/* Trois écrans de proportions différentes : la vignette les ramène à une seule. */
+.vp-tile .vp-shot { aspect-ratio: 16 / 10; }
+.vp-tile .vp-shot img { height: 100%; object-fit: cover; object-position: left top; }
+/* Un gros plan étroit (une carte, pas un écran) garde sa taille au lieu d'être agrandi et flou. */
+.vp-shot--sm { justify-self: center; width: min(100%, 22rem); }
+/* Une rangée pleine largeur : la phrase au-dessus, les vignettes en dessous. */
+@media (min-width: 56rem) {
+  .vp-row.vp-row--wide { grid-template-columns: minmax(0, 1fr); }
+  .vp-row.vp-row--wide > :first-child { order: 0; }
+}

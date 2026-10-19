@@ -1,0 +1,81 @@
+<!--{
+  "path": "application-web-cabinet-dentaire.html",
+  "root": "",
+  "home": "index.html",
+  "nav": "",
+  "bodyClass": "",
+  "barClass": "on-light",
+  "title": "Application web de gestion de cabinet dentaire | APEXA",
+  "desc": "APEXA s'ouvre dans le navigateur, sur ordinateur, tablette ou téléphone : agenda, dossiers patients et odontogramme du cabinet dentaire, en ligne."
+}-->
+
+<!--
+  Page de longue traîne : « application web cabinet dentaire », « logiciel dentaire en ligne »,
+  « logiciel cabinet dentaire cloud ».
+  ⚠️ VRAI DU PROFIL HostedMultiTenant SEULEMENT. « Il faut une connexion » ne s'enlève pas.
+  ⚠️ NE JAMAIS écrire où les données sont hébergées : le serveur n'est pas en Tunisie.
+  ⚠️ PAS de page ni de vignette « caisse » : la propriétaire ne veut pas mettre l'argent en avant (18/10/2026).
+  ⚠️ Les noms sont ceux de « Friends », posés à la capture (capture-screens.mjs § the cast) : aucun
+  patient réel ni de démonstration n'apparaît sur le site (propriétaire, 18/10/2026).
+
+  ⚠️ PAGE EN IMAGES (propriétaire, 18/10/2026 : « trop de texte, les gens préfèrent voir »). Une phrase
+  par image, pas plus. Le vocabulaire `.vp-*` est components.css § 9 ; les captures et comment les
+  refaire : features/site-seo-pages/notes.md.
+-->
+
+<section class="vp">
+  <div class="wrap">
+
+    <header class="vp-head">
+      <p class="eyebrow rise">Application web</p>
+      <h1 class="vp-h1 rise d1">Le logiciel dentaire en ligne, dans votre navigateur.</h1>
+      <p class="vp-lede rise d2">Ouvrez app.apexa.tn sur l’ordinateur, la tablette ou le téléphone. Rien à installer.</p>
+      <p class="vp-ctas rise d3">
+        <a class="btn btn-primary" href="index.html#demande">Demander une démo</a>
+        <a class="btn btn-ghost" href="index.html#telecharger">Essayer gratuitement</a>
+      </p>
+    </header>
+
+    <div class="vp-stage rise d3">
+      <figure class="vp-screen">
+        <div class="vp-bar" aria-hidden="true"><span class="vp-dots"><i></i><i></i><i></i></span><span class="vp-url">app.apexa.tn</span></div>
+        <img src="assets/img/v-agenda-semaine.webp" width="2000" height="1399" alt="Le logiciel dentaire APEXA ouvert dans un navigateur, sur une semaine d’agenda pleine" fetchpriority="high">
+      </figure>
+      <figure class="vp-phone"><img src="assets/img/p-agenda.webp" width="780" height="1688" alt="Le même cabinet sur un téléphone" loading="lazy" decoding="async"></figure>
+    </div>
+
+    <div class="vp-rows">
+      <div class="vp-row rise">
+        <div class="vp-phones"><figure class="vp-phone"><img src="assets/img/p-agenda.webp" width="780" height="1688" alt="L’agenda sur un téléphone" loading="lazy" decoding="async"></figure><figure class="vp-phone"><img src="assets/img/p-odonto.webp" width="780" height="1688" alt="L’odontogramme sur un téléphone" loading="lazy" decoding="async"></figure></div>
+        <div class="vp-txt">
+          <h2 class="vp-t">Le même cabinet sur le téléphone</h2>
+          <p class="vp-p">Android, et l’iPhone par le navigateur.</p>
+        </div>
+      </div>
+      <div class="vp-row vp-row--wide rise">
+        <div class="vp-txt">
+          <h2 class="vp-t">Tout le logiciel, pas une version allégée</h2>
+          <p class="vp-p">Le même logiciel que la formule installée au cabinet.</p>
+        </div>
+        <div class="vp-tiles">
+          <a class="vp-tile" href="agenda-rendez-vous-cabinet-dentaire.html"><figure class="vp-shot"><img src="assets/img/v-agenda-semaine.webp" width="2000" height="1399" alt="Une semaine d’agenda" loading="lazy" decoding="async"></figure><b>L’agenda</b></a>
+          <a class="vp-tile" href="dossier-patient-dentaire.html"><figure class="vp-shot"><img src="assets/img/v-onglets.webp" width="2000" height="552" alt="Les onglets du dossier patient" loading="lazy" decoding="async"></figure><b>Le dossier patient</b></a>
+          <a class="vp-tile" href="odontogramme.html"><figure class="vp-shot"><img src="assets/img/v-odonto.webp" width="2000" height="996" alt="L’odontogramme" loading="lazy" decoding="async"></figure><b>L’odontogramme</b></a>
+        </div>
+      </div>
+      <div class="vp-row rise">
+        <div class="vp-txt">
+          <h2 class="vp-t">Il faut une connexion</h2>
+          <p class="vp-p">Ligne fragile&nbsp;? <a href="logiciel-dentaire-hors-ligne.html">La formule installée au cabinet</a> continue quand la ligne tombe.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="vp-end rise">
+      <h2>Essayons-le sur votre cabinet</h2>
+      <a class="btn btn-primary" href="index.html#demande">Demander une démo</a>
+      <p class="vp-more">Voir aussi&nbsp;: <a href="agenda-rendez-vous-cabinet-dentaire.html">l’agenda</a> · <a href="dossier-patient-dentaire.html">le dossier patient</a> · <a href="odontogramme.html">l’odontogramme</a></p>
+    </div>
+
+  </div>
+</section>

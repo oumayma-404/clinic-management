@@ -241,9 +241,56 @@ writeFileSync(join(OUT, 'sitemap.xml'), [
 // 6 · GitHub Pages needs this or it runs the output through Jekyll.
 writeFileSync(join(OUT, '.nojekyll'), '')
 
+/* 7 · Every internal link lands, checked on the OUTPUT — what the visitor and Google get.
+   The nav once linked nine pages nobody had built (235a9371), and a structured-data URL that 404s
+   fails silently (src/jsonld/README.md rule 4). A `#fragment` must name an id on its page; a
+   JSON-LD `@id` fragment is an identifier, not an anchor, so there only the file is checked. */
+const SHIPPED_ELSEWHERE = {
+  'APEXA-1.1.1.apk': 'lives only in the deploy repo, beside the built site',
+}
+const ORIGIN = new URL(BASE).origin
+const idsByPage = new Map()
+const idsOf = rel => {
+  if (!idsByPage.has(rel)) {
+    const f = join(OUT, rel)
+    idsByPage.set(rel, existsSync(f) ? new Set([...readFileSync(f, 'utf8').matchAll(/\sid="([^"]+)"/g)].map(m => m[1])) : new Set())
+  }
+  return idsByPage.get(rel)
+}
+const broken = []
+for (const file of walk(OUT).filter(f => !f.includes(`${sep}scenes${sep}`))) {
+  const rel = relative(OUT, file).split(sep).join('/')
+  const html = readFileSync(file, 'utf8')
+  const refs = [
+    ...[...html.matchAll(/\s(?:href|src)="([^"]+)"/g)].map(m => ({ ref: m[1], anchor: true })),
+    ...[...html.matchAll(/\scontent="([^"]+)"/g)].map(m => m[1]).filter(v => v.startsWith(BASE)).map(ref => ({ ref, anchor: true })),
+  ]
+  for (const [, ld] of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
+    const collect = v => typeof v === 'string' ? v.startsWith(BASE) && refs.push({ ref: v, anchor: false })
+      : v && typeof v === 'object' && Object.values(v).forEach(collect)
+    collect(JSON.parse(ld))
+  }
+  for (const { ref, anchor } of refs) {
+    const u = new URL(ref, BASE + rel)
+    if (u.origin !== ORIGIN) continue
+    let path = decodeURIComponent(u.pathname.slice(1))
+    if (path === '' || path.endsWith('/')) path += 'index.html'
+    if (path in SHIPPED_ELSEWHERE) continue
+    if (skipImages && path.startsWith('assets/img/')) continue
+    if (!existsSync(join(OUT, path))) broken.push(`${rel}: ${ref} → no such file`)
+    else if (anchor && u.hash && path.endsWith('.html') && !idsOf(path).has(decodeURIComponent(u.hash.slice(1))))
+      broken.push(`${rel}: ${ref} → no id="${u.hash.slice(1)}" on ${path}`)
+  }
+}
+if (broken.length) {
+  console.error(`\nbuild FAILED, dist is not deployable: ${broken.length} broken internal link(s)`)
+  for (const b of [...new Set(broken)]) console.error('  ' + b)
+  process.exit(1)
+}
+
 console.log('pages')
 for (const b of built) console.log('  ' + b)
-console.log(`seo   robots.txt · sitemap.xml (${urls.length} url) · base ${BASE}`)
+console.log(`seo   robots.txt · sitemap.xml (${urls.length} url) · base ${BASE} · internal links ok`)
 if (imgReport.length) { console.log('images'); for (const i of imgReport) console.log('  ' + i) }
 console.log(`css   ${(statSync(join(OUT, 'assets', 'site.css')).size / 1024).toFixed(1)} KB`)
 console.log(`js    ${(statSync(join(OUT, 'assets', 'site.js')).size / 1024).toFixed(1)} KB`)

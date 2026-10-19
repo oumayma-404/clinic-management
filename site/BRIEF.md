@@ -881,10 +881,11 @@ eyebrow sur une seule ligne partout, aucun débordement.
 trois lignes sur un téléphone. C'est la lede juste en dessous qui le dit déjà — « Conçu en Tunisie,
 pour les dentistes d'ici. »
 
-### Trois pages de longue traîne
+### Six pages de longue traîne
 
 `odontogramme.html`, `logiciel-dentaire-hors-ligne.html`,
-`guide-choisir-logiciel-cabinet-dentaire.html`. Une page ne peut pas être première sur toutes les
+`guide-choisir-logiciel-cabinet-dentaire.html`, puis (18/10/2026) `application-web-cabinet-dentaire.html`,
+`agenda-rendez-vous-cabinet-dentaire.html` et `dossier-patient-dentaire.html`. Une page ne peut pas être première sur toutes les
 variantes.
 
 - **Zéro CSS nouveau** : elles reprennent le vocabulaire `.cp-*` de `confidentialite.html`, qui est
@@ -895,6 +896,22 @@ variantes.
   ce qui est vrai et utile tant que la section « L'essai et le prix » est parquée.
 - **Liées depuis le pied de page** sur toutes les pages : une page orpheline est à peine explorée,
   même présente au sitemap.
+- ⚠️ **PAS de page « caisse » ni « argent »** (propriétaire, 18/10/2026 : « je ne veux pas de pages dédiées,
+  ne les mettons pas en avant pour l'instant »). Une page a été faite, puis supprimée. L'argent qui paraît
+  dans une capture d'une autre page est toléré ; une page, une vignette ou un titre consacrés, non.
+- ⚠️ **Les pages du 18/10 sont des pages EN IMAGES, pas en prose** — la propriétaire a refusé
+  une première version de 550 mots par page : « trop de texte, les gens préfèrent voir ». Un écran du
+  logiciel, un téléphone, trois gros plans d'une ligne : ~90 mots. Elles ont leur vocabulaire
+  `.vp-*` (components.css § 9). `odontogramme.html` y est passée le 19/10/2026 ; `logiciel-dentaire-hors-ligne.html`,
+  le guide et la confidentialité restent en `.cp-*`.
+- ⚠️ **PAS liées depuis l'accueil ni depuis le pied de page** : la propriétaire veut l'accueil tel qu'il
+  est (18/10/2026), et le pied de page est sur l'accueil. Elles se lient entre elles, depuis
+  `odontogramme.html` et `logiciel-dentaire-hors-ligne.html`, et le sitemap les donne à Google.
+- ⚠️ **Aucun nom de patient réel ni de démonstration** : les captures portent les noms de « Friends »
+  (`capture-screens.mjs`).
+- ⚠️ **« Application web » est vrai de la formule hébergée seulement**, comme « sans internet »
+  l'est de la formule locale : chaque page le dit, et la page application web renvoie à la page
+  hors ligne pour l'autre formule. Aucune page ne dit où les données sont hébergées.
 
 ⚠️ Chaque affirmation de `odontogramme.html` est une décision documentée dans `features/` — l'état
 final charté seulement quand l'acte est terminé, l'étendue d'un bridge enregistrée et non devinée,

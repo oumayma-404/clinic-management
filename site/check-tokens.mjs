@@ -20,13 +20,13 @@
    A line may opt out with a trailing `/* token-exempt: <reason> *\/`.
 
    It also fails on a claim the site may not make (site/BRIEF.md « Claims »)
-   appearing in index.html.
+   on any page, structured-data file or embedded scene, found rather than listed.
 
    node check-tokens.mjs            report and exit 1 on any finding
    node check-tokens.mjs --summary  counts per property only
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -102,24 +102,73 @@ for (const rel of FILES) {
   }
 }
 
-/* ── Claims ─────────────────────────────────────────────────────────────── */
-const BANNED = [
-  [/sans\s+internet|hors[\s-]ligne/i, '« sans internet » is true of one deployment only (BRIEF « Claims »)'],
-  [/\bCNAM\b/, 'CNAM is not on any screen (BRIEF « Claims »)'],
-  [/\bTVA\b|timbre fiscal/i, 'no TVA nor timbre on a note (BRIEF « Claims »)'],
+/* ── Claims ─────────────────────────────────────────────────────────────────
+   Every page, every structured-data file and every scene is FOUND, never listed: a hand-written
+   list is exactly what a new page escapes. What is tested is what a reader or Google can read — the
+   visible text, the title and description, the JSON-LD's strings — never the markup, or the href
+   `logiciel-dentaire-hors-ligne.html` would count as a claim. */
+const CLAIMS = [
+  { re: /sans\s+internet|hors[\s-]ligne/i, why: '« sans internet » is true of one deployment only (BRIEF « Claims »)',
+    exempt: {
+      'pages/logiciel-dentaire-hors-ligne.html': 'the page of the local formula, and it says the hosted one needs internet',
+      'jsonld/logiciel-dentaire-hors-ligne.json': 'that page\'s own structured data',
+      'pages/guide-choisir-logiciel-cabinet-dentaire.html': 'names « hors ligne » as a question to ask; its answer says « en formule locale »',
+      'jsonld/guide-choisir-logiciel-cabinet-dentaire.json': 'that page\'s own structured data',
+    } },
+  { re: /\bCNAM\b/, why: 'CNAM is not on any screen (BRIEF « Claims »)', exempt: {} },
+  { re: /\bTVA\b|timbre fiscal/i, why: 'no TVA nor timbre on a note (BRIEF « Claims »)', exempt: {} },
+  // Reminders are not live (owner, 29/09).
+  { re: /rappels?\s+(SMS|WhatsApp|de contrôle|automatique)|\bSMS\b|WhatsApp|les rappels partent/i,
+    why: 'reminders are not live yet (BRIEF « Claims »)',
+    exempt: {
+      'pages/confidentialite.html': 'it lists the processors: a disclosure, not a claim',
+      'jsonld/confidentialite.json': 'that page\'s own structured data',
+    } },
 ]
-const read = (rel) => readFileSync(join(SRC, rel), 'utf8').replace(/<!--[\s\S]*?-->/g, '')
-const index = read('pages/index.html')
-for (const [re, why] of BANNED) if (re.test(index)) findings.push({ file: 'pages/index.html', line: 0, prop: 'claim', value: index.match(re)[0], why })
 
-// Reminders are not live (owner, 29/09): no page may sell them, and neither may the hero film or
-// Google's structured data. The privacy page is exempt — it lists the processors, which is a
-// disclosure and not a claim.
-const REMINDERS = /rappels?\s+(SMS|WhatsApp|de contrôle|automatique)|\bSMS\b|WhatsApp|les rappels partent/i
-for (const rel of ['pages/index.html', 'pages/odontogramme.html', 'pages/logiciel-dentaire-hors-ligne.html',
-                   'pages/guide-choisir-logiciel-cabinet-dentaire.html', 'scenes/hero-quatre-temps.html', 'jsonld/index.json']) {
-  const m = read(rel).match(REMINDERS)
-  if (m) findings.push({ file: rel, line: 0, prop: 'claim', value: m[0], why: 'reminders are not live yet (BRIEF « Claims »)' })
+function sources (dir, ext, acc = []) {
+  for (const name of readdirSync(join(SRC, dir))) {
+    const rel = `${dir}/${name}`
+    if (statSync(join(SRC, rel)).isDirectory()) sources(rel, ext, acc)
+    else if (name.endsWith(ext)) acc.push(rel)
+  }
+  return acc
+}
+
+// A link TO the hors-ligne page is that page's name, not a claim about the product.
+const LINK_TO_OFFLINE = /<a\b[^>]*href="[^"]*logiciel-dentaire-hors-ligne\.html[^"]*"[^>]*>[\s\S]*?<\/a>/g
+
+function readable (rel) {
+  const raw = readFileSync(join(SRC, rel), 'utf8')
+  if (rel.endsWith('.json')) {
+    const strings = []
+    const collect = v => typeof v === 'string' ? (/^https?:/.test(v) || strings.push(v))
+      : v && typeof v === 'object' && Object.values(v).forEach(collect)
+    collect(JSON.parse(raw))
+    return strings.join('\n')
+  }
+  const front = raw.match(/^\s*<!--(\{[\s\S]*?\})-->/)
+  const meta = front ? JSON.parse(front[1]) : {}
+  const body = raw.replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(script|style)\b[\s\S]*?<\/\1>/g, ' ')
+    .replace(LINK_TO_OFFLINE, ' ')
+    .replace(/<[^>]+>/g, ' ')
+  return [meta.title, meta.desc, body].filter(Boolean).join('\n')
+}
+
+// A scene is read only when a page embeds it: two are kept unused on purpose (scenes/README.md), and
+// the day one is swapped into the hero it is checked with no edit here.
+const pageFiles = sources('pages', '.html')
+const embedded = pageFiles.map(rel => readFileSync(join(SRC, rel), 'utf8')).join('\n')
+const liveScenes = sources('scenes', '.html').filter(rel => embedded.includes(`assets/${rel}`))
+
+for (const rel of [...pageFiles, ...sources('jsonld', '.json'), ...liveScenes]) {
+  const text = readable(rel)
+  for (const { re, why, exempt } of CLAIMS) {
+    if (rel in exempt) continue
+    const m = text.match(re)
+    if (m) findings.push({ file: rel, line: 0, prop: 'claim', value: m[0], why })
+  }
 }
 
 /* ── Report ─────────────────────────────────────────────────────────────── */
