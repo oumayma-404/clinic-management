@@ -6,7 +6,7 @@
       "@id": "https://apexa.tn/#organization",
       "name": "APEXA",
       "url": "https://apexa.tn/",
-      "email": "contact@apexa.tn",
+      "email": "info@apexa.tn",
       "logo": {
         "@type": "ImageObject",
         "url": "https://apexa.tn/icon-512.png",
@@ -20,7 +20,7 @@
       "contactPoint": {
         "@type": "ContactPoint",
         "contactType": "sales",
-        "email": "contact@apexa.tn",
+        "email": "info@apexa.tn",
         "availableLanguage": ["fr", "ar"],
         "areaServed": "TN"
       },

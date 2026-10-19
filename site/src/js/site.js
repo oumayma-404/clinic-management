@@ -589,11 +589,11 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
       `Nom : ${get('Nom')}`, `Prénom : ${get('Prenom')}`,
       `Email : ${get('Email')}`, `Téléphone : ${get('Telephone')}`, '', get('Message'),
     ].join('\n');
-    return `mailto:contact@apexa.tn?subject=${encodeURIComponent('Demande de démo — apexa.tn')}&body=${encodeURIComponent(body)}`;
+    return `mailto:info@apexa.tn?subject=${encodeURIComponent('Demande de démo — apexa.tn')}&body=${encodeURIComponent(body)}`;
   };
 
   const fail = () => {
-    note.innerHTML = `L’envoi n’a pas abouti. Écrivez-nous directement&nbsp;: <a href="${fallbackLink()}">ouvrir votre messagerie</a>, ou contact@apexa.tn.`;
+    note.innerHTML = `L’envoi n’a pas abouti. Écrivez-nous directement&nbsp;: <a href="${fallbackLink()}">ouvrir votre messagerie</a>, ou info@apexa.tn.`;
     note.hidden = false;
   };
 
