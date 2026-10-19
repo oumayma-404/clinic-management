@@ -245,9 +245,9 @@ writeFileSync(join(OUT, '.nojekyll'), '')
    The nav once linked nine pages nobody had built (235a9371), and a structured-data URL that 404s
    fails silently (src/jsonld/README.md rule 4). A `#fragment` must name an id on its page; a
    JSON-LD `@id` fragment is an identifier, not an anchor, so there only the file is checked. */
-const SHIPPED_ELSEWHERE = {
-  'APEXA-1.1.1.apk': 'lives only in the deploy repo, beside the built site',
-}
+// A file that lives only in the deploy repo, beside the built site, goes here with its reason. Empty since
+// the Android button points at the server's APK (19/10/2026); the old APKs stay in that repo for old links.
+const SHIPPED_ELSEWHERE = {}
 const ORIGIN = new URL(BASE).origin
 const idsByPage = new Map()
 const idsOf = rel => {
