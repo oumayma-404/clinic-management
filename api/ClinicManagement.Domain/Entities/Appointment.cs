@@ -96,6 +96,18 @@ public class Appointment : AggregateRoot<Guid>
         _procedures.OrderBy(p => p.SequenceNumber).ToList().AsReadOnly();
 
     /// <summary>
+    /// The séance's acts by name, in booking order, each once — what a reminder's <c>{acte}</c> says. Server twin of
+    /// <c>web/components/appointment-labels.ts</c>' <c>appointmentActsSummary</c>; the reminder shortens its own copy.
+    /// </summary>
+    public IReadOnlyList<string> BookedActNames() =>
+        Procedures
+            .Select(p => p.ProcedureName?.Trim())
+            .Where(name => !string.IsNullOrEmpty(name))
+            .Select(name => name!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    /// <summary>
     /// Every treatment-plan act this visit carries out — the child links, plus the parent scalar for rows written
     /// before the collection existed (and never migrated because their appointment carried no procedure).
     /// <para>

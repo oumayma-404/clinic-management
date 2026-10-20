@@ -471,7 +471,9 @@ public static class Extensions
         services.AddSingleton<IVendorMessagingAvailability, VendorMessagingAvailability>();
         services.AddSingleton<IMessagingAllowancePolicy, MessagingAllowancePolicy>();
         services.AddScoped<IReminderScheduler, ReminderScheduler>();
-        services.AddScoped<IReminderChannelSender, HttpSmsSender>();
+        // One sender per channel: NotificationJob keys them by channel, so a second SMS sender throws at construction.
+        services.AddSingleton<SmsProviderBreaker>();
+        services.AddScoped<IReminderChannelSender, TunisieSmsSender>();
         services.AddScoped<IReminderChannelSender, WhatsAppSender>();
 
         // OS push (mobile-native-shells Part 6).

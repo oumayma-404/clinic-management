@@ -524,7 +524,10 @@ no consent flag and no audit of which patient was sent.
   `ProbeTimeoutSeconds` (3), `ProbeCacheSeconds` (5).
 
 ### Reminders — SMS/WhatsApp + recall (live outbound)
-- **`IReminderChannelSender`** + `HttpSmsSender` (config-driven HTTP gateway, alphanumeric sender id) and
+- **`IReminderChannelSender`** + `TunisieSmsSender` (Tunisie SMS; it **replaced** the generic `HttpSmsSender` — one
+  sender per channel, and the provider answers 200 with its verdict in the body, so `ClassifySuccess` reads it and
+  `SmsProviderBreaker` pauses the sends on « no credit / sender not approved »; request shape provisional until the
+  provider's API document, see `features/sms-rappels-tunisie-sms/notes.md`) and
   `WhatsAppSender` (WhatsApp Business Graph API, pre-approved utility template — never free-text) over a shared
   **`HttpReminderChannelSender`** base (15s-bounded JSON POST → `Sent`/`TransientFailure`/`NotConfigured`).
   ⚠️ **The gateway's response body never reaches the result** — it used to, truncated to 200 bytes, and that string
@@ -949,7 +952,7 @@ ubuntu runner, where `Harden` itself short-circuits.
   mode-resolved dir (Local → `.local/dataprotection-keys`, DPAPI machine-scoped on Windows; Cloud →
   `DataProtection:KeyRingPath` if set, else framework default) + `IReminderSecretProtector` (**Singleton**).
 - **Reminders** — `IReminderSettingsProvider`, `IReminderScheduler` (scoped); `IReminderChannelSender` ×2
-  (`HttpSmsSender`, `WhatsAppSender`, scoped); `IWhatsAppOnboardingService` (scoped).
+  (`TunisieSmsSender`, `WhatsAppSender`, scoped) + `SmsProviderBreaker` (singleton); `IWhatsAppOnboardingService` (scoped).
   `ITtnClient` ×2 (Sandbox + Http) scoped; `IQrCodeGenerator` + **`ITtnSecretProtector`** Singleton.
 - `IGoogleCalendarService`, `IGoogleCalendarSyncService`, `IPdfGenerationService`, `IClinicCatalogSeeder`,
   `IBackupService` — all scoped.

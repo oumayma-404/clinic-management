@@ -1,6 +1,6 @@
-using System.Globalization;
 using System.Text.RegularExpressions;
 using ClinicManagement.Application.Common;
+using ClinicManagement.Application.Features.Messaging;
 
 namespace ClinicManagement.Infrastructure.Services;
 
@@ -21,8 +21,6 @@ namespace ClinicManagement.Infrastructure.Services;
 /// </summary>
 public static class ReminderMessage
 {
-    private static readonly CultureInfo FrCulture = CultureInfo.GetCultureInfo("fr-FR");
-
     /// <summary>
     /// Does the message carry a day <b>and</b> a time at all? A clinic whose custom wording omits
     /// <c>{date}</c> has nothing to be wrong about, and must not have its reminders dropped by a check for a
@@ -47,14 +45,17 @@ public static class ReminderMessage
         new(@"(?<!\d)(?<!/)(\d{1,2})/(\d{1,2})(?!/)(?!\d)", RegexOptions.Compiled);
 
     /// <summary>
-    /// How every reminder body states the appointment's moment: clinic-local (Tunisia is UTC+1), French order.
+    /// How every reminder body states the appointment's moment — <see cref="ReminderText.FormatMoment"/>, which owns it.
     /// </summary>
-    public static string FormatAppointmentMoment(DateTime appointmentUtc) =>
-        ClinicClock.ToClinicLocal(appointmentUtc).ToString("dd/MM/yyyy 'à' HH:mm", FrCulture);
+    public static string FormatAppointmentMoment(DateTime appointmentUtc) => ReminderText.FormatMoment(appointmentUtc);
 
     /// <summary>
     /// True when the message states a moment and that moment is <b>not</b> the appointment's current one — i.e.
     /// the appointment moved after this row was queued and nothing re-enqueued it.
+    ///
+    /// <para>⚠️ <b>Legacy rows only</b> since <c>sms-rappels-tunisie-sms</c>: a row queued now carries
+    /// <c>Notification.AppointmentMomentUtc</c> and its text is rendered at send time, so the dispatcher compares the
+    /// column. This stays for rows queued before that, which still carry a frozen body.</para>
     ///
     /// <para>Conservative in the one direction that matters: a message with no day-and-time token is never
     /// stale, and neither is one that still contains the current moment. A clinic that hard-codes a *fixed*

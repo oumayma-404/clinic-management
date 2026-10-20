@@ -67,6 +67,18 @@ public sealed record ResolvedReminderSettings
         !string.IsNullOrWhiteSpace(WhatsAppTemplateName) &&
         !string.IsNullOrWhiteSpace(WhatsAppAccessToken);
 
+    /// <summary>
+    /// Can this channel send right now — switched on for this clinic AND configured? The one answer the scheduler,
+    /// the dispatcher and the « Rappels » log read, so « will a reminder go out? » cannot get three answers.
+    /// </summary>
+    public bool CanSend(NotificationType channel) =>
+        EnabledChannels.Contains(channel) && channel switch
+        {
+            NotificationType.SMS => SmsConfigured,
+            NotificationType.WhatsApp => WhatsAppConfigured,
+            _ => false, // Email/Both have no reminder sender
+        };
+
     // Outbound email (SMTP) — carries generated documents to a patient or a confrère.
     public string? SmtpHost { get; init; }
     public int SmtpPort { get; init; }

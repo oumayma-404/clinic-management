@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
@@ -32,6 +31,7 @@ import {
 import { formatDateTime } from "@/lib/format"
 import {
   reminderSettingsApi,
+  updateRequestFrom,
   type ReminderSettingsDto,
   type UpdateReminderSettingsRequest,
   type WhatsAppConnectionStatus,
@@ -49,17 +49,20 @@ const fromToggle = (value: Toggle): boolean | null => (value === "inherit" ? nul
 const maskId = (id: string | null): string => (!id ? "" : id.length <= 4 ? id : `••••${id.slice(-4)}`)
 
 /**
- * Admin-only "Rappels (SMS / WhatsApp)" card. Lets a clinic configure its own reminder channels, sender
- * identity and credentials, overriding the per-install defaults. Secrets are write-only: the fields show a
+ * Admin-only "Rappels (SMS / WhatsApp)" card — the channels sheet on « Rappels ». Lets a clinic configure its own
+ * gateway identity and credentials, overriding the per-install defaults. Secrets are write-only: the fields show a
  * "configuré / non configuré" badge and stay blank on load — leaving them blank keeps the stored secret.
- * Mounted by ClinicSettings for admins (both Cloud and Local).
+ *
+ * ⚠️ Switching SMS on, the send times and the message belong to `reminder-sms-card.tsx` in « Paramètres »
+ * (sms-rappels-tunisie-sms). This sheet still SENDS those three, from the settings as last read, because the PUT
+ * replaces every field it is given — omitting them would wipe what the card saved. Where the vendor provides the
+ * SMS gateway (`smsVendorManaged`), the SMS block is absent altogether.
  */
 export function ReminderSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [smsEnabled, setSmsEnabled] = useState<Toggle>("inherit")
   const [whatsAppEnabled, setWhatsAppEnabled] = useState<Toggle>("inherit")
   const [smsSenderId, setSmsSenderId] = useState("")
   const [whatsAppPhoneNumberId, setWhatsAppPhoneNumberId] = useState("")
@@ -73,8 +76,6 @@ export function ReminderSettings() {
   // Per-clinic overrides of previously per-install-only values + resolved effective status (AC-1/AC-2).
   const [smsApiUrl, setSmsApiUrl] = useState("")
   const [whatsAppApiUrl, setWhatsAppApiUrl] = useState("")
-  const [leadTimeHours, setLeadTimeHours] = useState("")
-  const [messageTemplateBody, setMessageTemplateBody] = useState("")
   const [smsEffectiveStatus, setSmsEffectiveStatus] = useState<ReminderEffectiveStatus>("not_configured")
   const [whatsAppEffectiveStatus, setWhatsAppEffectiveStatus] = useState<ReminderEffectiveStatus>("not_configured")
 
@@ -106,6 +107,10 @@ export function ReminderSettings() {
    * DTO itself, so the form that hides a field and the handler that refuses it read one answer.
    */
   const [vendorManagedWhatsApp, setVendorManagedWhatsApp] = useState(false)
+  const [vendorManagedSms, setVendorManagedSms] = useState(false)
+
+  /** The settings as last read — the base every save starts from, so fields this sheet does not edit survive. */
+  const [loaded, setLoaded] = useState<ReminderSettingsDto | null>(null)
 
   const mounted = useRef(true)
   useEffect(() => {
@@ -123,8 +128,8 @@ export function ReminderSettings() {
   const [version, setVersion] = useState<number | undefined>(undefined)
 
   const hydrate = (settings: ReminderSettingsDto) => {
+    setLoaded(settings)
     setVersion(settings.version)
-    setSmsEnabled(toToggle(settings.smsEnabled))
     setWhatsAppEnabled(toToggle(settings.whatsAppEnabled))
     setSmsSenderId(settings.smsSenderId ?? "")
     setWhatsAppPhoneNumberId(settings.whatsAppPhoneNumberId ?? "")
@@ -134,8 +139,6 @@ export function ReminderSettings() {
     setWhatsAppAccessTokenConfigured(settings.whatsAppAccessTokenConfigured)
     setSmsApiUrl(settings.smsApiUrl ?? "")
     setWhatsAppApiUrl(settings.whatsAppApiUrl ?? "")
-    setLeadTimeHours(settings.leadTimeHours?.join(", ") ?? "")
-    setMessageTemplateBody(settings.messageTemplateBody ?? "")
     setSmsEffectiveStatus(settings.smsEffectiveStatus)
     setWhatsAppEffectiveStatus(settings.whatsAppEffectiveStatus)
     setSmtpHost(settings.smtpHost ?? "")
@@ -150,15 +153,7 @@ export function ReminderSettings() {
     setWaConnectedNumber(settings.whatsAppPhoneNumberId)
     setWaLastError(settings.whatsAppLastError)
     setVendorManagedWhatsApp(settings.whatsAppVendorManaged)
-  }
-
-  // Parses the comma/space-separated lead-time field into positive hour tiers; null when empty (= inherit).
-  const parseLeadTimes = (raw: string): number[] | null => {
-    const values = raw
-      .split(/[,\s]+/)
-      .map((s) => Number.parseInt(s, 10))
-      .filter((n) => Number.isFinite(n) && n > 0)
-    return values.length > 0 ? values : null
+    setVendorManagedSms(settings.smsVendorManaged)
   }
 
   const loadDelivery = async () => {
@@ -266,11 +261,13 @@ export function ReminderSettings() {
   const handleSave = async () => {
     setSaving(true)
     try {
+      if (!loaded) return
       const payload: UpdateReminderSettingsRequest = {
+        // SMS on/off, the send times and the message are the « Rappels SMS » card's: sent back as read.
+        ...updateRequestFrom(loaded),
         version,
-        smsEnabled: fromToggle(smsEnabled),
         whatsAppEnabled: fromToggle(whatsAppEnabled),
-        smsSenderId: smsSenderId.trim() || null,
+        smsSenderId: vendorManagedSms ? null : smsSenderId.trim() || null,
         /*
           AC-1.7 — where the vendor provisions WhatsApp, its four identity fields are sent as `null` and NOT from
           state. They are still hydrated (the server returns them) and the fields are simply not rendered, so
@@ -280,10 +277,8 @@ export function ReminderSettings() {
         whatsAppPhoneNumberId: vendorManagedWhatsApp ? null : whatsAppPhoneNumberId.trim() || null,
         whatsAppTemplateName: vendorManagedWhatsApp ? null : whatsAppTemplateName.trim() || null,
         whatsAppTemplateLanguage: vendorManagedWhatsApp ? null : whatsAppTemplateLanguage.trim() || null,
-        smsApiUrl: smsApiUrl.trim() || null,
+        smsApiUrl: vendorManagedSms ? null : smsApiUrl.trim() || null,
         whatsAppApiUrl: vendorManagedWhatsApp ? null : whatsAppApiUrl.trim() || null,
-        leadTimeHours: parseLeadTimes(leadTimeHours),
-        messageTemplateBody: messageTemplateBody.trim() || null,
         smtpHost: smtpHost.trim() || null,
         // A blank or unparseable port means "inherit", never 0 — the server treats a non-positive port as unset.
         smtpPort: Number.parseInt(smtpPort, 10) > 0 ? Number.parseInt(smtpPort, 10) : null,
@@ -293,7 +288,7 @@ export function ReminderSettings() {
         smtpFromName: smtpFromName.trim() || null,
       }
       // Secrets are write-only: only send them when the admin typed a new value (blank ⇒ unchanged).
-      if (smsApiKey.trim()) payload.smsApiKey = smsApiKey.trim()
+      if (!vendorManagedSms && smsApiKey.trim()) payload.smsApiKey = smsApiKey.trim()
       if (whatsAppAccessToken.trim()) payload.whatsAppAccessToken = whatsAppAccessToken.trim()
       if (smtpPassword.trim()) payload.smtpPassword = smtpPassword.trim()
 
@@ -400,34 +395,15 @@ export function ReminderSettings() {
           <p className="text-xs text-destructive">{error}</p>
         ) : (
           <>
-            {/* SMS */}
+            {/* SMS — the gateway only; switching it on is the « Rappels SMS » card's. Absent where we provide it. */}
+            {!vendorManagedSms && (
             <div className="space-y-3 rounded-lg border p-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <MessageSquare className="w-4 h-4 text-primary" />
                   SMS
                 </div>
-                {readinessBadge(smsEnabled, smsEffectiveStatus)}
-              </div>
-
-              <div className="space-y-1">
-                {/* ⚠️ `htmlFor` + `id`, and the accessible name says WHICH channel. Two labels reading « Canal »
-                    with no association left both comboboxes anonymous — a screen reader announced « Par défaut,
-                    liste » twice with nothing to tell them apart, on the control that turns a channel off. Every
-                    text field beside them was already labelled properly. */}
-                <Label htmlFor="sms-channel-toggle" className="text-xs font-medium">
-                  Canal
-                </Label>
-                <Select value={smsEnabled} onValueChange={(v) => setSmsEnabled(v as Toggle)} disabled={saving}>
-                  <SelectTrigger id="sms-channel-toggle" aria-label="Canal SMS" className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="inherit">Par défaut</SelectItem>
-                    <SelectItem value="on">Activé</SelectItem>
-                    <SelectItem value="off">Désactivé</SelectItem>
-                  </SelectContent>
-                </Select>
+                {readinessBadge(toToggle(loaded?.smsEnabled ?? null), smsEffectiveStatus)}
               </div>
 
               <div className="space-y-1">
@@ -476,6 +452,7 @@ export function ReminderSettings() {
                 />
               </div>
             </div>
+            )}
 
             {/* WhatsApp */}
             <div className="space-y-3 rounded-lg border p-3">
@@ -613,49 +590,6 @@ export function ReminderSettings() {
               </div>
                 </>
               )}
-            </div>
-
-            {/* Programmation & message (partagé entre les canaux) */}
-            <div className="space-y-3 rounded-lg border p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Clock className="w-4 h-4 text-primary" />
-                Programmation &amp; message
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="lead-time-hours" className="text-xs font-medium">
-                  Heures de rappel (avant le rendez-vous)
-                </Label>
-                <Input
-                  id="lead-time-hours"
-                  placeholder="Ex. 24, 6"
-                  value={leadTimeHours}
-                  onChange={(e) => setLeadTimeHours(e.target.value)}
-                  disabled={saving}
-                  className="h-8 md:text-sm"
-                />
-                <p className="text-2xs text-muted-foreground">
-                  Séparez les paliers (heures) par des virgules. Vide = valeurs par défaut de l&apos;installation.
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="message-body" className="text-xs font-medium">
-                  Message du rappel
-                </Label>
-                <Textarea
-                  id="message-body"
-                  placeholder="Ex. Rappel : {patient}, rendez-vous le {date} chez {clinic}."
-                  value={messageTemplateBody}
-                  onChange={(e) => setMessageTemplateBody(e.target.value)}
-                  disabled={saving}
-                  rows={3}
-                  className="md:text-sm"
-                />
-                <p className="text-2xs text-muted-foreground">
-                  Variables : {"{patient}"}, {"{date}"}, {"{clinic}"}. Vide = message par défaut.
-                </p>
-              </div>
             </div>
 
             {/*

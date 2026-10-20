@@ -44,6 +44,7 @@ import { BackupSettings } from "@/components/backup-settings"
 import { MoneyDiscreetCard } from "@/components/money-discreet-card"
 import { RelayCard } from "@/components/relay/relay-card"
 import { LetterheadCard } from "@/components/letterhead/letterhead-card"
+import { ReminderSmsCard } from "@/components/reminder-sms-card"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
@@ -981,6 +982,9 @@ export default function ClinicSettings() {
         </Card>
 
         <LetterheadCard chipClassName={CONFIG_CHIP} canEdit={isClinicAdmin} />
+
+        {/* The reminder settings are AdminOnly to read as well as to write. */}
+        {isClinicAdmin && <ReminderSmsCard chipClassName={CONFIG_CHIP} />}
 
         {/* Doctors Card Collapsible */}
         <Card>

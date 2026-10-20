@@ -100,7 +100,7 @@ public static class RemindersConfig
         return channels;
     }
 
-    /// <summary>Preferred lead-time tiers (hours before the appointment). Largest still-future tier wins.</summary>
+    /// <summary>Lead-time tiers (hours before the appointment): one reminder per tier still in the future.</summary>
     public static IReadOnlyList<int> LeadTimesHours(IConfiguration configuration)
     {
         var raw = configuration.GetSection("Reminders:LeadTimesHours").Get<int[]>();
