@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Services;
+using ClinicManagement.Application.Features.DoctorLeaves;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -189,7 +190,7 @@ public static class AppointmentScheduling
     public const string OutsideWorkingHoursCode = "outside_working_hours";
 
     /// <summary>
-    /// Check the candidate window against the practitioner's resolved working hours (AC-P1.28).
+    /// Check the candidate window against the practitioner's congé first, then their resolved working hours (AC-P1.28).
     /// <para>
     /// Returns success when nothing is configured anywhere — a clinic that has never opened the settings screen
     /// is unaffected, which is <b>R-12</b>'s safety valve. When it does refuse, the caller may still proceed by
@@ -200,6 +201,7 @@ public static class AppointmentScheduling
     public static async Task<Result<bool>> CheckWorkingHoursAsync(
         IDoctorRepository doctors,
         IClinicRepository clinics,
+        IDoctorLeaveRepository leaves,
         Guid clinicId,
         Guid? doctorId,
         DateTime candidateStartUtc,
@@ -218,6 +220,14 @@ public static class AppointmentScheduling
             {
                 doctorHoursJson = doctor.WorkingHoursJson;
                 practitioner = doctor.FullName;
+
+                // A congé is a closed day for this practitioner: same code, so every « Continuer quand même » covers it.
+                var leave = await FindLeaveCoveringAsync(leaves, clinicId, doctor.Id, candidateStartUtc, duration, cancellationToken);
+                if (leave != null)
+                {
+                    return Result<bool>.Failure(
+                        DoctorLeaveRules.OnLeaveSentence(doctor.FullName, leave), OutsideWorkingHoursCode);
+                }
             }
         }
 
@@ -240,5 +250,21 @@ public static class AppointmentScheduling
         return Result<bool>.Failure(
             practitioner is null ? reason! : $"{practitioner} : {reason}",
             OutsideWorkingHoursCode);
+    }
+
+    /// <summary>The practitioner's congé touching the clinic-local day(s) of the candidate window, or null.</summary>
+    private static Task<DoctorLeave?> FindLeaveCoveringAsync(
+        IDoctorLeaveRepository leaves,
+        Guid clinicId,
+        Guid doctorId,
+        DateTime candidateStartUtc,
+        TimeSpan duration,
+        CancellationToken cancellationToken)
+    {
+        var start = NormalizeUtc(candidateStartUtc);
+        var lastInstant = duration > TimeSpan.Zero ? start + duration - TimeSpan.FromTicks(1) : start;
+        var firstDay = DateOnly.FromDateTime(ClinicClock.ToClinicLocal(start));
+        var lastDay = DateOnly.FromDateTime(ClinicClock.ToClinicLocal(lastInstant));
+        return leaves.FindOverlappingAsync(clinicId, doctorId, firstDay, lastDay, cancellationToken: cancellationToken);
     }
 }

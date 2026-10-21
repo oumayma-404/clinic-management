@@ -53,6 +53,7 @@ public static class AuditLabels
         nameof(ProcedureType) => "Type d'acte",
         nameof(User) => "Compte utilisateur",
         nameof(Doctor) => "Praticien",
+        nameof(DoctorLeave) => "Congé du praticien",
         nameof(Clinic) => "Cabinet",
         nameof(ClinicReminderSettings) => "Paramètres de rappel",
         nameof(CnamLetterValue) => "Valeur de la lettre clé",

@@ -55,6 +55,7 @@ public class DevisFicheRdvFlexibilityWave4Tests
         repo.Setup(r => r.GetByIdAsync(appointment.Id, It.IsAny<CancellationToken>())).ReturnsAsync(appointment);
         return new UpdateAppointmentCommandHandler(
             repo.Object, new Mock<IProcedureTypeRepository>().Object, new Mock<IDoctorRepository>().Object,
+            new Mock<IDoctorLeaveRepository>().Object,
             new Mock<IClinicRepository>().Object,
             new Mock<ITreatmentPlanRepository>().Object, Clinic().Object,
             new Mock<IClinicContext>().Object, (unitOfWork ?? new Mock<IUnitOfWork>()).Object,

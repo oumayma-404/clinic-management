@@ -25,6 +25,7 @@ import {
   ChevronDown,
   Calendar,
   CalendarCheck,
+  CalendarOff,
   CalendarPlus,
   Filter,
   CloudOff,
@@ -58,7 +59,13 @@ import { useSession } from "@/lib/auth/session"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
 import type { DoctorDto } from "@/lib/api/clinics"
-import { doctorsApi } from "@/lib/api/doctors"
+import { doctorsApi, type DoctorLeaveDto } from "@/lib/api/doctors"
+import { useClinicLeaves } from "@/lib/hooks/use-doctor-leaves"
+import { useDoctors } from "@/lib/hooks/use-doctors"
+import { dayFromKey, leaveCoversDay, leavePeriodLabel } from "@/lib/doctor-leaves"
+import { DoctorLeaveDialog } from "@/components/doctor-leaves/doctor-leave-dialog"
+import { AllDoctorLeavesDialog } from "@/components/doctor-leaves/all-leaves-dialog"
+import { canEditAnyLeave } from "@/lib/auth/can"
 import { WEEKDAYS, type WorkingDay } from "@/lib/working-hours"
 import {
   APPOINTMENT_STATUSES,
@@ -70,7 +77,7 @@ import {
   isBusySlot,
   normalizeStatus,
 } from "@/components/appointment-labels"
-import type { StatusTone } from "@/components/ui/status-tone"
+import { statusToneClass, type StatusTone } from "@/components/ui/status-tone"
 
 /** `13` → `"13:00"`. One place, because the hour label, the `data-time-slot` key and the scroll target must agree. */
 const hourSlot = (hour: number): string => `${String(hour).padStart(2, "0")}:00`
@@ -742,7 +749,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     }
   }, [doctorId])
   const effectiveHours = doctorHours ?? clinicHours
-  const isDayOpenOnAgenda = useCallback(
+  const isDayOpenByHours = useCallback(
     (day: Date) => effectiveHours === null || openWindowFor(day, effectiveHours) !== null,
     [effectiveHours],
   )
@@ -840,6 +847,75 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     if (view === "month") return endOfDay(addDays(startOfWeek(startOfMonth(selectedDate), { weekStartsOn: 1 }), 41))
     return endOfDay(addDays(startOfWeek(selectedDate, { weekStartsOn: 1 }), 6)) // 7 days (0-6)
   }, [view, selectedDate])
+
+  // The congés touching the visible window — only the filtered practitioner's when the agenda shows one.
+  const {
+    leaves: windowLeaves,
+    failed: leavesFailed,
+    loading: leavesLoading,
+    refetch: refetchLeaves,
+  } = useClinicLeaves(
+    // Jour reads the whole week: the phone header's day strip marks every congé day of it.
+    format(view === "day" ? startOfWeek(selectedDate, { weekStartsOn: 1 }) : startDate, "yyyy-MM-dd"),
+    format(view === "day" ? endOfWeek(selectedDate, { weekStartsOn: 1 }) : endDate, "yyyy-MM-dd"),
+  )
+  const { doctors: activeDoctors } = useDoctors()
+  const visibleLeaves = useMemo(
+    () => (doctorId ? windowLeaves.filter((leave) => leave.doctorId === doctorId) : windowLeaves),
+    [windowLeaves, doctorId],
+  )
+  const leavesOn = useCallback(
+    (day: Date) => {
+      const key = format(day, "yyyy-MM-dd")
+      return visibleLeaves.filter((leave) => leaveCoversDay(leave, key))
+    },
+    [visibleLeaves],
+  )
+  // A congé closes the day only when the agenda shows one practitioner; with several, colleagues still work.
+  // With one active practitioner, only their own congé closes it — a retired colleague's recorded one does not.
+  const closingDoctorId = doctorId ?? (activeDoctors.length === 1 ? activeDoctors[0].id : undefined)
+  const isOnLeave = useCallback(
+    (day: Date) => Boolean(closingDoctorId) && leavesOn(day).some((leave) => leave.doctorId === closingDoctorId),
+    [closingDoctorId, leavesOn],
+  )
+  const isDayOpenOnAgenda = useCallback(
+    (day: Date) => isDayOpenByHours(day) && !isOnLeave(day),
+    [isDayOpenByHours, isOnLeave],
+  )
+  const [leaveDialog, setLeaveDialog] = useState<{ open: boolean; leave: DoctorLeaveDto | null; day?: string }>({
+    open: false,
+    leave: null,
+  })
+  const openNewLeave = () => setLeaveDialog({ open: true, leave: null, day: format(selectedDate, "yyyy-MM-dd") })
+  // Reception's way to every congé (Paramètres is hidden from a secretary); a doctor manages theirs in Mon profil.
+  const [allLeavesOpen, setAllLeavesOpen] = useState(false)
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false)
+  const canListAllLeaves = canEditAnyLeave(user?.role)
+  const openLeave = (leave: DoctorLeaveDto) => setLeaveDialog({ open: true, leave })
+  const showLeaveDay = (dayKey: string, leaveDoctorId: string) => {
+    onDateChange(dayFromKey(dayKey))
+    onViewChange?.("day")
+    doctorFilter?.onChange(leaveDoctorId)
+  }
+
+  /** One congé as a filled amber band naming who is away; it opens the congé. */
+  const renderLeaveChip = (leave: DoctorLeaveDto, compact: boolean) => (
+    <button
+      key={leave.id}
+      type="button"
+      onClick={() => openLeave(leave)}
+      aria-label={`Congé de ${leave.doctorName} ${leavePeriodLabel(leave)}`}
+      className={cn(
+        "relative flex w-full min-w-0 items-center justify-center gap-1 rounded py-0.5 text-2xs font-semibold coarse:min-h-11",
+        compact ? "px-0" : "px-1",
+        statusToneClass("active"),
+      )}
+    >
+      {/* Compact (a ~40 px phone Semaine column): the word alone, like the Mois marker — with the icon it read « C… ». */}
+      {!compact && <CalendarOff className="size-3 shrink-0" aria-hidden="true" />}
+      <span className="truncate">{compact ? "congé" : `Congé — ${leave.doctorName}`}</span>
+    </button>
+  )
 
   /*
    * `error` used to be dropped on the floor here. A failed fetch therefore rendered a perfectly normal, empty
@@ -1123,9 +1199,15 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   }, [])
 
   // Re-measured on everything that changes the header: the view (Jour and Semaine draw different ones), the
-  // pointer class (a phone renders none) and the mount gate that swaps the skeleton for the real grid.
+  // pointer class (a phone renders none), the mount gate — and any resize of the wrapper, e.g. a congé ribbon.
   useEffect(() => {
-    setHourGridOffsetTop(hourGridRef.current?.offsetTop ?? 0)
+    const grid = hourGridRef.current
+    const measure = () => setHourGridOffsetTop(grid?.offsetTop ?? 0)
+    measure()
+    if (!grid?.parentElement) return
+    const observer = new ResizeObserver(measure)
+    observer.observe(grid.parentElement)
+    return () => observer.disconnect()
   }, [view, isNarrow, mounted, loading, hourHeight])
 
   // Calculate current time position based on actual DOM elements (day/week only — month has no time grid)
@@ -2167,12 +2249,15 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             const dayAppointments = getAppointmentsForDay(day)
             const inMonth = isSameMonth(day, selectedDate)
             const selected = isSameDay(day, selectedDate)
+            // The « congé » marker takes one chip slot, so the chips below it are never cut in half either.
+            const awayNames = leavesOn(day).map((leave) => leave.doctorName)
+            const slots = Math.max(0, phoneMonthChipSlots - (awayNames.length > 0 ? 1 : 0))
             // The last slot goes to « +N » whenever there is a rest, so a cell shows N names or N-1 names and
             // the count of what it could not fit — never a chip cut in half.
             const chipCount =
-              dayAppointments.length <= phoneMonthChipSlots
+              dayAppointments.length <= slots
                 ? dayAppointments.length
-                : Math.max(0, phoneMonthChipSlots - 1)
+                : Math.max(0, slots - 1)
             const chips = dayAppointments.slice(0, chipCount)
             const chipOverflow = dayAppointments.length - chipCount
             /* Not one name fits (a short phone, or a 6-row month): the dots stand in. They are the density
@@ -2200,7 +2285,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   onClick={() => onSelectDay?.(day)}
                   aria-label={`Voir le ${format(day, "EEEE d MMMM", { locale: fr })} en vue Jour${
                     dayAppointments.length > 0 ? ` — ${dayAppointments.length} rendez-vous` : " — aucun rendez-vous"
-                  }`}
+                  }${awayNames.length > 0 ? ` — en congé : ${awayNames.join(", ")}` : ""}`}
                   className="absolute inset-0 cursor-pointer transition-colors active:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 />
                 <span
@@ -2217,6 +2302,18 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 >
                   {format(day, "d")}
                 </span>
+                {awayNames.length > 0 && (
+                  // Named in the cell button's label; tapping the day opens Jour, whose ribbon names who is away.
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "pointer-events-none relative truncate rounded px-0.5 text-center text-2xs font-semibold leading-tight",
+                      statusToneClass("active"),
+                    )}
+                  >
+                    congé
+                  </span>
+                )}
                 {chips.map((appointment) => (
                   <span key={appointment.id} className="relative flex">
                     {renderMonthChip(appointment, true)}
@@ -2295,7 +2392,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           {monthGridDays.map((day) => {
             const dayAppointments = getAppointmentsForDay(day)
             const inMonth = isSameMonth(day, selectedDate)
-            const visible = dayAppointments.slice(0, MONTH_CELL_MAX_CHIPS)
+            const dayLeaves = leavesOn(day)
+            // A congé chip takes a visit chip's slot, so the cell never clips a visit or its « +N » line.
+            const visible = dayAppointments.slice(0, Math.max(0, MONTH_CELL_MAX_CHIPS - dayLeaves.length))
             const overflow = dayAppointments.length - visible.length
 
             return (
@@ -2321,7 +2420,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   onClick={() => onSelectDay?.(day)}
                   aria-label={`Voir le ${format(day, "EEEE d MMMM", { locale: fr })} en vue Jour${
                     dayAppointments.length > 0 ? ` — ${dayAppointments.length} rendez-vous` : " — aucun rendez-vous"
-                  }`}
+                  }${dayLeaves.length > 0 ? ` — en congé : ${dayLeaves.map((leave) => leave.doctorName).join(", ")}` : ""}`}
                   className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 />
                 <div className="pointer-events-none relative flex flex-shrink-0 justify-end">
@@ -2338,6 +2437,19 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                     {format(day, "d")}
                   </span>
                 </div>
+                {/* A label, not a button: in Mois the day opens Jour, whose ribbon opens the congé. */}
+                {dayLeaves.map((leave) => (
+                  <span
+                    key={leave.id}
+                    aria-hidden="true"
+                    className={cn(
+                      "pointer-events-none relative truncate rounded px-1 text-2xs font-semibold leading-tight",
+                      statusToneClass("active"),
+                    )}
+                  >
+                    Congé — {leave.doctorName}
+                  </span>
+                ))}
                 <div className="relative flex min-h-0 flex-col gap-0.5 overflow-hidden">
                   {visible.map((appointment) => renderMonthChip(appointment))}
                   {overflow > 0 && (
@@ -2357,6 +2469,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   )
 
   const weekDays = getWeekDays()
+  // Not on a phone in Jour: the phone header above already names the day. The congé ribbon still shows there.
+  const showDateHeader = !isNarrow || view === "week"
+  const ribbonDays = (view === "week" ? weekDays : view === "day" ? [selectedDate] : []).filter(
+    (day) => leavesOn(day).length > 0,
+  )
 
   /**
    * How many appointments the visible window holds, after the status filters — the number appended to the bar's
@@ -2572,12 +2689,23 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           /* The same resolution the grid shades with, so the phone strip and the desktop grid cannot disagree
              about which days the cabinet is open. */
           isDayOpen={isDayOpenOnAgenda}
+          isOnLeave={isOnLeave}
           /* The two things that used to cost the grid a permanent row each: the legend (a `<details>` above the
              card) and the 24-hour escape hatch (the footer strip below it). Both are reference or re-scoping,
              neither is read while the desk is looking at the day. `renderLegend` and the toggle are still the
              single copies the desktop uses — see `panelExtra`. */
           panelExtra={
             <div className="space-y-3">
+              {canListAllLeaves && (
+                <button
+                  type="button"
+                  onClick={() => setAllLeavesOpen(true)}
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md text-xs font-medium text-muted-foreground"
+                >
+                  <CalendarOff className="h-3.5 w-3.5" aria-hidden="true" />
+                  Tous les congés
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowFullDay((full) => !full)}
@@ -2609,6 +2737,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             ) : null
           }
           onPanelOpenChange={setPhonePanelOpen}
+          onNewLeave={onNewAppointment ? openNewLeave : undefined}
         />
       )}
 
@@ -2637,7 +2766,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
            fourth row mixed five legend swatches, a « Afficher : » label, two switches and a download button on
            one line with nothing to say which of them answered a click.
       */}
-      <div className="mb-3 hidden flex-nowrap items-center gap-2 md:flex">
+      {/* The labels hinge on the BAR's width (the rail moves it, the viewport does not say): under 56rem they shrink,
+          under 40rem — a tablet portrait with the rail open — the title takes its own line instead of 0 px. */}
+      <div className="@container mb-3 hidden md:block">
+      <div className="flex flex-nowrap items-center gap-2 @max-[64rem]:gap-1 @max-[40rem]:flex-wrap">
         <Button variant="outline" size="icon" className="h-9 w-9 shrink-0 bg-transparent" onClick={handlePrevious} aria-label="Période précédente">
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -2653,16 +2785,16 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           variant="outline"
           size="sm"
           onClick={handleToday}
-          className="h-9 shrink-0 gap-2 bg-transparent px-2.5 lg:px-3"
+          className="h-9 shrink-0 gap-2 bg-transparent px-2.5 @min-[56rem]:px-3"
           aria-label="Aller à aujourd'hui"
         >
           <Calendar className="h-4 w-4" />
-          <span className="hidden lg:inline">Aujourd&apos;hui</span>
+          <span className="hidden @min-[56rem]:inline">Aujourd&apos;hui</span>
         </Button>
 
         {/* `min-w-0 flex-1 truncate` — rule 2 above. « mercredi 12 novembre 2026 » is wider than the space a
             tablet has, and an un-truncated title is what forced the old toolbar onto a fifth row (AC-31). */}
-        <div className="ml-1 min-w-0 flex-1 truncate text-base font-semibold lg:text-lg">
+        <div className="ml-1 min-w-0 flex-1 truncate text-base font-semibold lg:text-lg @max-[40rem]:order-first @max-[40rem]:ml-0 @max-[40rem]:basis-full">
           {view === "week"
             ? `${format(weekDays[0], "d MMM", { locale: fr })} – ${format(weekDays[6], "d MMM yyyy", { locale: fr })}`
             : view === "month"
@@ -2672,7 +2804,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               this heading, it costs no width of its own, and it is the first thing to truncate away when the
               viewport gets tight — which is the correct priority for a summary. */}
           {visibleCount > 0 && (
-            <span className="ml-2 hidden text-sm font-normal text-muted-foreground tabular-nums lg:inline">
+            <span className="ml-2 hidden text-sm font-normal text-muted-foreground tabular-nums @min-[56rem]:inline">
               · {visibleCount} RDV
             </span>
           )}
@@ -2702,7 +2834,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 aria-label={label}
                 onClick={() => onViewChange?.(value)}
                 className={cn(
-                  "inline-flex h-[calc(100%-1px)] items-center justify-center rounded-md border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,background-color,box-shadow] duration-150 ease-snap lg:px-2.5",
+                  "inline-flex h-[calc(100%-1px)] items-center justify-center rounded-md border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,background-color,box-shadow] duration-150 ease-snap @min-[56rem]:px-2.5",
                   "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-1",
                   // `bg-card`, not `bg-background` — see the track's note. `dark:bg-input/70` because in dark the
                   // card is *darker* than the muted track, so "raised" has to come from the lighter input token
@@ -2714,8 +2846,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               >
                 {/* Full words where there is room, initials on a tablet — the control is three toggles whose
                     meaning is carried by `aria-label` either way. */}
-                <span className="hidden lg:inline">{label}</span>
-                <span className="lg:hidden">{short}</span>
+                <span className="hidden @min-[56rem]:inline">{label}</span>
+                <span className="@min-[56rem]:hidden">{short}</span>
               </button>
             )
           })}
@@ -2740,13 +2872,13 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               variant="outline"
               size="sm"
               className={cn(
-                "h-9 shrink-0 gap-2 bg-transparent px-2.5 lg:px-3",
+                "h-9 shrink-0 gap-2 bg-transparent px-2.5 @min-[56rem]:px-3",
                 activeFilterCount > 0 && "border-primary text-primary",
               )}
               aria-label="Filtres de l'agenda"
             >
               <Filter className="h-4 w-4" />
-              <span className="hidden lg:inline">Filtres</span>
+              <span className="hidden @min-[56rem]:inline">Filtres</span>
               {activeFilterCount > 0 && (
                 <span className="grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-2xs font-semibold text-primary-foreground tabular-nums">
                   {activeFilterCount}
@@ -2809,10 +2941,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               to sit here is still right — a destructive-looking « Déconnecter » at navigation weight, on a
               screen a dentist opens forty times a day, for a connection made once in the life of the practice.
 
-          The label is `xl:` and the button is icon-only below it, `aria-label`led at every width. That is the
-          same budget « Aujourd'hui » spends: at 820 px the bar is `flex-nowrap` and the title absorbs the slack,
-          so a new *labelled* control here is what would have forced a second row on the device this product is
-          used on most.
+          The label shows once the BAR is 84rem wide and the button is icon-only below it, `aria-label`led at
+          every width. That is the same budget « Aujourd'hui » spends: the bar is `flex-nowrap` and the title
+          absorbs the slack, so a label shown on a viewport hinge (`xl:`, as it was) pushed the week's title to
+          0 px and the bar past the card from 1280 to 1366 px — measured. The bar's own width is the question.
 
           Admins only — the prop is `undefined` for everyone else, because all three endpoints are `AdminOnly`
           and offering the action to a secretary buys a 403 and a generic « Échec ».
@@ -2830,10 +2962,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   ? "Connecter Google Agenda"
                   : "Connecter Google Agenda — connexion internet requise"
               }
-              className="h-9 shrink-0 gap-2 border-primary/45 bg-primary/5 px-2.5 text-primary hover:bg-primary/10 hover:text-primary xl:px-3"
+              className="h-9 shrink-0 gap-2 border-primary/45 bg-primary/5 px-2.5 text-primary hover:bg-primary/10 hover:text-primary @min-[84rem]:px-3"
             >
               <CalendarPlus className="h-4 w-4" />
-              <span className="hidden xl:inline">Connecter Google</span>
+              <span className="hidden @min-[84rem]:inline">Connecter Google</span>
             </Button>
           ) : (
             <Popover>
@@ -2841,11 +2973,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-9 shrink-0 gap-2 bg-transparent px-2.5 xl:px-3"
+                  className="h-9 shrink-0 gap-2 bg-transparent px-2.5 @min-[84rem]:px-3"
                   aria-label="Google Agenda — connecté. Déconnecter."
                 >
                   <CalendarCheck className="h-4 w-4 text-success" />
-                  <span className="hidden xl:inline">Google Agenda</span>
+                  <span className="hidden @min-[84rem]:inline">Google Agenda</span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-[min(17rem,calc(100vw-2rem))] p-2">
@@ -2873,10 +3005,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           ))}
 
         {/*
-          « ⋯ » — the one-off errands. Exporter, and nothing else now that Google has a slot of its own: two
-          homes for one feature is how a control ends up stated differently in each of them.
+          « ⋯ » — the one-off errands: Exporter, and « Tous les congés » for reception. Google has a slot of its own:
+          two homes for one feature is how a control ends up stated differently in each of them.
         */}
-        <Popover>
+        <Popover open={moreActionsOpen} onOpenChange={setMoreActionsOpen}>
           <PopoverTrigger asChild>
             <Button variant="outline" size="icon" className="h-9 w-9 shrink-0 bg-transparent" aria-label="Autres actions de l'agenda">
               <MoreHorizontal className="h-4 w-4" />
@@ -2908,9 +3040,39 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   doctorId,
                 }}
               />
+              {canListAllLeaves && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start gap-2"
+                  onClick={() => {
+                    setMoreActionsOpen(false)
+                    setAllLeavesOpen(true)
+                  }}
+                >
+                  <CalendarOff className="h-4 w-4" aria-hidden="true" />
+                  Tous les congés
+                </Button>
+              )}
             </div>
           </PopoverContent>
         </Popover>
+
+        {/* « Congé » beside « Nouveau », never in « ⋯ »: the agenda is where a congé is thought of. Labelled from a
+            76rem BAR (before Google's 84rem, being cheaper), icon-only below, so the title keeps its room. */}
+        {onNewAppointment && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openNewLeave}
+            aria-label="Ajouter un congé"
+            title="Ajouter un congé"
+            className="h-9 shrink-0 gap-2 bg-transparent"
+          >
+            <CalendarOff className="h-4 w-4" />
+            <span className="hidden @min-[76rem]:inline">Congé</span>
+          </Button>
+        )}
 
         {onNewAppointment && (
           <Button onClick={onNewAppointment} size="sm" className="h-9 shrink-0 gap-2">
@@ -2920,6 +3082,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             Nouveau
           </Button>
         )}
+      </div>
       </div>
 
       {/*
@@ -2940,6 +3103,18 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           </span>
           <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={refetching}>
             {refetching ? "Chargement…" : "Réessayer"}
+          </Button>
+        </div>
+      )}
+      {/* A failed congé read must not read as « nobody is away ». */}
+      {leavesFailed && (
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-wash px-3 py-2 text-sm text-warning-ink"
+        >
+          <span>Les congés des praticiens n&apos;ont pas pu être chargés — un praticien absent peut paraître disponible.</span>
+          <Button variant="outline" size="sm" onClick={refetchLeaves} disabled={leavesLoading}>
+            {leavesLoading ? "Chargement…" : "Réessayer"}
           </Button>
         </div>
       )}
@@ -3095,20 +3270,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             no dates over them is unreadable, so this header IS the phone's week navigation — which is also why
             `AgendaPhoneHeader` drops its own 7-day strip in that view rather than saying it twice.
           */}
-          {(!isNarrow || view === "week") && (
-          <div
-            className={cn(
-              // z-50: above the sticky gutter (z-30) and the current-time overlay (z-40), both of which
-              // scroll under it.
-              //
-              // ⚠️ `bg-card`, not `bg-white dark:bg-background`. This header sits *inside* the agenda `Card`, so
-              // in dark mode it was painting the **page ground** (`0.245`) over the card (`0.305`) — a darker
-              // strip across the top of a lighter surface, which reads as a seam. One token, correct in both
-              // themes, and it is the third of the pass's three "rendering gaps".
-              "sticky top-0 z-50 grid border-b bg-card",
-              timeGridCols,
-            )}
-          >
+          {(showDateHeader || ribbonDays.length > 0) && (
+          // z-50: above the sticky gutter (z-30) and the current-time overlay (z-40), both of which scroll under it.
+          // ⚠️ `bg-card`, not `bg-white dark:bg-background`: inside the agenda `Card`, the page ground reads as a seam.
+          <div className="sticky top-0 z-50 border-b bg-card">
+          {showDateHeader && (
+          <div className={cn("grid", timeGridCols)}>
             {/* The corner cell is sticky on BOTH axes, so it stays over the time gutter as it scrolls. It
                 follows the gutter's own paint: a bare column of times on a phone, a shaded panel above it. */}
             <div className={cn("sticky left-0 z-10", isNarrow ? "bg-card" : "border-r bg-muted/60")} />
@@ -3136,13 +3303,15 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                  */
                 const dayCount = getAppointmentsForDay(day).length
                 const dayIsOpen = isDayOpenOnAgenda(day)
+                const dayOnLeave = isOnLeave(day)
+                const closedLabel = dayOnLeave ? "congé" : "fermé"
                 return (
                   <button
                     key={day.toISOString()}
                     type="button"
                     onClick={() => onSelectDay?.(day)}
                     aria-label={`Voir le ${format(day, "EEEE d MMMM", { locale: fr })} en vue Jour — ${
-                      dayIsOpen ? `${dayCount} rendez-vous` : "cabinet fermé"
+                      dayIsOpen ? `${dayCount} rendez-vous` : dayOnLeave ? "praticien en congé" : "cabinet fermé"
                     }`}
                     className={cn(
                       "min-w-0 border-r text-center transition-colors last:border-r-0 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring dark:hover:bg-muted/50",
@@ -3181,7 +3350,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                           isToday(day) ? "font-semibold text-primary" : "text-muted-foreground",
                         )}
                       >
-                        {!dayIsOpen ? "fermé" : dayCount === 0 ? "—" : `${dayCount} RDV`}
+                        {!dayIsOpen ? closedLabel : dayCount === 0 ? "—" : `${dayCount} RDV`}
                       </div>
                     )}
                   </button>
@@ -3202,6 +3371,19 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 </div>
               </div>
             )}
+          </div>
+          )}
+          {/* The congé ribbon: who is away, on the day itself, at every width (phone Jour included). */}
+          {ribbonDays.length > 0 && (
+            <div className={cn("grid", timeGridCols, showDateHeader && "border-t")}>
+              <div className={cn("sticky left-0 z-10", isNarrow ? "bg-card" : "border-r bg-muted/60")} />
+              {(view === "week" ? weekDays : [selectedDate]).map((day) => (
+                <div key={`leave-${day.toISOString()}`} className="flex min-w-0 flex-col gap-0.5 border-r p-0.5 last:border-r-0">
+                  {leavesOn(day).map((leave) => renderLeaveChip(leave, isNarrow && view === "week"))}
+                </div>
+              ))}
+            </div>
+          )}
           </div>
           )}
 
@@ -3294,7 +3476,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                   // The label column has no single day in week view, so it reflects the focused date; each day
                   // cell below shades against its OWN window (Sunday no longer shades like Monday).
                   const labelWindow = openWindowFor(selectedDate, effectiveHours)
-                  const isWorkingHours = isHourOpen(hour, labelWindow)
+                  // A closed day (or a congé) hatches whole: a null window alone means « nothing configured ».
+                  const isWorkingHours =
+                    (view !== "day" || isDayOpenOnAgenda(selectedDate)) && isHourOpen(hour, labelWindow)
 
                   return (
                     <div key={time} className="contents">
@@ -3355,7 +3539,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                         ? weekDays.map((day) => {
                             // Each day shades against its OWN window — Sunday no longer shades like Monday.
                             const dayWindow = openWindowFor(day, effectiveHours)
-                            const dayOpen = isHourOpen(hour, dayWindow)
+                            const dayOpen = isDayOpenOnAgenda(day) && isHourOpen(hour, dayWindow)
                             return (
                               <div
                                 key={`${day.toISOString()}-${time}`}
@@ -3592,7 +3776,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               {movePrompt?.kind === "overlap"
                 ? "Créneau déjà occupé"
                 : movePrompt?.kind === "hours"
-                  ? "En dehors des horaires d'ouverture"
+                  ? "En dehors des disponibilités"
                   : "Heure dans le passé"}
             </AlertDialogTitle>
             <AlertDialogDescription>{movePrompt?.message}</AlertDialogDescription>
@@ -3677,6 +3861,17 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           <Plus className="size-6" />
         </Button>
       )}
+
+      <DoctorLeaveDialog
+        open={leaveDialog.open}
+        onOpenChange={(open) => setLeaveDialog((current) => ({ ...current, open }))}
+        leave={leaveDialog.leave}
+        defaultDoctorId={doctorId ?? null}
+        defaultStartDay={leaveDialog.day}
+        onShowDay={showLeaveDay}
+        onChanged={refetchLeaves}
+      />
+      <AllDoctorLeavesDialog open={allLeavesOpen} onOpenChange={setAllLeavesOpen} />
     </div>
   )
 }

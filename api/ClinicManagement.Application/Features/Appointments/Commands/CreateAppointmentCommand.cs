@@ -63,6 +63,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly IDoctorLeaveRepository _doctorLeaveRepository;
     private readonly IClinicRepository _clinicRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
@@ -78,6 +79,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
         IDoctorRepository doctorRepository,
+        IDoctorLeaveRepository doctorLeaveRepository,
         IClinicRepository clinicRepository,
         IProcedureTypeRepository procedureTypeRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
@@ -92,6 +94,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
         _doctorRepository = doctorRepository;
+        _doctorLeaveRepository = doctorLeaveRepository;
         _clinicRepository = clinicRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
@@ -206,7 +209,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             if (!request.AllowOutsideWorkingHours)
             {
                 var hoursCheck = await AppointmentScheduling.CheckWorkingHoursAsync(
-                    _doctorRepository, _clinicRepository, clinicId, request.DoctorId,
+                    _doctorRepository, _clinicRepository, _doctorLeaveRepository, clinicId, request.DoctorId,
                     request.AppointmentDateTime, duration, cancellationToken);
                 if (hoursCheck.IsFailure)
                 {

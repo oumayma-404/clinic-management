@@ -157,6 +157,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly IDoctorLeaveRepository _doctorLeaveRepository;
     private readonly IClinicRepository _clinicRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
@@ -171,6 +172,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         IAppointmentRepository appointmentRepository,
         IProcedureTypeRepository procedureTypeRepository,
         IDoctorRepository doctorRepository,
+        IDoctorLeaveRepository doctorLeaveRepository,
         IClinicRepository clinicRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
         ICurrentClinicResolver clinicResolver,
@@ -184,6 +186,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
         _appointmentRepository = appointmentRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _doctorRepository = doctorRepository;
+        _doctorLeaveRepository = doctorLeaveRepository;
         _clinicRepository = clinicRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
         _clinicResolver = clinicResolver;
@@ -559,7 +562,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 if (!request.AllowOutsideWorkingHours)
                 {
                     var hoursCheck = await AppointmentScheduling.CheckWorkingHoursAsync(
-                        _doctorRepository, _clinicRepository, clinicResult.Value, appointment.DoctorId,
+                        _doctorRepository, _clinicRepository, _doctorLeaveRepository, clinicResult.Value, appointment.DoctorId,
                         appointment.AppointmentDateTime, appointment.Duration, cancellationToken);
                     if (hoursCheck.IsFailure)
                     {

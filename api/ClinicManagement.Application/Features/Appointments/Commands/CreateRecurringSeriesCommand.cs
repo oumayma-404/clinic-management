@@ -59,6 +59,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IDoctorRepository _doctorRepository;
+    private readonly IDoctorLeaveRepository _doctorLeaveRepository;
     private readonly IClinicRepository _clinicRepository;
     private readonly IProcedureTypeRepository _procedureTypeRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
@@ -75,6 +76,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
         IAppointmentRepository appointmentRepository,
         IPatientRepository patientRepository,
         IDoctorRepository doctorRepository,
+        IDoctorLeaveRepository doctorLeaveRepository,
         IClinicRepository clinicRepository,
         IProcedureTypeRepository procedureTypeRepository,
         ICurrentClinicResolver clinicResolver,
@@ -89,6 +91,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
         _appointmentRepository = appointmentRepository;
         _patientRepository = patientRepository;
         _doctorRepository = doctorRepository;
+        _doctorLeaveRepository = doctorLeaveRepository;
         _clinicRepository = clinicRepository;
         _procedureTypeRepository = procedureTypeRepository;
         _clinicResolver = clinicResolver;
@@ -263,7 +266,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                 if (!collides && !request.AllowOutsideWorkingHours)
                 {
                     var hoursCheck = await AppointmentScheduling.CheckWorkingHoursAsync(
-                        _doctorRepository, _clinicRepository, clinicId, request.DoctorId,
+                        _doctorRepository, _clinicRepository, _doctorLeaveRepository, clinicId, request.DoctorId,
                         occ, duration, cancellationToken);
                     if (hoursCheck.IsFailure)
                     {
