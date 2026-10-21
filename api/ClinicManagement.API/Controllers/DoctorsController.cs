@@ -2,6 +2,10 @@ using ClinicManagement.API.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Doctors.Commands;
 using ClinicManagement.Application.Features.Doctors.Queries;
+using ClinicManagement.Application.Features.DoctorLeaves.Commands;
+using ClinicManagement.Application.Features.DoctorLeaves;
+using ClinicManagement.Application.Features.DoctorLeaves.Queries;
+using ClinicManagement.Application.Common.Models;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -101,6 +105,54 @@ public class DoctorsController : ApiControllerBase
         var result = await _mediator.Send(command, cancellationToken);
         return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
     }
+
+    /// <summary>The cabinet's congés touching the inclusive day window — what the agenda draws.</summary>
+    [HttpGet("leaves")]
+    public async Task<ActionResult<IEnumerable<DoctorLeaveDto>>> GetClinicLeaves(
+        [FromQuery] DateOnly from, [FromQuery] DateOnly to, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetClinicDoctorLeavesQuery { FromDay = from, ToDay = to }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>Every congé of one practitioner, earliest first.</summary>
+    [HttpGet("{id:guid}/leaves")]
+    public async Task<ActionResult<IEnumerable<DoctorLeaveDto>>> GetLeaves(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetDoctorLeavesQuery { DoctorId = id }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, LeaveStatus(result)) : Ok(result.Value);
+    }
+
+    // Open to every role: reception records the congé it is told about; a doctor only their own (in the handler).
+    [HttpPost("{id:guid}/leaves")]
+    public async Task<ActionResult<DoctorLeaveSaveResultDto>> CreateLeave(
+        Guid id, [FromBody] CreateDoctorLeaveCommand command, CancellationToken cancellationToken)
+    {
+        command.DoctorId = id;
+        var result = await _mediator.Send(command, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, LeaveStatus(result)) : Ok(result.Value);
+    }
+
+    [HttpPut("{id:guid}/leaves/{leaveId:guid}")]
+    public async Task<ActionResult<DoctorLeaveSaveResultDto>> UpdateLeave(
+        Guid id, Guid leaveId, [FromBody] UpdateDoctorLeaveCommand command, CancellationToken cancellationToken)
+    {
+        command.DoctorId = id;
+        command.LeaveId = leaveId;
+        var result = await _mediator.Send(command, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, LeaveStatus(result)) : Ok(result.Value);
+    }
+
+    [HttpDelete("{id:guid}/leaves/{leaveId:guid}")]
+    public async Task<IActionResult> DeleteLeave(Guid id, Guid leaveId, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new DeleteDoctorLeaveCommand { DoctorId = id, LeaveId = leaveId }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, LeaveStatus(result)) : NoContent();
+    }
+
+    // Every other congé refusal (dates, overlap, not your own) is a 400 with its French sentence.
+    private static int LeaveStatus(Result result) =>
+        result.Code == DoctorLeaveRules.NotFoundCode ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest;
 
     private static UpdateDoctorProfileCommand ToCommand(Guid? doctorId, UpdateDoctorProfileRequest request) => new()
     {

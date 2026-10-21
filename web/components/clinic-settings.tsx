@@ -48,6 +48,7 @@ import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
 import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
+import { DoctorLeavesDisclosure } from "@/components/doctor-leaves/doctor-leaves-card"
 import {
   DEFAULT_WORKING_HOURS,
   WEEKDAY_LABELS_FR,
@@ -1188,13 +1189,17 @@ export default function ClinicSettings() {
                     */}
                     {isClinicAdmin && !isEditingDoctors && doctor.id && !doctor.id.startsWith("doctor-") && (
                       <details className="mt-2">
-                        <summary className="touch-target cursor-pointer py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+                        {/* Grown, not `.touch-target`: « Congés de ce praticien » sits 4 px below and would lose taps. */}
+                        <summary className="cursor-pointer py-2 text-xs font-medium text-muted-foreground hover:text-foreground coarse:py-3.5">
                           Horaires de ce praticien
                         </summary>
                         <div className="mt-2">
                           <DoctorWorkingHoursCard doctorId={doctor.id} embedded />
                         </div>
                       </details>
+                    )}
+                    {isClinicAdmin && !isEditingDoctors && doctor.id && !doctor.id.startsWith("doctor-") && (
+                      <DoctorLeavesDisclosure doctorId={doctor.id} />
                     )}
                   </CardContent>
                 </Card>

@@ -1,4 +1,4 @@
-import { apiGet, apiGetBlob, apiPut, apiPutFormData } from './client';
+import { apiDelete, apiGet, apiGetBlob, apiPost, apiPut, apiPutFormData } from './client';
 import type { DoctorProfileDto } from './types';
 import type { WorkingDay } from '@/lib/working-hours';
 
@@ -14,6 +14,31 @@ export interface UpdateMyDoctorProfileInput {
   removeCachet?: boolean;
   /** The version read from the server. Omitted (or 0) the server skips the check — see `PatientDto.version`. */
   version?: number;
+}
+
+/** A practitioner's congé: clinic-local days `YYYY-MM-DD`, both ends inclusive. */
+export interface DoctorLeaveDto {
+  id: string;
+  doctorId: string;
+  doctorName: string;
+  startDate: string;
+  endDate: string;
+  dayCount: number;
+  note?: string | null;
+  version: number;
+}
+
+export interface DoctorLeaveInput {
+  startDate: string;
+  endDate: string;
+  note?: string | null;
+}
+
+/** A saved congé and the booked visits it covers — counted, never moved. */
+export interface DoctorLeaveSaveResultDto {
+  leave: DoctorLeaveDto;
+  appointmentsDuring: number;
+  firstAppointmentDay?: string | null;
 }
 
 /** Build the shared multipart body for both `/doctors/me` and `/doctors/{id}` — one payload shape, one mapper. */
@@ -56,6 +81,27 @@ export const doctorsApi = {
    */
   updateProfile: async (doctorId: string, input: UpdateMyDoctorProfileInput): Promise<DoctorProfileDto> =>
     apiPutFormData<DoctorProfileDto>(`/doctors/${doctorId}`, doctorProfileForm(input)),
+
+  /** Every congé of one practitioner, earliest first. */
+  getLeaves: async (doctorId: string): Promise<DoctorLeaveDto[]> =>
+    apiGet<DoctorLeaveDto[]>(`/doctors/${doctorId}/leaves`),
+
+  /** The cabinet's congés touching an inclusive day window — what the agenda draws. */
+  getClinicLeaves: async (fromDay: string, toDay: string): Promise<DoctorLeaveDto[]> =>
+    apiGet<DoctorLeaveDto[]>('/doctors/leaves', { from: fromDay, to: toDay }),
+
+  createLeave: async (doctorId: string, input: DoctorLeaveInput): Promise<DoctorLeaveSaveResultDto> =>
+    apiPost<DoctorLeaveSaveResultDto>(`/doctors/${doctorId}/leaves`, input),
+
+  updateLeave: async (
+    doctorId: string,
+    leaveId: string,
+    input: DoctorLeaveInput & { version: number },
+  ): Promise<DoctorLeaveSaveResultDto> =>
+    apiPut<DoctorLeaveSaveResultDto>(`/doctors/${doctorId}/leaves/${leaveId}`, input),
+
+  deleteLeave: async (doctorId: string, leaveId: string): Promise<void> =>
+    apiDelete<void>(`/doctors/${doctorId}/leaves/${leaveId}`),
 
   // The cachet image sits behind the bearer token, so it cannot be an <img src> — it is fetched as a blob.
   fetchCachetBlob: async (doctorId: string): Promise<Blob> =>

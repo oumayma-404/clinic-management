@@ -208,6 +208,7 @@ public class AppointmentAutomaticWriteConcurrencyTests
         _appointments.Object,
         new Mock<IProcedureTypeRepository>().Object,
         new Mock<IDoctorRepository>().Object,
+        new Mock<IDoctorLeaveRepository>().Object,
         new Mock<IClinicRepository>().Object,
         new Mock<ITreatmentPlanRepository>().Object,
         _clinicResolver.Object,

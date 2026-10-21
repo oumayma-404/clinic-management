@@ -22,5 +22,10 @@ export function canReverseFinancials(role: string | undefined): boolean {
   return role === "admin" || role === "doctor"
 }
 
+/** May change any practitioner's congé — a doctor only their own (the server's rule in `DoctorLeaveRules`). */
+export function canEditAnyLeave(role: string | null | undefined): boolean {
+  return role === "admin" || role === "secretary"
+}
+
 /** Shown on a disabled control so the user knows who to ask rather than assuming the feature is missing. */
 export const REVERSAL_FORBIDDEN_HINT = "Réservé au praticien ou à l'administrateur"

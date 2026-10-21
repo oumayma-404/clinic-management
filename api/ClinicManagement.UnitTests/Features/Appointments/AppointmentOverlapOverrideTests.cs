@@ -68,6 +68,7 @@ public class AppointmentOverlapOverrideTests
         _appointments.Object,
         _patients.Object,
         _doctors.Object,
+        new Mock<IDoctorLeaveRepository>().Object,
         _clinics.Object,
         _procedureTypes.Object,
         new Mock<ITreatmentPlanRepository>().Object,

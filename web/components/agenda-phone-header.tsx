@@ -4,7 +4,7 @@ import { useMemo, useState } from "react"
 import { addDays, addMonths, isSameDay, isSameMonth, startOfMonth, startOfWeek } from "date-fns"
 import { fr } from "date-fns/locale"
 import { format } from "date-fns"
-import { ChevronDown, ChevronRight, ChevronLeft } from "lucide-react"
+import { CalendarOff, ChevronDown, ChevronRight, ChevronLeft } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type { AppointmentDto } from "@/lib/api/types"
@@ -37,6 +37,8 @@ interface AgendaPhoneHeaderProps {
    * « cabinet fermé ». The phone is the surface where the desk actually stands.
    */
   isDayOpen?: (day: Date) => boolean
+  /** A closed day that is the practitioner's congé reads « congé », not « fermé » — the cabinet is open. */
+  isOnLeave?: (day: Date) => boolean
   /**
    * Rendered at the bottom of the disclosure panel, under the view switch and the mini-month — the legend and
    * the « Afficher les 24 heures » escape hatch, both owned by the calendar (they read `gridWindow`).
@@ -56,6 +58,8 @@ interface AgendaPhoneHeaderProps {
    * the « + » out of the corner would give up the placement the owner asked for to fix a transient overlap.
    */
   onPanelOpenChange?: (open: boolean) => void
+  /** Opens « Nouveau congé » — the agenda is where a congé is thought of, so it is in this row, not a menu. */
+  onNewLeave?: () => void
 }
 
 const VIEWS: { value: CalendarView; label: string }[] = [
@@ -104,9 +108,11 @@ export function AgendaPhoneHeader({
   onNext,
   appointments,
   isDayOpen,
+  isOnLeave,
   panelExtra,
   note,
   onPanelOpenChange,
+  onNewLeave,
 }: AgendaPhoneHeaderProps) {
   const [monthOpen, setMonthOpen] = useState(false)
   /**
@@ -191,7 +197,11 @@ export function AgendaPhoneHeader({
                overhanging a « previous » arrow costs a re-tap, never a wrong action (§ 2). */
             className="touch-target flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 text-base font-semibold"
           >
-            <span className="truncate">
+            {/* Below 360 px the short form, so the month still shows beside the row's five controls. */}
+            <span className="truncate min-[360px]:hidden">
+              {format(selectedDate, isDayView ? "d MMM" : "MMM", { locale: fr })}
+            </span>
+            <span className="hidden truncate min-[360px]:inline">
               {isDayView
                 ? format(selectedDate, "EEE d MMMM", { locale: fr })
                 : format(selectedDate, "MMMM yyyy", { locale: fr })}
@@ -209,6 +219,16 @@ export function AgendaPhoneHeader({
             className="touch-target h-8 shrink-0 rounded-full border border-primary px-2.5 text-xs font-semibold text-primary"
           >
             Aujourd&apos;hui
+          </button>
+        )}
+        {onNewLeave && (
+          <button
+            type="button"
+            aria-label="Ajouter un congé"
+            onClick={onNewLeave}
+            className="grid h-11 w-10 shrink-0 place-items-center rounded-lg text-muted-foreground active:bg-accent/50"
+          >
+            <CalendarOff className="h-5 w-5" />
           </button>
         )}
         {/* ⚠️ The two arrows **grow their own 44 px box** (`h-11 w-10`) rather than carrying `.touch-target`:
@@ -383,6 +403,7 @@ export function AgendaPhoneHeader({
             const selected = isSameDay(day, selectedDate)
             const count = countFor(day)
             const open = isDayOpen ? isDayOpen(day) : true
+            const away = !open && (isOnLeave?.(day) ?? false)
             return (
               <button
                 key={day.toISOString()}
@@ -390,7 +411,7 @@ export function AgendaPhoneHeader({
                 onClick={() => onDateChange(day)}
                 aria-current={selected ? "date" : undefined}
                 aria-label={`${format(day, "EEEE d MMMM", { locale: fr })}${
-                  open ? (count > 0 ? ` — ${count} rendez-vous` : "") : " — cabinet fermé"
+                  open ? (count > 0 ? ` — ${count} rendez-vous` : "") : away ? " — praticien en congé" : " — cabinet fermé"
                 }`}
                 /* 58 px, not the 64 it painted: this row is the second-tallest thing in the header and
                    every pixel of it belongs to the day grid. The tap target stays 14 px past the § 2 floor. */
@@ -411,7 +432,7 @@ export function AgendaPhoneHeader({
                     glance, and it replaces the density dots because a closed day has nothing to count. */}
                 {!open && (
                   <span className="mt-0.5 text-[0.5625rem] uppercase leading-none tracking-wide text-muted-foreground">
-                    fermé
+                    {away ? "congé" : "fermé"}
                   </span>
                 )}
                 {/* `mt-0.5` here rather than a `gap` on the column: the density dots need clearing from the date

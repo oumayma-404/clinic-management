@@ -365,6 +365,7 @@ public class NotificationGenerationTests
 
         var handler = new UpdateAppointmentCommandHandler(
             repo.Object, new Mock<IProcedureTypeRepository>().Object, new Mock<IDoctorRepository>().Object,
+            new Mock<IDoctorLeaveRepository>().Object,
             new Mock<IClinicRepository>().Object,
             new Mock<ITreatmentPlanRepository>().Object, clinicResolver.Object,
             context.Object, uow.Object, new Mock<IAppointmentGoogleSyncDispatcher>().Object, gen.Object,
@@ -572,6 +573,7 @@ public class NotificationGenerationTests
 
         var handler = new CreateAppointmentCommandHandler(
             appointments.Object, patients.Object, new Mock<IDoctorRepository>().Object,
+            new Mock<IDoctorLeaveRepository>().Object,
             new Mock<IClinicRepository>().Object, procedures.Object,
             new Mock<ITreatmentPlanRepository>().Object, users.Object,
             context.Object, uow.Object, gen.Object,

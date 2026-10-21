@@ -1883,7 +1883,8 @@ export function CreateAppointmentDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Créer ce rendez-vous hors des heures d&apos;ouverture ?</AlertDialogTitle>
+          {/* « disponibilités », not « heures d'ouverture »: the same code also carries a practitioner's congé. */}
+          <AlertDialogTitle>Créer ce rendez-vous en dehors des disponibilités ?</AlertDialogTitle>
           <AlertDialogDescription asChild>
             <BookingPromptFacts message={outsideHoursPrompt} />
           </AlertDialogDescription>
