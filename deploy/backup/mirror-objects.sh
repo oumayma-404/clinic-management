@@ -45,7 +45,12 @@ PREVIOUS="${WORK}/previous"
 # night, which is the cost being removed. A changed file whose size and mtime both survived unchanged would
 # be missed — for an immutable store that cannot arise, and a stale-but-present object is a far better
 # failure than the nightly full copy this replaces.
-( cd "${SRC}" && find . -type f -exec stat -c "%s${TAB}%Y${TAB}%n" {} + ) 2>/dev/null | sort > "${CURRENT}" || true
+#
+# ⚠️ Except `.minio.sys/tmp` and `.minio.sys/multipart`: in-flight uploads and scratch files, transient by
+# definition. A file that exists at `find` and is gone a second later fails `age` below, and under `set -e`
+# that fails the whole night — on a live store, at random. Nothing in them is part of a stored object.
+( cd "${SRC}" && find . \( -path './.minio.sys/tmp' -o -path './.minio.sys/multipart' \) -prune \
+	-o -type f -exec stat -c "%s${TAB}%Y${TAB}%n" {} + ) 2>/dev/null | sort > "${CURRENT}" || true
 
 if [ -r "${MANIFEST}" ]; then
 	sort "${MANIFEST}" > "${PREVIOUS}"
@@ -89,9 +94,16 @@ mkdir -p "${MIRROR}"
 # `comm -13` is « in CURRENT and not in PREVIOUS », over whole lines, so a file whose size or mtime moved
 # counts as changed and is re-encrypted.
 ADDED=0
+: > "${WORK}/vanished"
 comm -13 "${PREVIOUS}" "${CURRENT}" | cut -f3- > "${WORK}/added"
 while IFS= read -r REL; do
 	[ -n "${REL}" ] || continue
+	# Deleted between the listing and now — MinIO's own metadata does this. Left out of tonight's manifest
+	# (below) so the manifest never names a file the mirror does not hold; the next run sees it as it is then.
+	if [ ! -f "${SRC}/${REL}" ]; then
+		echo "${REL}" >> "${WORK}/vanished"
+		continue
+	fi
 	DEST="${MIRROR}/${REL}.age"
 	mkdir -p "$(dirname "${DEST}")"
 	# Written to a temp name and moved into place, so an interrupted run never leaves a half-written
@@ -134,6 +146,12 @@ find "${MIRROR}" -type d -empty -delete 2>/dev/null || true
 # place, so the next run redoes exactly the work that did not land. Advancing it earlier would record work
 # as done that was not, and the objects it named would never be encrypted again.
 mkdir -p "$(dirname "${MANIFEST}")"
+if [ -s "${WORK}/vanished" ]; then
+	# An exact match on the path column, so one path can never be mistaken for a prefix of another.
+	awk -F "${TAB}" 'NR == FNR { gone[$0] = 1; next } !($3 in gone)' "${WORK}/vanished" "${CURRENT}" > "${WORK}/kept"
+	mv "${WORK}/kept" "${CURRENT}"
+	echo "[objects] $(wc -l < "${WORK}/vanished" | tr -d ' ') file(s) vanished while the mirror ran — left for the next run"
+fi
 cp "${CURRENT}" "${MANIFEST}"
 
 TOTAL="$(wc -l < "${CURRENT}" | tr -d ' ')"

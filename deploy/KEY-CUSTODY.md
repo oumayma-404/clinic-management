@@ -226,6 +226,13 @@ that survives losing this host.
 Before FR-3.1 the ring was cleartext and *it* was the thing that had to travel apart; two operator documents said
 opposite things about it. The ring is no longer the secret. **The certificate is.**
 
+Since server-loss-recovery the nightly `backup` service applies this rule: the ring is archived in every run
+(`keyring-ring-<ts>.tar.age`, age-encrypted on top of the certificate's own encryption) and the run refuses when the
+archived ring does not hold the active key the marker names. Until then **nothing** backed the ring up — the
+compose files, `backup.sh` and `KeyRingGenerationMarker.cs` all still said « the ring is never mounted into the
+sidecar », the pre-FR-3.1 rule this section retired. The certificate, `internal_certs`, the age identity and
+`WALG_LIBSODIUM_KEY` are still never in any archive.
+
 Also kept apart, for a reason of its own: `internal_certs` holds the internal CA's **private key**, so an archive
 with both lets whoever holds it impersonate the database and the object store to any container that trusts that
 root. (Losing that volume costs nothing — the `certs` one-shot mints a fresh set on the next `up -d`.)

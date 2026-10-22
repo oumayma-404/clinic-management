@@ -41,6 +41,7 @@ public class RelayFenceCoverageTests
     private static readonly Dictionary<string, string> ReviewedAllCabinetPaths = new(StringComparer.Ordinal)
     {
         ["BackupJob.cs"] = "a LAN server's own dump (BacksUpItsOwnData); BackupRun is not carried",
+        ["BackupHealthJob.cs"] = "reads the host's backup status file and the console accounts, then e-mails; writes no table",
         ["ClinicActivityCounterJob.cs"] = "the vendor's counters (ClinicActivityDay/Snapshot), never carried",
         ["ClinicRecoveryPointJob.cs"] = "recovery points live in the cloud's object store and its own ledger, never carried",
         ["MessagingAllowanceJob.cs"] = "the vendor's forfait tables, never carried, and bell rows (FR-11 set)",

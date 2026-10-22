@@ -173,8 +173,10 @@ services:
       - caddy_config:/config
     networks: [internal]
 
-  # Nightly off-server backup (also runnable on demand):
-  #   docker compose -f docker-compose.prod.yml run --rm backup /usr/local/bin/backup.sh
+  # Nightly off-server backup (also runnable on demand, inside the running container):
+  #   docker compose -f docker-compose.hosted.yml exec backup /usr/local/bin/backup.sh
+  # ⚠️ Not `run --rm backup /usr/local/bin/backup.sh`, which this line used to say: the image's ENTRYPOINT
+  # ignores its arguments and starts crond, so that command never ran a backup at all.
   backup:
     build:
       context: ./backup
@@ -198,6 +200,21 @@ services:
       PGSSLMODE: verify-full
       PGSSLROOTCERT: /certs/ca.crt
       BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      # ⚠️ The `offsite` remote is configured HERE, from .env, and no longer from a gitignored
+      # rclone/rclone.conf. That file was a bring-up step nobody performed: on the live server it never
+      # existed, so no nightly copy had ever left it — and nothing said so. An S3-compatible bucket, the same
+      # shape as WAL-G's below (Backblaze B2, OVH, Scaleway, AWS…). `/dev/null` as rclone's config file keeps
+      # its configuration in memory, so these variables are the only source.
+      # ⚠️ Use a DIFFERENT bucket (and key) from WALG_S3_PREFIX's: one leaked key must not reach both copies.
+      RCLONE_CONFIG_OFFSITE_TYPE: s3
+      RCLONE_CONFIG_OFFSITE_PROVIDER: ${BACKUP_S3_PROVIDER:-Other}
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      RCLONE_CONFIG_OFFSITE_REGION: ${BACKUP_S3_REGION:-}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY:-}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_KEY:-}
+      RCLONE_CONFIG_OFFSITE_FORCE_PATH_STYLE: ${BACKUP_S3_FORCE_PATH_STYLE:-true}
+      # Where each run's outcome is written (backup.sh `write_status`); the API reads it read-only.
+      BACKUP_STATUS_DIR: /status
       BACKUP_CRON: ${BACKUP_CRON:-0 2 * * *}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
       # ⚠️ The age PUBLIC key every archive is encrypted to (FR-3.6). backup.sh REFUSES to run without it —
@@ -216,11 +233,11 @@ services:
     volumes:
       - minio_data:/minio-data:ro   # MinIO object store, read-only, for the data archive
       - backups:/backups            # local staging of each dump (pruned by retention)
-      - ./rclone:/config/rclone:ro  # operator's rclone.conf (gitignored) for the off-site remote
       - internal_certs:/certs:ro    # the internal root pg_dump verifies the server against
-      # ⚠️ The MARKER, never the key ring (FR-3.9). It carries key IDs and no key material, and it is read-only
-      # here: one archive holding both the ciphertext and the key that opens it defeats the whole scheme.
+      # The marker (FR-3.9): key IDs, no key material — stamped beside each dump. The RING itself is mounted
+      # by docker-compose.hosted.yml, which owns the `dataprotection_keys` volume (FR-3.11, KEY-CUSTODY.md).
       - keyring_marker:/keyring-marker:ro
+      - backup_status:/status       # each run's outcome, read by the API (server-loss-recovery Part 3)
     networks: [internal]
 
   # PITR base backups + retention (complements the logical `backup` sidecar above — AC-5).
@@ -304,12 +321,16 @@ volumes:
   caddy_data:
   caddy_config:
   backups:
+  # The backup sidecar's last outcome (`backup.status`): written by the sidecar, read-only to the API.
+  # Losing it costs nothing — the next run rewrites it; until then the API reports « no backup recorded ».
+  backup_status:
   # Which key-ring generations this deployment can read (hosted-security-hardening FR-3.9). The API writes it at
   # every startup; the backup sidecar mounts it READ-ONLY and copies it beside each dump, so a restore can be
   # refused before it produces a practice whose every second factor is silently undecryptable.
   #
-  # ⚠️ It holds key IDs and NO key material, which is what makes mounting it into the backup container safe —
-  # unlike dataprotection_keys, which must never go near it.
+  # ⚠️ It holds key IDs and NO key material. The ring itself (`dataprotection_keys`, hosted.yml) is now archived
+  # too — it is encrypted by the key-ring certificate since FR-3.1, so the CERTIFICATE is what must stay out of
+  # every archive (FR-3.11, KEY-CUSTODY.md). This marker is what proves the archived ring matches the dump.
   #
   # ⚠️ Losing it costs nothing: the API rewrites it on the next start. What it cannot reconstruct is the stamp
   # already copied into an old backup, which is the point.
@@ -317,9 +338,10 @@ volumes:
   # The internal CA and the two server leaves (hosted-security-hardening Part 2). Written once by the `certs`
   # one-shot, mounted read-only everywhere else.
   #
-  # ⚠️ Do NOT back this up into the same archive as postgres_data — the same rule as dataprotection_keys, and
-  # for a sharper reason: this volume holds the CA's PRIVATE KEY, so whoever has both holds the ciphertext and
-  # the means to impersonate the database and the object store to any container that trusts the root.
+  # ⚠️ Do NOT back this up into the same archive as postgres_data — the rule the key-ring CERTIFICATE follows
+  # (FR-3.11), and for a sharper reason: this volume holds the CA's PRIVATE KEY, so whoever has both holds the
+  # ciphertext and the means to impersonate the database and the object store to any container that trusts the
+  # root. The backup sidecar mounts it only to verify the database's TLS identity; backup.sh never archives it.
   #
   # ⚠️ Deleting it (`down -v`) is recoverable and costs nothing: the one-shot mints a fresh set on the next
   # `up -d`, and because every consumer reads the root from the same volume they all move together. What is

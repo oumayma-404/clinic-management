@@ -38,7 +38,7 @@ docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml confi
 - [ ] Buy/choose `<domain>`. Get DNS panel access.
 - [ ] Get an SMTP relay on **port 587 + STARTTLS** (host, username, password). Port 25 is blocked on this VPS.
 - [ ] Create an **off-site S3 bucket** for PITR. Must not be the on-VPS MinIO. Note endpoint, region, access key, secret key.
-- [ ] Create a **second** off-site destination for the nightly dump (rclone remote — S3, B2, SFTP, anything rclone speaks).
+- [ ] Create a **second** off-site S3-compatible bucket for the nightly run (dump + every stored file + key ring), with its **own** access key — not the PITR bucket's. Note endpoint, region, access key, secret key.
 - [ ] Install `age` locally, generate the backup keypair:
   ```bash
   age-keygen -o backup-identity.txt        # keep this file OFF the server
@@ -70,7 +70,6 @@ apt-get update && apt-get install -y docker.io docker-compose-v2
 useradd -m -s /bin/bash deploy && usermod -aG docker deploy
 install -d -o deploy -g deploy /opt/clinic-management/deploy
 install -d -o deploy -g deploy -m 700 /opt/clinic-management/deploy/secrets
-install -d -o deploy -g deploy /opt/clinic-management/deploy/rclone
 ```
 
 - [ ] Authorise the deploy key:
@@ -151,7 +150,8 @@ every file must read `1654 1001`. One row that does not match is the outage.
 | `BACKUP_AGE_RECIPIENT` | the `age1...` public key from step 0 |
 | `WALG_LIBSODIUM_KEY` | `openssl rand -hex 32` |
 | `WALG_S3_PREFIX` / `_ENDPOINT` / `_REGION` / `_ACCESS_KEY` / `_SECRET_KEY` | the PITR bucket |
-| `BACKUP_REMOTE` | `offsite:<bucket>` — matches the rclone remote name in step 5 |
+| `BACKUP_REMOTE` | `offsite:<bucket>[/<path>]` — the nightly bucket from step 0. **Required**: the backup refuses to run without it |
+| `BACKUP_S3_ENDPOINT` / `_REGION` / `_ACCESS_KEY` / `_SECRET_KEY` | that bucket's endpoint and its own key (not the PITR key) |
 | `RESIDENCY_ALLOWED_EGRESS_HOSTS_0` / `_1` | **hostnames of the two off-site destinations** |
 | `SUBSCRIPTION_*` | prices (write `120.500`, never `120,500`), payment instructions, contact email + phone |
 | `MESSAGING_CONTACT_EMAIL` / `_PHONE` | how a cabinet out of WhatsApp allowance reaches you |
@@ -165,11 +165,15 @@ every file must read `1654 1001`. One row that does not match is the outage.
 
 ---
 
-## 5. rclone
+## 5. The nightly bucket — nothing to write on the server
 
-- [ ] Write `/opt/clinic-management/deploy/rclone/rclone.conf` with a remote **named `offsite`** matching `BACKUP_REMOTE`.
-- [ ] Generate it interactively elsewhere (`rclone config`) and copy the stanza in, or hand-write it.
-- [ ] `chmod 600 rclone/rclone.conf`
+⚠️ This step used to be « write `rclone/rclone.conf` ». On the first live server it was never done, nothing said
+so, and no nightly copy ever left the VPS. The remote is now configured from the `BACKUP_S3_*` values in step 4,
+and the `backup` container **refuses to start** when it cannot list `BACKUP_REMOTE` — so a wrong value shows on
+the first deploy, as a container restarting in a loop, instead of on the day the copy is needed.
+
+- [ ] After the first deploy: `docker compose -f docker-compose.hosted.yml logs backup` ends with
+  `scheduled: … reachable`.
 
 ---
 
@@ -199,7 +203,7 @@ Optional: `VPS_SSH_PORT` (default 22), `META_APP_ID`, `META_CONFIG_ID`, `META_GR
 
 ⚠️ **The whole `deploy/` tree must be owned by `deploy`.** The workflow extracts its tarball as that user, and
 `tar` cannot set the mode or mtime of a directory owned by someone else — it exits non-zero on
-`./backup`, `./certs`, `./postgres`, `./rclone`. If an earlier step was run as root, fix it before deploying:
+`./backup`, `./certs`, `./postgres`. If an earlier step was run as root, fix it before deploying:
 
 ```bash
 chown -R deploy:deploy /opt/clinic-management/deploy
@@ -288,9 +292,13 @@ If locked out: `docker exec clinic-api-prod dotnet ClinicManagement.API.dll rese
 
 ## 11. Prove the backups work — same day, not later
 
-- [ ] Wait for or trigger a backup run; confirm an encrypted archive lands at `BACKUP_REMOTE`.
+- [ ] Trigger a backup run inside the running container, and read its outcome:
+  ```bash
+  docker compose -f docker-compose.hosted.yml exec backup /usr/local/bin/backup.sh   # ends « … done »
+  docker compose -f docker-compose.hosted.yml exec backup cat /status/backup.status  # outcome=succeeded
+  ```
 - [ ] Confirm WAL segments are arriving at `WALG_S3_PREFIX`.
-- [ ] Run the restore drill in `RESTORE-DRILL.md`.
+- [ ] Run the restore drill in `RESTORE-DRILL.md` — both paths.
 
 ⚠️ Lose the age private key or `WALG_LIBSODIUM_KEY` and **every archive taken with them is unrecoverable**. Verify you can decrypt before you rely on it.
 
@@ -300,4 +308,4 @@ If locked out: `docker exec clinic-api-prod dotnet ClinicManagement.API.dll rese
 
 - Deploy: re-run the workflow from `main`.
 - Roll back: re-run the workflow from the **older ref** — not `image_tag` alone, which leaves newer compose files under older images.
-- `.env`, `secrets/`, `rclone/rclone.conf` are excluded from what the workflow ships and are gitignored. They live only on the server and in your off-site custody.
+- `.env` and `secrets/` are excluded from what the workflow ships and are gitignored. They live only on the server and in your off-site custody.
