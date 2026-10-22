@@ -49,6 +49,10 @@ services:
     build:
       context: ../api
       dockerfile: Dockerfile
+      args:
+        # clinic-pc-copy D10: the commit, so the cloud's build identity equals the PC de secours installer's (built
+        # on Windows from the same commit). The deploy workflow sets CLINIC_IMAGE_TAG to the commit SHA.
+        SOURCE_REVISION: ${CLINIC_IMAGE_TAG:-}
     container_name: clinic-api-prod
     restart: unless-stopped
     depends_on:
@@ -260,6 +264,21 @@ services:
       #    endpoint anybody can subscribe. The webhook's POST refuses on an absent `Meta__AppSecret` for the same
       #    reason — and without it a cabinet sits at « en attente de validation » until the daily poll catches up.
       Meta__WebhookVerifyToken: ${META_WEBHOOK_VERIFY_TOKEN:-}
+
+      # ── Notifications des téléphones et navigateurs (staff-chat Parts 7–8) ──────────────────────────────────
+      # Empty ⇒ that platform is simply « Notifications indisponibles » — never a refusal at startup. Literals with
+      # empty defaults, like the SMTP password above, and for its reason: a `*_FILE` naming a missing file stops
+      # the API. mobile/README.md § Notifications has the steps.
+      #
+      # Android app (Firebase Cloud Messaging): the project id and the service-account JSON, on one line.
+      Push__Fcm__ProjectId: ${PUSH_FCM_PROJECT_ID:-}
+      Push__Fcm__ServiceAccountKey: ${PUSH_FCM_SERVICE_ACCOUNT_KEY:-}
+      # iPhone home-screen app and browsers (Web Push / VAPID): one key pair from `generate-vapid-keys`.
+      # ⚠️ Keep it for good — every browser's subscription is bound to the public key; a new pair silences them
+      #    until each one is opened again. The subject defaults to FrontendUrl.
+      Push__WebPush__PublicKey: ${PUSH_WEBPUSH_PUBLIC_KEY:-}
+      Push__WebPush__PrivateKey: ${PUSH_WEBPUSH_PRIVATE_KEY:-}
+      Push__WebPush__Subject: ${PUSH_WEBPUSH_SUBJECT:-}
 
       # ── Forfait de rappels WhatsApp (HostedMultiTenant only) ───────────────────────────────────────────────
       # The vendor buys the WhatsApp messages; a cabinet spends them. Enforcement follows `Deployment__Profile`

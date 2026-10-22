@@ -371,6 +371,9 @@ public class MedicalDocumentsController : ApiControllerBase
             documentData.DoctorOrdreNumber = null;
             documentData.ClinicCity = null;
             documentData.ClinicEmail = null;
+            documentData.LetterheadHeaderKey = null;
+            documentData.LetterheadFooterKey = null;
+            documentData.LetterheadBodyKey = null;
 
             var snapshotResult = await _mediator.Send(
                 new GetPractitionerRenderSnapshotQuery { IssuingDoctorId = documentData.IssuingDoctorId },
@@ -383,6 +386,9 @@ public class MedicalDocumentsController : ApiControllerBase
                 documentData.DoctorOrdreNumber = snap.DoctorOrdreNumber;
                 documentData.DoctorCachetKey = snap.DoctorCachetKey;
                 documentData.DoctorCachetContentType = snap.DoctorCachetContentType;
+                documentData.LetterheadHeaderKey = snap.LetterheadHeaderKey;
+                documentData.LetterheadFooterKey = snap.LetterheadFooterKey;
+                documentData.LetterheadBodyKey = snap.LetterheadBodyKey;
             }
 
             var pdfService = HttpContext.RequestServices.GetRequiredService<ClinicManagement.Application.Common.Interfaces.IPdfGenerationService>();

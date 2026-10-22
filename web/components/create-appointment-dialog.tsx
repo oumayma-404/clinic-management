@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
 import {
   Dialog,
   DialogBody,
@@ -47,7 +48,7 @@ import {
 import { ModeSegmented } from "@/components/ui/mode-segmented"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useAddProcedureTypeToCache, useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import {
   AppointmentActsPicker, actLabelsOf, continuationToSelectedAct, hasInvalidAgreedCost, negotiatedTotalOf,
   presetToSelectedAct, protocolError, toProcedurePayloads, totalActsDuration,
@@ -133,6 +134,30 @@ function nextQuarterHour(now: Date = new Date()): { hour: string; minute: string
     hour: String(next.getHours()).padStart(2, "0"),
     minute: String(next.getMinutes()).padStart(2, "0"),
   }
+}
+
+/** What the booking dialog hands the shell (`clinic-pc-copy` D23). */
+interface CarriedBooking {
+  isBusySlot: boolean
+  isNewPatient: boolean
+  selectedPatientId: string
+  newPatientFirstName: string
+  newPatientLastName: string
+  newPatientPhone: string
+  newPatientPhoneCountry: CountryCode
+  acts: SelectedAct[]
+  durationTouched: boolean
+  day: string | null
+  doctorId: string
+  startHour: string
+  startMinute: string
+  useEndTime: boolean
+  endHour: string
+  endMinute: string
+  duration: string
+  notes: string
+  showNotes: boolean
+  createdPatientId: string | null
 }
 
 interface CreateAppointmentDialogProps {
@@ -258,7 +283,10 @@ export function CreateAppointmentDialog({
   const [loadingPatients, setLoadingPatients] = useState(false)
 
   // Procedure type state
-  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  // The tab's shared act catalogue — cached, so a reopened dialog no longer re-reads it.
+  const catalogue = useProcedureTypes()
+  const procedureTypes = catalogue.items
+  const addProcedureTypeToCache = useAddProcedureTypeToCache()
   /** The acts of this séance — several are the normal case, not the exception. */
   const [selectedActs, setSelectedActs] = useState<SelectedAct[]>([])
 
@@ -409,11 +437,14 @@ export function CreateAppointmentDialog({
     })
     toast.success("Séance ajoutée — son devis sera créé à l'enregistrement du RDV.")
   }
-  const [loadingProcedureTypes, setLoadingProcedureTypes] = useState(false)
-  /** Has the catalog fetch SETTLED — loaded or failed? See the plan-act seeding effect. */
-  const [procedureTypesLoaded, setProcedureTypesLoaded] = useState(false)
-  // AC-P3.31 — why the acte list is empty, so an unreachable server is not mistaken for an empty catalogue.
-  const [procedureTypesError, setProcedureTypesError] = useState<string | null>(null)
+  const loadingProcedureTypes = catalogue.loading
+  /** Has the catalog read SETTLED — loaded or failed? See the plan-act seeding effect. */
+  const procedureTypesLoaded = !catalogue.loading
+  // AC-P3.31 — why the acte list is empty, so an unreachable server is not mistaken for an empty catalogue. Not
+  // blocking (the dialog still saves), so an inline explanation next to the list rather than a form-level error.
+  const procedureTypesError = catalogue.failed
+    ? getErrorMessage(catalogue.error, "La liste des actes n'a pas pu être chargée.")
+    : null
   /**
    * Has the user set the duration themselves? Until they do, it follows the **sum** of the chosen acts. After they
    * do it is left alone: auto-summing over a hand-typed 45 min would silently undo an explicit decision, and the
@@ -536,11 +567,10 @@ export function CreateAppointmentDialog({
   const patientAlreadyCreated = createdPatientName !== null
 
 
-  // Load patients and procedure types when dialog opens
+  // Load patients when the dialog opens (the act catalogue is the shared cached read above).
   useEffect(() => {
     if (open) {
       loadPatients()
-      loadProcedureTypes()
     }
   }, [open])
 
@@ -681,7 +711,6 @@ export function CreateAppointmentDialog({
       setNewPatientPhone("")
       setSelectedDoctorId("")
       setSelectedActs([])
-      setProcedureTypesLoaded(false)
       // Back to the caller's own defaults, not to the hardcoded pair: this dialog is a long-lived instance the
       // agenda re-opens with a different span each time, so resetting to « 30 · untouched » would discard the
       // duration the very next drag is about to supply.
@@ -735,24 +764,6 @@ export function CreateAppointmentDialog({
     }
   }
 
-  const loadProcedureTypes = async () => {
-    try {
-      setLoadingProcedureTypes(true)
-      setProcedureTypesError(null)
-      const data = await procedureTypesApi.list(false) // Only active procedure types
-      setProcedureTypes(data || [])
-    } catch (err) {
-      // AC-P3.31 — the old `// Don't show error to user` was wrong in the one way that matters: an empty
-      // list looks identical to a clinic that has no procedures configured, so the user retypes the act as
-      // a custom procedure instead of retrying. It is not blocking (the dialog still saves), so this is an
-      // inline explanation next to the empty list, not a form-level error.
-      setProcedureTypesError(getErrorMessage(err, "La liste des actes n'a pas pu être chargée."))
-      setProcedureTypes([]) // Ensure it's always an array
-    } finally {
-      setLoadingProcedureTypes(false)
-      setProcedureTypesLoaded(true)
-    }
-  }
 
   // Calculate duration from end time
   const calculatedDuration = useMemo(() => {
@@ -1093,8 +1104,72 @@ export function CreateAppointmentDialog({
     }
   }
 
+  /*
+   * `clinic-pc-copy` D23 / AC-3.2 — a booking being typed survives the app switching server. It reopens on the agenda
+   * (`?newAppointment=1`) whichever screen it was started from: nothing it holds needs the host — the devis it books
+   * is derived from its acts. The first save after a switch is refused once; nothing was stored, so the next one saves.
+   */
+  const carried = useCarriedDraft<CarriedBooking>({
+    form: "appointment-new",
+    formKey: "new",
+    path: "/appointments?newAppointment=1",
+    open,
+    dirty: true,
+    state: {
+      isBusySlot, isNewPatient, selectedPatientId,
+      newPatientFirstName, newPatientLastName, newPatientPhone, newPatientPhoneCountry,
+      acts: selectedActs, durationTouched,
+      day: date ? date.toISOString() : null,
+      doctorId: selectedDoctorId,
+      startHour, startMinute, useEndTime, endHour, endMinute, duration,
+      notes, showNotes,
+      createdPatientId: createdPatientIdRef.current,
+    },
+    restore: (s, draft) => {
+      // Seeded, not changed: the patient-change effect must not drop the devis acts restored with it.
+      continuationPatientRef.current = s.selectedPatientId
+      setIsBusySlot(s.isBusySlot)
+      setIsNewPatient(s.isNewPatient)
+      setSelectedPatientId(s.selectedPatientId)
+      setNewPatientFirstName(s.newPatientFirstName)
+      setNewPatientLastName(s.newPatientLastName)
+      setNewPatientPhone(s.newPatientPhone)
+      setNewPatientPhoneCountry(s.newPatientPhoneCountry)
+      setSelectedActs(s.acts)
+      setDurationTouched(s.durationTouched)
+      if (s.day) setDate(new Date(s.day))
+      setSelectedDoctorId(s.doctorId)
+      setStartHour(s.startHour)
+      setStartMinute(s.startMinute)
+      setUseEndTime(s.useEndTime)
+      setEndHour(s.endHour)
+      setEndMinute(s.endMinute)
+      setDuration(s.duration)
+      setNotes(s.notes)
+      setShowNotes(s.showNotes)
+      // A patient already created before the switch is booked onto, never created a second time.
+      if (s.createdPatientId) {
+        const id = s.createdPatientId
+        createdPatientIdRef.current = id
+        // A patient created on the other server just before the switch may not exist here: booked onto, every save fails.
+        if (draft.origin !== window.location.origin) {
+          patientsApi.get(id).catch((err) => {
+            if (err instanceof ApiError && err.status === 404 && createdPatientIdRef.current === id) {
+              createdPatientIdRef.current = null
+            }
+          })
+        }
+      }
+    },
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // AC-3.2: the first save after the app switched server is refused once — nothing is sent.
+    if (carried.consumeSwitch()) {
+      setError(carried.switchRefusal)
+      return
+    }
     setError(null)
     // A fresh submit re-asks every question: the user may have changed the time, the practitioner or the patient
     // since the last one, so a grant given about the previous attempt says nothing about this one. (The created
@@ -1617,11 +1692,11 @@ export function CreateAppointmentDialog({
                 procedureTypes={procedureTypes}
                 loading={loadingProcedureTypes}
                 error={procedureTypesError}
-                onRetry={() => void loadProcedureTypes()}
+                onRetry={catalogue.retry}
                 value={selectedActs}
                 onChange={setSelectedActs}
                 disabled={loading}
-                onProcedureCreated={(created) => setProcedureTypes((prev) => [...prev, created])}
+                onProcedureCreated={addProcedureTypeToCache}
                 fallbackDurationMinutes={calculatedDuration}
                 idPrefix="create-appt"
                 // « Actes du devis » — the same group the edit dialog offers. It is the un-hurried half of the

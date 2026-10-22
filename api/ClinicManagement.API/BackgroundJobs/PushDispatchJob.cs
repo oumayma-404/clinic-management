@@ -30,6 +30,7 @@ public class PushDispatchJob
     private readonly IPushDeliveryRepository _deliveries;
     private readonly IDeviceRegistrationRepository _devices;
     private readonly IAppointmentRepository _appointments;
+    private readonly IStaffMessageRepository _staffMessages;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IInternetProbe _internetProbe;
     private readonly IOsPushAvailability _availability;
@@ -45,6 +46,7 @@ public class PushDispatchJob
         IPushDeliveryRepository deliveries,
         IDeviceRegistrationRepository devices,
         IAppointmentRepository appointments,
+        IStaffMessageRepository staffMessages,
         IUnitOfWork unitOfWork,
         IInternetProbe internetProbe,
         IOsPushAvailability availability,
@@ -59,6 +61,7 @@ public class PushDispatchJob
         _deliveries = deliveries;
         _devices = devices;
         _appointments = appointments;
+        _staffMessages = staffMessages;
         _unitOfWork = unitOfWork;
         _internetProbe = internetProbe;
         _availability = availability;
@@ -71,11 +74,27 @@ public class PushDispatchJob
         _logger = logger;
     }
 
+    // One run at a time in this process: PushDispatchWake calls this directly, outside Hangfire's lock.
+    private static readonly SemaphoreSlim RunGate = new(1, 1);
+
     // Serialize runs: each send has a bounded timeout, but a batch can still outlast the minutely tick, and two
     // runs reading the same row as Pending would both send it.
     [DisableConcurrentExecution(timeoutInSeconds: 600)]
     [AutomaticRetry(Attempts = 3)]
     public async Task DispatchQueuedPushes()
+    {
+        await RunGate.WaitAsync();
+        try
+        {
+            await DispatchOnceAsync();
+        }
+        finally
+        {
+            RunGate.Release();
+        }
+    }
+
+    private async Task DispatchOnceAsync()
     {
         _auditActor.RunAs(nameof(PushDispatchJob));
 
@@ -148,6 +167,27 @@ public class PushDispatchJob
             return;
         }
 
+        // staff-chat Part 7: the push waited its grace period so a message read on another screen is not pushed too.
+        string? conversation = null;
+        if (delivery.Category == NotificationCategory.StaffChatMessage)
+        {
+            var chat = delivery.StaffMessageId is Guid messageId ? await _staffMessages.GetByIdAsync(messageId) : null;
+            if (chat == null)
+            {
+                await FailAsync(delivery, "Message introuvable — notification non envoyée");
+                return;
+            }
+
+            var marker = await _staffMessages.GetMarkerAsync(chat.ClinicId, delivery.RecipientUserId, chat.ConversationKey);
+            if (marker != null && marker.LastReadAt >= chat.SentAt)
+            {
+                await FailAsync(delivery, "Message déjà lu — notification non envoyée");
+                return;
+            }
+
+            conversation = chat.ConversationKey;
+        }
+
         if (!_senders.TryGetValue(device.Platform, out var sender))
         {
             // No sender implements this platform at all. Nothing an operator configures changes that, so it is
@@ -179,7 +219,9 @@ public class PushDispatchJob
         }
 
         var credentials = PushConfig.Resolve(_configuration, device.Platform);
-        var message = new PushMessage(device.Token, delivery.Label, delivery.Category, delivery.AppointmentId);
+        var message = new PushMessage(
+            device.Token, delivery.Label, delivery.Category, delivery.AppointmentId, conversation,
+            device.WebPushP256dh, device.WebPushAuth);
         var result = await sender.SendAsync(message, credentials);
 
         switch (result.Outcome)

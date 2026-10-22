@@ -77,7 +77,9 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         // of a row — and, because a mere READ produces one, opening a detail would appear in the practice's history
         // as a mutation of its own data, which it is not. What the console does *to* a cabinet still audits itself,
         // through the cabinet's own aggregates and under `console|{accountId}`.
-        nameof(PlatformAccessEntry)
+        nameof(PlatformAccessEntry),
+        // clinic-pc-copy: a heartbeat every few seconds; its lifecycle steps write explicit journal rows instead.
+        nameof(ClinicRelay),
     };
 
     /// <summary>

@@ -27,7 +27,9 @@ import {
 import { toast } from "sonner"
 import { patientsApi } from "@/lib/api/patients"
 import { dentalRecordsApi } from "@/lib/api/dental-records"
+import { invoicesApi } from "@/lib/api/invoices"
 import type { PatientDto, DentalRecordDto, PatientDeletionCheckDto } from "@/lib/api/types"
+import { noteFiguresByFiche, type BilledNoteFigures } from "@/lib/fiche-note-figures"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { PatientSummaryModal } from "@/components/patient-summary-modal"
@@ -103,6 +105,7 @@ export function PatientsTable({
   const [summaryModalOpen, setSummaryModalOpen] = useState(false)
   const [summaryPatient, setSummaryPatient] = useState<PatientDto | null>(null)
   const [summaryDentalRecords, setSummaryDentalRecords] = useState<DentalRecordDto[]>([])
+  const [summaryNoteFigures, setSummaryNoteFigures] = useState<Map<string, BilledNoteFigures | null>>(new Map())
   const [patientToDelete, setPatientToDelete] = useState<PatientDto | null>(null)
   const [deleting, setDeleting] = useState(false)
   // The pre-check runs when the dialog OPENS, so the user learns what blocks the deletion before clicking
@@ -279,10 +282,19 @@ export function PatientsTable({
 
   const handleOpenSummary = async (patient: PatientDto) => {
     setSummaryPatient(patient)
+    setSummaryNoteFigures(new Map())
     try {
-      // Load dental records for the patient
-      const records = await dentalRecordsApi.list(patient.id)
+      // The notes are read beside the fiches: a payment on a note never updates its fiche. A failed read of
+      // them (null) falls back to the fiches' own figures — what this summary showed before — never to « no note ».
+      const [records, invoices] = await Promise.all([
+        dentalRecordsApi.list(patient.id),
+        invoicesApi.list({ patientId: patient.id }).then(
+          (list) => list,
+          () => null,
+        ),
+      ])
       setSummaryDentalRecords(records)
+      if (invoices) setSummaryNoteFigures(noteFiguresByFiche(invoices))
       setSummaryModalOpen(true)
     } catch (err) {
       // Still open the modal — the patient's own details are worth showing — but say the records are
@@ -673,6 +685,7 @@ export function PatientsTable({
         onOpenChange={setSummaryModalOpen}
         patient={summaryPatient}
         dentalRecords={summaryDentalRecords}
+        noteFigures={summaryNoteFigures}
       />
 
       <AlertDialog open={!!patientToDelete} onOpenChange={(open) => { if (!open) setPatientToDelete(null) }}>

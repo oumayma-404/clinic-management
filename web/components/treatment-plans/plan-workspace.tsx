@@ -48,7 +48,7 @@ import { toast } from "sonner"
 import { showErrorToast } from "@/lib/errors"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import { invoicesApi } from "@/lib/api/invoices"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { patientsApi } from "@/lib/api/patients"
 import { Input } from "@/components/ui/input"
 import type {
@@ -127,6 +127,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { ToothMultiSelect } from "@/components/tooth-multiselect"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { useConflict } from "@/lib/hooks/use-conflict"
+import { takenOverSentence } from "@/lib/forms/form-merge"
 import type { AmendTreatmentPlanRequest } from "@/lib/api/treatment-plans"
 import {
   buildAmendRequest, lineFromProcedure, planInstallmentRows, planLinesFromPlan, repricedCost, type PlanLineRow,
@@ -172,6 +173,7 @@ const CARD_GAP = "gap-4"
 const CARD_HEADER = "gap-0"
 import { planItemState } from "./plan-next-action"
 import { PatientNameLink } from "@/components/patient-name-link"
+import { replaceUrl, pushMarker } from "@/lib/history"
 
 interface PlanWorkspaceProps {
   plan: TreatmentPlanDto
@@ -338,9 +340,8 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const [cancelReason, setCancelReason] = useState("")
   /** The plan-level state change awaiting confirmation; null = no dialog. See {@link PlanConfirm}. */
   const [confirmAction, setConfirmAction] = useState<PlanConfirm | null>(null)
-  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
-  /** The act catalogue read failed — not the same as a devis whose acts are legitimately all free text. */
-  const [catalogFailed, setCatalogFailed] = useState(false)
+  // The tab's shared act catalogue. `catalogFailed` is not the same as a devis whose acts are legitimately all free text.
+  const { items: procedureTypes, failed: catalogFailed, retry: loadCatalog } = useProcedureTypes()
   const [amendOpen, setAmendOpen] = useState(false)
   /**
    * Which act « Modifier le devis » should open on. Null when the header's « ⋯ » opened it, which is the
@@ -352,6 +353,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
     setAmendFocusItemId(item?.id ?? null)
     setAmendOpen(true)
   }
+  // `?editPlan=1` — the full form, opened on arrival. A devis carried across a switch of server (`clinic-pc-copy`
+  // AC-3.2) comes back through this door and refills itself.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("editPlan") !== "1") return
+    replaceUrl(window.location.pathname)
+    openAmend()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, [])
   /** « Tout modifier » — the full form. Routed through the inline editor's discard guard (see `confirmDiscard`). */
   const requestFullEdit = (item?: TreatmentPlanItemDto) => confirmDiscard(() => openAmend(item))
   const [reviseOpen, setReviseOpen] = useState(false)
@@ -414,19 +423,6 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * Select that populates after it opens shows « Aucun médecin » for a beat and reads as an empty cabinet.
    */
   const { allDoctors, isLoading: loadingDoctors } = useDoctors()
-
-  const loadCatalog = useCallback(async () => {
-    try {
-      setProcedureTypes((await procedureTypesApi.list(false)) || [])
-      setCatalogFailed(false)
-    } catch {
-      setCatalogFailed(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadCatalog()
-  }, [loadCatalog])
 
   /*
    * The patient lookup behind « Changer de patient ». ⚠️ Server-side (`searchTerm`), never a filter over a page
@@ -880,12 +876,19 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * plan on every realtime event, so the live version would let these edits overwrite a colleague with a 200 (F3).
    */
   const draftBaseVersion = useRef<number | null>(null)
+  /** The devis as it was when the first edit was made — the « opened » « Recharger » compares with. */
+  const draftBasePlan = useRef<TreatmentPlanDto | null>(null)
+  /** Acts whose price or remise a colleague changed while this screen had changed it too — named until the next save. */
+  const [inlineTakenOver, setInlineTakenOver] = useState<string[]>([])
   /** What « Abandonner » will do next — a navigation, another action — while edits are pending. */
   const [discardRequest, setDiscardRequest] = useState<(() => void) | null>(null)
   const [addActOpen, setAddActOpen] = useState(false)
 
   const setCostDraft = (item: TreatmentPlanItemDto, draft: PlanActCostDraft) => {
-    if (draftBaseVersion.current === null) draftBaseVersion.current = plan.version
+    if (draftBaseVersion.current === null) {
+      draftBaseVersion.current = plan.version
+      draftBasePlan.current = plan
+    }
     setCostDrafts((prev) => ({ ...prev, [item.id]: draft }))
   }
 
@@ -908,7 +911,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
   const inlineDirty = inlineChangeCount > 0
 
   useEffect(() => {
-    if (!inlineDirty) draftBaseVersion.current = null
+    if (!inlineDirty) {
+      draftBaseVersion.current = null
+      draftBasePlan.current = null
+    }
   }, [inlineDirty])
 
   const discardInline = () => {
@@ -916,6 +922,52 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
     setAddedLines([])
     inlineConflict.reset()
     draftBaseVersion.current = null
+    draftBasePlan.current = null
+    setInlineTakenOver([])
+  }
+
+  /**
+   * « Recharger » on the in-row edits — reconciled per act (`lib/forms/form-merge.ts`'s rule), never dropped wholesale.
+   * A typed price or remise stays when the colleague did not change that act's; when they did, theirs is kept, the
+   * typing for that act goes and the act is named. Added acts always stay. It used to discard every edit.
+   */
+  const reloadInline = async () => {
+    let fresh: TreatmentPlanDto
+    try {
+      fresh = await treatmentPlansApi.get(plan.id)
+    } catch (err) {
+      inlineConflict.capture(err, "Impossible de recharger le devis.")
+      return
+    }
+    const base = draftBasePlan.current ?? plan
+    const named: string[] = []
+    const kept: Record<string, PlanActCostDraft> = {}
+    for (const [id, draft] of Object.entries(costDrafts)) {
+      const before = base.items.find((i) => i.id === id)
+      const now = fresh.items.find((i) => i.id === id)
+      if (!now || !before) {
+        if (before) named.push(before.designationFr)
+        continue
+      }
+      const next: PlanActCostDraft = {}
+      let lost = false
+      if (draft.cost !== undefined) {
+        if (Math.abs(now.plannedCost - before.plannedCost) > 0.0005) lost = true
+        else next.cost = draft.cost
+      }
+      if (draft.discount !== undefined) {
+        if (Math.abs(itemDiscount(now) - itemDiscount(before)) > 0.0005) lost = true
+        else next.discount = draft.discount
+      }
+      if (lost) named.push(now.designationFr)
+      if (next.cost !== undefined || next.discount !== undefined) kept[id] = next
+    }
+    setCostDrafts(kept)
+    draftBaseVersion.current = fresh.version
+    draftBasePlan.current = fresh
+    if (named.length > 0) setInlineTakenOver((prev) => [...new Set([...prev, ...named])])
+    inlineConflict.clearMessage()
+    onChanged()
   }
 
   /** The discard guard: with edits pending, leaving or starting another write asks first. */
@@ -971,12 +1023,12 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
     const marker = { planEditsGuard: true }
     let pushed = false
     const timer = window.setTimeout(() => {
-      window.history.pushState(marker, "")
+      pushMarker(marker)
       pushed = true
     }, 0)
     const onPop = () => {
       if (window.history.state?.planEditsGuard) return
-      window.history.pushState(marker, "")
+      pushMarker(marker)
       setDiscardRequest(() => () => {
         leavingByBack.current = true
         window.history.go(-2)
@@ -1008,7 +1060,10 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
 
   /** « + Ajouter un acte » — the catalogue act, priced and cut into séances exactly as the form's own pick. */
   const addActFromCatalogue = (pt: ProcedureTypeDto) => {
-    if (draftBaseVersion.current === null) draftBaseVersion.current = plan.version
+    if (draftBaseVersion.current === null) {
+      draftBaseVersion.current = plan.version
+      draftBasePlan.current = plan
+    }
     setAddedLines((prev) => [...prev, lineFromProcedure(pt)])
     setAddActOpen(false)
   }
@@ -1030,6 +1085,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
 
   const saveInline = async () => {
     inlineConflict.clearMessage()
+    setInlineTakenOver([])
 
     const discounts: { item: TreatmentPlanItemDto; value: number }[] = []
     for (const item of discountChanges) {
@@ -2321,6 +2377,11 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                 {inlineConflict.isConflict ? "Modifié par quelqu'un d'autre" : inlineConflict.error}
               </p>
             )}
+            {inlineTakenOver.length > 0 && (
+              <p role="status" className="text-xs [overflow-wrap:anywhere]">
+                {takenOverSentence(inlineTakenOver)}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -2333,17 +2394,14 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             </Button>
             {inlineConflict.isConflict ? (
               /*
-               * Re-read from the server and drop the stale edits — resyncing the version alone would let them
-               * overwrite the colleague on the next press (F3). It replaces « Enregistrer », which would only
-               * repeat the refusal: the version it holds never moves.
+               * Re-read and RECONCILE per act (`reloadInline`) — resyncing the version alone would let the edits
+               * overwrite the colleague on the next press (F3), and dropping them all threw away prices nobody else
+               * touched. It replaces « Enregistrer », which would only repeat the refusal.
                */
               <Button
                 className="coarse:h-11"
                 disabled={savingInline}
-                onClick={() => {
-                  discardInline()
-                  onChanged()
-                }}
+                onClick={() => void reloadInline()}
               >
                 Recharger
               </Button>

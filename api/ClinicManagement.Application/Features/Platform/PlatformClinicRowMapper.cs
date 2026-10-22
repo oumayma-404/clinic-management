@@ -1,7 +1,10 @@
 using ClinicManagement.Application.Features.Platform.Dtos;
+using ClinicManagement.Application.Features.Relay;
 using ClinicManagement.Application.Features.Subscriptions;
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Platform;
 
@@ -35,9 +38,16 @@ public static class PlatformClinicRowMapper
     /// bounded portfolio JOIN (EC-11), and « which admin is the contact? » is a precedence rule that belongs to
     /// <c>IUserRepository</c> and must not be written a second time in SQL here.
     /// </param>
-    public static PlatformClinicRowDto ToDto(PlatformClinicRow row, DateTime clinicToday, string? adminEmail)
+    /// <param name="relay">
+    /// The cabinet's newest PC de secours row, or null — batched over the page in the list, singly in the fiche, like
+    /// <paramref name="adminEmail"/>. Required rather than defaulted, so a third caller cannot forget it and render
+    /// every cabinet as « Aucun ».
+    /// </param>
+    public static PlatformClinicRowDto ToDto(
+        PlatformClinicRow row, DateTime clinicToday, string? adminEmail, ClinicRelay? relay, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(row);
+        var relayReading = ClinicRelayHealth.Read(relay, nowUtc);
 
         // A cabinet with no entitlement has no state to derive: the reader answers about a date and a suspension
         // flag, and there are neither. Saying so is the whole point (FR-13).
@@ -82,6 +92,8 @@ public static class PlatformClinicRowMapper
                 : null,
             // False where nothing was measured: an unknown is not an exhaustion, and the console's own « épuisé » chip
             // must not light up for a cabinet whose real problem is that nothing is counting.
-            MessagingExhausted: row.HasMessagingMonth && row.MessagingConsumed >= row.MessagingAllowance);
+            MessagingExhausted: row.HasMessagingMonth && row.MessagingConsumed >= row.MessagingAllowance,
+            RelayState: RelayLabels.Key(relayReading.State),
+            RelayLabel: RelayLabels.Short(relayReading, nowUtc));
     }
 }

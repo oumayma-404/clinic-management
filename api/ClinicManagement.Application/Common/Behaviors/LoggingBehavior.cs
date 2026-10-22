@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MediatR;
 using Microsoft.Extensions.Logging;
 
@@ -17,15 +18,15 @@ public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, 
     {
         var requestName = typeof(TRequest).Name;
 
+        // Kept: a « Handling » with no « Handled » after it is what names the request in flight at a hang or a crash.
         _logger.LogInformation("Handling {RequestName}", requestName);
 
+        var started = Stopwatch.GetTimestamp();
         var response = await next();
 
-        _logger.LogInformation("Handled {RequestName}", requestName);
+        _logger.LogInformation(
+            "Handled {RequestName} in {ElapsedMs:F0} ms", requestName, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
 
         return response;
     }
 }
-
-
-

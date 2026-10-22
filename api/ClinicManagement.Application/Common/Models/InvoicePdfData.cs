@@ -9,6 +9,11 @@ public class InvoicePdfData
     public string? ClinicPhone { get; set; }
     public string? MatriculeFiscal { get; set; }
 
+    // The cabinet's letterhead bands, read live like the rest of this identity block (money documents keep no snapshot).
+    public string? LetterheadHeaderKey { get; set; }
+    public string? LetterheadFooterKey { get; set; }
+    public string? LetterheadBodyKey { get; set; }
+
     // Patient + document header
     public string PatientName { get; set; } = string.Empty;
 

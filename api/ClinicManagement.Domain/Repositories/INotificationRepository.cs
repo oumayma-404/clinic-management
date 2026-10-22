@@ -113,6 +113,14 @@ public interface INotificationRepository
     Task<IEnumerable<Notification>> GetByAppointmentIdAsync(Guid appointmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// EC-16: another reminder of the same visit, on the same channel, is also due now and is closer to the visit —
+    /// then this one is not sent (two tiers due at once after a cut or an outage make one reminder, not two).
+    /// </summary>
+    Task<bool> HasCloserDueReminderAsync(
+        Guid appointmentId, NotificationType type, DateTime scheduledFor, DateTime nowUtc,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The <paramref name="take"/> most-recent reminder rows for a clinic (newest first), with the patient
     /// loaded so the recipient phone can be masked for the admin delivery-status surface (AC-3).
     /// </summary>

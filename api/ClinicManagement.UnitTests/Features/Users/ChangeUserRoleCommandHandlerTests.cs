@@ -4,6 +4,7 @@ using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Users.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -30,9 +31,11 @@ public class ChangeUserRoleCommandHandlerTests
     private readonly Mock<IDoctorRepository> _doctors = new();
     private readonly Mock<IClinicContext> _context = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+    private readonly Mock<IStaffMessageRepository> _staffMessages = new();
+    private readonly Mock<IClinicWriteFence> _fence = new();
 
     private ChangeUserRoleCommandHandler Handler() =>
-        new(_users.Object, _doctors.Object, _context.Object, _uow.Object,
+        new(_users.Object, _doctors.Object, _staffMessages.Object, _fence.Object, _context.Object, _uow.Object,
             NullLogger<ChangeUserRoleCommandHandler>.Instance);
 
     private static User Local(string role, Guid clinicId) =>
@@ -239,6 +242,66 @@ public class ChangeUserRoleCommandHandlerTests
 
         Assert.True(result.IsFailure);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // [staff-chat EC-14] Becoming a secretary joins every dentist's secretariat thread with its history already read.
+    [Fact]
+    public async Task Handle_Marks_Every_Secretariat_Thread_Read_For_A_New_Secretary()
+    {
+        var admin = Local(User.RoleAdmin, ClinicId);
+        var dentist = Local(User.RoleDoctor, ClinicId);
+        var secretary = Local(User.RoleSecretary, ClinicId);
+        AsAdmin(admin, admin, dentist, secretary);
+        _users.Setup(r => r.GetByIdAsync(dentist.Id, It.IsAny<CancellationToken>())).ReturnsAsync(dentist);
+        var added = new List<StaffChatReadMarker>();
+        _staffMessages.Setup(r => r.AddMarkerAsync(It.IsAny<StaffChatReadMarker>(), It.IsAny<CancellationToken>()))
+            .Callback<StaffChatReadMarker, CancellationToken>((m, _) => added.Add(m))
+            .Returns(Task.CompletedTask);
+        var before = DateTime.UtcNow;
+
+        var result = await ChangeAsync(dentist.Id, User.RoleSecretary);
+
+        Assert.True(result.IsSuccess);
+        // The admin is the only remaining non-secretary: one secretariat to join, never their own former one.
+        var marker = Assert.Single(added);
+        Assert.Equal(dentist.Id, marker.UserId);
+        Assert.Equal(StaffConversation.Desk(admin.Id).Key, marker.ConversationKey);
+        Assert.True(marker.LastReadAt >= before);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // [staff-chat EC-14 × clinic-pc-copy FR-11] While a PC de secours holds the saves the chat tables are refused, so
+    // the role still changes and only the « already read » marks are skipped.
+    [Fact]
+    public async Task Handle_Still_Changes_The_Role_On_A_Fenced_Cloud_Without_Touching_The_Chat()
+    {
+        var admin = Local(User.RoleAdmin, ClinicId);
+        var dentist = Local(User.RoleDoctor, ClinicId);
+        AsAdmin(admin, admin, dentist);
+        _users.Setup(r => r.GetByIdAsync(dentist.Id, It.IsAny<CancellationToken>())).ReturnsAsync(dentist);
+        _fence.Setup(f => f.RefusesAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var result = await ChangeAsync(dentist.Id, User.RoleSecretary);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(User.RoleSecretary, dentist.Role);
+        _staffMessages.VerifyNoOtherCalls();
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // [staff-chat EC-14] Leaving the secretariat writes nothing: the threads simply stop listing them.
+    [Fact]
+    public async Task Handle_Writes_No_Read_Marker_When_A_Secretary_Becomes_A_Dentist()
+    {
+        var admin = Local(User.RoleAdmin, ClinicId);
+        var secretary = Local(User.RoleSecretary, ClinicId);
+        AsAdmin(admin, admin, secretary);
+        _users.Setup(r => r.GetByIdAsync(secretary.Id, It.IsAny<CancellationToken>())).ReturnsAsync(secretary);
+
+        var result = await ChangeAsync(secretary.Id, User.RoleDoctor);
+
+        Assert.True(result.IsSuccess);
+        _staffMessages.Verify(r => r.AddMarkerAsync(It.IsAny<StaffChatReadMarker>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // Tenant isolation: another clinic's user reads as not found and is not touched.

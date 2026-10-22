@@ -53,6 +53,7 @@ import {
   type UserRole,
 } from "@/lib/api/users"
 import { clinicsApi } from "@/lib/api/clinics"
+import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
 import { authApi } from "@/lib/api/auth"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import { ApiError } from "@/lib/api/client"
@@ -156,13 +157,15 @@ export function UserManagement() {
     setPage(1)
   }, [debouncedSearch])
 
+  // A fresh read that also refreshes the tab's shared status, so the rail and the pickers see the same answer.
+  const fetchUserStatus = useFetchUserStatus()
   const loadData = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       const [userList, status] = await Promise.all([
         usersApi.listPaged({ page, pageSize, search: debouncedSearch || undefined }),
-        clinicsApi.getUserStatus(),
+        fetchUserStatus(),
       ])
       if (!mountedRef.current) return
       setUserPage(userList)
@@ -174,7 +177,7 @@ export function UserManagement() {
     } finally {
       if (mountedRef.current) setLoading(false)
     }
-  }, [page, pageSize, debouncedSearch])
+  }, [page, pageSize, debouncedSearch, fetchUserStatus])
 
   useEffect(() => {
     loadData()

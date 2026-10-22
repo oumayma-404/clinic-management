@@ -138,10 +138,40 @@ public class UserRepository : IUserRepository
     /// </summary>
     public async Task<User?> GetByAuth0SubAsync(string auth0Sub, CancellationToken cancellationToken = default)
     {
+        var tracked = TrackedWithItsCodes(auth0Sub);
+        if (tracked is not null)
+        {
+            return tracked;
+        }
+
         return await _context.Users
             .Include(u => u.Clinic)
             .Include(u => u.RecoveryCodes)
             .FirstOrDefaultAsync(u => u.Id == auth0Sub, cancellationToken);
+    }
+
+    // The instance a tracked re-query would return; null unless both includes are loaded, or RecoveryCodes reads empty.
+    private User? TrackedWithItsCodes(string auth0Sub)
+    {
+        var tracker = _context.ChangeTracker;
+        var autoDetect = tracker.AutoDetectChangesEnabled;
+
+        // `Local` would otherwise run DetectChanges over the whole request, which the query it replaces never did.
+        tracker.AutoDetectChangesEnabled = false;
+        try
+        {
+            var entry = _context.Users.Local.FindEntry(auth0Sub);
+
+            return entry is { State: not EntityState.Deleted }
+                   && entry.Reference(u => u.Clinic).IsLoaded
+                   && entry.Collection(u => u.RecoveryCodes).IsLoaded
+                ? entry.Entity
+                : null;
+        }
+        finally
+        {
+            tracker.AutoDetectChangesEnabled = autoDetect;
+        }
     }
 
     /// <summary>

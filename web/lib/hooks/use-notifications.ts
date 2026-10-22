@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { notificationsApi } from "@/lib/api/notifications"
 import type { NotificationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
 import { showErrorToast } from "@/lib/errors"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { useSession } from "@/lib/auth/session"
+import { queryKeys, realtimeMeta } from "@/lib/query/keys"
 
 /**
- * Backs the header notification bell + panel. The unread count is fetched on mount (so the badge is
+ * Backs the header notification bell + panel. The unread count is a shared cached query (so the badge is
  * live even while the panel is closed); the 50-row list is fetched lazily whenever the panel opens.
  *
  * Real-time: subscribes to the "notifications" resource — on any change the count refetches (and the
@@ -17,7 +20,21 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
  */
 export function useNotifications(isOpen: boolean) {
   const [notifications, setNotifications] = useState<NotificationDto[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
+  const { user } = useSession()
+  const queryClient = useQueryClient()
+  // Cached and shared: the header remounts on every page and used to re-read the badge on each sidebar click.
+  // Refreshed by the `notifications` broadcast; best-effort, so a failed count shows the last one, or 0.
+  const countQuery = useQuery({
+    queryKey: queryKeys.unreadCount,
+    queryFn: () => notificationsApi.unreadCount(),
+    enabled: Boolean(user),
+    meta: realtimeMeta.unreadCount,
+  })
+  const unreadCount = countQuery.data?.unreadCount ?? 0
+  const setUnreadCount = useCallback(
+    (count: number) => queryClient.setQueryData(queryKeys.unreadCount, { unreadCount: count }),
+    [queryClient],
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The list as it stands right now, for the two dismiss callbacks: they must be able to put the previous list
@@ -36,14 +53,10 @@ export function useNotifications(isOpen: boolean) {
     }
   }, [])
 
+  // Joins a refetch already in flight (the broadcast echo of this user's own mark-read) instead of repeating it.
   const refetchCount = useCallback(async () => {
-    try {
-      const { unreadCount } = await notificationsApi.unreadCount()
-      if (mountedRef.current) setUnreadCount(unreadCount)
-    } catch {
-      // The badge is best-effort — a failed/offline count must never surface an error in the header.
-    }
-  }, [])
+    await queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount }, { cancelRefetch: false })
+  }, [queryClient])
 
   const refetchList = useCallback(async () => {
     setLoading(true)
@@ -60,11 +73,6 @@ export function useNotifications(isOpen: boolean) {
     }
   }, [])
 
-  // Badge count on mount.
-  useEffect(() => {
-    void refetchCount()
-  }, [refetchCount])
-
   // List lazily, each time the panel opens (also refetches to self-correct after being offline).
   useEffect(() => {
     if (isOpen) void refetchList()
@@ -73,8 +81,8 @@ export function useNotifications(isOpen: boolean) {
   // Live updates. Keep the latest open-state in a ref so the subscription isn't torn down on toggle.
   const isOpenRef = useRef(isOpen)
   isOpenRef.current = isOpen
+  // The badge refreshes through its query's realtime meta; only the open list is re-read here.
   useClinicRealtime(RealtimeResource.Notifications, () => {
-    void refetchCount()
     if (isOpenRef.current) void refetchList()
   })
 
@@ -99,7 +107,7 @@ export function useNotifications(isOpen: boolean) {
     } finally {
       void refetchCount()
     }
-  }, [refetchCount])
+  }, [refetchCount, setUnreadCount])
 
   /**
    * Clears one row from this user's bell.
@@ -137,7 +145,7 @@ export function useNotifications(isOpen: boolean) {
     } finally {
       void refetchCount()
     }
-  }, [refetchCount, refetchList])
+  }, [refetchCount, refetchList, setUnreadCount])
 
   return {
     notifications, unreadCount, loading, error,

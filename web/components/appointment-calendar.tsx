@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { AppointmentQuickActions } from "@/components/appointment-quick-actions"
+import { ArrivalBell } from "@/components/staff-chat/arrival-action"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { ExportButton } from "@/components/ui/export-button"
@@ -39,6 +40,7 @@ import { fr } from "date-fns/locale"
 import { useCallback, useMemo, useRef, useEffect, useState, type CSSProperties } from "react"
 import { toast } from "sonner"
 import { useAppointments } from "@/lib/hooks/use-appointments"
+import { useUserStatus } from "@/lib/hooks/use-user-status"
 import { googleCalendarApi } from "@/lib/api/google-calendar"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { ApiError, ApiErrorCode } from "@/lib/api/client"
@@ -55,7 +57,7 @@ import {
 import { useSession } from "@/lib/auth/session"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
-import { clinicsApi, type DoctorDto } from "@/lib/api/clinics"
+import type { DoctorDto } from "@/lib/api/clinics"
 import { doctorsApi } from "@/lib/api/doctors"
 import { WEEKDAYS, type WorkingDay } from "@/lib/working-hours"
 import {
@@ -705,22 +707,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
    * appointment overlay, which positions blocks from midnight against the fixed `HOUR_HEIGHT` (see the
    * load-bearing comment below) — deliberately left for a follow-up rather than risked here.
    */
-  const [clinicHours, setClinicHours] = useState<WorkingDay[] | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    clinicsApi
-      .getUserStatus()
-      .then((status) => {
-        if (!cancelled) setClinicHours(status.clinic?.workingHours ?? null)
-      })
-      // Best-effort: a failure means no shading, never a broken calendar.
-      .catch(() => {
-        if (!cancelled) setClinicHours(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  // The tab's shared status read, so a change of hours elsewhere reaches the grid live. Best-effort: a failed
+  // read means no shading, never a broken calendar.
+  const { data: userStatus } = useUserStatus()
+  const clinicHours: WorkingDay[] | null = userStatus?.clinic?.workingHours ?? null
   /**
    * The practitioner's own hours when the agenda is filtered on one, else the clinic's (AC-P1.30's order).
    *
@@ -1898,6 +1888,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             >
               {actsCount} actes
             </Badge>
+          )}
+          {/* « Patient arrivé » in one press, on today's waiting visits — 20 px fits the half-hour block the « ⋯ » cannot. */}
+          {height >= 20 && (
+            <span {...{ [AGENDA_NO_DRAG_ATTR]: "" }} className="contents">
+              <ArrivalBell appointment={appointment} />
+            </span>
           )}
           {/*
             AC-24: advance the visit's statut — or delete a séance booked by mistake — without opening the edit

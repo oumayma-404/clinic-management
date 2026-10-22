@@ -62,9 +62,13 @@ public class NotificationJobTests
         Mock<IUnitOfWork> uow,
         IEnumerable<IReminderChannelSender> senders,
         int maxRetries = 3,
-        Appointment? appointment = null)
+        Appointment? appointment = null,
+        ClinicManagement.Application.Common.Interfaces.IClinicWriteFence? fence = null,
+        bool closerReminderDue = false)
     {
         var notifications = new Mock<INotificationRepository>();
+        notifications.Setup(r => r.HasCloserDueReminderAsync(It.IsAny<Guid>(), It.IsAny<NotificationType>(),
+            It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>())).ReturnsAsync(closerReminderDue);
         notifications.Setup(r => r.GetDueForDispatchAsync(
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(pending.ToList());
         // L3a — the dispatcher reviews parked rows after the batch. Nothing here parks any, so an empty page
@@ -116,7 +120,56 @@ public class NotificationJobTests
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
+            fence ?? ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
+    }
+
+    // [clinic-pc-copy D15, AC-5.4] A reminder of a cabinet on its PC de secours is not SENT: the row could not be marked
+    // sent, so sending first would send it again every minute. It stays Pending, retry count untouched, and goes out
+    // once the cabinet is back. Another cabinet's reminder in the same batch goes out as usual.
+    [Fact]
+    public async Task A_Reminder_Of_A_Cabinet_On_Its_Pc_De_Secours_Is_Not_Sent_And_Stays_Pending()
+    {
+        var fencedClinic = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var patientId = Guid.NewGuid();
+        var fenced = new Notification(Guid.NewGuid(), NotificationType.SMS, "Rappel de rendez-vous",
+            "Rappel : Jean le 03/01 chez Clinique Test.", DateTime.UtcNow.AddMinutes(-1), Guid.NewGuid(), patientId, fencedClinic);
+        var other = new Notification(Guid.NewGuid(), NotificationType.SMS, "Rappel de rendez-vous",
+            "Rappel : Jean le 03/01 chez Clinique Test.", DateTime.UtcNow.AddMinutes(-1), Guid.NewGuid(), patientId, ClinicId);
+        var patients = new Mock<IPatientRepository>();
+        patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PatientWithPhone(patientId, "20123456"));
+        var sender = new FakeSender(NotificationType.SMS, ReminderSendResult.Sent);
+        var job = BuildJob(true, new[] { fenced, other }, patients, new Mock<IUnitOfWork>(),
+            new IReminderChannelSender[] { sender }, fence: ClinicManagement.UnitTests.Common.TestFence.Of(fencedClinic));
+
+        await job.ProcessPendingNotifications();
+
+        Assert.Equal(1, sender.Calls);
+        Assert.Equal(NotificationStatus.Pending, fenced.Status);
+        Assert.Equal(0, fenced.RetryCount);
+        Assert.Equal(NotificationStatus.Sent, other.Status);
+    }
+
+    // [clinic-pc-copy EC-16] The 24 h and the 6 h reminder both due at once (a cut handed back, an outage): the earlier
+    // tier gives way to the one closest to the visit — one reminder, not two — and says why.
+    [Fact]
+    public async Task An_Earlier_Tier_Gives_Way_When_A_Closer_One_Is_Due_Too()
+    {
+        var patientId = Guid.NewGuid();
+        var reminder = Reminder(NotificationType.SMS, patientId);
+        var patients = new Mock<IPatientRepository>();
+        patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PatientWithPhone(patientId, "20123456"));
+        var sender = new FakeSender(NotificationType.SMS, ReminderSendResult.Sent);
+        var job = BuildJob(true, new[] { reminder }, patients, new Mock<IUnitOfWork>(),
+            new IReminderChannelSender[] { sender }, closerReminderDue: true);
+
+        await job.ProcessPendingNotifications();
+
+        Assert.Equal(0, sender.Calls);
+        Assert.Equal(NotificationStatus.Failed, reminder.Status);
+        Assert.Contains("plus proche", reminder.ErrorMessage);
     }
 
     /// <summary>
@@ -354,6 +407,7 @@ public class NotificationJobTests
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
+            ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
@@ -412,6 +466,7 @@ public class NotificationJobTests
             // I6: permissive audit-actor mock — see the shared builder above.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
+            ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
@@ -476,6 +531,7 @@ public class NotificationJobTests
             // were: the job declares itself, nothing here observes it.
             new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
+            ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
 
         await job.ProcessPendingNotifications();
@@ -695,6 +751,7 @@ public class NotificationJobTests
             new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
             new Mock<IClinicReminderSettingsRepository>().Object,
             new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
+            ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
     }
 

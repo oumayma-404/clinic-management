@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react"
 import { useSession } from "@/lib/auth/session"
 import SetupWizard from "@/components/setup-wizard"
-import { clinicsApi } from "@/lib/api/clinics"
+import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 
 export default function SetupPage() {
   const { user, isLoading: userLoading, mode } = useSession()
+  const fetchUserStatus = useFetchUserStatus()
   const { accessToken, isLoading: authLoading } = useAuthToken()
   const [isChecking, setIsChecking] = useState(true)
 
@@ -29,8 +30,7 @@ export default function SetupPage() {
     }
 
     let cancelled = false
-    clinicsApi
-      .getUserStatus()
+    fetchUserStatus()
       .then((status) => {
         if (cancelled) return
         if (status.hasClinic) {
@@ -47,7 +47,7 @@ export default function SetupPage() {
     return () => {
       cancelled = true
     }
-  }, [user, userLoading, accessToken, authLoading, mode])
+  }, [user, userLoading, accessToken, authLoading, mode, fetchUserStatus])
 
   /*
    * ⚠️ A « Vérification du statut de votre clinique… » spinner stood here, gated on `mode !== "local"` — i.e. it

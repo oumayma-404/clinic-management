@@ -67,6 +67,14 @@ public sealed class FileUploadProfile
         "profile-image", new[] { FileTypeCatalog.Png, FileTypeCatalog.Jpeg },
         maxBytesOverride: FileTypeCatalog.ProfileImageBytes);
 
+    /// <summary>
+    /// A band of the cabinet's letterhead. PNG only: the browser tool that cuts the bands always encodes PNG, and a
+    /// JPEG's ringing around printed text is the « amateur » look the feature exists to avoid.
+    /// </summary>
+    public static readonly FileUploadProfile LetterheadBand = new(
+        "letterhead-band", new[] { FileTypeCatalog.Png },
+        maxBytesOverride: FileTypeCatalog.ProfileImageBytes);
+
     /// <summary>The PDF a medical document renders to before it is filed in the patient's « documents » folder.</summary>
     public static readonly FileUploadProfile MedicalDocumentPdf = new(
         "medical-document-pdf", new[] { FileTypeCatalog.Pdf });
@@ -86,6 +94,7 @@ public sealed class FileUploadProfile
         {
             [PatientFile.Name] = PatientFile,
             [ProfileImage.Name] = ProfileImage,
+            [LetterheadBand.Name] = LetterheadBand,
             [MedicalDocumentPdf.Name] = MedicalDocumentPdf,
             [Csv.Name] = Csv,
         };

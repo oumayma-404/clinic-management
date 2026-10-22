@@ -1,10 +1,18 @@
 package com.clinicmanagement.shell
 
 import android.app.AlertDialog
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -23,12 +31,16 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import androidx.webkit.ScriptHandler
+import org.json.JSONObject
 import java.util.concurrent.Executors
 
 /**
@@ -50,6 +62,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var panelConfig: View
     private lateinit var panelUnreachable: View
     private lateinit var panelUpdate: View
+    private lateinit var updateStrip: View
 
     private lateinit var store: ServerConfigStore
     private lateinit var fileChooser: FileChooser
@@ -74,6 +87,68 @@ class MainActivity : ComponentActivity() {
     /** One thread for the launch probe. A coroutine dependency for a single GET is not worth its version pairing. */
     private val background = Executors.newSingleThreadExecutor()
 
+    /** The last answer from `client-requirements` — the floor, and the update on offer (see [ShellUpdater]). */
+    private var requirements: ClientRequirements.Requirements? = null
+    private var lastRequirementsReadAt = 0L
+
+    /** « ✕ » hides one VERSION until the next cold start, like the desktop strip — never every future one. */
+    private var dismissedUpdateVersion: String? = null
+
+    /** A download or an install is running; both the strip and the wall report it, never start a second. */
+    private var updateInFlight = false
+    private var updateFromWall = false
+
+    /**
+     * What Android's installer says about the APK [ShellUpdater.install] handed it. Registered on this activity,
+     * not exported: the status arrives through the PendingIntent this app created, i.e. as this app.
+     */
+    private val installStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
+                // Android's own « Mettre à jour cette application ? » — and, the first time, the
+                // « Installer des applis inconnues » screen before it.
+                PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                    val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)
+                    try {
+                        if (confirm == null) error("no confirmation intent")
+                        startActivity(confirm)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "installer confirmation could not be shown", t)
+                        failUpdate(R.string.update_install_failed)
+                    }
+                }
+                // Android replaces the app and ends this process; there is nothing left to report.
+                PackageInstaller.STATUS_SUCCESS -> Unit
+                // The user said no. Not a failure: put the offer back as it was.
+                PackageInstaller.STATUS_FAILURE_ABORTED -> restoreUpdateOffer()
+                else -> failUpdate(R.string.update_install_failed)
+            }
+        }
+    }
+
+    // ── The PC de secours (clinic-pc-copy Part 3) ──
+    /** Where the PC this app prepared a session on answers, or null. */
+    private var relayTarget: RelaySwitch.Target? = null
+    /** Whether the document on screen is the PC's, and whether the load in flight is aimed at it. */
+    private var onPc = false
+    private var navigatingToPc = false
+    /** Since when the cloud has been unreachable with a PC that does not hold yet (AC-3.3, then AC-3.8). */
+    private var cloudLostAtMs: Long? = null
+    /** Its own thread: a pinned GET can take five seconds and must never queue behind the launch probe. */
+    private val relayWorker = Executors.newSingleThreadExecutor()
+    private val relayHandler = Handler(Looper.getMainLooper())
+    private val relayTick = Runnable { relayTick() }
+    private val offerTick = Runnable { offerTick() }
+
+    // ── Phone notifications (staff-chat Part 7) ──
+    /** Android 13's prompt; registered as a property because registering once the activity is STARTED throws. */
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { notifyPageOfNotificationState() }
+    /** What a tapped notification asked to open, until the page is ready to open it. */
+    private var pendingTap: PushTap? = null
+    private var pendingTapTries = 0
+    private val tapTick = Runnable { tapTick() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -84,6 +159,14 @@ class MainActivity : ComponentActivity() {
         panelConfig = findViewById(R.id.panel_config)
         panelUnreachable = findViewById(R.id.panel_unreachable)
         panelUpdate = findViewById(R.id.panel_update)
+        updateStrip = findViewById(R.id.update_strip)
+
+        ContextCompat.registerReceiver(
+            this,
+            installStatusReceiver,
+            IntentFilter(ShellUpdater.INSTALL_STATUS_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         store = ServerConfigStore(this)
         // Both must be built here: `registerForActivityResult` throws once the activity has reached STARTED.
@@ -93,8 +176,11 @@ class MainActivity : ComponentActivity() {
         applyWindowInsets()
         wireControls()
         installBackHandler()
+        ShellPush.createChannels(this)
+        takePushTap(intent)
 
         config = store.load()
+        relayTarget = RelaySwitch.load(this)
         if (config.isConfigured) startSession() else showServerAddress()
     }
 
@@ -135,10 +221,23 @@ class MainActivity : ComponentActivity() {
         }
 
         findViewById<Button>(R.id.unreachable_retry).setOnClickListener { startSession() }
-        findViewById<Button>(R.id.unreachable_change_server).setOnClickListener { showServerAddress() }
+        findViewById<Button>(R.id.unreachable_take_over).setOnClickListener { takeOver() }
         findViewById<Button>(R.id.update_retry).setOnClickListener { startSession() }
         findViewById<Button>(R.id.update_change_server).setOnClickListener { showServerAddress() }
-        findViewById<Button>(R.id.update_open_store).setOnClickListener { openStoreListing() }
+        findViewById<Button>(R.id.update_open_store).setOnClickListener {
+            // The app's own wall installs in place when this server publishes an APK; the WebView wall (and an
+            // operator who listed a store instead) still opens a listing.
+            if (updateTargetPackage == null && ShellUpdater.availableUpdate(requirements) != null) {
+                startUpdate(fromWall = true)
+            } else {
+                openStoreListing()
+            }
+        }
+        findViewById<Button>(R.id.update_strip_install).setOnClickListener { startUpdate(fromWall = false) }
+        findViewById<Button>(R.id.update_strip_dismiss).setOnClickListener {
+            dismissedUpdateVersion = ShellUpdater.availableUpdate(requirements)?.version
+            updateStrip.visibility = View.GONE
+        }
     }
 
     /**
@@ -222,12 +321,15 @@ class MainActivity : ComponentActivity() {
                     store.save(resolved)
                     showConnecting() // Re-render: the target line was showing the unresolved port.
                 }
+                this.requirements = requirements
+                lastRequirementsReadAt = SystemClock.elapsedRealtime()
                 val floor = requirements?.minimumShellVersion.orEmpty()
                 storeUrl = requirements?.storeUrlAndroid.orEmpty()
                 if (ClientRequirements.isBelowFloor(BuildConfig.VERSION_NAME, floor)) {
                     showUpdateRequired(floor)
                 } else {
                     loadApp()
+                    offerUpdate()
                 }
             }
         }
@@ -237,6 +339,7 @@ class MainActivity : ComponentActivity() {
         configureWebView()
         installBridgeScript()
         mainFrameFailed = false
+        navigatingToPc = false
         // `loadUrl` on the same address re-requests it, which is what makes « Réessayer » and « Recharger »
         // re-attempt an unchanged server (`MainWindow.xaml.cs:85-87`'s Navigate(), not Source=).
         webView.loadUrl(config.baseUrl)
@@ -286,6 +389,121 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ── In-app update ─────────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Show the strip when this server offers a newer APK. Never on the wall (that panel has its own button) and
+     * never for a version the user dismissed this session.
+     */
+    private fun offerUpdate() {
+        if (updateInFlight) return
+        val update = ShellUpdater.availableUpdate(requirements)
+        if (update == null || update.version == dismissedUpdateVersion) {
+            updateStrip.visibility = View.GONE
+            return
+        }
+        findViewById<TextView>(R.id.update_strip_text).text = getString(R.string.update_strip_available, update.version)
+        setStripButtonsVisible(true)
+        updateStrip.visibility = View.VISIBLE
+    }
+
+    private fun startUpdate(fromWall: Boolean) {
+        if (updateInFlight) return
+        val update = ShellUpdater.availableUpdate(requirements) ?: return
+        updateInFlight = true
+        updateFromWall = fromWall
+        reportUpdate(getString(R.string.update_downloading))
+
+        background.execute {
+            val apk = ShellUpdater.download(this, update) { percent ->
+                val status = if (percent == null) {
+                    getString(R.string.update_downloading)
+                } else {
+                    getString(R.string.update_downloading_percent, percent)
+                }
+                runOnUiThread { if (updateInFlight) reportUpdate(status) }
+            }
+            if (apk == null) {
+                runOnUiThread { failUpdate(R.string.update_failed) }
+                return@execute
+            }
+            runOnUiThread { reportUpdate(getString(R.string.update_installing)) }
+            if (!ShellUpdater.install(this, apk)) {
+                runOnUiThread { failUpdate(R.string.update_install_failed) }
+            }
+        }
+    }
+
+    /**
+     * The page asked for the APK — the web app's « Mise à jour requise » button, which inside this WebView is a
+     * same-origin download with nowhere to go. Re-read the requirements when the launch answer offers nothing:
+     * the floor may have been raised since.
+     */
+    private fun requestUpdateFromPage() {
+        if (updateInFlight) return
+        if (ShellUpdater.availableUpdate(requirements) != null) {
+            startUpdate(fromWall = false)
+            return
+        }
+        val base = config.baseUrl
+        background.execute {
+            val fresh = ClientRequirements.fetch(base) ?: return@execute
+            runOnUiThread {
+                if (isFinishing || isDestroyed || base != config.baseUrl) return@runOnUiThread
+                requirements = fresh
+                lastRequirementsReadAt = SystemClock.elapsedRealtime()
+                startUpdate(fromWall = false)
+            }
+        }
+    }
+
+    /** Progress goes where the press happened: under the wall's button, or into the strip. */
+    private fun reportUpdate(status: String) {
+        if (updateFromWall) {
+            findViewById<TextView>(R.id.update_progress).apply {
+                text = status
+                visibility = View.VISIBLE
+            }
+            findViewById<Button>(R.id.update_open_store).isEnabled = false
+        } else {
+            findViewById<TextView>(R.id.update_strip_text).text = status
+            setStripButtonsVisible(false)
+            updateStrip.visibility = View.VISIBLE
+        }
+    }
+
+    private fun failUpdate(message: Int) {
+        updateInFlight = false
+        if (updateFromWall) {
+            findViewById<TextView>(R.id.update_progress).apply {
+                setText(message)
+                visibility = View.VISIBLE
+            }
+            findViewById<Button>(R.id.update_open_store).isEnabled = true
+        } else {
+            // The button stays « Mettre à jour », which is now « réessayer ».
+            findViewById<TextView>(R.id.update_strip_text).setText(message)
+            setStripButtonsVisible(true)
+            updateStrip.visibility = View.VISIBLE
+        }
+    }
+
+    private fun restoreUpdateOffer() {
+        updateInFlight = false
+        if (updateFromWall) {
+            findViewById<TextView>(R.id.update_progress).visibility = View.GONE
+            findViewById<Button>(R.id.update_open_store).isEnabled = true
+        } else {
+            offerUpdate()
+        }
+    }
+
+    private fun setStripButtonsVisible(visible: Boolean) {
+        val visibility = if (visible) View.VISIBLE else View.GONE
+        findViewById<Button>(R.id.update_strip_install).visibility = visibility
+        findViewById<Button>(R.id.update_strip_dismiss).visibility = visibility
+    }
+
     // ── WebView ───────────────────────────────────────────────────────────────────────────────────────────
 
     // The shell exists to run the clinic's own web app; JavaScript is the whole point, and the origin it may be
@@ -326,11 +544,23 @@ class MainActivity : ComponentActivity() {
         }
 
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
-        webView.addJavascriptInterface(ShellBridge(this, webView), ShellBridge.NATIVE_OBJECT)
+        webView.addJavascriptInterface(
+            ShellBridge(
+                this,
+                webView,
+                isOwnPage = { page -> config.isSameOrigin(page) },
+                onRelayPrepare = { request, done -> prepareRelay(request, done) },
+                onRelaySwitch = { done -> switchToPcIfHolding(done) },
+                isClinicPage = { page -> config.isSameOrigin(page) || RelaySwitch.isPcOrigin(page, relayTarget) },
+                onPushWanted = { pushWanted() },
+                onOpenNotificationSettings = { openNotificationSettings() },
+            ),
+            ShellBridge.NATIVE_OBJECT,
+        )
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                externalNavigation.handle(request, config)
+                externalNavigation.handle(request, config, relayTarget)
 
             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                 // The fallback path when `DOCUMENT_START_SCRIPT` is unsupported — see installBridgeScript.
@@ -340,7 +570,10 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onPageFinished(view: WebView, url: String) {
-                if (!mainFrameFailed) showWebPage()
+                if (!mainFrameFailed) {
+                    followRelayAfterSuccess(url)
+                    showWebPage()
+                }
             }
 
             override fun onReceivedError(
@@ -352,7 +585,7 @@ class MainActivity : ComponentActivity() {
                 // an error screen because one image 404'd is the blank-app failure AC-74 forbids.
                 if (!request.isForMainFrame) return
                 mainFrameFailed = true
-                showUnreachable(error.description?.toString().orEmpty())
+                followRelayAfterFailure(error.description?.toString().orEmpty())
             }
 
             /**
@@ -365,10 +598,23 @@ class MainActivity : ComponentActivity() {
              * main frame, so `mainFrameFailed` stayed false, `onPageFinished` still fired, and the shell
              * switched to an empty WebView. A white rectangle is the one outcome AC-74 forbids.
              *
-             * `handler.cancel()` is kept — the certificate is still refused, and `proceed()` appears nowhere in
-             * this project. What changes is only that the user is told, and told what to do about it.
+             * `handler.cancel()` is kept — the certificate is still refused. What changes is only that the user is
+             * told, and told what to do about it.
+             *
+             * ⚠️ The ONE `proceed()` (since 1.3.0, `clinic-pc-copy` Part 3): the PC de secours's own self-issued
+             * certificate, at the address and port this app traded a session on, matched by its DER SHA-256 — the pin
+             * the cloud handed over (D21). Any other certificate, anywhere, is still cancelled and reported.
              */
+            @android.annotation.SuppressLint("WebViewClientOnReceivedSslError")
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                // Part 3: the PC de secours's own certificate, at its own address, and nothing else. Its certificate is
+                // self-issued, so this is the only way the WebView can show it — a pin, never « ignore errors ».
+                val pc = relayTarget
+                val at = runCatching { error.url?.toUri() }.getOrNull()
+                if (pc != null && RelaySwitch.isPcOrigin(at, pc) && RelaySwitch.isThePcsCertificate(error.certificate, pc.fingerprint)) {
+                    handler.proceed()
+                    return
+                }
                 handler.cancel()
                 mainFrameFailed = true
                 showUnreachable(getString(R.string.unreachable_certificate))
@@ -377,6 +623,15 @@ class MainActivity : ComponentActivity() {
             // `onReceivedHttpError` is deliberately NOT overridden. An HTTP status means the server answered, and
             // what it answered with is the app's own French error page — which AC-74 requires be *shown* rather
             // than replaced by a shell state. Only a transport failure is the shell's to report.
+        }
+
+        // ⚠️ Only the clinic server's own APK. Every other download already goes through the bridge's `saveFile`,
+        // and a WebView with no listener drops the rest — which this keeps true for anything that is not an update.
+        webView.setDownloadListener { url, _, _, mimeType, _ ->
+            val uri = url.toUri()
+            val isApk = ShellUpdater.APK_MIME_TYPE.equals(mimeType, ignoreCase = true) ||
+                uri.path.orEmpty().endsWith("/client-download/android")
+            if (isApk && uri.scheme == "https" && config.isSameOrigin(uri)) requestUpdateFromPage()
         }
 
         webView.webChromeClient = object : WebChromeClient() {
@@ -405,7 +660,7 @@ class MainActivity : ComponentActivity() {
                 // `bridgeOrigins`, not `baseUrl`: a page served on 443 reports `https://host` as its origin — the
                 // URL spec omits a default port — so granting only `https://host:443` would leave the bridge
                 // silently uninstalled on exactly the deployment that has no other way in.
-                WebViewCompat.addDocumentStartJavaScript(webView, bridgeSource(), config.bridgeOrigins)
+                WebViewCompat.addDocumentStartJavaScript(webView, bridgeSource(), bridgeOrigins())
             } catch (t: Throwable) {
                 Log.w(TAG, "document-start script rejected — falling back to page-start injection", t)
                 null
@@ -427,8 +682,199 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** The cloud's origins, and the PC de secours's once one was prepared — a carried form is taken back there (D23). */
+    private fun bridgeOrigins(): Set<String> = config.bridgeOrigins + listOfNotNull(relayTarget?.origin)
+
     private fun bridgeSource(): String =
         ShellBridge.injectedScript(BuildConfig.VERSION_NAME, ShellBridge.MAX_FILE_BYTES)
+
+    // ── The PC de secours (clinic-pc-copy Part 3) ──────────────────────────────────────────────────────────
+
+    /** `relayPrepare`: trade the ticket on the PC (pinned), write the PC's session cookie, remember where the PC is. */
+    private fun prepareRelay(request: RelaySwitch.Prepare, done: (Boolean) -> Unit) {
+        relayWorker.execute {
+            val traded = RelaySwitch.trade(request)
+            runOnUiThread {
+                if (traded == null || isDestroyed) {
+                    done(false)
+                    return@runOnUiThread
+                }
+                val (target, session) = traded
+                val (sessionCookie, mustChange) = RelaySwitch.cookies(session)
+                val cookies = CookieManager.getInstance()
+                cookies.setCookie(target.origin, sessionCookie)
+                cookies.setCookie(target.origin, mustChange)
+                cookies.flush()
+                RelaySwitch.save(this, target, session.expiresAt)
+                val moved = relayTarget?.origin != target.origin
+                relayTarget = target
+                // A new PC origin needs the bridge too (D23); the page in front is the cloud's, so this changes nothing on screen.
+                if (moved) installBridgeScript()
+                done(true)
+            }
+        }
+    }
+
+    /** `relaySwitch`: the cloud says the cabinet works on the PC — move there if the PC says it holds. */
+    private fun switchToPcIfHolding(done: (Boolean) -> Unit) {
+        val known = relayTarget ?: return done(false)
+        relayWorker.execute {
+            val (pc, holding) = askPc(known)
+            // The open page lost the cloud (Wi-Fi off, a request with no reply): if the cloud really does not answer,
+            // the cut is shown at once — the countdown, then the button — with no reload (owner, 2026-10-12).
+            val cut = holding != true && !RelaySwitch.cloudAnswers(config.baseUrl)
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread done(false)
+                if (holding == true) {
+                    adoptMovedPc(known, pc)
+                    loadPc(pc)
+                    done(true)
+                } else if (cut) {
+                    followRelayAfterFailure(getString(R.string.unreachable_title))
+                    done(true)
+                } else {
+                    done(false)
+                }
+            }
+        }
+    }
+
+    /**
+     * « Do you hold? », and when the PC no longer answers as itself at the address the app knew, UDP discovery (D21).
+     * Blocking — on [relayWorker]. Returns the PC as found (maybe at a new address) and its answer.
+     */
+    private fun askPc(known: RelaySwitch.Target): Pair<RelaySwitch.Target, Boolean?> {
+        val holding = RelaySwitch.holding(known)
+        if (holding != null) return known to holding
+        val moved = RelayDiscovery.find(this, known) ?: return known to null
+        return moved to RelaySwitch.holding(moved)
+    }
+
+    /** The PC moved: carry the prepared session to its new origin and keep the new address. On the UI thread. */
+    private fun adoptMovedPc(old: RelaySwitch.Target, moved: RelaySwitch.Target) {
+        if (old.origin == moved.origin || isDestroyed) return
+        val cookies = CookieManager.getInstance()
+        val credential = RelaySwitch.cookieValue(cookies.getCookie(old.origin), RelaySwitch.SESSION_COOKIE)
+        if (credential != null) {
+            val mustChange = RelaySwitch.cookieValue(cookies.getCookie(old.origin), RelaySwitch.MUST_CHANGE_COOKIE) == "1"
+            val (sessionCookie, mustChangeCookie) =
+                RelaySwitch.cookies(RelaySwitch.Session(credential, RelaySwitch.sessionExpires(this), mustChange))
+            cookies.setCookie(moved.origin, sessionCookie)
+            cookies.setCookie(moved.origin, mustChangeCookie)
+            cookies.flush()
+        }
+        RelaySwitch.save(this, moved)
+        relayTarget = moved
+        installBridgeScript()
+    }
+
+    private fun loadPc(pc: RelaySwitch.Target) {
+        mainFrameFailed = false
+        navigatingToPc = true
+        webView.loadUrl(pc.origin + "/")
+    }
+
+    private fun followRelayAfterSuccess(url: String) {
+        onPc = RelaySwitch.isPcOrigin(runCatching { url.toUri() }.getOrNull(), relayTarget)
+        navigatingToPc = false
+        cloudLostAtMs = null
+        scheduleRelayTick(if (onPc) RELAY_BACK_CHECK_MS else null)
+    }
+
+    /**
+     * The clinic's document did not load. From the PC: back to the cloud. From the cloud: if the PC holds the cabinet's
+     * saves, move there (already signed in, D22); if it answers without holding, say it is about to (AC-3.3) or that it
+     * was not ready (AC-3.8), and try again every few seconds. With no PC prepared: the panel exactly as before.
+     */
+    private fun followRelayAfterFailure(reason: String) {
+        if (navigatingToPc || onPc) {
+            navigatingToPc = false
+            onPc = false
+            loadApp()
+            return
+        }
+        val pc = relayTarget
+        if (pc == null) {
+            showUnreachable(reason)
+            return
+        }
+        val now = System.currentTimeMillis()
+        val lostAt = cloudLostAtMs ?: now.also { cloudLostAtMs = it }
+        showUnreachable(reason)
+        relayWorker.execute {
+            val (found, holding) = askPc(pc)
+            runOnUiThread {
+                if (isDestroyed || state != ShellState.Unreachable) return@runOnUiThread
+                adoptMovedPc(pc, found)
+                if (holding == true) {
+                    loadPc(found)
+                    return@runOnUiThread
+                }
+                if (holding == false) {
+                    showUnreachable(waitingText())
+                    findViewById<Button>(R.id.unreachable_take_over).visibility =
+                        if (RelaySwitch.lastCanTakeOver) View.VISIBLE else View.GONE
+                    relayHandler.removeCallbacks(offerTick)
+                    relayHandler.postDelayed(offerTick, OFFER_POLL_MS)
+                }
+                scheduleRelayTick(null)
+            }
+        }
+    }
+
+    private fun waitingText(): String = RelaySwitch.waitingLine(
+        RelaySwitch.lastArmed, RelaySwitch.lastCanTakeOver,
+        cloudLostAtMs?.let { RelaySwitch.secondsLeft(it, System.currentTimeMillis()) } ?: 0,
+    )
+
+    /** While the cut panel is up: ask the PC every 3 s, update the countdown and show the button the moment it is offered. */
+    private fun offerTick() {
+        val pc = relayTarget ?: return
+        if (state != ShellState.Unreachable || onPc || cloudLostAtMs == null) return
+        relayWorker.execute {
+            val holding = RelaySwitch.holding(pc)
+            runOnUiThread {
+                if (isDestroyed || state != ShellState.Unreachable || onPc) return@runOnUiThread
+                val button = findViewById<Button>(R.id.unreachable_take_over)
+                if (holding == true) {
+                    loadPc(pc)
+                    return@runOnUiThread
+                }
+                if (holding == false && button.isEnabled) {
+                    findViewById<TextView>(R.id.unreachable_detail).text = waitingText()
+                    button.visibility = if (RelaySwitch.lastCanTakeOver) View.VISIBLE else View.GONE
+                }
+                relayHandler.postDelayed(offerTick, OFFER_POLL_MS)
+            }
+        }
+    }
+
+    /** One loop: on the PC, « does it still hold? » every 20 s; while the cloud is unreachable, try it again every 10 s. */
+    private fun scheduleRelayTick(backCheckMs: Long?) {
+        relayHandler.removeCallbacks(relayTick)
+        if (relayTarget == null || (backCheckMs == null && cloudLostAtMs == null)) return
+        relayHandler.postDelayed(relayTick, backCheckMs ?: RELAY_RETRY_MS)
+    }
+
+    private fun relayTick() {
+        val pc = relayTarget ?: return
+        if (onPc) {
+            relayWorker.execute {
+                val holding = RelaySwitch.holding(pc)
+                runOnUiThread {
+                    if (isDestroyed || !onPc) return@runOnUiThread
+                    if (holding != true) {
+                        onPc = false
+                        loadApp()
+                    } else {
+                        scheduleRelayTick(RELAY_BACK_CHECK_MS)
+                    }
+                }
+            }
+        } else if (cloudLostAtMs != null && state == ShellState.Unreachable) {
+            loadApp()
+        }
+    }
 
     // ── State switching ───────────────────────────────────────────────────────────────────────────────────
 
@@ -460,8 +906,28 @@ class MainActivity : ComponentActivity() {
         findViewById<EditText>(R.id.config_address).requestFocus()
     }
 
+    /** « Travailler sur le PC de secours » (manual takeover): the PC takes over, then the app moves there. */
+    private fun takeOver() {
+        val pc = relayTarget ?: return
+        val button = findViewById<Button>(R.id.unreachable_take_over)
+        button.isEnabled = false
+        relayWorker.execute {
+            val held = RelaySwitch.takeOver(pc)
+            runOnUiThread {
+                button.isEnabled = true
+                if (isDestroyed) return@runOnUiThread
+                if (held) {
+                    loadPc(pc)
+                } else {
+                    findViewById<TextView>(R.id.unreachable_detail).setText(R.string.unreachable_take_over_failed)
+                }
+            }
+        }
+    }
+
     /** Names both the address and the reason (AC-15) — « ça ne marche pas » is not a diagnosis an operator can act on. */
     private fun showUnreachable(reason: String) {
+        findViewById<Button>(R.id.unreachable_take_over).visibility = View.GONE
         findViewById<TextView>(R.id.unreachable_detail).text =
             getString(R.string.unreachable_detail, config.baseUrl, reason)
         show(ShellState.Unreachable)
@@ -495,21 +961,53 @@ class MainActivity : ComponentActivity() {
         } else {
             getString(R.string.update_detail, floor, BuildConfig.VERSION_NAME)
         }
-        // A button that cannot go anywhere is worse than no button: the operator publishes the listing URL, and
-        // a LAN install has no store at all.
-        findViewById<Button>(R.id.update_open_store).visibility =
-            if (storeUrl.isBlank()) View.GONE else View.VISIBLE
+        // A button that cannot go anywhere is worse than no button: it installs the APK this server publishes, or
+        // opens the listing the operator named — and with neither there is nothing to press.
+        val canUpdate = ShellUpdater.availableUpdate(requirements) != null || storeUrl.isNotBlank()
+        findViewById<Button>(R.id.update_open_store).apply {
+            visibility = if (canUpdate) View.VISIBLE else View.GONE
+            isEnabled = !updateInFlight
+        }
+        if (!updateInFlight) findViewById<TextView>(R.id.update_progress).visibility = View.GONE
         show(ShellState.UpdateRequired)
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────────────────────────────────
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takePushTap(intent)
+    }
+
     override fun onResume() {
         super.onResume()
+        // Back from Android's notification settings: the page re-reads what it shows.
+        notifyPageOfNotificationState()
         // Coming back from a Custom Tab: the state the user left to change (a connected Google calendar) is on the
         // server now, so the page they came from has to be re-read. See ExternalNavigation.handOffInFlight.
         if (externalNavigation.consumeHandOff() && state == ShellState.WebPage) {
             webView.reload()
+        }
+        recheckForUpdate()
+    }
+
+    /**
+     * A phone is resumed far more often than it is launched, so the launch read alone would leave a release
+     * unseen for days. Re-asked at most every [UPDATE_RECHECK_MS], the desktop shell's own interval.
+     */
+    private fun recheckForUpdate() {
+        if (state != ShellState.WebPage || updateInFlight) return
+        if (SystemClock.elapsedRealtime() - lastRequirementsReadAt < UPDATE_RECHECK_MS) return
+        lastRequirementsReadAt = SystemClock.elapsedRealtime()
+        val base = config.baseUrl
+        background.execute {
+            val fresh = ClientRequirements.fetch(base) ?: return@execute
+            runOnUiThread {
+                if (isFinishing || isDestroyed || base != config.baseUrl) return@runOnUiThread
+                requirements = fresh
+                offerUpdate()
+            }
         }
     }
 
@@ -522,12 +1020,113 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        relayHandler.removeCallbacks(relayTick)
+        relayHandler.removeCallbacks(tapTick)
+        ShellPush.forget()
+        relayWorker.shutdownNow()
         background.shutdownNow()
         removeBridgeScript()
+        unregisterReceiver(installStatusReceiver)
         super.onDestroy()
+    }
+
+    // ── Phone notifications (staff-chat Part 7) ───────────────────────────────────────────────────────────
+
+    /** The signed-in page registered for a token: hand it over, and ask for the permission the first time. */
+    private fun pushWanted() {
+        if (!ShellPush.isConfigured) return
+        ShellPush.requestToken { token -> runOnUiThread { deliverPushToken(token) } }
+        if (ShellPush.needsRuntimePermission(this) && !ShellPush.wasAsked(this)) {
+            ShellPush.markAsked(this)
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    /** Android asks only twice; after that the only door left is the app's own notification settings. */
+    private fun openNotificationSettings() {
+        if (!ShellPush.isConfigured) return
+        if (ShellPush.needsRuntimePermission(this) && !ShellPush.wasAsked(this)) {
+            ShellPush.markAsked(this)
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        val settings = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        try {
+            startActivity(settings)
+        } catch (t: Throwable) {
+            Log.w(TAG, "notification settings could not be opened", t)
+        }
+    }
+
+    private fun deliverPushToken(token: String) {
+        if (!webViewConfigured) return
+        webView.evaluateJavascript(
+            "window.__clinicShellDeliverPushToken && window.__clinicShellDeliverPushToken(${JSONObject.quote(token)});",
+            null,
+        )
+    }
+
+    private fun notifyPageOfNotificationState() {
+        if (!webViewConfigured || state != ShellState.WebPage) return
+        webView.evaluateJavascript(
+            "window.__clinicShellNotificationsChanged && window.__clinicShellNotificationsChanged();",
+            null,
+        )
+    }
+
+    /** A tapped notification's routing ids, read off the launch intent once and then removed from it. */
+    private fun takePushTap(intent: Intent?) {
+        val tap = PushTap.from(intent) ?: return
+        intent?.removeExtra(PushTap.CONVERSATION)
+        intent?.removeExtra(PushTap.APPOINTMENT)
+        pendingTap = tap
+        pendingTapTries = 0
+        relayHandler.removeCallbacks(tapTick)
+        relayHandler.post(tapTick)
+    }
+
+    /**
+     * Opens what the notification named once the page can: the chat's own hook for a conversation (the one the Windows
+     * app calls), the agenda's deep link for an appointment. A cold start has no page yet, hence the retries.
+     */
+    private fun tapTick() {
+        val tap = pendingTap ?: return
+        if (++pendingTapTries > TAP_TRIES) {
+            pendingTap = null
+            return
+        }
+        if (!webViewConfigured || state != ShellState.WebPage) {
+            relayHandler.postDelayed(tapTick, TAP_RETRY_MS)
+            return
+        }
+        val conversation = tap.conversation
+        if (conversation != null) {
+            val call = "(function(){var o=window.__clinicShellOpenStaffChat;" +
+                "if(typeof o!=='function'){return 'waiting';}o(${JSONObject.quote(conversation)});return 'opened';})()"
+            webView.evaluateJavascript(call) { answer ->
+                if (answer?.contains("opened") == true) pendingTap = null else relayHandler.postDelayed(tapTick, TAP_RETRY_MS)
+            }
+            return
+        }
+        val origin = webView.url?.let { runCatching { it.toUri() }.getOrNull() }
+            ?.takeIf { config.isSameOrigin(it) }
+            ?.let { "${it.scheme}://${it.authority}" }
+        if (origin == null) {
+            relayHandler.postDelayed(tapTick, TAP_RETRY_MS)
+            return
+        }
+        pendingTap = null
+        webView.loadUrl("$origin/appointments?appointmentId=${tap.appointmentId}")
     }
 
     private companion object {
         const val TAG = "ClinicShell"
+        const val UPDATE_RECHECK_MS = 30L * 60 * 1000
+        const val TAP_RETRY_MS = 500L
+        const val TAP_TRIES = 120
+        const val RELAY_RETRY_MS = 10_000L
+        const val OFFER_POLL_MS = 3_000L
+        const val RELAY_BACK_CHECK_MS = 20_000L
     }
 }

@@ -139,6 +139,16 @@ public class NotificationRepository : INotificationRepository
             .ExecuteDeleteAsync(cancellationToken);
     }
 
+    public Task<bool> HasCloserDueReminderAsync(
+        Guid appointmentId, NotificationType type, DateTime scheduledFor, DateTime nowUtc,
+        CancellationToken cancellationToken = default) =>
+        _context.Notifications.AnyAsync(n =>
+            n.AppointmentId == appointmentId
+            && n.Type == type
+            && n.Status == NotificationStatus.Pending
+            && n.ScheduledFor > scheduledFor
+            && n.ScheduledFor <= nowUtc, cancellationToken);
+
     public async Task<IEnumerable<Notification>> GetByAppointmentIdAsync(Guid appointmentId, CancellationToken cancellationToken = default)
     {
         return await _context.Notifications

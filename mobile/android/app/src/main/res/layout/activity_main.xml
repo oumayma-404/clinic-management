@@ -32,11 +32,69 @@
       Hidden until a navigation succeeds, so a failed load never flashes the WebView's own English error page
       before the French state that replaces it.
     -->
-    <WebView
-        android:id="@+id/web_view"
+    <!--
+      The update strip sits ABOVE the page, never over it: an overlay would cover the web app's own header and the
+      controls in it. It belongs to the WebPage state only — the panels below are later siblings with their own
+      background, so they paint over this whole column, strip included.
+    -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:visibility="gone" />
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:id="@+id/update_strip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/brand_primary"
+            android:gravity="center_vertical"
+            android:minHeight="48dp"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/update_strip_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/brand_on_primary"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/update_strip_install"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:text="@string/update_strip_install"
+                android:textColor="@color/brand_on_primary" />
+
+            <Button
+                android:id="@+id/update_strip_dismiss"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="@string/update_strip_dismiss_description"
+                android:minWidth="48dp"
+                android:text="@string/update_strip_dismiss"
+                android:textColor="@color/brand_on_primary" />
+        </LinearLayout>
+
+        <!--
+          Hidden until a navigation succeeds, so a failed load never flashes the WebView's own English error page
+          before the French state that replaces it.
+        -->
+        <WebView
+            android:id="@+id/web_view"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <!-- ── State: connecting ─────────────────────────────────────────────────────────────────────────── -->
     <ScrollView
@@ -200,21 +258,23 @@
                 android:textColor="@color/shell_ink_muted"
                 android:textSize="13sp" />
 
+            <!-- Shown only while the PC de secours offers it (manual takeover, owner 2026-10-12). -->
             <Button
-                android:id="@+id/unreachable_retry"
+                android:id="@+id/unreachable_take_over"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
                 android:minHeight="48dp"
-                android:text="@string/unreachable_retry" />
+                android:visibility="gone"
+                android:text="@string/unreachable_take_over" />
 
             <Button
-                android:id="@+id/unreachable_change_server"
+                android:id="@+id/unreachable_retry"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:minHeight="48dp"
-                android:text="@string/unreachable_change_server" />
+                android:text="@string/unreachable_retry" />
         </LinearLayout>
     </ScrollView>
 
@@ -261,6 +321,16 @@
                 android:layout_marginTop="24dp"
                 android:minHeight="48dp"
                 android:text="@string/update_open_store"
+                android:visibility="gone" />
+
+            <!-- The in-app download's progress and its failure, under the button that started it. -->
+            <TextView
+                android:id="@+id/update_progress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/shell_ink_muted"
+                android:textSize="13sp"
                 android:visibility="gone" />
 
             <Button

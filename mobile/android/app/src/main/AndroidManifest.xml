@@ -11,6 +11,27 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!--
+      The in-app update (`ShellUpdater`, android-in-app-update): handing a downloaded APK to Android's installer.
+      Granted per app by the user (« Installer des applis inconnues »), which Android asks for on the first update.
+      ⚠️ Google Play restricts this permission; it is here because this build is sideloaded, and a Play build
+      would update through the store and must drop it.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
+      `relayProbe` (clinic-pc-copy AC-6.2): this phone's default gateway, which the cloud compares with the PC de
+      secours's to know the phone is on the cabinet's network. A **normal** permission — no runtime prompt.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      Phone notifications (staff-chat Part 7). A RUNTIME permission from Android 13: the app asks once, when the
+      signed-in page first wants a token, and « Activer les notifications » in « Messages » asks again or opens the
+      settings.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
       Without this, `resolveActivity` for ACTION_IMAGE_CAPTURE returns null on API 30+ (package visibility) and
       the camera would silently disappear from the file chooser (AC-18). There is deliberately NO
       `android.permission.CAMERA`: declaring it would oblige us to request it at runtime, while the camera app
@@ -33,9 +54,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ClinicShell">
 
+        <!--
+          singleTop: a notification tap reaches the running activity through onNewIntent instead of FCM's
+          CLEAR_TOP recreating it — which would drop the WebView and whatever was typed in an open form.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|fontScale|uiMode|keyboard|keyboardHidden|navigation|touchscreen|layoutDirection">
             <intent-filter>
@@ -49,6 +75,25 @@
           per-Intent grants is the only supported way to hand an app-private file out — a `file://` Uri throws
           FileUriExposedException from API 24 on.
         -->
+        <service
+            android:name=".ShellMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- What Android draws a server-sent banner with: the chevron in white, and the agenda channel by default. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notify" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/brand_primary" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="agenda" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

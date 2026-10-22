@@ -48,7 +48,7 @@ public class LoginCommandHandlerTests
     private LoginCommandHandler Handler() => new(
         _users.Object, _auth.Object, _uow.Object, _attempts.Object,
         _totp.Object, _replay.Object, _secrets.Object, _secondFactor.Object,
-        _sessionFamilies.Object, _auditActor.Object);
+        _sessionFamilies.Object, _auditActor.Object, Mock.Of<IRelayLocalStatus>());
 
     private static User LocalUser(bool mustChangePassword = false) =>
         User.CreateLocalUser(ClinicId, "doctor", "Doc@Clinic.com", "STORED-HASH", "Dr House", mustChangePassword);
@@ -151,7 +151,7 @@ public class LoginCommandHandlerTests
         var perAccount = await new LoginCommandHandler(
                 users2.Object, _auth.Object, _uow.Object, attempts2.Object,
                 _totp.Object, _replay.Object, _secrets.Object, _secondFactor.Object,
-                _sessionFamilies.Object, _auditActor.Object)
+                _sessionFamilies.Object, _auditActor.Object, Mock.Of<IRelayLocalStatus>())
             .Handle(Command(), CancellationToken.None);
 
         Assert.Equal(perSource.Error, perAccount.Error);

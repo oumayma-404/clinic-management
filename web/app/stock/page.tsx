@@ -13,6 +13,7 @@ import { Plus } from "lucide-react"
 import type { StockItemDto } from "@/lib/api/types"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { replaceUrl } from "@/lib/history"
 
 export default function StockPage() {
   const { user } = useSession()
@@ -36,7 +37,7 @@ export default function StockPage() {
   // highlighted (the user still lands on the stock screen).
   const highlightItem = useCallback((itemId: string) => {
     setHighlightItemId(itemId)
-    window.history.replaceState({}, "", "/stock")
+    replaceUrl("/stock")
   }, [])
 
   // On mount (cross-page navigation): read the query params. `filter` is read BEFORE highlightItem may clear the

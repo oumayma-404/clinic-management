@@ -404,6 +404,36 @@ takes the banner down through `clearMessage` — not `setError(null)`, so a seco
 to « coordonnez-vous ». Verified as a loop: refused → Recharger → the colleague's version in the section →
 banner gone → save accepted.
 
+⚠️ **Revised 2026-10-07 — that « Recharger » was itself a lost update, one section over.** It refreshed the
+fiche row's **version only** and left everything else on screen, so the next « Enregistrer » sent the old acts,
+prices, notes and montant payé under a version that now matched: a colleague's save to the same fiche was
+overwritten with a green toast. `use-fresh-version.ts` forbids exactly that (« do not `resync()` after a 409 »);
+the ordonnance section did the opposite (always the colleague's lines, the user's own discarded). Reloading
+everything, as the other dialogs do, was rejected: this is the longest form in the product.
+
+`components/record/fiche-merge.ts` now reconciles **section by section, three ways** — what the form was opened
+with (or last reconciled with), what is on screen, what the server has now. Only one side changed → that side
+wins, silently. Both changed, differently → the server's version is shown and the section is **named**
+(« Modifié entre-temps par quelqu'un d'autre : « Actes ». Sa version est affichée — refaites-y votre
+modification. »), which is what the server's sentence asks for. Sections are **date · actes (+ the devis link,
+which decides which act is priced 0) · paiement (payé, mode, chèque, encaissé sur le traitement) · notes ·
+ordonnance**; coupled fields share a section so a merge cannot assemble a fiche nobody wrote.
+
+- ⚠️ **The version only moves with its content.** `baseRecord` is the copy the screen was reconciled with; the
+  save sends *its* version, and the stored figures (« déjà encaissé », the devis link, the step) read it too.
+- ⚠️ **The open-time read goes through the same merge.** The modal hydrates from the page's list row; when the
+  server's copy lands it used to adopt the version alone — the same overwrite whenever that row was stale.
+- ⚠️ **Acts are compared on every `SessionAct` field except a declared exclusion list** (card bookkeeping, plus
+  `billedOnPlan`/`addToPlan`, which the devis link derives and `actFromDto` always reads as false) — so a new act
+  field is compared by default.
+- ⚠️ **The open hydration and a take-over use one loader per section** (`applySection`), and a reloaded acts list
+  bumps `hydrationEpoch` so `markBilledOnPlan` runs again on the new cards.
+- `check:responsive`'s **N49** derives the save payload's keys from `recordData` and fails on one that
+  `FICHE_PAYLOAD_SECTION` does not classify (or a stale entry), and on any return of `useFreshVersion` here.
+- Not changed, and worth knowing: the other forms on `useFreshVersion` hydrate from a list row and adopt the
+  fresh version on open, so a stale row can be saved over a colleague's change there too (small window — lists
+  refresh on realtime). `fiche-merge.ts`'s approach is the one to reach for if one of them needs it.
+
 ⚠️ **Seven of the walk's failures were the probe, not the product** — `aria-label="Dent 16"` rather than the
 visible « 16 », a line remover named after the line (« Retirer Bilan sanguin : NFS, glycémie de l'ordonnance »)
 rather than the kind, sonner having dismissed a toast before it was read, CSS-uppercased card labels failing a

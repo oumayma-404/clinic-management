@@ -228,6 +228,12 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         Guid clinicId, Guid patientId, string patientName, CancellationToken cancellationToken = default) =>
         _inner.PatientImportedFromCalendarAsync(clinicId, patientId, patientName, cancellationToken);
 
+    // Pass-through: RelayAttention is in-app only — switching a PC on or freeing its disk happens at the cabinet.
+    public Task SyncRelayAlertsAsync(
+        Guid clinicId, IReadOnlyList<ClinicManagement.Application.Features.Relay.RelayAlertRow> wanted,
+        CancellationToken cancellationToken = default) =>
+        _inner.SyncRelayAlertsAsync(clinicId, wanted, cancellationToken);
+
     // Pass-through: the export has already completed by the time this is written, so there is nothing a banner
     // could let anybody intervene in.
     // Pass-through: ArchiveStale is in-app only (StaffNotificationRules.ReachesALockedPhone answers false), and
@@ -281,27 +287,9 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
                 return;
             }
 
-            var devices = await _devices.GetActiveForUsersAsync(clinicId, audience, cancellationToken);
-            if (devices.Count == 0)
-            {
-                return;
-            }
-
-            var now = DateTime.UtcNow;
-            var label = StaffNotificationRules.PushLabel(category);
-            // The floor is applied ONCE, here, rather than re-tested on every scan: a send time that depended on
-            // when the dispatcher happened to look would release a backlog of banners at 03:00 after an outage.
-            var sendNotBefore = ReminderSchedule.DeferPastQuietHours(
-                effectiveFeedTimeUtc < now ? now : effectiveFeedTimeUtc,
-                RemindersConfig.QuietHoursLocal(_configuration));
-
-            var rows = devices
-                .Select(device => PushDelivery.Create(
-                    clinicId, device.Id, device.UserId, category, label, appointmentId, sendNotBefore, now))
-                .ToList();
-
-            await _deliveries.AddRangeAsync(rows, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await PushFanOut.QueueAsync(
+                _devices, _deliveries, _unitOfWork, _configuration, clinicId, category, audience,
+                appointmentId, staffMessageId: null, effectiveFeedTimeUtc, cancellationToken);
         }
         catch (Exception ex)
         {

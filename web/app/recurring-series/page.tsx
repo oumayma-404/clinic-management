@@ -50,7 +50,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { appointmentsApi, type CreateRecurringSeriesPayload } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import { useDoctors } from "@/lib/hooks/use-doctors"
-import { procedureTypesApi } from "@/lib/api/procedure-types"
+import { useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { ApiError } from "@/lib/api/client"
 import type { PatientDto, ProcedureTypeDto, RecurringAppointmentDto } from "@/lib/api/types"
 import { PatientNameLink } from "@/components/patient-name-link"
@@ -584,7 +584,7 @@ function RecurringSeriesScreen() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [patients, setPatients] = useState<PatientDto[]>([])
-  const [procedureTypes, setProcedureTypes] = useState<ProcedureTypeDto[]>([])
+  const { items: procedureTypes } = useProcedureTypes()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [cancelTarget, setCancelTarget] = useState<RecurringAppointmentDto | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -634,10 +634,9 @@ function RecurringSeriesScreen() {
     let active = true
     ;(async () => {
       try {
-        const [patientsData, procedureTypesData] = await Promise.all([patientsApi.list(), procedureTypesApi.list()])
+        const patientsData = await patientsApi.list()
         if (!active) return
         setPatients(patientsData)
-        setProcedureTypes(procedureTypesData)
       } catch (err) {
         if (!active) return
         toast.error(err instanceof ApiError ? err.message : "Échec du chargement des données du formulaire")

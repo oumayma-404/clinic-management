@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PatientDto, DentalRecordDto } from "@/lib/api/types"
 import { formatDT, formatDate } from "@/lib/format"
+import type { BilledNoteFigures } from "@/lib/fiche-note-figures"
 import { User, Phone, Mail, Calendar, MapPin, CreditCard, FileText, ChevronDown, ChevronUp, ClipboardList, Cigarette } from "lucide-react"
 import { genderLabel } from "@/components/appointment-labels"
 
@@ -22,12 +23,20 @@ interface PatientSummaryModalProps {
   onOpenChange: (open: boolean) => void
   patient: PatientDto | null
   dentalRecords: DentalRecordDto[]
+  /** Each billed fiche's note figures (`noteFiguresByFiche`) — a payment on the note never updates the fiche. */
+  noteFigures?: Map<string, BilledNoteFigures | null>
 }
 
 // Fixed highlight fill for a tooth that has been worked on (read-only summary chart).
 const WORKED_TOOTH_COLOR = "#60a5fa"
 
-export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords }: PatientSummaryModalProps) {
+export function PatientSummaryModal({
+  open,
+  onOpenChange,
+  patient,
+  dentalRecords,
+  noteFigures,
+}: PatientSummaryModalProps) {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   // Collapsed by default on every device: the chips answer the question, and the schema is the detail behind
   // it. Not gated on viewport width — a desktop reader also opens this modal to glance, and a control whose
@@ -362,18 +371,22 @@ export function PatientSummaryModal({ open, onOpenChange, patient, dentalRecords
                       ) : null
                     }
                     fields={(r) => {
-                      const reste = Math.max(0, r.balance ?? r.cost - r.amountPaid)
+                      // A billed fiche reads its note; a note over several fiches has no per-fiche reste (`null`).
+                      const note = noteFigures?.get(r.id)
+                      const reste = note ? note.outstanding : Math.max(0, r.balance ?? r.cost - r.amountPaid)
                       const hasNotes =
                         (r.notes && r.notes.length > 0) || (r.importantNotes && r.importantNotes.length > 0)
                       const isExpanded = expandedNotes.has(r.id)
                       const totalNotesCount = (r.importantNotes?.length || 0) + (r.notes?.length || 0)
                       return [
                         { label: "Coût", value: formatDT(r.cost) },
-                        { label: "Payé", value: formatDT(r.amountPaid) },
+                        { label: "Payé", value: formatDT(note ? note.collected : r.amountPaid) },
                         {
                           label: "Reste",
                           value:
-                            reste > 0 ? (
+                            note === null ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : reste > 0 ? (
                               // `--warning-ink`: `text-amber-600` carried no `dark:` pair and measured ~3.2:1 on
                               // the card, on the figure that says money is still owed.
                               <span className="font-semibold text-warning-ink">{formatDT(reste)}</span>

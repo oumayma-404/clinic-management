@@ -61,6 +61,7 @@ import {
   schedulablePlanItems,
 } from "./plan-next-action"
 import { PatientNameLink } from "@/components/patient-name-link"
+import { replaceUrl } from "@/lib/history"
 
 /**
  * What « Reste à payer » may honestly say about one devis, in both trees.
@@ -334,6 +335,17 @@ export function TreatmentPlansTable({
     setEditingAmend(false)
     setFormOpen(true)
   }
+
+  // `?newPlan=1` — the creation form, opened on arrival. A devis carried across a switch of server (`clinic-pc-copy`
+  // AC-3.2) comes back through this door and refills itself.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get("newPlan") !== "1") return
+    url.searchParams.delete("newPlan")
+    replaceUrl(url.pathname + url.search)
+    openCreate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, [])
 
   /**
    * Edit a devis from the list.

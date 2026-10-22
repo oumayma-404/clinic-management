@@ -33,6 +33,13 @@ public class SecondFactorCoverageTests
             + "LocalAuthEnforcementMiddleware — so a session predating the rule still cannot outlive it — plus "
             + "TokenVersion, which a reset or a promotion bumps.",
 
+        ["TradeRelayAssertionCommand.cs"] =
+            "clinic-pc-copy D22: opens a session on the PC de secours from a ticket the cloud issued only to a session "
+            + "that already passed the second factor there (GET /api/relay/devices/assertion is behind it), signed with "
+            + "a key only the cloud and that PC hold, and bound to the account's TokenVersion — so a reset, a disable or "
+            + "« déconnecter partout » on the cloud voids it. Demanding a code again would defeat its purpose: the "
+            + "person must find themselves signed in after a switch, mid-consultation.",
+
         ["RedeemRecoveryCodeCommand.cs"] =
             "The recovery code IS the second factor for this sign-in (FR-1.4). It is single-use, spent even when "
             + "the sign-in then fails, and only reachable by a caller who also proved the password — so demanding "

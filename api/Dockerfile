@@ -16,10 +16,14 @@ RUN dotnet restore "ClinicManagement.API/ClinicManagement.API.csproj"
 # Copy everything else and build
 COPY . .
 WORKDIR "/src/ClinicManagement.API"
-RUN dotnet build "ClinicManagement.API.csproj" -c Release -o /app/build
+# clinic-pc-copy D10: the commit this image is built from, stamped into the assembly's informational version. The
+# context holds no `.git`, so without it the image reports « 1.0.0 » while a PC de secours installer built from the
+# same commit on Windows reports « 1.0.0+<sha> » — two builds that never match, and every PC refused its copy.
+ARG SOURCE_REVISION=""
+RUN dotnet build "ClinicManagement.API.csproj" -c Release -o /app/build -p:SourceRevisionId="$SOURCE_REVISION"
 
 FROM build AS publish
-RUN dotnet publish "ClinicManagement.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "ClinicManagement.API.csproj" -c Release -o /app/publish /p:UseAppHost=false -p:SourceRevisionId="$SOURCE_REVISION"
 
 FROM base AS final
 WORKDIR /app

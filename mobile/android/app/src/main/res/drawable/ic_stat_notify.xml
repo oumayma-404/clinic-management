@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The status-bar icon of a phone notification: the APEXA chevron of ic_launcher_foreground.xml, in white. Android
+  draws this as a silhouette and tints it itself, so it must be one flat colour with no background.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M126.15,373.14L256.00,79.93L385.85,373.14L348.36,389.74L256.00,181.20L163.65,389.74Z" />
+</vector>

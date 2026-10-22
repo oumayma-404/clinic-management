@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Building2, ArrowRight, AlertCircle } from "lucide-react"
-import { clinicsApi } from "@/lib/api/clinics"
+import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
 import { authApi } from "@/lib/api/auth"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import JoinWizard from "@/components/join-wizard"
@@ -18,6 +18,7 @@ import { CAPABILITY_PROBE_TIMEOUT_MS, withTimeout } from "@/lib/capability-probe
 export default function JoinClinicPage() {
   const router = useRouter()
   const { user, isLoading: userLoading, mode } = useSession()
+  const fetchUserStatus = useFetchUserStatus()
   const { accessToken, isLoading: authLoading } = useAuthToken()
   const [clinicCode, setClinicCode] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -65,7 +66,7 @@ export default function JoinClinicPage() {
       }
 
       try {
-        const status = await clinicsApi.getUserStatus()
+        const status = await fetchUserStatus()
         if (cancelled) return
         if (status.hasClinic) {
           // User has clinic, redirect to app
@@ -84,7 +85,7 @@ export default function JoinClinicPage() {
     return () => {
       cancelled = true
     }
-  }, [user, userLoading, accessToken, authLoading, mode])
+  }, [user, userLoading, accessToken, authLoading, mode, fetchUserStatus])
 
   const handleCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

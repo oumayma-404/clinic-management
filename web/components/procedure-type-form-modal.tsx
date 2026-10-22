@@ -90,7 +90,8 @@ export function ProcedureTypeFormModal({ open, onOpenChange, editingProcedure, o
     open,
     editingProcedure?.id,
     editingProcedure,
-    async () => (await procedureTypesApi.list(true)).find((p) => p.id === editingProcedure!.id) ?? null,
+    // One row, as the steps dialog reads it — not the whole catalogue, inactive acts included, to find one version.
+    async () => await procedureTypesApi.get(editingProcedure!.id),
   )
   /**
    * The valid palette, from the server — hue families, each with its nuances. Starts empty and fills on open; the

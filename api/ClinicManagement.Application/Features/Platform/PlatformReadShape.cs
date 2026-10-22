@@ -293,6 +293,10 @@ public static class PlatformReadShape
         "FreedEmails",
         // Which of two words the panel must ask for — `Address` or `Name`. A fixed pair, about a form field.
         "ConfirmationKind",
+        // ── PC de secours (clinic-pc-copy AC-9.1). A state key and its short French label, derived from a
+        // heartbeat — never the PC's machine name, its addresses or anything it holds.
+        "RelayState",
+        "RelayLabel",
 
         // ── The host's off-site copies (server-loss-recovery Part 3). Facts about the DEPLOYMENT, not about any
         // cabinet: a verdict and its French label, a run's outcome (`succeeded`/`failed`) and the step a failed one

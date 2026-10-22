@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { clinicsApi, type UserStatusDto } from "@/lib/api/clinics"
+import type { UserStatusDto } from "@/lib/api/clinics"
 import { useAuthToken } from "./use-auth-token"
+import { useUserStatus } from "./use-user-status"
 
 export interface ClinicAccessState {
   hasAccess: boolean
@@ -16,76 +17,39 @@ export interface ClinicAccessState {
 /**
  * Hook to check if the current user has access to a clinic.
  * Automatically redirects to setup if user doesn't have a clinic.
- * 
+ * Reads the tab's shared clinic status (`useUserStatus`), so every guard, rail and picker costs one request together.
+ *
  * @param redirectToSetup - Whether to redirect to setup page if no clinic (default: true)
  * @returns ClinicAccessState with access status and clinic information
  */
-export function useClinicAccess(redirectToSetup: boolean = true) {
+export function useClinicAccess(redirectToSetup: boolean = true): ClinicAccessState {
   const router = useRouter()
   const { accessToken, isLoading: authLoading } = useAuthToken()
-  
-  const [state, setState] = useState<Omit<ClinicAccessState, 'refresh'>>({
-    hasAccess: false,
-    isLoading: true,
-    status: null,
-    error: null,
-  })
+  const query = useUserStatus(!authLoading && Boolean(accessToken))
 
-  const checkClinicAccess = useCallback(async () => {
-    // Wait for auth to finish loading
-    if (authLoading) {
-      return
-    }
-
-    // If not authenticated, don't check clinic access
-    if (!accessToken) {
-      setState({
-        hasAccess: false,
-        isLoading: false,
-        status: null,
-        error: "Not authenticated",
-      })
-      return
-    }
-
-    try {
-      // Check user status - simple check: if hasClinic is true, user has access
-      const status = await clinicsApi.getUserStatus()
-
-      // Simple check: if user has clinic (created or joined), they have access
-      const hasAccess = status.hasClinic === true
-
-      setState({
-        hasAccess,
-        isLoading: false,
-        status,
-        error: null,
-      })
-
-      // Redirect to setup if no clinic and redirect is enabled
-      if (!hasAccess && redirectToSetup) {
-        router.push("/setup")
-      }
-    } catch (err: any) {
-      console.error("Error checking clinic access:", err)
-      // A thrown error here is a transient ApiError (status 0 network / >=500) — "not a member" is
-      // the HTTP-200 hasClinic:false success path above. Surface an error/retry state and keep the
-      // user in place; never boot an authenticated member to /setup on a blip.
-      setState({
-        hasAccess: false,
-        isLoading: false,
-        status: null,
-        error: err.message || "La vérification de l'accès au cabinet a échoué",
-      })
-    }
-  }, [accessToken, authLoading, redirectToSetup, router])
+  const status = query.data ?? null
+  const hasAccess = status?.hasClinic === true
+  // « Not a member » is the HTTP-200 `hasClinic: false` answer; a thrown read is transient (network / ≥ 500).
+  const failed = query.isError && !status
 
   useEffect(() => {
-    checkClinicAccess()
-  }, [checkClinicAccess])
+    if (status && !hasAccess && redirectToSetup) router.push("/setup")
+  }, [status, hasAccess, redirectToSetup, router])
+
+  const { refetch } = query
+  const refresh = useCallback(() => {
+    void refetch()
+  }, [refetch])
+
+  if (authLoading) return { hasAccess: false, isLoading: true, status: null, error: null, refresh }
+  if (!accessToken) return { hasAccess: false, isLoading: false, status: null, error: "Not authenticated", refresh }
 
   return {
-    ...state,
-    refresh: checkClinicAccess,
+    hasAccess,
+    isLoading: query.isPending && !failed,
+    status,
+    // Never boot an authenticated member to /setup on a blip: a failed read is an error state, kept in place.
+    error: failed ? query.error.message || "La vérification de l'accès au cabinet a échoué" : null,
+    refresh,
   }
 }

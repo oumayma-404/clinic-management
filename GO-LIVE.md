@@ -212,7 +212,8 @@ Operator guide: [`deploy/README.md`](deploy/README.md). Compose file: `deploy/do
       actually launches unsigned. This is the go/no-go test for deferring 2.3. Also confirm: WebView2 runtime installs silently, and
       typing the bare hosted domain — **no port** — connects. That last one is the new `ServerProbe` 443-before-5001
       path and it has never been exercised against a real hosted server.
-- [ ] Decide how clinics get updates: an auto-updater, or a download page plus a "new version" notice.
+- [x] Decide how clinics get updates — **in-app** (2026-10-16): « Une nouvelle version est disponible » →
+      « Mettre à jour » → Android's own confirm. See `features/android-in-app-update/notes.md`.
 
 ---
 
@@ -242,8 +243,8 @@ Still to do:
       upload, print, the biometric resume, still-signed-in after force-quit, a **portless** hosted domain, the
       untrusted-certificate message, and `delete window.__clinicShell`.
       ⚠️ The `@JavascriptInterface` keep rule has never run on a device; if the bridge fails only in release, start there.
-- [ ] **Ship it to the pilot clinics as a file.** No store, no account, no company. Decide the update channel — a
-      « nouvelle version » notice or a download page — the same open decision as §4's.
+- [ ] **Ship it to the pilot clinics as a file.** No store, no account, no company. The update channel is decided
+      (in-app, §4); phones below 1.5.0 install 1.5.0 by hand once, then update themselves.
 - [ ] Verify the **installable web app** on a real Android phone and a real iPhone (`web/app/manifest.ts` is
       complete, but there is no service worker, so Chrome may make a shortcut rather than a full WebAPK).
 - [ ] *(Needs 2.2)* Play Console: listing, screenshots, **feature graphic 1024×500**, **privacy policy URL**,

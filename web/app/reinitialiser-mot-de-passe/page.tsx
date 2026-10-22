@@ -12,6 +12,7 @@ import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { authApi } from "@/lib/api/auth"
 import { usePasswordMinLength } from "@/lib/hooks/use-password-policy"
 import { getErrorMessage, isNetworkError } from "@/lib/errors"
+import { replaceUrl } from "@/lib/history"
 
 /** The single French refusal the server sends for expired / spent / unknown / account-no-longer-resettable. */
 const FALLBACK_REFUSAL =
@@ -29,7 +30,7 @@ function takeTokenFromFragment(): string | null {
   const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash
   const token = new URLSearchParams(hash).get("token")
   if (token) {
-    window.history.replaceState(null, "", window.location.pathname)
+    replaceUrl(window.location.pathname)
   }
 
   return token

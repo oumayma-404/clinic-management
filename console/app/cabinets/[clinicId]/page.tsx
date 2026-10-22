@@ -117,6 +117,8 @@ export default async function CabinetDetailPage({ params }: PageProps) {
             <Figure label="Jours actifs (30 j)" value={measured ? formatCount(clinic.activeDays30d) : EM_DASH} />
             <Figure label="Dernier enregistrement" value={formatDateTime(clinic.lastWriteAt)} />
             <Figure label="Dernière connexion" value={formatDateTime(clinic.lastLoginAt)} />
+            {/* clinic-pc-copy AC-9.1 — the same words as the portfolio column. */}
+            <Figure label="PC de secours" value={clinic.relayLabel} />
           </dl>
         </section>
 

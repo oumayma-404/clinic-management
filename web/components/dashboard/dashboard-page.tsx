@@ -74,6 +74,7 @@ import { useDoctors } from "@/lib/hooks/use-doctors"
 import { Label } from "@/components/ui/label"
 import { AppLoader } from "@/components/ui/app-loader"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { replaceUrl } from "@/lib/history"
 
 const PERIOD_PARAM = "period"
 /** Radix cannot hold an empty Select value, so « tous » is an explicit sentinel. */
@@ -276,7 +277,7 @@ function DashboardContent() {
     setPeriod(next)
     const url = new URL(window.location.href)
     url.searchParams.set(PERIOD_PARAM, next)
-    window.history.replaceState({}, "", url)
+    replaceUrl(url)
   }, [])
 
   /**

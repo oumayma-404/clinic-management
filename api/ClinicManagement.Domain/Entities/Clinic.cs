@@ -20,11 +20,28 @@ public class Clinic : AggregateRoot<Guid>
     /// <para>⚠️ <b>Without it the read hardcoded <c>image/png</c>, and a JPEG logo did not render at all.</b> The
     /// door accepts PNG and JPEG (<c>FileUploadProfile.ProfileImage</c>) and every response carries
     /// <c>X-Content-Type-Options: nosniff</c>, so a JPEG served as PNG is refused by the browser rather than
-    /// guessed at — silently, on the mark that appears at the top of every ordonnance and every facture.
-    /// <c>Doctor.CachetContentType</c> beside it has stored this since it was written, and its own comment named
-    /// the logo path as the one that did not.</para>
+    /// guessed at — silently. (The logo is shown in the settings only; no document prints it — the letterhead
+    /// below is what heads a document.) <c>Doctor.CachetContentType</c> beside it has stored this since it was
+    /// written, and its own comment named the logo path as the one that did not.</para>
     /// </summary>
     public string? LogoContentType { get; private set; }
+
+    /// <summary>
+    /// The cabinet's own letterhead: the top band of its paper, drawn at true scale on every page of every
+    /// document (<c>document-letterhead</c>). Null = the documents keep their text header.
+    /// <para>⚠️ Each upload gets a NEW key and a superseded band is never deleted: a medical document snapshots the
+    /// key it was issued with, so overwriting or deleting would change what an old ordonnance looks like.</para>
+    /// </summary>
+    public string? LetterheadHeaderStorageKey { get; private set; }
+
+    /// <summary>The optional bottom band of the same paper (address, phone…). Only ever set beside a header.</summary>
+    public string? LetterheadFooterStorageKey { get; private set; }
+
+    /// <summary>
+    /// « Page entière »: the strip of the paper BETWEEN the two bands (a frame's sides, a watermark), drawn behind the
+    /// text and stretched to the space left — so a framed paper keeps its frame. Null = the bands alone.
+    /// </summary>
+    public string? LetterheadBodyStorageKey { get; private set; }
 
     // Billing / note d'honoraires settings (Tunisia). Frozen onto each invoice at issue.
     public string? MatriculeFiscal { get; private set; }
@@ -262,6 +279,29 @@ public class Clinic : AggregateRoot<Guid>
         VatRate = vatApplicable ? vatRate : 0m;
         StampDutyEnabled = stampDutyEnabled;
         StampDutyAmount = stampDutyEnabled ? stampDutyAmount : 0m;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Sets the letterhead; the footer and the page body are optional and are cleared when not given.</summary>
+    public void SetLetterhead(string headerStorageKey, string? footerStorageKey, string? bodyStorageKey = null)
+    {
+        if (string.IsNullOrWhiteSpace(headerStorageKey))
+        {
+            throw new ArgumentException("A letterhead needs its header band.", nameof(headerStorageKey));
+        }
+
+        LetterheadHeaderStorageKey = headerStorageKey;
+        LetterheadFooterStorageKey = string.IsNullOrWhiteSpace(footerStorageKey) ? null : footerStorageKey;
+        LetterheadBodyStorageKey = string.IsNullOrWhiteSpace(bodyStorageKey) ? null : bodyStorageKey;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Back to the text header. The blobs stay: documents issued with them still point at them.</summary>
+    public void RemoveLetterhead()
+    {
+        LetterheadHeaderStorageKey = null;
+        LetterheadFooterStorageKey = null;
+        LetterheadBodyStorageKey = null;
         UpdatedAt = DateTime.UtcNow;
     }
 

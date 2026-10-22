@@ -90,6 +90,9 @@ export function TotpCodeField({
         aria-describedby={hintId}
         // A pasted « 123 456 » (or a code copied with a trailing newline) is the normal case, not an error.
         pasteTransformer={(pasted) => pasted.replace(/\D/g, '')}
+        // ⚠️ The default widens the hidden input by 40 px when it thinks a password-manager badge is there — it
+        // misfires over our slots on a desktop, and inside a dialog that extra width scrolled the dialog sideways.
+        pushPasswordManagerStrategy="none"
         containerClassName={cn(
           // `gap-1` below `sm:`, deliberately: at 320 px the content box is 288 px, so six 44 px slots need every
           // pixel the gaps are not using. `flex-1` + `min-w-0` lets them share whatever is actually there.

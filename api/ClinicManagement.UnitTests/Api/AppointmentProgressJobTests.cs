@@ -47,6 +47,8 @@ public class AppointmentProgressJobTests
 
         public TimeSpan? LongestVisitAskedFor { get; private set; }
 
+        public ClinicManagement.UnitTests.Common.TestFence Fence { get; set; } = ClinicManagement.UnitTests.Common.TestFence.None;
+
         public Harness(params Appointment[] running)
         {
             Appointments
@@ -61,7 +63,25 @@ public class AppointmentProgressJobTests
             Realtime.Object,
             AuditActor.Object,
             TenantScope,
+            Fence,
             NullLogger<AppointmentProgressJob>.Instance);
+    }
+
+    // [clinic-pc-copy D15] A cabinet whose saves belong to its PC de secours is skipped before anything is touched —
+    // the save would be refused, and the rows it left tracked would then fail every later cabinet's. The others go on.
+    [Fact]
+    public async Task A_Cabinet_On_Its_Pc_De_Secours_Is_Skipped_And_The_Others_Are_Not()
+    {
+        var fenced = RunningNow(ClinicA);
+        var other = RunningNow(ClinicB);
+        var harness = new Harness(fenced, other) { Fence = ClinicManagement.UnitTests.Common.TestFence.Of(ClinicA) };
+
+        await harness.Job().StartRunningAppointments(Now);
+
+        Assert.Equal(AppointmentStatus.Scheduled, fenced.Status);
+        Assert.Equal(AppointmentStatus.InProgress, other.Status);
+        Assert.Contains(ClinicA, harness.Fence.Asked);
+        harness.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // The headline: a visit whose slot contains this minute is started.

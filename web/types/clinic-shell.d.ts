@@ -4,9 +4,9 @@
  * ⚠️ **This type is not the contract.** `mobile/shared/bridge.md` is (it lands with the Android shell), and a
  * change there bumps `version`. This file only describes the part of it the web app actually consumes, and it is
  * deliberately grown one phase at a time: a method declared here with no caller is an API that looks supported and
- * is not, which on a shell means a French error nobody can explain. `print()` and `onPushToken()` are real parts of
- * the Phase 1 contract and are absent below **because nothing in the web bundle calls them yet** — the shell owns
- * both ends of those.
+ * is not, which on a shell means a French error nobody can explain. `print()` is a real part of the Phase 1 contract
+ * and is absent below **because nothing in the web bundle calls it** — the shell owns both ends (`window.print` is
+ * shimmed). `onPushToken()` joined the list below once phone notifications had a caller (staff-chat Part 7).
  *
  * ⚠️ **Every read of this object is a feature detection, never an assumption.** With `__clinicShell` absent —
  * i.e. in every browser, which is where this app is used today — behaviour must be byte-identical to what it was
@@ -20,6 +20,37 @@
  * credential falls straight through to the password screen, which is what it would have shown anyway (AC-60).
  */
 type ShellIdentityOutcome = "confirmed" | "rejected" | "cancelled" | "unavailable"
+
+/**
+ * What the Windows app knows about the PC it runs on, for the PC de secours offer (`clinic-pc-copy` AC-1.6–1.8).
+ * `diskEncrypted` is **three-valued**: `null` is « je ne sais pas », which is the common answer without elevation,
+ * and the offer must not turn it into « non chiffré ». `freeBytes` is the drive the server installs to.
+ */
+interface ShellRelayHostFacts {
+  machineName: string
+  hasBattery: boolean
+  diskEncrypted: boolean | null
+  freeBytes: number | null
+}
+
+/**
+ * How an `installRelay` ended (AC-1.4, AC-1.11). `declined` is Windows' permission prompt answered « Non » — nothing
+ * installed. `refused` is the installer refusing before copying (too little room, already the cabinet's server) or
+ * the code refused at pairing. `sentence` is always French and always set: the shell words what only it can know.
+ */
+interface ShellRelayInstallOutcome {
+  outcome: "installed" | "declined" | "refused" | "failed"
+  sentence: string
+}
+
+/**
+ * `relayProbe`'s answer (`clinic-pc-copy` AC-6.2): whether this device reached the PC de secours through its pinned
+ * certificate, and this device's own default gateways — the cloud counts the report only from the cabinet's box.
+ */
+interface ShellRelayProbeResult {
+  reached: boolean
+  gateways: string[]
+}
 
 interface ClinicShell {
   /**
@@ -68,10 +99,80 @@ interface ClinicShell {
    * lands on `/login` with their place remembered (AC-58).
    */
   confirmIdentity?(): Promise<ShellIdentityOutcome>
+
+  /**
+   * This PC's facts for the PC de secours offer — Windows app only (since 1.4). Never rejects: `null` when the shell
+   * cannot say, and then the offer is not made. Absent in every browser and on Android, which is AC-1.12.
+   */
+  relayHostFacts?(): Promise<ShellRelayHostFacts | null>
+
+  /**
+   * Turns this PC into the cabinet's PC de secours with a one-time code the cloud issued (AC-1.4): the shell fetches
+   * the server installer from the cloud it already uses, shows Windows' permission prompt once, and runs it. Never
+   * rejects; the code goes to a file the installer reads and deletes, never onto a command line.
+   */
+  installRelay?(request: { code: string; needBytes: number }): Promise<ShellRelayInstallOutcome>
+
+  /**
+   * While the cloud is locked for a PC de secours that said nothing (AC-6.2): try the PC at the addresses the cloud
+   * gave, recognising it only by its certificate's SHA-256. Windows since 1.5, Android since 1.2.0 — never a browser,
+   * which cannot tell an untrusted certificate from a PC that is down. Never rejects: `null` when it cannot answer.
+   */
+  relayProbe?(request: { addresses: string[]; port: number; fingerprint: string }): Promise<ShellRelayProbeResult | null>
+
+  /**
+   * `clinic-pc-copy` Part 3 (Windows since 1.6): trade the cloud's ticket on the PC de secours through its pinned
+   * certificate and keep that session in the app's cookie for the PC — so after a switch nobody signs in again. Never
+   * rejects: `false` when the shell could not.
+   */
+  relayPrepare?(request: {
+    assertion: string
+    /** D21 — which relay, so the app can find the PC again by UDP discovery after its address changed. */
+    relayId?: string
+    addresses: string[]
+    port: number
+    fingerprint: string
+  }): Promise<boolean>
+
+  /** Part 3: the cloud says the cabinet works on the PC — the shell asks the PC and moves there when it holds. */
+  relaySwitch?(): Promise<boolean>
+
+  /**
+   * `clinic-pc-copy` D23 (Windows 1.6 · Android 1.3.0): keep the open form's state (a JSON string) in the shell's memory
+   * for this window, replacing what it held — `null` forgets it. So a form survives the app switching server.
+   */
+  carryDraft?(draft: string | null): void
+
+  /** D23: the form state the shell holds, handed over once (and forgotten) — `null` when there is none. Never rejects. */
+  takeCarriedDraft?(): Promise<string | null>
+
+  /**
+   * staff-chat (Windows 1.7): a Windows notification and a flashing taskbar for a chat message while the window is
+   * not in front. `tag` is the conversation a click opens, through `__clinicShellOpenStaffChat`.
+   */
+  notify?(notice: { title: string; body: string; tag: string; urgent: boolean }): void
+
+  /**
+   * Android 1.4 (staff-chat Part 7): this install's push token, now and whenever it changes. The first listener
+   * makes the shell fetch it and ask for the notification permission once. `lib/push/phone-push.ts` is the caller.
+   */
+  onPushToken?(listener: (token: string) => void): void
+
+  /** Android 1.4: whether this phone shows notifications — `unavailable` is a build with no Firebase project. */
+  notificationState?(): "granted" | "default" | "denied" | "unavailable"
+
+  /** Android 1.4: the permission prompt if it can still be shown, else the app's notification settings. */
+  openNotificationSettings?(): void
 }
 
 interface Window {
   readonly __clinicShell?: ClinicShell
+
+  /** The page defines this; the Windows app and the Android app call it when a chat notification is tapped. */
+  __clinicShellOpenStaffChat?: (conversation: string) => void
+
+  /** The page defines this; the Android app calls it when the notification permission may have changed. */
+  __clinicShellNotificationsChanged?: () => void
 
   /**
    * How the desktop shell hands the page its coffre folder — a `FileSystemDirectoryHandle` for

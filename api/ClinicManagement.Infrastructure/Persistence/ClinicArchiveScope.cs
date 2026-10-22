@@ -77,6 +77,9 @@ public static class ClinicArchiveScope
         // about a StaffNotification the archive already excludes, and it is keyed on a User the archive
         // deliberately does not carry.
         nameof(NotificationDismissal),
+        // staff-chat FR-8: the cabinet's internal chat, keyed on accounts the archive does not carry.
+        nameof(StaffMessage),
+        nameof(StaffChatReadMarker),
         nameof(DeviceRegistration),
         nameof(BackupRun),
         // ⚠️ Beside BackupRun, but for a sharper reason than transience: a ClinicRecoveryPoint names a STORAGE KEY.
@@ -96,6 +99,20 @@ public static class ClinicArchiveScope
         nameof(ClinicActivityDay),
         nameof(ClinicActivitySnapshot),
         nameof(ClinicSignup),
+        // clinic-pc-copy: the PC de secours's credential and the change log are deployment state, not the practice's record.
+        nameof(ClinicRelay),
+        nameof(ClinicChange),
+        nameof(ClinicChangeCursor),
+        // The vendor's monitoring of that PC (AC-9.2): what the vendor was told, not what the practice recorded.
+        nameof(RelayIncident),
+        // D17: 48 h of replay keys, each side its own — a cabinet's saves are its record, the keys only protect them.
+        nameof(IdempotencyRecord),
+        // D16: the numbers the cloud promised a PC de secours — that PC's own, never a practice's record.
+        nameof(RelayNumberPromise),
+        // D18: what the return listed for the cloud's admins to look at — the deployment's bookkeeping of a cut.
+        nameof(RelayReviewItem),
+        // The cloud's rows as they were before a return touched them: the deployment's safety net, not a record.
+        nameof(RelayReturnBeforeImage),
         // The Data Protection key ring, where DataProtection:PersistToDatabase puts it. Deployment-wide key
         // material and the single most dangerous thing that could travel in a cabinet's zip: the archive is
         // deliberately UNENCRYPTED and kept on a practice's laptop, and these rows decrypt every administrator's
@@ -162,7 +179,11 @@ public static class ClinicArchiveScope
         {
             [nameof(PatientFile)] = new[] { nameof(PatientFile.StorageKey), nameof(PatientFile.PreviewStorageKey) },
             [nameof(Doctor)] = new[] { nameof(Doctor.CachetStorageKey) },
-            [nameof(Clinic)] = new[] { nameof(Clinic.LogoUrl) },
+            [nameof(Clinic)] = new[]
+            {
+                nameof(Clinic.LogoUrl), nameof(Clinic.LetterheadHeaderStorageKey), nameof(Clinic.LetterheadFooterStorageKey),
+                nameof(Clinic.LetterheadBodyStorageKey)
+            },
         };
 
     /// <summary>

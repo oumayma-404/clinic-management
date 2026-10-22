@@ -130,6 +130,40 @@ export const ApiErrorCode = {
   MoneyHidden: 'money_hidden',
   /** This action needs an authenticator and the account has none. Emitted by `ClinicAuthRefusals.TotpNotEnrolled`. */
   TotpNotEnrolled: 'totp_not_enrolled',
+  /**
+   * 423: this server is a PC de secours holding a copy, so it records nothing outside a cut. The server's French
+   * sentence travels verbatim. Emitted by `RelayRefusals.StandbyCode` (`RelayLeaseGateMiddleware`).
+   */
+  RelayStandby: 'relay_standby',
+  /**
+   * 423 on the cloud: the cabinet's PC de secours fell silent while it could take over, so the cloud waits before
+   * recording that cabinet's work. The form stays open; the sentence travels verbatim. Emitted by
+   * `RelayRefusals.SilentCode` (`RelayLeaseGateMiddleware`).
+   */
+  RelaySilent: 'relay_silent',
+  /**
+   * 423 on the cloud: the cabinet's PC de secours said it holds the cabinet's saves during a cut, so the cloud is
+   * read-only for that cabinet until the work comes back. The sentence names the time. Emitted by
+   * `RelayRefusals.OnRelayCode` (`RelayLeaseGateMiddleware`).
+   */
+  ClinicOnRelay: 'clinic_on_relay',
+  /**
+   * 423 on a PC de secours in charge: this action waits for the internet (accounts, passwords, « Rappels », Google
+   * Agenda, the archive). The form stays open. Emitted by `RelayRefusals.OnlineOnlyCode` (`RelayLeaseGateMiddleware`).
+   */
+  OnlineOnly: 'online_only',
+  /**
+   * 409: this PC keeps work saved during a cut that never reached the cloud, so its copy cannot be erased. Emitted by
+   * `RelayRefusals.CutWorkKeptCode` (« Effacer la copie »).
+   */
+  RelayCutWorkKept: 'relay_cut_work_kept',
+  /**
+   * 409 (D17): the same save is still being recorded — a double-click, or a re-press while the first is in flight. The
+   * key is kept, so pressing again in a moment gets the first save's answer. Emitted by `IdempotencyMiddleware`.
+   */
+  IdempotencyInProgress: 'idempotency_in_progress',
+  /** 422 (D17): a replay key reused on another request — a client fault; the server records nothing. */
+  IdempotencyKeyReused: 'idempotency_key_reused',
 } as const;
 
 /** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */
@@ -240,6 +274,53 @@ export function onMoneyHidden(listener: MoneyHiddenListener): () => void {
   moneyHiddenListeners.add(listener);
   return () => {
     moneyHiddenListeners.delete(listener);
+  };
+}
+
+type RelayRefusedListener = () => void;
+const relayRefusedListeners = new Set<RelayRefusedListener>();
+
+const networkUnreachableListeners = new Set<() => void>();
+
+/**
+ * Subscribe to « a request got no answer at all » (Wi-Fi off, the cabinet's internet cut). The PC de secours watch asks
+ * the app at once, so the cut is offered without waiting for the strip's next poll or a page reload (owner, 2026-10-12).
+ */
+export function onNetworkUnreachable(listener: () => void): () => void {
+  networkUnreachableListeners.add(listener);
+  return () => {
+    networkUnreachableListeners.delete(listener);
+  };
+}
+
+function networkError(err: unknown): ApiError {
+  networkUnreachableListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // A listener's failure never changes what the caller is told.
+    }
+  });
+  return new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+}
+
+/** The 423 codes that say a cut changed which side records the cabinet's work (`clinic-pc-copy`). */
+const RELAY_CODES: ReadonlySet<string> = new Set([
+  'relay_standby',
+  'relay_silent',
+  'clinic_on_relay',
+  'relay_handing_back',
+  'relay_restoring',
+]);
+
+/**
+ * Subscribe to « a save was refused because of a cut » (`clinic-pc-copy` D20) — the cut's strip re-reads at once
+ * instead of waiting for its next poll. The refusal's own French sentence still travels to the toast untouched.
+ */
+export function onRelayRefused(listener: RelayRefusedListener): () => void {
+  relayRefusedListeners.add(listener);
+  return () => {
+    relayRefusedListeners.delete(listener);
   };
 }
 
@@ -540,6 +621,11 @@ async function throwIfNotOk(response: Response): Promise<void> {
       subscriptionRequiredListeners.forEach((listener) => listener());
     }
 
+    // A cut began, ended or changed side while the screen was open: the strip re-reads now (clinic-pc-copy D20).
+    if (errorCode && RELAY_CODES.has(errorCode)) {
+      relayRefusedListeners.forEach((listener) => listener());
+    }
+
     // A screen still open when the cabinet was hidden from another PC: re-read, and the page swaps for its card.
     if (errorCode === ApiErrorCode.MoneyHidden) {
       moneyHiddenListeners.forEach((listener) => listener());
@@ -652,13 +738,13 @@ async function handleRequest<T>(
       }
 
       if (err instanceof TypeError && err.message.includes('fetch')) {
-        throw new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+        throw networkError(err);
       }
       // A fired deadline is the same event as an unreachable server, one layer down: the transport stopped
       // answering. Reported identically so the user gets the retryable French state rather than a raw
       // DOMException — and, crucially, so the caller's promise SETTLES and the submit button releases.
       if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-        throw new ApiError(0, NETWORK_ERROR_MESSAGE, err, ApiErrorCode.Network);
+        throw networkError(err);
       }
       if (err instanceof ApiError) {
         throw err;
@@ -809,6 +895,12 @@ async function fetchAccessToken(): Promise<string | null> {
 export const CLIENT_VERSION_HEADER = 'X-Client-Version';
 
 /**
+ * Which shell is calling (`ClientVersionMiddleware.PlatformHeaderName`). The server measures `android` against
+ * its own floor, so a desktop release can never lock out the phones. Sent beside the version, from the same bridge.
+ */
+export const CLIENT_PLATFORM_HEADER = 'X-Client-Platform';
+
+/**
  * Whether this request declares a JSON body — the only thing that ever differed between the two header shapes.
  * `'none'` covers both callers that need it: a multipart upload (the browser must add its own boundary) and a
  * GET that downloads a blob (no body to describe at all).
@@ -880,10 +972,126 @@ function deadline(ms: number): AbortSignal | undefined {
  */
 export const STEP_UP_HEADER = 'X-Step-Up-Confirmation'
 
+/**
+ * `clinic-pc-copy` D17 — the header a write's replay key travels in. The server answers a key it has already seen
+ * with what it answered then, so a save pressed again after its answer was lost is never recorded twice.
+ */
+export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
+
+/** How long a write whose answer never came back keeps its key for an identical re-press. */
+const UNSETTLED_KEY_TTL_MS = 10 * 60 * 1000
+
+/**
+ * The keys of writes whose OUTCOME IS UNKNOWN — the line dropped, a gateway timed out, the same save still running —
+ * by request (method · endpoint · body). Pressing the same save again reuses its key, so the server replays the first
+ * answer instead of recording a second row; any real answer, success or refusal, forgets it. ⚠️ A body that changed is
+ * a different request and gets a new key: a corrected form is a new save. ⚠️ Memory only — a page reload forgets,
+ * except across a server switch: the carried draft takes them along (`unsettledWrites` / `adoptUnsettledWrites`).
+ */
+const unsettledWriteKeys = new Map<string, { key: string; at: number }>()
+const unsettledListeners = new Set<() => void>()
+
+/** An unsettled write as the carried draft takes it across a server switch (review finding 14). */
+export interface UnsettledWrite {
+  print: string
+  key: string
+  at: number
+}
+
+function unsettledChanged(): void {
+  unsettledListeners.forEach((listener) => {
+    try {
+      listener()
+    } catch {
+      // A listener's failure must not fail the write.
+    }
+  })
+}
+
+/** The writes whose outcome is still unknown, within their TTL. */
+export function unsettledWrites(): UnsettledWrite[] {
+  const now = Date.now()
+  return Array.from(unsettledWriteKeys, ([print, entry]) => ({ print, key: entry.key, at: entry.at }))
+    .filter((w) => now - w.at <= UNSETTLED_KEY_TTL_MS)
+}
+
+/**
+ * Takes back keys carried from the other server: the same save pressed again here sends the same key, so the return
+ * pairs it with the copy the other server may already hold instead of recording it twice.
+ */
+export function adoptUnsettledWrites(writes: readonly UnsettledWrite[]): void {
+  const now = Date.now()
+  for (const w of writes) {
+    if (typeof w?.print !== 'string' || typeof w.key !== 'string' || typeof w.at !== 'number') continue
+    if (now - w.at > UNSETTLED_KEY_TTL_MS || unsettledWriteKeys.has(w.print)) continue
+    unsettledWriteKeys.set(w.print, { key: w.key, at: w.at })
+  }
+}
+
+/** Called whenever the set of unsettled writes changes; returns the unsubscribe. */
+export function onUnsettledWritesChange(listener: () => void): () => void {
+  unsettledListeners.add(listener)
+  return () => {
+    unsettledListeners.delete(listener)
+  }
+}
+
+function newIdempotencyKey(): string {
+  const c = typeof crypto !== 'undefined' ? crypto : undefined
+  // `randomUUID` needs a secure context; a LAN page served over plain HTTP still has `getRandomValues`.
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (c && typeof c.getRandomValues === 'function') {
+    c.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+/** A write whose answer says nothing about whether the server recorded it. */
+function outcomeUnknown(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false
+  if (err.status === 0) return err.code === ApiErrorCode.Network
+  return err.status === 502 || err.status === 503 || err.status === 504 || err.code === ApiErrorCode.IdempotencyInProgress
+}
+
+/**
+ * Runs one write with its replay key: the key of an identical write still unsettled, else a fresh one. `fingerprint`
+ * is null for a body that cannot be compared (a file, a form) — that write always gets a fresh key.
+ */
+async function withWriteKey<T>(fingerprint: string | null, run: (key: string) => Promise<T>): Promise<T> {
+  const now = Date.now()
+  for (const [print, entry] of unsettledWriteKeys) {
+    if (now - entry.at > UNSETTLED_KEY_TTL_MS) unsettledWriteKeys.delete(print)
+  }
+  const kept = fingerprint ? unsettledWriteKeys.get(fingerprint) : undefined
+  const key = kept?.key ?? newIdempotencyKey()
+  try {
+    const result = await run(key)
+    if (fingerprint && unsettledWriteKeys.delete(fingerprint)) unsettledChanged()
+    return result
+  } catch (err) {
+    if (fingerprint) {
+      if (outcomeUnknown(err)) {
+        unsettledWriteKeys.set(fingerprint, { key, at: kept?.at ?? now })
+        unsettledChanged()
+      } else if (unsettledWriteKeys.delete(fingerprint)) {
+        unsettledChanged()
+      }
+    }
+    throw err
+  }
+}
+
 export function apiHeaders(
   accessToken?: string | null,
   contentType: ApiContentType = 'json',
   stepUpToken?: string | null,
+  idempotencyKey?: string | null,
 ): HeadersInit {
   const headers: Record<string, string> = {};
 
@@ -896,10 +1104,16 @@ export function apiHeaders(
   if (stepUpToken) {
     headers[STEP_UP_HEADER] = stepUpToken;
   }
+  if (idempotencyKey) {
+    headers[IDEMPOTENCY_HEADER] = idempotencyKey;
+  }
 
-  const shellVersion = typeof window !== 'undefined' ? window.__clinicShell?.version : undefined;
-  if (shellVersion) {
-    headers[CLIENT_VERSION_HEADER] = shellVersion;
+  const shell = typeof window !== 'undefined' ? window.__clinicShell : undefined;
+  if (shell?.version) {
+    headers[CLIENT_VERSION_HEADER] = shell.version;
+  }
+  if (shell?.platform) {
+    headers[CLIENT_PLATFORM_HEADER] = shell.platform;
   }
 
   return headers;
@@ -964,23 +1178,25 @@ export async function apiGetBlob(endpoint: string, params?: Record<string, any>,
 export async function apiPost<T>(
   endpoint: string, data: any, accessToken?: string | null, stepUpToken?: string | null
 ): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  const body = JSON.stringify(data);
+  return withWriteKey(`POST ${endpoint}\n${body}`, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: apiHeaders(token, 'json', stepUpToken),
-    body: JSON.stringify(data),
+    headers: apiHeaders(token, 'json', stepUpToken, key),
+    body,
     credentials: 'include',
     signal: deadline(REQUEST_TIMEOUT_MS),
-  }));
+  })));
 }
 
 export async function apiPut<T>(endpoint: string, data: any, accessToken?: string | null): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  const body = JSON.stringify(data);
+  return withWriteKey(`PUT ${endpoint}\n${body}`, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
-    headers: apiHeaders(token),
-    body: JSON.stringify(data),
+    headers: apiHeaders(token, 'json', null, key),
+    body,
     credentials: 'include',
     signal: deadline(REQUEST_TIMEOUT_MS),
-  }));
+  })));
 }
 
 /**
@@ -1002,13 +1218,13 @@ export async function apiPutBinary<T>(
   accessToken?: string | null,
   signal?: AbortSignal,
 ): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  return withWriteKey(null, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'PUT',
-    headers: apiHeaders(token, 'none'),
+    headers: apiHeaders(token, 'none', null, key),
     body,
     credentials: 'include',
     signal: withDeadline(signal, TRANSFER_TIMEOUT_MS),
-  }));
+  })));
 }
 
 /** The caller's signal and the deadline as one, degrading to the deadline where `AbortSignal.any` is missing. */
@@ -1019,13 +1235,13 @@ function withDeadline(signal: AbortSignal | undefined, ms: number): AbortSignal 
   return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-export async function apiDelete<T>(endpoint: string, accessToken?: string | null): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+export async function apiDelete<T>(endpoint: string, accessToken?: string | null, stepUpToken?: string | null): Promise<T> {
+  return withWriteKey(`DELETE ${endpoint}`, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'DELETE',
-    headers: apiHeaders(token),
+    headers: apiHeaders(token, 'json', stepUpToken, key),
     credentials: 'include',
     signal: deadline(REQUEST_TIMEOUT_MS),
-  }));
+  })));
 }
 
 /**
@@ -1053,13 +1269,14 @@ export async function apiGetFile(endpoint: string, params?: Record<string, any>,
  * wants `readBlob`, not `handleResponse`.
  */
 export async function apiPostBlob(endpoint: string, data: any, accessToken?: string | null): Promise<Blob> {
-  return handleRequest<Blob>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  const body = JSON.stringify(data);
+  return withWriteKey(`POST ${endpoint}\n${body}`, (key) => handleRequest<Blob>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: apiHeaders(token),
-    body: JSON.stringify(data),
+    headers: apiHeaders(token, 'json', null, key),
+    body,
     credentials: 'include',
     signal: deadline(TRANSFER_TIMEOUT_MS),
-  }), readBlob);
+  }), readBlob));
 }
 
 export async function apiPostFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null, timeoutMs: number = TRANSFER_TIMEOUT_MS, stepUpToken?: string | null): Promise<T> {
@@ -1070,23 +1287,34 @@ export async function apiPostFormData<T>(endpoint: string, formData: FormData, a
   // ⚠️ A step-up confirmation is SINGLE-USE, so it survives that retry only because the retry re-sends the same
   // request rather than re-authenticating: a 401 refresh does not spend the confirmation, and a 403 is not
   // retried at all.
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+  return withWriteKey(null, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
     method: 'POST',
-    headers: apiHeaders(token, 'none', stepUpToken),
+    headers: apiHeaders(token, 'none', stepUpToken, key),
     body: formData,
     credentials: 'include',
     signal: deadline(timeoutMs),
-  }));
+  })));
 }
 
-export async function apiPutFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
-  return handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
-    method: 'PUT',
-    headers: apiHeaders(token, 'none'),
+/** A multipart POST whose answer is a file — the letterhead preview sends two bands and gets a PDF back. */
+export async function apiPostFormDataBlob(endpoint: string, formData: FormData, accessToken?: string | null): Promise<Blob> {
+  return withWriteKey(null, (key) => handleRequest<Blob>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers: apiHeaders(token, 'none', null, key),
     body: formData,
     credentials: 'include',
     signal: deadline(TRANSFER_TIMEOUT_MS),
-  }));
+  }), readBlob));
+}
+
+export async function apiPutFormData<T>(endpoint: string, formData: FormData, accessToken?: string | null): Promise<T> {
+  return withWriteKey(null, (key) => handleRequest<T>(accessToken, (token) => fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'PUT',
+    headers: apiHeaders(token, 'none', null, key),
+    body: formData,
+    credentials: 'include',
+    signal: deadline(TRANSFER_TIMEOUT_MS),
+  })));
 }
 
 

@@ -4,7 +4,7 @@ import type React from "react"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 
 import { onMoneyHidden } from "@/lib/api/client"
-import { clinicsApi } from "@/lib/api/clinics"
+import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
 import { useSession } from "@/lib/auth/session"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -60,6 +60,8 @@ function MoneyRealtimeListener({ onChange }: { onChange: () => void }) {
 export function MoneyVisibilityProvider({ children }: { children: React.ReactNode }) {
   const { user, isLoading: sessionLoading } = useSession()
   const signedIn = Boolean(user) && !sessionLoading
+  // Always a fresh read, shared with the cache — a concurrent read of the same status joins it instead of repeating it.
+  const fetchUserStatus = useFetchUserStatus()
 
   const [visibility, setVisibilityState] = useState<MoneyVisibility>("unknown")
   const inFlight = useRef(false)
@@ -84,8 +86,7 @@ export function MoneyVisibilityProvider({ children }: { children: React.ReactNod
       if (!force && Date.now() - lastReadAtMs.current < MIN_FOCUS_REREAD_MS) return
       inFlight.current = true
       lastReadAtMs.current = Date.now()
-      clinicsApi
-        .getUserStatus()
+      fetchUserStatus()
         .then((status) => {
           if (mounted.current) setVisibilityState(status.clinic?.isMoneyHidden === true ? "hidden" : "shown")
         })
@@ -95,7 +96,7 @@ export function MoneyVisibilityProvider({ children }: { children: React.ReactNod
           inFlight.current = false
         })
     },
-    [signedIn],
+    [signedIn, fetchUserStatus],
   )
 
   const refresh = useCallback(() => read(true), [read])

@@ -18,6 +18,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useSession } from "@/lib/auth/session"
 import { isAdminOrDoctor } from "@/lib/nav"
 import { formatDateFr } from "@/lib/format"
+import { replaceUrl } from "@/lib/history"
 
 export default function PatientsPage() {
   const router = useRouter()
@@ -50,6 +51,16 @@ export default function PatientsPage() {
   // Dashboard drill-throughs: ?createdFrom/?createdTo narrow the list
   // to the patients registered in the window the KPI counted. Read from window.location (client-only, in an effect)
   // to avoid a useSearchParams Suspense boundary.
+  // `?newPatient=1` — the creation form, opened empty. A form carried across a switch of server (`clinic-pc-copy`
+  // AC-3.2) comes back through this door and refills itself.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get("newPatient") !== "1") return
+    url.searchParams.delete("newPatient")
+    replaceUrl(url.pathname + url.search)
+    setCreateDialogOpen(true)
+  }, [])
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     // Seeded from the same key the chip writes, so a link this page emits is a link it honours.
@@ -69,7 +80,7 @@ export default function PatientsPage() {
     const url = new URL(window.location.href)
     url.searchParams.delete("createdFrom")
     url.searchParams.delete("createdTo")
-    window.history.replaceState({}, "", url)
+    replaceUrl(url)
   }
 
   const hasDateWindow = Boolean(createdFrom || createdTo)
@@ -81,7 +92,7 @@ export default function PatientsPage() {
     const url = new URL(window.location.href)
     if (next) url.searchParams.set("pendingCalendarReview", "1")
     else url.searchParams.delete("pendingCalendarReview")
-    window.history.replaceState({}, "", url)
+    replaceUrl(url)
   }
 
   return (

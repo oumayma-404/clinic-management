@@ -131,9 +131,9 @@ public class PrescriptionRenderContentTests
     // ── The withdrawn identity lines ──────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// « Sexe » and « Poids » were withdrawn from the identity block on the practice owner's decision: a
-    /// Tunisian dental ordonnance does not carry them, and « Sexe » was prefilled from the patient record and so
-    /// printed on every one ever issued.
+    /// « Sexe », « Poids » and (since 2026-10-06) « Date de naissance » were withdrawn from the identity block on
+    /// the practice owner's decision: none of them belongs on these documents, and all three were prefilled from
+    /// the patient record, so they printed on every one ever issued.
     ///
     /// <para>
     /// ⚠️ Nothing was migrated, so a document issued before the change still holds both keys in its
@@ -142,7 +142,7 @@ public class PrescriptionRenderContentTests
     /// </para>
     /// </summary>
     [Fact]
-    public void A_Legacy_Document_Prints_Neither_Sexe_Nor_Poids()
+    public void A_Legacy_Document_Prints_Neither_Date_De_Naissance_Nor_Sexe_Nor_Poids()
     {
         var data = new MedicalDocumentPdfData
         {
@@ -159,7 +159,7 @@ public class PrescriptionRenderContentTests
         var labels = DocumentIdentity.PatientLines(data).Select(l => l.Label).ToList();
 
         Assert.Contains("Patient", labels);
-        Assert.Contains("Date de naissance", labels);
+        Assert.DoesNotContain("Date de naissance", labels);
         Assert.DoesNotContain("Sexe", labels);
         Assert.DoesNotContain("Poids", labels);
     }

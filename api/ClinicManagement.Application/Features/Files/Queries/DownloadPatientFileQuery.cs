@@ -34,6 +34,12 @@ public class FileDownloadDto
     /// the backend could not say, which is an ordinary answer and simply omits the header.</para>
     /// </summary>
     public long? Length { get; set; }
+
+    /// <summary>Set only where the bytes behind a served key never change (the preview); never on a download.</summary>
+    public string? ETag { get; set; }
+
+    /// <summary>The caller's copy is current: no stream was opened, and the controller answers 304.</summary>
+    public bool NotModified { get; set; }
 }
 
 public class DownloadPatientFileQueryHandler : IRequestHandler<DownloadPatientFileQuery, Result<FileDownloadDto>>

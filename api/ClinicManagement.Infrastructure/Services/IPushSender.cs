@@ -44,7 +44,12 @@ public sealed record PushMessage(
     string Token,
     string Label,
     NotificationCategory Category,
-    Guid? AppointmentId);
+    Guid? AppointmentId,
+    // The staff chat thread a tap opens — an opaque key of account ids, never the text (staff-chat Part 7).
+    string? Conversation = null,
+    // Web Push only: the browser's key and auth secret the payload is encrypted to (staff-chat Part 8).
+    string? WebPushP256dh = null,
+    string? WebPushAuth = null);
 
 /// <summary>
 /// Platform-generic sender for one push. Matched to a queued row by its <see cref="Platform"/>, exactly as

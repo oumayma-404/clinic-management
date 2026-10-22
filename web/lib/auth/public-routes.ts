@@ -28,6 +28,8 @@ export const PUBLIC_ROUTES = [
   '/signup/verifier',
   '/mot-de-passe-oublie',
   '/reinitialiser-mot-de-passe',
+  // clinic-pc-copy AC-1.5: « Installer le PC de secours ici… » — an admin's own proof, whoever is signed in, or nobody.
+  '/pc-de-secours',
 ] as const;
 
 /**

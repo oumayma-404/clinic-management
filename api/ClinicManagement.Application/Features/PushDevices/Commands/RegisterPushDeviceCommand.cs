@@ -2,6 +2,7 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -21,6 +22,11 @@ public class RegisterPushDeviceCommand : IRequest<Result<PushDeviceDto>>
     public DevicePlatform Platform { get; set; }
     public string Token { get; set; } = string.Empty;
     public string? ShellVersion { get; set; }
+
+    /// <summary><see cref="DevicePlatform.WebPush"/>: the subscription's two keys (base64url). The token is its endpoint.</summary>
+    public string? WebPushP256dh { get; set; }
+
+    public string? WebPushAuth { get; set; }
 }
 
 public class RegisterPushDeviceCommandHandler
@@ -87,6 +93,13 @@ public class RegisterPushDeviceCommandHandler
             }
 
             var token = request.Token.Trim();
+            // staff-chat Part 8: the server will POST to this address, so only the browsers' push services pass.
+            if (request.Platform == DevicePlatform.WebPush
+                && WebPushSubscription.Refusal(token, request.WebPushP256dh, request.WebPushAuth) is { } refusal)
+            {
+                return Result<PushDeviceDto>.Failure(refusal);
+            }
+
             var clinicId = clinicResult.Value;
             var now = DateTime.UtcNow;
 
@@ -98,6 +111,7 @@ public class RegisterPushDeviceCommandHandler
             {
                 var created = DeviceRegistration.Create(
                     clinicId, userId, request.Platform, token, request.ShellVersion, now);
+                ApplyWebPushKeys(created, request);
                 await _devices.AddAsync(created, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -121,6 +135,7 @@ public class RegisterPushDeviceCommandHandler
                 existing.RebindTo(clinicId, userId, request.Platform, request.ShellVersion, now);
             }
 
+            ApplyWebPushKeys(existing, request);
             await _devices.UpdateAsync(existing, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -130,6 +145,14 @@ public class RegisterPushDeviceCommandHandler
         {
             _logger.LogError(ex, "Failed to register a push device");
             return Result<PushDeviceDto>.Failure("Impossible d'enregistrer cet appareil.");
+        }
+    }
+
+    private static void ApplyWebPushKeys(DeviceRegistration registration, RegisterPushDeviceCommand request)
+    {
+        if (request.Platform == DevicePlatform.WebPush)
+        {
+            registration.SetWebPushKeys(request.WebPushP256dh!, request.WebPushAuth!);
         }
     }
 

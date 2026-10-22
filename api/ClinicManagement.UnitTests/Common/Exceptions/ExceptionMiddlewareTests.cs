@@ -55,6 +55,19 @@ public class ExceptionMiddlewareTests
         Assert.Equal("application/json", contentType);
     }
 
+    // [clinic-pc-copy D15] The lease's net refused a cabinet's write: 423 with its own sentence AND code — never the 409
+    // a ConflictException gets, although it derives from one (only to pass the handlers' catch-alls).
+    [Fact]
+    public async Task ClinicFencedException_Maps_To_423_With_Its_Code()
+    {
+        var (status, body, _) = await InvokeWith(new ClinicFencedException("Le PC de secours ne répond plus.", "relay_silent"));
+
+        Assert.Equal(StatusCodes.Status423Locked, status);
+        Assert.Equal("Le PC de secours ne répond plus.", ErrorField(body));
+        using var doc = JsonDocument.Parse(body);
+        Assert.Equal("relay_silent", doc.RootElement.GetProperty("code").GetString());
+    }
+
     [Fact]
     public async Task NotFoundException_Maps_To_404_Canonical_Error() // [AC-1]
     {

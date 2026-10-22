@@ -51,8 +51,18 @@ public static class PushConfig
                 Value(configuration, "Push:Apns:BundleId"),
                 Value(configuration, "Push:Apns:PrivateKey")),
 
+            // Web Push (staff-chat Part 8): the VAPID subject (mailto: or https:), its public key, its private key.
+            DevicePlatform.WebPush => new ResolvedPushCredentials(
+                platform,
+                Value(configuration, "Push:WebPush:Subject") ?? VapidSubjectFrom(Value(configuration, "FrontendUrl")),
+                Value(configuration, "Push:WebPush:PublicKey"),
+                Value(configuration, "Push:WebPush:PrivateKey")),
             _ => new ResolvedPushCredentials(platform, null, null, null)
         };
+
+    /// <summary>The app's own https address names the sender well enough; push services refuse anything but https/mailto.</summary>
+    private static string? VapidSubjectFrom(string? frontendUrl) =>
+        frontendUrl != null && frontendUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? frontendUrl : null;
 
     /// <summary>How many queued sends one tick may attempt overall.</summary>
     public static int DispatchBatchSize(IConfiguration configuration) =>

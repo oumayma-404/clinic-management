@@ -5,8 +5,8 @@ using Microsoft.Extensions.Configuration;
 namespace ClinicManagement.Infrastructure.Deployment;
 
 /// <summary>
-/// The two topologies this product can be deployed as. Two questions distinguish them — where the front door
-/// and the data live, and who issues the tokens — and every other difference follows from those.
+/// The topologies this product can be deployed as: a clinic's own LAN server, the hosted backend, and a cabinet
+/// PC mirroring one hosted clinic. Where the front door and the data live decides most of the difference.
 /// </summary>
 public enum DeploymentKind
 {
@@ -14,7 +14,10 @@ public enum DeploymentKind
     SelfHostedLan,
 
     /// <summary>One hosted backend serving many clinics, each running the desktop client, on the product's own accounts.</summary>
-    HostedMultiTenant
+    HostedMultiTenant,
+
+    /// <summary>« PC de secours »: a cabinet PC holding a live copy of ONE hosted clinic, taking over during a cut (<c>clinic-pc-copy</c>).</summary>
+    ClinicRelay
 
     // ⚠️ There was a third kind, `CloudBrowser` — one hosted backend reached by a browser with Auth0 as the
     // identity provider — and it is **retired**, not merely unused. The product ships on its own accounts in both
@@ -73,6 +76,11 @@ public sealed class DeploymentProfile
         bool backsUpItsOwnData,
         bool sellsVendorMessaging,
         bool requiresAdminSecondFactor,
+        bool publishesChangeFeed,
+        bool mirrorsCloudClinic,
+        bool runsClinicJobs,
+        bool dispatchesOutboxes,
+        bool runsCutJobs,
         bool monitorsSidecarBackups)
     {
         Kind = kind;
@@ -96,6 +104,11 @@ public sealed class DeploymentProfile
         BacksUpItsOwnData = backsUpItsOwnData;
         SellsVendorMessaging = sellsVendorMessaging;
         RequiresAdminSecondFactor = requiresAdminSecondFactor;
+        PublishesChangeFeed = publishesChangeFeed;
+        MirrorsCloudClinic = mirrorsCloudClinic;
+        RunsClinicJobs = runsClinicJobs;
+        DispatchesOutboxes = dispatchesOutboxes;
+        RunsCutJobs = runsCutJobs;
         MonitorsSidecarBackups = monitorsSidecarBackups;
     }
 
@@ -304,6 +317,26 @@ public sealed class DeploymentProfile
     /// </summary>
     public bool RequiresAdminSecondFactor { get; }
 
+    /// <summary>Saves of a clinic paired with a PC de secours append to its change log, and <c>/api/relay/*</c> serves it.</summary>
+    public bool PublishesChangeFeed { get; }
+
+    /// <summary>This install is a PC de secours: it follows one cloud clinic and accepts staff writes only while it holds the lease.</summary>
+    public bool MirrorsCloudClinic { get; }
+
+    /// <summary>The recurring jobs that write clinic rows (appointment progress, rent, stock expiry, recovery points…) run here.</summary>
+    public bool RunsClinicJobs { get; }
+
+    /// <summary>The reminder outbox and OS push are sent from here; a mirror never sends what the cloud already sends.</summary>
+    public bool DispatchesOutboxes { get; }
+
+    /// <summary>
+    /// The jobs a cut needs — the agenda's progress and the monthly dépenses — are registered on this PC de secours
+    /// (<c>clinic-pc-copy</c> deviation 88). ⚠️ They act only while this PC holds the cabinet's saves:
+    /// <c>IClinicWriteFence</c> refuses otherwise, and both jobs ask it per cabinet. What they write joins the cut's
+    /// own log and goes back with the return.
+    /// </summary>
+    public bool RunsCutJobs { get; }
+
     /// <summary>
     /// The host's off-site copies are made by sidecars the application never calls — the nightly <c>backup</c>
     /// service and the WAL-G stream — and the API <b>watches their outcome</b>: it reads the status file the nightly
@@ -344,6 +377,8 @@ public sealed class DeploymentProfile
     {
         DeploymentKind.SelfHostedLan => false,
         DeploymentKind.HostedMultiTenant => true,
+        // The cloud pushes to the cabinet's phones; a second sender would notify every event twice.
+        DeploymentKind.ClinicRelay => false,
         _ => throw new ArgumentOutOfRangeException(nameof(platform), Kind, "Unhandled deployment kind.")
     };
 
@@ -442,6 +477,11 @@ public sealed class DeploymentProfile
             // An admin locked out here has nobody to call: every way back this feature ships needs a second
             // admin or the vendor, and a single-dentist LAN install has neither.
             requiresAdminSecondFactor: false,
+            publishesChangeFeed: false,
+            mirrorsCloudClinic: false,
+            runsClinicJobs: true,
+            dispatchesOutboxes: true,
+            runsCutJobs: false,
             // No sidecar to watch: the in-app BackupJob above records its own runs and raises its own alert.
             monitorsSidecarBackups: false),
 
@@ -483,9 +523,51 @@ public sealed class DeploymentProfile
             // Reached over the internet, holding every cabinet's records, with a vendor on call: the one
             // topology where a stolen admin password is the whole attack and a way back genuinely exists.
             requiresAdminSecondFactor: true,
+            // The one topology whose clinics can have a PC de secours to follow them.
+            publishesChangeFeed: true,
+            mirrorsCloudClinic: false,
+            runsClinicJobs: true,
+            dispatchesOutboxes: true,
+            runsCutJobs: false,
             // The topology that runs the backup + pitr sidecars — and where their failure went unnoticed for 33
             // nights. The API reads their outcome and tells the vendor.
             monitorsSidecarBackups: true),
+
+        // A cabinet PC built from the LAN server bundle, holding a copy of one cloud clinic (clinic-pc-copy).
+        DeploymentKind.ClinicRelay => new DeploymentProfile(
+            kind,
+            usesLocalAccounts: true,
+            failClosedAuthz: true,
+            enforcesTokenState: true,
+            usesDiskStorage: true,
+            selfHostsFrontDoor: true,
+            selfSignsCertificate: true,
+            runsAsWindowsService: true,
+            defersMigrations: true,
+            runsStartupBackfills: false,
+            exposesTrustEndpoints: true,
+            hasLocalDbTooling: true,
+            exposesMetaOnboarding: false,
+            // Accounts are the cloud's (FR-11): a PC that minted its own would hand back users the cloud never made.
+            allowsSelfRegistration: false,
+            allowsPublicClinicSignup: false,
+            allowsPasswordResetByEmail: false,
+            servesPlatformConsole: false,
+            // The mirrored entitlement still applies during a cut, capped at 7 days past its end (FR-4).
+            requiresSubscription: true,
+            // It IS the copy; the Windows app's weekly archive pull keeps running beside it (FR-12).
+            backsUpItsOwnData: false,
+            sellsVendorMessaging: false,
+            // Same accounts as the cloud, so the same rule for their administrators.
+            requiresAdminSecondFactor: true,
+            publishesChangeFeed: false,
+            mirrorsCloudClinic: true,
+            // The cloud runs them; the PC runs only the cut's two, and only while it holds the lease (below).
+            runsClinicJobs: false,
+            dispatchesOutboxes: false,
+            runsCutJobs: true,
+            // No sidecar on a cabinet PC: the cloud's host runs them and the cloud's API watches them.
+            monitorsSidecarBackups: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

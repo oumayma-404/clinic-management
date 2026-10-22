@@ -59,7 +59,7 @@ public static class ExternalNavigation
     private static readonly string[] HandedToWindows = ["tel", "mailto"];
 
     /// <summary>Where <paramref name="uri"/> should be opened, given the server this shell is pointed at.</summary>
-    public static NavigationDisposition DispositionFor(string? uri, ServerConfig config)
+    public static NavigationDisposition DispositionFor(string? uri, ServerConfig config, RelaySwitch.Target? pc = null)
     {
         // Unparseable, or relative: the WebView's own business. Inventing a hand-off for something we cannot
         // read is how a shell starts launching things it does not understand.
@@ -72,7 +72,7 @@ public static class ExternalNavigation
 
         if (scheme is "http" or "https")
         {
-            return IsClinicServer(parsed, config)
+            return IsClinicServer(parsed, config, pc)
                 ? NavigationDisposition.LoadInShell
                 : NavigationDisposition.OpenInBrowser;
         }
@@ -91,11 +91,11 @@ public static class ExternalNavigation
     /// too but answer <c>false</c> here: a file preview that fails to decode is not an outage, and the
     /// unreachable panel would take the whole app down over one bad image.</para>
     /// </summary>
-    public static bool IsClinicDocument(string? uri, ServerConfig config) =>
+    public static bool IsClinicDocument(string? uri, ServerConfig config, RelaySwitch.Target? pc = null) =>
         !string.IsNullOrWhiteSpace(uri)
         && Uri.TryCreate(uri, UriKind.Absolute, out var parsed)
         && parsed.Scheme.ToLowerInvariant() is "http" or "https"
-        && IsClinicServer(parsed, config);
+        && IsClinicServer(parsed, config, pc);
 
     /// <summary>
     /// True when <paramref name="uri"/> is the configured server.
@@ -105,9 +105,11 @@ public static class ExternalNavigation
     /// would call a different service on the same machine « the clinic server ». Compared
     /// case-insensitively: a hostname is not case-sensitive and <c>APP.APEXA.TN</c> is the same server.</para>
     /// </summary>
-    private static bool IsClinicServer(Uri uri, ServerConfig config) =>
-        string.Equals(uri.Host, config.Host, StringComparison.OrdinalIgnoreCase)
-        && uri.Port == config.Port;
+    private static bool IsClinicServer(Uri uri, ServerConfig config, RelaySwitch.Target? pc) =>
+        (string.Equals(uri.Host, config.Host, StringComparison.OrdinalIgnoreCase) && uri.Port == config.Port)
+        // clinic-pc-copy Part 3: the PC de secours this app prepared a session on is the clinic's own too — opened
+        // in the browser it would be a login screen with a certificate warning.
+        || RelaySwitch.IsPcOrigin(uri, pc ?? RelaySwitch.Current);
 
     /// <summary>
     /// Hands <paramref name="uri"/> to Windows. <c>false</c> when nothing on the PC handles it — the caller says

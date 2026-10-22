@@ -65,6 +65,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     private readonly ISecondFactorPolicy _secondFactorPolicy;
     private readonly ISessionFamilyRepository _sessionFamilies;
     private readonly IAuditActorProvider _auditActor;
+    private readonly IRelayLocalStatus _relayLocal;
 
     public LoginCommandHandler(
         IUserRepository userRepository,
@@ -76,8 +77,10 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
         IUserSecretProtector secretProtector,
         ISecondFactorPolicy secondFactorPolicy,
         ISessionFamilyRepository sessionFamilies,
-        IAuditActorProvider auditActor)
+        IAuditActorProvider auditActor,
+        IRelayLocalStatus relayLocal)
     {
+        _relayLocal = relayLocal;
         _userRepository = userRepository;
         _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
@@ -97,9 +100,14 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     /// deployment requires it <b>of administrators</b>, or the account has enrolled one of its own accord. A
     /// doctor who enrolled voluntarily is asked for their code on every deployment — offering it and then not
     /// checking it would be worse than never offering it.</para>
+    ///
+    /// <para>A third ground, <c>TotpReenrolmentRequired</c>: an authenticator removed by « Déclarer perdu ou volé » is
+    /// replaced, not dropped (<c>clinic-pc-copy</c> AC-8.4).</para>
     /// </summary>
     private bool SecondFactorApplies(Domain.Entities.User user) =>
-        user.IsTotpEnrolled || (_secondFactorPolicy.RequiresAdminSecondFactor && user.IsAdmin());
+        user.IsTotpEnrolled
+        || user.TotpReenrolmentRequired
+        || (_secondFactorPolicy.RequiresAdminSecondFactor && user.IsAdmin());
 
     private static Result<LoginResultDto> Refuse(string code) =>
         Result<LoginResultDto>.Failure(ClinicAuthRefusals.MessageFor(code)!, code);
@@ -165,6 +173,13 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
                         ? "Votre compte a bien été créé mais doit encore être activé par un administrateur du cabinet. Vous pourrez vous connecter dès qu'il l'aura fait."
                         : "Ce compte a été désactivé. Veuillez contacter l'administrateur de votre cabinet.",
                     ClinicAuthRefusals.AccountDisabled);
+            }
+
+            // clinic-pc-copy AC-8.1: a retired PC de secours opens for the cabinet's administrators only — they are
+            // the ones who decide what happens to the copy on it. After the password, for the oracle reason below.
+            if (_relayLocal.IsRetired && !user.IsAdmin())
+            {
+                return Refuse(ClinicAuthRefusals.RetiredRelayAdminsOnly);
             }
 
             // ── The second factor (hosted-security-hardening FR-1.1 – FR-1.2) ──────────────────────────────

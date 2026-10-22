@@ -9,8 +9,9 @@
   into `.local/` on first boot, so the system trust store cannot validate it and every load would fail. Trusting
   user-installed CAs lets an operator install the clinic's CA on the phone (which is exactly what the LAN
   device-trust page exists for) and the shell then validates it normally. It is not a weakening of TLS: a user CA
-  requires a deliberate, per-device action with an OS warning, and `onReceivedSslError` is **not** overridden
-  anywhere in this app — an untrusted certificate still fails, loudly, into the « Impossible de joindre » state.
+  requires a deliberate, per-device action with an OS warning, and `onReceivedSslError` proceeds for one certificate
+  only (the PC de secours's, by its SHA-256 pin, clinic-pc-copy Part 3); anything else is still refused
+  — an untrusted certificate still fails, loudly, into the « Impossible de joindre » state.
 -->
 <network-security-config xmlns:tools="http://schemas.android.com/tools">
     <base-config cleartextTrafficPermitted="false">

@@ -146,6 +146,7 @@ public class OutboxParkingTests
                 new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
                 new Mock<IClinicReminderSettingsRepository>().Object,
                 new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
+                ClinicManagement.UnitTests.Common.TestFence.None,
                 NullLogger<NotificationJob>.Instance);
         }
     }
@@ -339,7 +340,8 @@ public class OutboxParkingTests
             policy.Setup(p => p.RequiresSubscription).Returns(true);
 
             Job = new PushDispatchJob(
-                deliveries.Object, devices.Object, new Mock<IAppointmentRepository>().Object, unitOfWork.Object,
+                deliveries.Object, devices.Object, new Mock<IAppointmentRepository>().Object,
+                new Mock<IStaffMessageRepository>().Object, unitOfWork.Object,
                 probe.Object, availability.Object, new ConfigurationBuilder().Build(),
                 new IPushSender[] { Sender }, policy.Object, subscriptions.Object,
                 new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,

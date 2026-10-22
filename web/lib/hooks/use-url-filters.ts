@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { replaceUrl } from "@/lib/history"
 
 /**
  * Mirrors a screen's filters into its own query string, so **F5 keeps them and a URL can be shared**.
@@ -51,7 +53,7 @@ export function useUrlFilters(values: Record<string, string | number | boolean |
     // Guarded so a re-render with identical filters does not touch history at all.
     if (lastWritten.current === url) return
     lastWritten.current = url
-    window.history.replaceState({}, "", url)
+    replaceUrl(url)
   }, [serialised, enabled])
 }
 
@@ -66,10 +68,21 @@ export function useUrlFilters(values: Record<string, string | number | boolean |
  *
  * ⚠️ Never re-read afterwards: it is a SEED. A later `replaceState` from {@link useUrlFilters} must not feed back
  * into the state that produced it.
+ *
+ * ⚠️ **The router's URL, not `window.location`.** On a `<Link>` navigation the new page renders BEFORE Next writes
+ * the address bar, so `window.location` still holds the previous page's URL: « À reprendre · 4 » on the PC de
+ * secours card opened `/settings/pc-de-secours` on « À vérifier ». In the browser `useSearchParams` is a plain
+ * context read (its Suspense bailout is server-only), so it is called on the client alone — the prerender keeps
+ * its empty seed and needs no Suspense boundary.
  */
 export function useUrlFilterSeed(): URLSearchParams {
+  // The branch is fixed per environment, so the hook order never changes within one.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const routed = typeof window === "undefined" ? null : useSearchParams()
   const [seed] = useState(() =>
-    typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search),
+    typeof window === "undefined"
+      ? new URLSearchParams()
+      : new URLSearchParams(routed?.toString() ?? window.location.search),
   )
   return seed
 }

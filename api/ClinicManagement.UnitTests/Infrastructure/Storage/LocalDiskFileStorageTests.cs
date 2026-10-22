@@ -62,6 +62,26 @@ public class LocalDiskFileStorageTests : IDisposable
         Assert.Equal($"clinics/{Clinic}/logo", deterministic);
     }
 
+    // The letterhead writes three bands of one upload under nested folders; on the LAN install they are files on disk.
+    [Fact]
+    public async Task A_Letterhead_Upload_Lands_In_Its_Own_Folder_And_Reads_Back()
+    {
+        var batch = Guid.NewGuid().ToString("N");
+        var keys = new List<string>();
+        foreach (var band in new[] { "header", "footer", "body" })
+        {
+            keys.Add(await _storage.UploadAsync(Bytes(band), "image/png", Clinic, $"letterhead/{batch}/{band}", CancellationToken.None));
+        }
+
+        Assert.Equal($"clinics/{Clinic}/letterhead/{batch}/header", keys[0]);
+        Assert.True(File.Exists(Path.Combine(_basePath, "clinics", Clinic.ToString(), "letterhead", batch, "body")));
+        foreach (var (key, band) in keys.Zip(new[] { "header", "footer", "body" }))
+        {
+            await using var read = await _storage.DownloadAsync(key, CancellationToken.None);
+            Assert.Equal(band, await ReadAll(read));
+        }
+    }
+
     // [US-5 / M2] A key written before US-5 is flat, and there is no backfill — so reading must NOT prefix.
     [Fact]
     public async Task Download_And_Delete_Resolve_A_Legacy_Flat_Key()

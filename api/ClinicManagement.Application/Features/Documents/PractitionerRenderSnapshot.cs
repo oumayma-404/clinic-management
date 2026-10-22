@@ -26,11 +26,22 @@ public sealed class PractitionerRenderSnapshot
     /// </summary>
     public const string ClinicEmailKey = "clinicEmail";
 
+    /// <summary>
+    /// The cabinet's letterhead bands at issue. Reserved like the cachet key, and for the same reason: the
+    /// unauthenticated PDF job dereferences them, so only the server may write them.
+    /// </summary>
+    public const string LetterheadHeaderKeyKey = "letterheadHeaderKey";
+    public const string LetterheadFooterKeyKey = "letterheadFooterKey";
+    public const string LetterheadBodyKeyKey = "letterheadBodyKey";
+
     public string? ClinicCity { get; init; }
     public string? ClinicEmail { get; init; }
     public string? DoctorOrdreNumber { get; init; }
     public string? DoctorCachetKey { get; init; }
     public string? DoctorCachetContentType { get; init; }
+    public string? LetterheadHeaderKey { get; init; }
+    public string? LetterheadFooterKey { get; init; }
+    public string? LetterheadBodyKey { get; init; }
 
     /// <summary>An all-empty snapshot — writes no values, but still strips client-supplied reserved keys.</summary>
     public static readonly PractitionerRenderSnapshot Empty = new();
@@ -40,7 +51,8 @@ public sealed class PractitionerRenderSnapshot
         !string.IsNullOrWhiteSpace(ClinicCity)
         || !string.IsNullOrWhiteSpace(ClinicEmail)
         || !string.IsNullOrWhiteSpace(DoctorOrdreNumber)
-        || !string.IsNullOrWhiteSpace(DoctorCachetKey);
+        || !string.IsNullOrWhiteSpace(DoctorCachetKey)
+        || !string.IsNullOrWhiteSpace(LetterheadHeaderKey);
 
     /// <summary>
     /// Merge this (server-resolved) snapshot into a document's <c>ContentJson</c> (FR-3.3 / FR-6.1), shared
@@ -71,6 +83,9 @@ public sealed class PractitionerRenderSnapshot
         content.Remove(DoctorOrdreNumberKey);
         content.Remove(DoctorCachetKeyKey);
         content.Remove(DoctorCachetContentTypeKey);
+        content.Remove(LetterheadHeaderKeyKey);
+        content.Remove(LetterheadFooterKeyKey);
+        content.Remove(LetterheadBodyKeyKey);
 
         if (!string.IsNullOrWhiteSpace(ClinicCity))
             content[ClinicCityKey] = ClinicCity;
@@ -82,6 +97,14 @@ public sealed class PractitionerRenderSnapshot
         {
             content[DoctorCachetKeyKey] = DoctorCachetKey;
             content[DoctorCachetContentTypeKey] = DoctorCachetContentType;
+        }
+        if (!string.IsNullOrWhiteSpace(LetterheadHeaderKey))
+        {
+            content[LetterheadHeaderKeyKey] = LetterheadHeaderKey;
+            if (!string.IsNullOrWhiteSpace(LetterheadFooterKey))
+                content[LetterheadFooterKeyKey] = LetterheadFooterKey;
+            if (!string.IsNullOrWhiteSpace(LetterheadBodyKey))
+                content[LetterheadBodyKeyKey] = LetterheadBodyKey;
         }
 
         return content.ToJsonString();
@@ -116,7 +139,10 @@ public sealed class PractitionerRenderSnapshot
             ClinicEmail = ReadString(content, ClinicEmailKey),
             DoctorOrdreNumber = ReadString(content, DoctorOrdreNumberKey),
             DoctorCachetKey = ReadString(content, DoctorCachetKeyKey),
-            DoctorCachetContentType = ReadString(content, DoctorCachetContentTypeKey)
+            DoctorCachetContentType = ReadString(content, DoctorCachetContentTypeKey),
+            LetterheadHeaderKey = ReadString(content, LetterheadHeaderKeyKey),
+            LetterheadFooterKey = ReadString(content, LetterheadFooterKeyKey),
+            LetterheadBodyKey = ReadString(content, LetterheadBodyKeyKey)
         };
     }
 
@@ -128,13 +154,18 @@ public sealed class PractitionerRenderSnapshot
     public PractitionerRenderSnapshot OrElse(PractitionerRenderSnapshot fallback)
     {
         var hasCachet = !string.IsNullOrWhiteSpace(DoctorCachetKey);
+        // The bands are one letterhead: a footer or a body is never borrowed from a different upload than its header.
+        var hasLetterhead = !string.IsNullOrWhiteSpace(LetterheadHeaderKey);
         return new PractitionerRenderSnapshot
         {
             ClinicCity = !string.IsNullOrWhiteSpace(ClinicCity) ? ClinicCity : fallback.ClinicCity,
             ClinicEmail = !string.IsNullOrWhiteSpace(ClinicEmail) ? ClinicEmail : fallback.ClinicEmail,
             DoctorOrdreNumber = !string.IsNullOrWhiteSpace(DoctorOrdreNumber) ? DoctorOrdreNumber : fallback.DoctorOrdreNumber,
             DoctorCachetKey = hasCachet ? DoctorCachetKey : fallback.DoctorCachetKey,
-            DoctorCachetContentType = hasCachet ? DoctorCachetContentType : fallback.DoctorCachetContentType
+            DoctorCachetContentType = hasCachet ? DoctorCachetContentType : fallback.DoctorCachetContentType,
+            LetterheadHeaderKey = hasLetterhead ? LetterheadHeaderKey : fallback.LetterheadHeaderKey,
+            LetterheadFooterKey = hasLetterhead ? LetterheadFooterKey : fallback.LetterheadFooterKey,
+            LetterheadBodyKey = hasLetterhead ? LetterheadBodyKey : fallback.LetterheadBodyKey
         };
     }
 
@@ -204,7 +235,10 @@ public sealed class PractitionerRenderSnapshot
             ClinicEmail = clinic?.Email,
             DoctorOrdreNumber = doctor?.OrdreNumberCnomdt,
             DoctorCachetKey = doctor?.CachetStorageKey,
-            DoctorCachetContentType = doctor?.CachetContentType
+            DoctorCachetContentType = doctor?.CachetContentType,
+            LetterheadHeaderKey = clinic?.LetterheadHeaderStorageKey,
+            LetterheadFooterKey = clinic?.LetterheadFooterStorageKey,
+            LetterheadBodyKey = clinic?.LetterheadBodyStorageKey
         };
     }
 }

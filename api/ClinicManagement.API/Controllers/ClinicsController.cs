@@ -68,6 +68,7 @@ public class ClinicsController : ApiControllerBase
     // that default dies on a framework 413 the app never sees and cannot explain in French.
     [RequestSizeLimit(FileTypeCatalog.ProfileImageBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.ProfileImageBytes)]
+    [OnlineOnly("FR-5 — a cabinet and its first account are created on the cloud, never on a copy.")]
     [HttpPost]
     public async Task<IActionResult> CreateClinic()
     {
@@ -176,6 +177,7 @@ public class ClinicsController : ApiControllerBase
     /// <summary>
     /// Join an existing clinic using a clinic code
     /// </summary>
+    [OnlineOnly("FR-5 — creating an account waits for the internet: accounts stay on the cloud during a cut (FR-11).")]
     [HttpPost("join")]
     public async Task<IActionResult> JoinClinic([FromBody] JoinClinicRequest request)
     {
@@ -275,6 +277,7 @@ public class ClinicsController : ApiControllerBase
     /// Regenerate the clinic's self-registration code (admin-only, AC-4.5). Invalidates the
     /// old code for future staff registrations.
     /// </summary>
+    [OnlineOnly("FR-5 — the clinic code creates accounts, which wait for the internet (FR-11).")]
     [HttpPost("regenerate-code")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> RegenerateCode()
@@ -347,6 +350,7 @@ public class ClinicsController : ApiControllerBase
     /// Update the current clinic's reminder settings (admin-only, AC-2). Secrets are write-only — an
     /// omitted/blank secret leaves the stored value unchanged; a provided one is encrypted and replaces it.
     /// </summary>
+    [OnlineOnly("FR-5 — « Rappels » settings wait for the internet: the reminders are sent by the cloud.")]
     [HttpPut("reminder-settings")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> UpdateReminderSettings(
@@ -484,6 +488,7 @@ public class ClinicsController : ApiControllerBase
     /// one-time code, subscribes the app, registers the phone number, and stores the encrypted credentials —
     /// atomically. Returns the secret-masked settings (status Connected). 404 in Local mode.
     /// </summary>
+    [OnlineOnly("FR-5 — « Rappels » settings wait for the internet: the reminders are sent by the cloud.")]
     [HttpPost("whatsapp/connect")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> ConnectWhatsApp(
@@ -509,6 +514,7 @@ public class ClinicsController : ApiControllerBase
     /// Disconnect the current clinic's WhatsApp (admin-only, Cloud-only). Clears the stored credentials,
     /// disables the channel and resets the status to NotConnected (best-effort Meta unsubscribe). 404 in Local.
     /// </summary>
+    [OnlineOnly("FR-5 — « Rappels » settings wait for the internet: the reminders are sent by the cloud.")]
     [HttpDelete("whatsapp/connect")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> DisconnectWhatsApp(CancellationToken cancellationToken = default)
@@ -546,6 +552,116 @@ public class ClinicsController : ApiControllerBase
         
         var logoDto = result.Value!;
         return File(logoDto.FileStream, logoDto.ContentType, "logo");
+    }
+
+    // Three bands of one door each (header, footer, the « page entière » body), plus the multipart envelope.
+    private const long LetterheadRequestBytes = 3 * FileTypeCatalog.ProfileImageBytes + 64 * 1024;
+
+    /// <summary>Whether the cabinet prints on its own letterhead, and the clinic version to round-trip.</summary>
+    [HttpGet("letterhead")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> GetLetterhead(CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetClinicLetterheadQuery(), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>One band of the current letterhead (<c>header</c>, <c>footer</c> or <c>body</c>), for the settings card and the editor.</summary>
+    [HttpGet("letterhead/{band}")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<IActionResult> GetLetterheadBand(string band, CancellationToken cancellationToken = default)
+    {
+        if (!Enum.TryParse<LetterheadBandKind>(band, ignoreCase: true, out var kind))
+        {
+            return Failure("Bande d'en-tête inconnue.", StatusCodes.Status404NotFound);
+        }
+
+        var result = await _mediator.Send(new GetClinicLetterheadBandQuery { Band = kind }, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return HandleFailure(result);
+        }
+
+        // A band's key is never reused, so it is a strong validator: an unchanged band answers 304.
+        var dto = result.Value!;
+        var tag = new Microsoft.Net.Http.Headers.EntityTagHeaderValue(
+            $"\"{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(dto.StorageKey)))[..32]}\"");
+        Response.Headers.CacheControl = "private, no-cache";
+        return File(dto.FileStream, "image/png", lastModified: null, entityTag: tag);
+    }
+
+    /// <summary>Saves the cabinet's letterhead (multipart <c>header</c>, optional <c>footer</c> and <c>body</c>, <c>version</c>).</summary>
+    [RequestSizeLimit(LetterheadRequestBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = LetterheadRequestBytes)]
+    [HttpPut("letterhead")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> UpdateLetterhead(
+        [FromForm] UpdateClinicLetterheadRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request.Header == null)
+        {
+            return Failure("L'en-tête est requis.");
+        }
+
+        await using var header = request.Header.OpenReadStream();
+        await using var footer = request.Footer?.OpenReadStream();
+        await using var body = request.Body?.OpenReadStream();
+        var result = await _mediator.Send(new UpdateClinicLetterheadCommand
+        {
+            Header = header,
+            HeaderFileName = request.Header.FileName,
+            HeaderLength = request.Header.Length,
+            Footer = footer,
+            FooterFileName = request.Footer?.FileName,
+            FooterLength = request.Footer?.Length ?? 0,
+            Body = body,
+            BodyFileName = request.Body?.FileName,
+            BodyLength = request.Body?.Length ?? 0,
+            Version = request.Version
+        }, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>Back to the text header. The bands stay in storage for the documents already issued with them.</summary>
+    [HttpDelete("letterhead")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> RemoveLetterhead([FromQuery] uint version, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new RemoveClinicLetterheadCommand { Version = version }, cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>A sample ordonnance on bands that are not saved yet. Persists nothing.</summary>
+    [RequestSizeLimit(LetterheadRequestBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = LetterheadRequestBytes)]
+    [HttpPost("letterhead/preview")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> PreviewLetterhead(
+        [FromForm] UpdateClinicLetterheadRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request.Header == null)
+        {
+            return Failure("L'en-tête est requis.");
+        }
+
+        await using var header = request.Header.OpenReadStream();
+        await using var footer = request.Footer?.OpenReadStream();
+        await using var body = request.Body?.OpenReadStream();
+        var result = await _mediator.Send(new PreviewClinicLetterheadQuery
+        {
+            Header = header,
+            HeaderFileName = request.Header.FileName,
+            HeaderLength = request.Header.Length,
+            Footer = footer,
+            FooterFileName = request.Footer?.FileName,
+            FooterLength = request.Footer?.Length ?? 0,
+            Body = body,
+            BodyFileName = request.Body?.FileName,
+            BodyLength = request.Body?.Length ?? 0
+        }, cancellationToken);
+
+        return result.IsSuccess ? File(result.Value!, "application/pdf") : HandleFailure(result);
     }
 }
 

@@ -1,0 +1,154 @@
+using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
+
+namespace ClinicManagement.Domain.Services;
+
+/// <summary>The FR-2 states of a PC de secours, as one ranked answer. Persisted nowhere: derived on every read.</summary>
+public enum ClinicRelayState
+{
+    None = 0,
+    Installing = 1,
+    InstallFailed = 2,
+    Abandoned = 3,
+    Ready = 4,
+    Late = 5,
+    Off = 6,
+    Updating = 7,
+    DiskNearlyFull = 8,
+    Mismatch = 9,
+    Retired = 10,
+
+    /// <summary>The PC stopped following a cloud that went back in time (D12, AC-9.4) — never repaired toward.</summary>
+    Stopped = 11,
+
+    /// <summary>D20b / EC-10: the PC's clock is wrong and it cannot set it — it would not take over (FR-3).</summary>
+    ClockWrong = 12,
+
+    /// <summary>FR-2 « En relève »: the PC said it holds the cabinet's saves (the cloud is read-only for the cabinet).</summary>
+    InCharge = 13,
+
+    /// <summary>FR-2 « Retour au cloud »: the cut's work is in the cloud; the PC is about to say it no longer holds.</summary>
+    Returning = 14,
+}
+
+/// <summary>The state plus the instant its sentence names (« depuis 08:12 », « Copie de 14:32 »).</summary>
+public sealed record ClinicRelayHealthReading(ClinicRelayState State, DateTime? Since, int? SeedPercent)
+{
+    /// <summary>Whether this is a problem admins are told about (AC-2.2, AC-2.3).</summary>
+    public bool IsProblem => State is ClinicRelayState.Late or ClinicRelayState.Off or ClinicRelayState.DiskNearlyFull
+        or ClinicRelayState.Mismatch or ClinicRelayState.InstallFailed or ClinicRelayState.Abandoned
+        or ClinicRelayState.Stopped or ClinicRelayState.ClockWrong;
+}
+
+/// <summary>The one FR-2 predicate, read by « Paramètres », the bell and the vendor console alike.</summary>
+public static class ClinicRelayHealth
+{
+    /// <summary>No heartbeat for this long and the PC is « Éteint ».</summary>
+    public static readonly TimeSpan SilentAfter = TimeSpan.FromMinutes(2);
+
+    /// <summary>A PC that last said « Mise à jour » may be silent this long — its installer restarts it — before it is « Éteint ».</summary>
+    public static readonly TimeSpan UpdateSilenceAllowed = TimeSpan.FromMinutes(20);
+
+    /// <summary>Not ready for longer than this and the PC is « En retard » (FR-2).</summary>
+    public static readonly TimeSpan LateAfter = TimeSpan.FromMinutes(2);
+
+    /// <summary>Below this much free disk the PC is « Disque presque plein ».</summary>
+    public const long DiskNearlyFullBytes = 5L * 1024 * 1024 * 1024;
+
+    public static ClinicRelayHealthReading Read(ClinicRelay? relay, DateTime nowUtc)
+    {
+        if (relay is null)
+        {
+            return new(ClinicRelayState.None, null, null);
+        }
+
+        if (relay.Status == ClinicRelayStatus.Retired)
+        {
+            // A code given back before any installer presented it (AC-1.11 — Windows' prompt refused, too little room):
+            // no PC ever existed, so it reads like a code that lapsed, never as a problem the admins are rung about.
+            if (relay.RetiredReason == ClinicRelayRetirement.Abandoned && relay.PairedAtUtc is null)
+            {
+                return new(ClinicRelayState.None, null, null);
+            }
+
+            return relay.RetiredReason == ClinicRelayRetirement.Abandoned
+                ? new(ClinicRelayState.Abandoned, relay.RetiredAtUtc, null)
+                : new(ClinicRelayState.Retired, relay.RetiredAtUtc, null);
+        }
+
+        if (relay.IsAbandoned(nowUtc))
+        {
+            return new(ClinicRelayState.Abandoned, relay.LastSeenAtUtc ?? relay.PairedAtUtc, null);
+        }
+
+        // A code nobody typed in before it lapsed: no PC was ever installed, so there is nothing to call « en cours ».
+        if (relay.Status == ClinicRelayStatus.Pairing && !relay.OccupiesTheClinic(nowUtc))
+        {
+            return new(ClinicRelayState.None, null, null);
+        }
+
+        if (relay.Status is ClinicRelayStatus.Pairing or ClinicRelayStatus.Seeding)
+        {
+            return relay.LastError is not null
+                ? new(ClinicRelayState.InstallFailed, relay.LastSeenAtUtc, relay.SeedPercent)
+                : new(ClinicRelayState.Installing, relay.LastSeenAtUtc, relay.SeedPercent);
+        }
+
+        // FR-2: a PC that said it holds the saves is « en relève » however long it has been silent since — the cloud stays
+        // read-only on its word, and « Éteint » there would tell an admin the cabinet is stuck when it is working. Its
+        // silence is the lock's business (« Reprendre la main »), and the vendor still hears of it after a day.
+        if (relay.IsReturning)
+        {
+            return new(ClinicRelayState.Returning, relay.HandbackAppliedAtUtc, null);
+        }
+
+        if (relay.PcHoldingSinceUtc is { } holding)
+        {
+            return new(ClinicRelayState.InCharge, holding, null);
+        }
+
+        var lastSeen = relay.LastSeenAtUtc ?? relay.PairedAtUtc ?? relay.CreatedAtUtc;
+        var silence = nowUtc - lastSeen;
+        // D10b: the installer stops the PC's services for several minutes, and « Mise à jour » is the last thing the PC
+        // said. It stays true for a bounded silence only — an update that never came back is a PC that is off.
+        if (silence > SilentAfter && !(relay.IsUpdating && silence <= UpdateSilenceAllowed))
+        {
+            return new(ClinicRelayState.Off, lastSeen, null);
+        }
+
+        // Before « caught up » is asked: a stopped copy holds MORE than the cloud, so it would read as « Prêt ».
+        if (relay.CopyStoppedSinceUtc is { } stopped)
+        {
+            return new(ClinicRelayState.Stopped, stopped, null);
+        }
+
+        if (relay.IsUpdating)
+        {
+            return new(ClinicRelayState.Updating, lastSeen, null);
+        }
+
+        // D20b: a PC whose clock is wrong and stays wrong never takes over — so it is never « Prêt » (and never armed).
+        if (relay.ClockUnfixableSinceUtc is { } clockWrong)
+        {
+            return new(ClinicRelayState.ClockWrong, clockWrong, null);
+        }
+
+        if (relay.MismatchSinceUtc is { } mismatch)
+        {
+            return new(ClinicRelayState.Mismatch, mismatch, null);
+        }
+
+        if (relay.DiskFreeBytes is { } free && free < DiskNearlyFullBytes)
+        {
+            return new(ClinicRelayState.DiskNearlyFull, lastSeen, null);
+        }
+
+        var lastReady = relay.LastReadyAtUtc ?? relay.SeededAtUtc ?? lastSeen;
+        if (!relay.IsCaughtUp && nowUtc - lastReady > LateAfter)
+        {
+            return new(ClinicRelayState.Late, lastReady, null);
+        }
+
+        return new(ClinicRelayState.Ready, relay.IsCaughtUp ? lastSeen : lastReady, null);
+    }
+}

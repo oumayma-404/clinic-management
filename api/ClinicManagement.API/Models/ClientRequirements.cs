@@ -27,10 +27,22 @@ public sealed record ClientRequirements(
     /// what it was served, because an offline-LAN server predating this field must still be able to ship an
     /// update. Empty therefore means « unverifiable », never « verified ».</para>
     /// </summary>
-    string WindowsSetupSha256)
+    string WindowsSetupSha256,
+    /// <summary>
+    /// The Android shell's own floor and release (<c>android-in-app-update</c>).
+    ///
+    /// <para>⚠️ <b>Separate, because the shared pair above is the Windows one.</b> <c>CurrentShellVersion</c> is
+    /// auto-filled from the Velopack package, so a phone compared its 1.1.1 against the desktop's 1.3.0, and
+    /// raising <c>MinimumShellVersion</c> for the desktop would have refused every phone. The top-level fields keep
+    /// their meaning for every client that already reads them; only an Android caller is measured by this.</para>
+    /// </summary>
+    AndroidShellRequirements Android)
 {
     /// <summary>Where an operator states all of this. Read per request, so raising the floor needs no restart.</summary>
     private const string Section = "Clients";
+
+    /// <summary>What <c>window.__clinicShell.platform</c> says on the Android shell, sent as <c>X-Client-Platform</c>.</summary>
+    public const string AndroidPlatform = "android";
 
     public static ClientRequirements Read(IConfiguration configuration)
     {
@@ -43,19 +55,48 @@ public sealed record ClientRequirements(
                 section["StoreUrls:Android"] ?? string.Empty,
                 section["StoreUrls:Ios"] ?? string.Empty,
                 section["StoreUrls:Windows"] ?? string.Empty),
-            section["WindowsSetupSha256"] ?? string.Empty);
+            section["WindowsSetupSha256"] ?? string.Empty,
+            new AndroidShellRequirements(
+                section["Android:MinimumVersion"] ?? string.Empty,
+                section["Android:CurrentVersion"] ?? string.Empty,
+                section["Android:DownloadUrl"] ?? string.Empty,
+                section["Android:Sha256"] ?? string.Empty));
     }
 
     /// <summary>
-    /// Whether <paramref name="clientVersion"/> is older than the floor. <b>False for anything unreadable</b> —
-    /// an absent header (every browser, and every server-side BFF hop), a malformed one, or an unset floor —
-    /// which is AC-32: a client that says nothing about itself is accepted exactly as before.
+    /// Whether <paramref name="clientVersion"/> is older than the floor for <paramref name="platform"/>.
+    /// <b>False for anything unreadable</b> — an absent header (every browser, and every server-side BFF hop), a
+    /// malformed one, or an unset floor — which is AC-32: a client that says nothing about itself is accepted
+    /// exactly as before.
+    ///
+    /// <para>⚠️ An Android caller is measured by <see cref="AndroidShellRequirements.MinimumVersion"/> <b>only</b>
+    /// — never by the shared floor, or a desktop release would lock out every phone. Any other platform, and a
+    /// caller naming none, keeps the shared floor.</para>
     /// </summary>
-    public bool IsBelowFloor(string? clientVersion) =>
-        Version.TryParse(MinimumShellVersion, out var floor)
+    public bool IsBelowFloor(string? clientVersion, string? platform) =>
+        Version.TryParse(FloorFor(platform), out var floor)
         && Version.TryParse(clientVersion, out var reported)
         && reported < floor;
+
+    private string FloorFor(string? platform) =>
+        string.Equals(platform?.Trim(), AndroidPlatform, StringComparison.OrdinalIgnoreCase)
+            ? Android.MinimumVersion
+            : MinimumShellVersion;
 }
+
+/// <summary>
+/// The Android shell's floor, its newest release, and the APK to fetch it from. Empty fields mean « nothing
+/// stated »: no floor, no update to offer, no file to download.
+///
+/// <para><see cref="Sha256"/> is uppercase hex of the APK at <see cref="DownloadUrl"/>. The shell refuses to hand
+/// Android a file whose hash differs; Android then re-checks the signature itself, so the hash is what catches a
+/// truncated download rather than what proves origin.</para>
+/// </summary>
+public sealed record AndroidShellRequirements(
+    string MinimumVersion,
+    string CurrentVersion,
+    string DownloadUrl,
+    string Sha256);
 
 /// <summary>
 /// Where each client goes to update itself, so a refused shell can name the right destination for the machine it

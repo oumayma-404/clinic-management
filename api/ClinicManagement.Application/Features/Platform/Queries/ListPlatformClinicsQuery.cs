@@ -69,17 +69,20 @@ public class ListPlatformClinicsQueryHandler
 {
     private readonly IClinicActivityRepository _activityRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IClinicRelayRepository _relays;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<ListPlatformClinicsQueryHandler> _logger;
 
     public ListPlatformClinicsQueryHandler(
         IClinicActivityRepository activityRepository,
         IUserRepository userRepository,
+        IClinicRelayRepository relays,
         ITenantScope tenantScope,
         ILogger<ListPlatformClinicsQueryHandler> logger)
     {
         _activityRepository = activityRepository;
         _userRepository = userRepository;
+        _relays = relays;
         _tenantScope = tenantScope;
         _logger = logger;
     }
@@ -126,9 +129,15 @@ public class ListPlatformClinicsQueryHandler
             var admins = await _userRepository.GetPrimaryAdminContactsAsync(
                 page.Items.Select(row => row.ClinicId), cancellationToken);
 
+            // The PC de secours column (clinic-pc-copy AC-9.1): one read for the page, admins' reasoning.
+            var relays = await _relays.GetLatestForClinicsAsync(
+                page.Items.Select(row => row.ClinicId), cancellationToken);
+            var now = DateTime.UtcNow;
+
             var items = page.Items
                 .Select(row => PlatformClinicRowMapper.ToDto(
-                    row, today, admins.TryGetValue(row.ClinicId, out var admin) ? admin.Email : null))
+                    row, today, admins.TryGetValue(row.ClinicId, out var admin) ? admin.Email : null,
+                    relays.GetValueOrDefault(row.ClinicId), now))
                 .ToList();
 
             return Result<PlatformClinicPageDto>.Success(new PlatformClinicPageDto(

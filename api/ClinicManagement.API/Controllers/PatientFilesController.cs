@@ -359,7 +359,8 @@ public class PatientFilesController : ApiControllerBase
         var query = new DownloadPatientFilePreviewQuery
         {
             PatientId = patientId,
-            FileId = fileId
+            FileId = fileId,
+            IfNoneMatch = Request.GetTypedHeaders().IfNoneMatch.Select(tag => tag.Tag.ToString()).ToList()
         };
 
         var result = await _mediator.Send(query, cancellationToken);
@@ -372,6 +373,14 @@ public class PatientFilesController : ApiControllerBase
         var previewDto = result.Value!;
 
         Response.Headers["X-Content-Type-Options"] = "nosniff";
+        // no-cache, never max-age: the browser cache is keyed on the URL, not on who is signed in, so every view revalidates.
+        Response.Headers.CacheControl = "private, no-cache";
+        Response.Headers.ETag = previewDto.ETag;
+
+        if (previewDto.NotModified)
+        {
+            return StatusCode(StatusCodes.Status304NotModified);
+        }
 
         return File(previewDto.FileStream, previewDto.ContentType);
     }

@@ -7,6 +7,18 @@ plugins {
 }
 
 /**
+ * Phone notifications (staff-chat Part 7) need the Firebase project's `google-services.json` beside this file.
+ *
+ * ⚠️ **Absent is a first-class case**, exactly like `keystore.properties`: the file is git-ignored, so CI and every
+ * machine without it still build — `BuildConfig.PUSH_CONFIGURED` is then false, the app never asks Firebase for a
+ * token and the chat's settings say notifications are unavailable on this phone. Nothing else changes.
+ */
+val pushConfigured = file("google-services.json").exists()
+if (pushConfigured) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
+/**
  * The release signing material, read from a **git-ignored** `keystore.properties` beside `settings.gradle.kts`.
  *
  * ⚠️ **Absent is a first-class case, not an error.** A machine without the keystore still builds `assembleRelease`
@@ -24,6 +36,25 @@ val keystoreProperties: Properties? = rootProject.file("keystore.properties")
     .takeIf { it.exists() }
     ?.let { file -> Properties().apply { file.inputStream().use(::load) } }
 
+/**
+ * The shell's version, and the release workflow's way in: `-PshellVersion=1.2.3` (`android-release.yml`). The
+ * default is the version a local build reports.
+ */
+val shellVersion: String = providers.gradleProperty("shellVersion").getOrElse("1.5.0").trim()
+
+/**
+ * `versionCode` derived from the version — `major·10000 + minor·100 + patch` — so the two cannot disagree and the
+ * code rises with every release by construction. ⚠️ Android refuses an update whose code is not higher than the
+ * installed one, and the last hand-set code was 7: every derived code is far above it.
+ */
+fun versionCodeOf(version: String): Int {
+    val parts = version.split('.').map { it.toIntOrNull() ?: error("shellVersion must be N.N.N, got '$version'") }
+    require(parts.size == 3) { "shellVersion must be N.N.N, got '$version'" }
+    val (major, minor, patch) = parts
+    require(minor in 0..99 && patch in 0..99) { "minor and patch must be 0–99 to fit versionCode, got '$version'" }
+    return major * 10_000 + minor * 100 + patch
+}
+
 android {
     namespace = "com.clinicmanagement.shell"
 
@@ -38,11 +69,13 @@ android {
         minSdk = 26
         targetSdk = 36
 
-        // ⚠️ Must increase on every upload Play accepts, and it can never go back down for this `applicationId`.
-        // 1 and 2 were pre-store builds that never left this machine; 3 is the first that may.
-        // 4 is 3 rebuilt with app.apexa.tn as the starting address — same code, so a new number is the only
-        // thing that lets the server and a phone tell the two binaries apart.
-        versionCode = 4
+        // ⚠️ Must increase on every release, and it can never go back down for this `applicationId` — Android
+        // refuses the update otherwise. Derived from `shellVersion` (see `versionCodeOf`); 1.5.0 → 10500.
+        // History: 1–2 never left this machine, 3 was 1.1.0, 4 was 1.1.1 rebuilt with app.apexa.tn,
+        // 5 added `relayProbe` (clinic-pc-copy AC-6.2), 6 was 1.3.0 with `relayPrepare` + `relaySwitch` (Part 3),
+        // 7 was 1.4.0 with phone notifications — `onPushToken` delivers, `notificationState` +
+        // `openNotificationSettings` (staff-chat Part 7).
+        versionCode = versionCodeOf(shellVersion)
 
         // The single source of the shell's version. `BuildConfig.VERSION_NAME` is what reaches
         // `window.__clinicShell.version` and therefore `X-Client-Version`, so the build and the bridge cannot
@@ -51,8 +84,12 @@ android {
         //
         // ⚠️ A change to the bridge's method set edits `mobile/shared/bridge.md` **and** bumps this — one without
         // the other ships a build reporting a capability set it does not have. 1.1.0 added `confirmIdentity`
-        // (Part 7); its version history is the table at the foot of that file.
-        versionName = "1.1.1"
+        // (Part 7); its version history is the table at the foot of that file. 1.3.0 added the PC de secours
+        // members (clinic-pc-copy), 1.4.0 phone notifications (staff-chat); 1.5.0 adds the in-app updater, a native
+        // change with no bridge member.
+        versionName = shellVersion
+
+        buildConfigField("boolean", "PUSH_CONFIGURED", pushConfigured.toString())
 
         // The address a fresh install starts on, so a phone that downloads this build from the product's own
         // download page connects with nothing typed — the friction the iOS route does not have, because there the
@@ -148,6 +185,9 @@ android {
         // bumped as a side effect of an SDK bump, because a dependency upgrade that rides along in another commit
         // is one nobody reviewed as an upgrade.
         disable += "GradleDependency"
+        // ⚠️ The third, for the same reason: « A newer version of Gradle than 8.13 is available » reddened CI on
+        // every run once Gradle 8.14.6 shipped. Gradle is pinned with AGP and Kotlin as one set (mobile/CLAUDE.md).
+        disable += "AndroidGradlePluginVersion"
     }
 }
 
@@ -170,4 +210,11 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.webkit:webkit:1.12.1")
+    // Linked always, initialised only when `google-services.json` was present at build time (PUSH_CONFIGURED).
+    implementation("com.google.firebase:firebase-messaging:24.1.0")
+    constraints {
+        // Play Services, reached through Firebase, pulls androidx.fragment 1.0.0, whose activity results predate
+        // registerForActivityResult — the file chooser's camera and the notification prompt both depend on it.
+        implementation("androidx.fragment:fragment:1.8.5")
+    }
 }

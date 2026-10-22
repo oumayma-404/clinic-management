@@ -65,6 +65,10 @@ clinic-management/
 │                                   ⚠️ Serve `web` with `node .next/standalone/server.js` — `npm run start`
 │                                   binds, says « Ready », then EXITS (output: 'standalone'), and the browser
 │                                   half then reports ten product defects. e2e/README.md § Running it locally.
+├── e2e/relay-roundtrip/          The PC de secours's cut test (clinic-pc-copy D26): cloud + PC + two Postgres in
+│                                   containers, the cabinet's network cut with `docker network disconnect`, work on
+│                                   both sides, back. `bash e2e/relay-roundtrip/run.sh` (Docker + node); CI job
+│                                   `relay-roundtrip`
 ├── web/                          Next.js frontend
 │   ├── (root)                            → CLAUDE.md  (stack, routing, API/auth integration)
 │   ├── components/                       → CLAUDE.md  (feature components + shadcn/ui primitives)
@@ -113,6 +117,10 @@ clinic-management/
 │                                                       feed with `vpk`, scp's it to the VPS's `deploy/updates/`, and
 │                                                       tags the release. Clients then self-update silently — per-user,
 │                                                       delta (~160 KB), no UAC. `windows-latest`; `contents: write`
+│                                   android-release.yml = « Android release ». Same triggers (`mobile/android/**`
+│                                                       on main, `android-v*`): a SIGNED APK (four ANDROID_* secrets)
+│                                                       → `deploy/updates/APEXA-<v>.apk`, which phones 1.5.0+ fetch
+│                                                       through « Mettre à jour » (features/android-in-app-update)
 │                                   deploy-hosted.yml = `workflow_dispatch` deploy to a VPS: build the three heavy
 │                                                       images → GHCR → ssh `pull` + `up -d --no-build` → /health →
 │                                                       verify-schema. Builds THROUGH compose, so `web`'s build args
@@ -189,6 +197,12 @@ how it was built, `notes.md` is what shipped.
   `scenarios.md` is 268 hot-path scenarios (125 tier-0) plus an appendix of the **probe traps** that each
   produced a convincing false defect report; `findings.md` is what the 2026-09-08 pass found.
 
+- [`performance-caching`](features/performance-caching/notes.md) — Every `/api` request logs its time and SQL
+  count (`Diagnostics:SlowRequestMs`) · the caller's account is read once per request · an unchanged thumbnail
+  answers 304 · one live connection per tab · one browser cache for the **reference reads only** (clinic status,
+  catalogues, the bell) · **no server data cache, by decision** · the before/after numbers, and why the dashboard
+  rewrite and the agenda index stayed undone
+
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — There is a CI gate now, and before it there was none for `api/` or `web/` · Multi-tenancy · Pluggable auth (`Auth:Mode` = `Cloud` | `Local`) · Google Calendar sync is asymmetric + per-clinic · Background jobs · Billing / CNAM / treatment plans (deep, fully-wired subsystems) · Clinical-workflow-depth operational features (built) · Dead-code cleanup · Clinic-scoped SignalR realtime (built) · In-app staff notification center (built) · Real outbound SMS/WhatsApp reminders · Security posture (mostly hardened by `cloud-security-and-tenant-isolation`, PR #11)
 
 **Money, and the ledgers behind it**
@@ -218,6 +232,9 @@ how it was built, `notes.md` is what shipped.
 - [`treatment-plan-lifecycle`](features/treatment-plan-lifecycle/notes.md) — A stop has THREE outcomes, and the browser knew two · Two appended statuses (`Stopped`, `WrittenOff`), and why « appended » is load-bearing · One respread rule, and it is the only place the money invariant lives · The capabilities behind the driving complaint (S1–S7) · Two rules that look wrong and are not
 - [`booking-treatment-suggestions`](features/booking-treatment-suggestions/notes.md) — Le rappel ne nommait qu'un traitement, et se taisait pour 47 patients sur 318
 - [`appointment-negotiated-price`](features/appointment-negotiated-price/notes.md) — A price agreed on the telephone is the price billed
+- [`document-letterhead`](features/document-letterhead/notes.md) — Le cabinet imprime sur son propre papier : en-tête
+  et pied de page en bandes à l'échelle réelle, sur chaque page de chaque document · sans papier importé, rien ne
+  change · la date de naissance n'est plus sur aucun document
 - [`prescription-fiche-de-soins`](features/prescription-fiche-de-soins/notes.md) — La séance prescrit, et l'ordonnance est une vraie ordonnance · Un examen est une ordonnance DISTINCTE · On peut voir le document sur place · Elle n'efface jamais · Sexe et poids sont retirés
 - [`cnam-ui-withdrawal`](features/cnam-ui-withdrawal/notes.md) — La CNAM n'a plus d'interface, et tout le
   serveur est intact · **six choses ont délibérément survécu** (les deux entrées `DOCUMENT_TEMPLATES`, la clé
@@ -269,6 +286,8 @@ how it was built, `notes.md` is what shipped.
 
 - [`adoption-qa-l-residual-blockers`](features/adoption-qa-l-residual-blockers/notes.md) — A reminder queue that cannot starve, and never announces the wrong day (L3) · Backup is automatic, verified, and restorable (L4) · A cheque has an identity, and it travels with the money (L8, slice A) · Data comes back in as CSV, and the dry run is the product (L5, import half) · Data leaves the product as CSV (L5, export half) · La caisse says *how* the money came in, and a cheque has somewhere to be chased (L8 slice B) · A reimbursement estimate now knows what is left (L10) · An arrêt de travail is printed on the caisse's own form (L11) · Money and clinical work know who earned them (L9)
 - [`mobile-native-shells`](features/mobile-native-shells/notes.md) — A backgrounded phone still knows, and a lock screen learns nothing (P6) · The clinic runs on a phone, and the phone is a shell not a second frontend (Part 4) · A phone that has been in a pocket is unlocked, not signed out (P7 step 2) · A stale app says so, once, instead of failing screen by screen (P3)
+- [`android-in-app-update`](features/android-in-app-update/notes.md) — The sideloaded APK updates itself from the cabinet's own server · the phone has its own floor and release, so a desktop release can never lock it out
+- [`staff-chat`](features/staff-chat/notes.md) — Les comptes du cabinet s'écrivent depuis chaque écran : messages rapides, « Secrétariat » partagé, « Signaler l'arrivée », alertes jusque dans l'application Windows · un message n'est ni journalisé, ni archivé, ni purgé · une pression sur la notification n'est pas « en dehors » d'une fenêtre
 
 ## Traps that bite (each one fails silently)
 
@@ -722,6 +741,10 @@ touching the area.
   `NavigationStarting`), never a list of failures to forgive. See `desktop/CLAUDE.md` → `ExternalNavigation.cs`.
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
+- **A raw `history.replaceState({}, …)` makes Next reload the page on the next Back.** Next keeps `__NA` in each
+  entry's state and reloads on a pop onto an entry without it; `useDirtyGuard` closes a dialog with
+  `history.back()`, so after a full load of the agenda every dialog close reloaded the screen. Write history
+  through `web/lib/history.ts` only — `check:responsive`'s N53 holds it.
 - **The fiche de soins prices a booked act from the CATALOGUE, not from the appointment's row.** Both prefill
   paths (`applyAppointment`, `addFromProcedure`) resolve `procedureTypeId` back to a `ProcedureTypeDto` and
   read `defaultCost`, so an act's negotiated `AgreedCost` has to be threaded through explicitly or it reverts

@@ -13,6 +13,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import org.json.JSONObject
 import java.io.File
 
@@ -20,8 +21,8 @@ import java.io.File
  * The native half of `window.__clinicShell`. `mobile/shared/bridge.md` is the contract itself; this class
  * implements it and [injectedScript] is the JavaScript face the web bundle sees.
  *
- * Three native methods (`saveFile`, `print`, `confirmIdentity`) plus a JS-only `onPushToken`, which needs no
- * native counterpart yet because nothing produces a token until Part 6.
+ * Since 1.4.0 `onPushToken` delivers (staff-chat Part 7): the page's first listener calls the native `pushWanted`,
+ * which fetches the Firebase token and answers through `window.__clinicShellDeliverPushToken`.
  *
  * ⚠️ **Every `@JavascriptInterface` method runs on the WebView's JavaScript thread, not the UI thread.** Anything
  * touching a view, a dialog or the print service must be posted, or it throws from a stack trace that names
@@ -35,7 +36,35 @@ import java.io.File
 class ShellBridge(
     private val activity: Activity,
     private val webView: WebView,
+    /** The configured server's own page — the only one `relayProbe` answers (it reveals this phone's network). */
+    private val isOwnPage: (Uri) -> Boolean = { false },
+    /** Part 3: trade a prepared session on the PC de secours and keep it (the activity owns the cookie and the target). */
+    private val onRelayPrepare: (RelaySwitch.Prepare, (Boolean) -> Unit) -> Unit = { _, done -> done(false) },
+    /** Part 3: the cloud says the cabinet works on the PC — move there if the PC holds. */
+    private val onRelaySwitch: ((Boolean) -> Unit) -> Unit = { done -> done(false) },
+    /** D23: the cloud's page or the PC de secours's — the only two that may hand over or take a form. */
+    private val isClinicPage: (Uri) -> Boolean = isOwnPage,
+    /** staff-chat Part 7: the signed-in page wants this install's push token (and the permission, once). */
+    private val onPushWanted: () -> Unit = {},
+    /** staff-chat Part 7: « Activer les notifications » — the permission prompt, else the app's notification settings. */
+    private val onOpenNotificationSettings: () -> Unit = {},
 ) {
+
+    /** `onPushToken`'s native half — only the configured server's own page receives a token. */
+    @JavascriptInterface
+    fun pushWanted() {
+        activity.runOnUiThread { if (onOwnPage()) onPushWanted() }
+    }
+
+    /** `notificationState` (1.4.0): `granted` · `default` · `denied` · `unavailable`. Synchronous, so the page can render it. */
+    @JavascriptInterface
+    fun notificationState(): String = ShellPush.state(activity)
+
+    /** `openNotificationSettings` (1.4.0). */
+    @JavascriptInterface
+    fun openNotificationSettings() {
+        activity.runOnUiThread { if (onOwnPage()) onOpenNotificationSettings() }
+    }
 
     /**
      * Hand a file to the OS: write it into app-private cache, then offer to open or share it.
@@ -103,6 +132,96 @@ class ShellBridge(
         }
     }
 
+    /**
+     * AC-6.2 (since 1.2.0): while the cloud is locked for a silent PC de secours, does this phone reach it, and which
+     * box is it behind? [RelayProbe] does the work off the UI thread; the answer — or null when the shell cannot
+     * answer, and the page then sends no report — comes back through `__clinicShellDeliverRelayResult`.
+     */
+    @JavascriptInterface
+    fun relayProbe(requestId: String?, requestJson: String?) {
+        val id = requestId.orEmpty()
+        if (!RELAY_REQUEST_ID.matches(id)) return
+        val request = RelayProbe.parse(requestJson)
+        activity.runOnUiThread {
+            val page = webView.url?.let { runCatching { it.toUri() }.getOrNull() }
+            if (request == null || page == null || !isOwnPage(page)) {
+                deliverRelayResult(id, null)
+                return@runOnUiThread
+            }
+            Thread {
+                val answer = runCatching { RelayProbe.run(activity, request) }.getOrNull()
+                activity.runOnUiThread { deliverRelayResult(id, answer) }
+            }.start()
+        }
+    }
+
+    /** `relayPrepare` (Part 3, since 1.3.0): only for the configured server's own page; answers `true` / `false`. */
+    @JavascriptInterface
+    fun relayPrepare(requestId: String?, requestJson: String?) {
+        val id = requestId.orEmpty()
+        if (!RELAY_REQUEST_ID.matches(id)) return
+        val request = RelaySwitch.parsePrepare(requestJson)
+        activity.runOnUiThread {
+            if (request == null || !onOwnPage()) {
+                deliverRelayValue(id, "false")
+                return@runOnUiThread
+            }
+            onRelayPrepare(request) { prepared -> deliverRelayValue(id, prepared.toString()) }
+        }
+    }
+
+    /** `relaySwitch` (Part 3, since 1.3.0): only for the configured server's own page; answers whether the app moved. */
+    @JavascriptInterface
+    fun relaySwitch(requestId: String?) {
+        val id = requestId.orEmpty()
+        if (!RELAY_REQUEST_ID.matches(id)) return
+        activity.runOnUiThread {
+            if (!onOwnPage()) {
+                deliverRelayValue(id, "false")
+                return@runOnUiThread
+            }
+            onRelaySwitch { moved -> deliverRelayValue(id, moved.toString()) }
+        }
+    }
+
+    /** `carryDraft` (D23): the open form's state, kept in memory for the next clinic page — null or empty forgets it. */
+    @JavascriptInterface
+    fun carryDraft(draftJson: String?) {
+        activity.runOnUiThread {
+            if (onClinicPage()) CarriedDraftSlot.carry(draftJson, System.currentTimeMillis())
+        }
+    }
+
+    /** `takeCarriedDraft` (D23): the held form state, once — then forgotten. */
+    @JavascriptInterface
+    fun takeCarriedDraft(requestId: String?) {
+        val id = requestId.orEmpty()
+        if (!RELAY_REQUEST_ID.matches(id)) return
+        activity.runOnUiThread {
+            val draft = if (onClinicPage()) CarriedDraftSlot.take(System.currentTimeMillis()) else null
+            deliverRelayValue(id, draft?.let { JSONObject.quote(it) } ?: "null")
+        }
+    }
+
+    private fun onClinicPage(): Boolean =
+        webView.url?.let { runCatching { it.toUri() }.getOrNull() }?.let(isClinicPage) ?: false
+
+    private fun onOwnPage(): Boolean =
+        webView.url?.let { runCatching { it.toUri() }.getOrNull() }?.let(isOwnPage) ?: false
+
+    private fun deliverRelayValue(requestId: String, value: String) {
+        activity.runOnUiThread {
+            val call = "window.$DELIVER_RELAY_RESULT && window.$DELIVER_RELAY_RESULT(${JSONObject.quote(requestId)}, $value);"
+            webView.evaluateJavascript(call, null)
+        }
+    }
+
+    private fun deliverRelayResult(requestId: String, answer: JSONObject?) {
+        val value = answer?.toString() ?: "null"
+        val call = "window.$DELIVER_RELAY_RESULT && window.$DELIVER_RELAY_RESULT(${JSONObject.quote(requestId)}, $value);"
+        webView.evaluateJavascript(call, null)
+    }
+
     private fun deliverIdentityResult(requestId: String, outcome: String) {
         val call = "window.$DELIVER_IDENTITY_RESULT && window.$DELIVER_IDENTITY_RESULT(" +
             "${JSONObject.quote(requestId)}, ${JSONObject.quote(outcome)});"
@@ -153,6 +272,12 @@ class ShellBridge(
          */
         const val DELIVER_IDENTITY_RESULT = "__clinicShellDeliverIdentityResult"
 
+        /** `relayProbe`'s answer lands here — outside `__clinicShell`, for the same AC-26 reason. */
+        const val DELIVER_RELAY_RESULT = "__clinicShellDeliverRelayResult"
+
+        /** A request id the injected script minted: interpolated into JavaScript only after this matched it. */
+        private val RELAY_REQUEST_ID = Regex("^r[0-9]{1,10}$")
+
         /**
          * The largest file this shell accepts through `saveFile`, published as `__clinicShell.maxFileBytes`.
          *
@@ -197,8 +322,12 @@ class ShellBridge(
                   var nativeBridge = window.$NATIVE_OBJECT;
                   if (!nativeBridge) { return; }
                   var pushListeners = [];
+                  var lastPushToken = null;
+                  var pushAsked = false;
                   var pendingIdentity = {};
                   var nextIdentityId = 0;
+                  var pendingRelay = {};
+                  var nextRelayId = 0;
                   window.__clinicShell = Object.freeze({
                     version: $quotedVersion,
                     platform: "android",
@@ -208,7 +337,19 @@ class ShellBridge(
                     },
                     print: function () { nativeBridge.print(); },
                     onPushToken: function (listener) {
-                      if (typeof listener === "function") { pushListeners.push(listener); }
+                      if (typeof listener !== "function") { return; }
+                      pushListeners.push(listener);
+                      if (lastPushToken) { try { listener(lastPushToken); } catch (e) {} }
+                      if (!pushAsked) {
+                        pushAsked = true;
+                        try { nativeBridge.pushWanted(); } catch (e) {}
+                      }
+                    },
+                    notificationState: function () {
+                      try { return String(nativeBridge.notificationState()); } catch (e) { return "unavailable"; }
+                    },
+                    openNotificationSettings: function () {
+                      try { nativeBridge.openNotificationSettings(); } catch (e) {}
                     },
                     confirmIdentity: function () {
                       return new Promise(function (resolve) {
@@ -223,8 +364,103 @@ class ShellBridge(
                           resolve("unavailable");
                         }
                       });
+                    },
+                    relayProbe: function (request) {
+                      return new Promise(function (resolve) {
+                        var id = "r" + (++nextRelayId);
+                        var settled = false;
+                        var settle = function (value) {
+                          if (settled) { return; }
+                          settled = true;
+                          delete pendingRelay[id];
+                          resolve(value);
+                        };
+                        pendingRelay[id] = settle;
+                        setTimeout(function () { settle(null); }, 20000);
+                        try {
+                          nativeBridge.relayProbe(id, JSON.stringify({
+                            addresses: request && Array.isArray(request.addresses) ? request.addresses : [],
+                            port: request && typeof request.port === "number" ? request.port : 0,
+                            fingerprint: request && typeof request.fingerprint === "string" ? request.fingerprint : ""
+                          }));
+                        } catch (e) {
+                          settle(null);
+                        }
+                      });
+                    },
+                    relayPrepare: function (request) {
+                      return new Promise(function (resolve) {
+                        var id = "r" + (++nextRelayId);
+                        var settled = false;
+                        var settle = function (value) {
+                          if (settled) { return; }
+                          settled = true;
+                          delete pendingRelay[id];
+                          resolve(value === true);
+                        };
+                        pendingRelay[id] = settle;
+                        setTimeout(function () { settle(false); }, 30000);
+                        try {
+                          nativeBridge.relayPrepare(id, JSON.stringify({
+                            assertion: request && typeof request.assertion === "string" ? request.assertion : "",
+                            relayId: request && typeof request.relayId === "string" ? request.relayId : "",
+                            addresses: request && Array.isArray(request.addresses) ? request.addresses : [],
+                            port: request && typeof request.port === "number" ? request.port : 0,
+                            fingerprint: request && typeof request.fingerprint === "string" ? request.fingerprint : ""
+                          }));
+                        } catch (e) {
+                          settle(false);
+                        }
+                      });
+                    },
+                    carryDraft: function (draft) {
+                      try {
+                        nativeBridge.carryDraft(typeof draft === "string" ? draft : null);
+                      } catch (e) {}
+                    },
+                    takeCarriedDraft: function () {
+                      return new Promise(function (resolve) {
+                        var id = "r" + (++nextRelayId);
+                        var settled = false;
+                        var settle = function (value) {
+                          if (settled) { return; }
+                          settled = true;
+                          delete pendingRelay[id];
+                          resolve(typeof value === "string" ? value : null);
+                        };
+                        pendingRelay[id] = settle;
+                        setTimeout(function () { settle(null); }, 5000);
+                        try {
+                          nativeBridge.takeCarriedDraft(id);
+                        } catch (e) {
+                          settle(null);
+                        }
+                      });
+                    },
+                    relaySwitch: function () {
+                      return new Promise(function (resolve) {
+                        var id = "r" + (++nextRelayId);
+                        var settled = false;
+                        var settle = function (value) {
+                          if (settled) { return; }
+                          settled = true;
+                          delete pendingRelay[id];
+                          resolve(value === true);
+                        };
+                        pendingRelay[id] = settle;
+                        setTimeout(function () { settle(false); }, 15000);
+                        try {
+                          nativeBridge.relaySwitch(id);
+                        } catch (e) {
+                          settle(false);
+                        }
+                      });
                     }
                   });
+                  window.$DELIVER_RELAY_RESULT = function (id, value) {
+                    var settle = pendingRelay[id];
+                    if (typeof settle === "function") { settle(value); }
+                  };
                   window.$DELIVER_IDENTITY_RESULT = function (id, outcome) {
                     var resolve = pendingIdentity[id];
                     if (!resolve) { return; }
@@ -232,6 +468,8 @@ class ShellBridge(
                     resolve(outcome);
                   };
                   window.__clinicShellDeliverPushToken = function (token) {
+                    if (typeof token !== "string" || !token) { return; }
+                    lastPushToken = token;
                     for (var i = 0; i < pushListeners.length; i++) {
                       try { pushListeners[i](token); } catch (e) {}
                     }

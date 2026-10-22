@@ -42,6 +42,7 @@ public class MonthlyExpenseJob
     private readonly IRealtimeNotifier _realtime;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
+    private readonly IClinicWriteFence _fence;
     private readonly ILogger<MonthlyExpenseJob> _logger;
 
     public MonthlyExpenseJob(
@@ -51,8 +52,10 @@ public class MonthlyExpenseJob
         IRealtimeNotifier realtime,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
+        IClinicWriteFence fence,
         ILogger<MonthlyExpenseJob> logger)
     {
+        _fence = fence;
         _recurringExpenseRepository = recurringExpenseRepository;
         _expenseRepository = expenseRepository;
         _unitOfWork = unitOfWork;
@@ -86,6 +89,14 @@ public class MonthlyExpenseJob
         {
             try
             {
+                // clinic-pc-copy D15: skipped before anything is touched. The months stay due (DueMonths catches up
+                // a backlog), so they are posted once the cabinet is back on the cloud.
+                if (await _fence.RefusesAsync(clinic.Key))
+                {
+                    _logger.LogInformation("Clinic {ClinicId} is on its PC de secours; its monthly dépenses wait", clinic.Key);
+                    continue;
+                }
+
                 await PostClinicAsync(clinic.Key, clinic.ToList(), currentMonth);
             }
             catch (Exception ex)

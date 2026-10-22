@@ -1134,6 +1134,47 @@ public class SchemaVerificationServiceTests
         Assert.True(IsDrift(Finding(report, "key-ring-protection")));
     }
 
+    // A LAN install running as a Windows service encrypts the ring with DPAPI — reading that as « NOT encrypted »
+    // flagged every LAN install, and kept CI's Local-mode job red.
+    [Fact]
+    public async Task A_Dpapi_Protected_Key_Ring_Is_Not_Drift() // [FR-3.1]
+    {
+        Arrange(secretProtection: Protection(certificateProtected: false) with
+        {
+            CertificateRequired = false,
+            ProtectedByDpapi = true,
+        });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "key-ring-protection");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("DPAPI", finding.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task No_Certificate_Where_None_Is_Required_Is_Not_Drift() // [FR-3.1]
+    {
+        Arrange(secretProtection: Protection(certificateProtected: false) with { CertificateRequired = false });
+
+        var report = await CreateService().RunAsync();
+
+        var finding = Finding(report, "key-ring-protection");
+        Assert.False(IsDrift(finding));
+        Assert.Contains("not applicable", finding.Detail, StringComparison.Ordinal);
+    }
+
+    // The hosted deployment still needs its certificate: DPAPI does not exist on its Linux host.
+    [Fact]
+    public async Task No_Certificate_Where_One_Is_Required_Is_Still_Drift() // [FR-3.1]
+    {
+        Arrange(secretProtection: Protection(certificateProtected: false) with { CertificateRequired = true });
+
+        var report = await CreateService().RunAsync();
+
+        Assert.True(IsDrift(Finding(report, "key-ring-protection")));
+    }
+
     [Fact]
     public async Task An_Encrypted_Key_Ring_Reports_Its_Remaining_Life() // [FR-3.1 / FR-3.2]
     {

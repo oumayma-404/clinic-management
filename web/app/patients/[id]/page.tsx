@@ -108,6 +108,7 @@ import { useDebtLineCollection } from "@/components/patient/use-debt-line-collec
 import { TreatmentPlanFormModal, type TreatmentPlanSeedLine } from "@/components/treatment-plans/treatment-plan-form-modal"
 import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { PlanItemOption } from "@/components/patient-record-modal"
+import { noteFiguresByFiche, type BilledNoteFigures } from "@/lib/fiche-note-figures"
 import { activeItems, isPlanLive, itemNetCost, schedulablePlanItems } from "@/components/treatment-plans/plan-next-action"
 import { teethSuffix } from "@/components/treatment-plans/treatment-plan-labels"
 import { teethUnderTreatment } from "@/components/treatment-plans/teeth-under-treatment"
@@ -130,6 +131,7 @@ import { useFilePreview } from "@/components/patients/files/use-file-preview"
 import { isImageFile, isPreviewableFile } from "@/components/patients/files/file-kind"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import { useVault } from "@/lib/hooks/use-vault"
+import { replaceUrl } from "@/lib/history"
 
 const calculateAge = (dob: string | null | undefined) => {
   if (!dob) return null
@@ -321,14 +323,26 @@ const MONEY_CELL_BADGE = "min-w-0 shrink whitespace-normal text-2xs font-normal"
  * either one actively misread the other, on money. The card form carried no explanation at all; the table's
  * lived in a `title`, which a finger cannot reach (§ 9.2).
  *
- * <p>So the amount is muted — it is no longer the authority — and the reason is stated in words, with the
+ * <p>The amount is the note's own collected figure when the note bills this fiche alone (`fromNote`): a payment
+ * taken on the note never reaches the fiche. Otherwise it is the fiche's and is muted — it is not the authority.</p>
+ *
+ * <p>The reason is stated in words, with the
  * invoice's own number when the map has it. « en cours » is deliberately not printed here: the badge is a
  * statement about where the money lives, and a number that has not arrived yet is simply not part of it.</p>
  */
-function BilledAmount({ amount, invoiceNumber }: { amount: number; invoiceNumber?: string }) {
+function BilledAmount({
+  amount,
+  invoiceNumber,
+  fromNote = false,
+}: {
+  amount: number
+  invoiceNumber?: string
+  /** The figure is the note's own collected amount — the authority, so it is not muted. */
+  fromNote?: boolean
+}) {
   return (
     <span className="inline-flex min-w-0 flex-wrap items-baseline justify-end gap-1.5">
-      <span className="text-muted-foreground">{formatDT(amount)}</span>
+      <span className={fromNote ? undefined : "text-muted-foreground"}>{formatDT(amount)}</span>
       <Badge variant="outline" className={MONEY_CELL_BADGE}>
         {/* The number in its own `whitespace-nowrap` span: a hyphen is an ordinary break opportunity, so a
             wrapping pill split « 2026-0016 » across two lines — the defect `card-list.tsx` already records
@@ -747,6 +761,8 @@ export default function PatientDetailsPage() {
    */
   const [previewTarget, setPreviewTarget] = useState<DocumentPreviewTarget | null>(null)
   const [editingRecord, setEditingRecord] = useState<DentalRecordDto | null>(null)
+  // Set by the notes strip's per-line pencil only; cleared when the fiche closes.
+  const [recordFocusNotes, setRecordFocusNotes] = useState(false)
   // Appointment carried by the post-visit "record the visit" deep-link, threaded into the record modal so
   // saving the dental record closes that appointment's post-visit prompt (findings #4 + #10).
   const [reviewAppointmentId, setReviewAppointmentId] = useState<string | null>(null)
@@ -965,6 +981,10 @@ export default function PatientDetailsPage() {
   // The note d'honoraires that bills each of those records, so the delete confirmation can NAME it
   // (AC-P2.17) instead of vaguely warning that the fiche is billed. Same pass as the set above.
   const [invoicingNumberByRecordId, setInvoicingNumberByRecordId] = useState<Map<string, string>>(new Map())
+  // A billed fiche's « Payé » / « Reste », read from its note — see `noteFiguresByFiche` for the three answers.
+  const [noteFiguresByRecordId, setNoteFiguresByRecordId] = useState<Map<string, BilledNoteFigures | null>>(
+    new Map(),
+  )
 
   /*
    * « Solde dû » — the ONE figure, and the count is the whole point.
@@ -1321,7 +1341,8 @@ export default function PatientDetailsPage() {
           attemptOne("billing", appointmentsApi.visitsToClose({ patientId })),
         ])
         if (cancelled) return
-        setFailedSections(failed)
+        // `"files"` belongs to the folder effect below, which re-runs on the same refresh — never erase its failure here.
+        setFailedSections((prev) => (prev.has("files") ? new Set(failed).add("files") : failed))
         setTreatmentPlans(plansData)
         setMedicalDocuments(documentsData)
         setAppointments(appointmentsData)
@@ -1361,6 +1382,7 @@ export default function PatientDetailsPage() {
         }
         setInvoicedDentalRecordIds(invoicedIds)
         setInvoicingNumberByRecordId(invoicingNumbers)
+        setNoteFiguresByRecordId(noteFiguresByFiche(invoicesData))
       } catch (err) {
         // Every call above already degrades to `[]`, so reaching here means a genuine fault rather than one
         // endpoint being down. The identity is on screen either way, so this is a toast, not an error page.
@@ -1383,7 +1405,7 @@ export default function PatientDetailsPage() {
 
   // Deep-link from the post-visit "record the visit" bell (?addRecord=1&appointmentId=…): open the
   // add-record modal (finding #4) and thread the appointment id so saving closes the prompt (finding #10).
-  // Uses window.location.search + history.replaceState (no useSearchParams) so a refresh doesn't reopen it,
+  // Uses window.location.search + `replaceUrl` (no useSearchParams) so a refresh doesn't reopen it,
   // matching the appointments page's deep-link pattern.
   useEffect(() => {
     const query = new URLSearchParams(window.location.search)
@@ -1391,7 +1413,7 @@ export default function PatientDetailsPage() {
       setReviewAppointmentId(query.get("appointmentId"))
       setEditingRecord(null)
       setRecordModalOpen(true)
-      window.history.replaceState({}, "", `/patients/${patientId}`)
+      replaceUrl(`/patients/${patientId}`)
     }
   }, [patientId])
 
@@ -1414,6 +1436,22 @@ export default function PatientDetailsPage() {
   // Deep-link from « Corriger cette note » on /factures (?editRecord=<ficheId>): open that fiche's editor, which
   // is the only door where the correction is expressible — the price is changed on the acts, and the note follows.
   // Two steps because the modal edits the record itself, and the fiches arrive with the page's phase-2 batch.
+  /*
+   * `?editPatient=1` — the patient's own form, opened once the patient is loaded. A form carried across a switch of
+   * server (`clinic-pc-copy` AC-3.2) comes back through this door and refills itself.
+   */
+  const [pendingEditPatient, setPendingEditPatient] = useState(false)
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("editPatient") === "1") setPendingEditPatient(true)
+  }, [patientId])
+  useEffect(() => {
+    if (!pendingEditPatient || !patient) return
+    setPendingEditPatient(false)
+    replaceUrl(`/patients/${patientId}`)
+    setEditSection(null)
+    setEditDialogOpen(true)
+  }, [pendingEditPatient, patient, patientId])
+
   const [pendingEditRecordId, setPendingEditRecordId] = useState<string | null>(null)
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("editRecord")
@@ -1444,7 +1482,7 @@ export default function PatientDetailsPage() {
     // ⚠️ Dropped HERE, not when the param was read: `router.push` rewrites the URL *after* the destination
     // page's effects run, so a `replaceState` on mount is silently overwritten and the param survives — which
     // reopens the editor on every refresh. By now the navigation has settled.
-    window.history.replaceState({}, "", `/patients/${patientId}?tab=medical-records`)
+    replaceUrl(`/patients/${patientId}?tab=medical-records`)
     // Cleared either way: a fiche deleted between the two screens must not leave the link armed for ever, and
     // silence would read as « the button does nothing ».
     if (!record) {
@@ -1479,7 +1517,7 @@ export default function PatientDetailsPage() {
     if (!pendingCollectId || billingSummary === null || detailsLoading) return
     const line = billingSummary.lines.find((l) => l.documentId === pendingCollectId)
     setPendingCollectId(null)
-    window.history.replaceState({}, "", `/patients/${patientId}?tab=${PATIENT_OUTSTANDING_TAB}`)
+    replaceUrl(`/patients/${patientId}?tab=${PATIENT_OUTSTANDING_TAB}`)
     // ⚠️ Instant, not smooth — see `openOutstandingSection`: the payment dialog opened below would cancel an
     // animation still in flight.
     openOutstandingSection("auto")
@@ -1541,7 +1579,8 @@ export default function PatientDetailsPage() {
       }
     }
     loadFilesForFolder()
-  }, [patientId, currentFolderId])
+    // `refreshKey`: a `files` broadcast and « Réessayer » both bump it, and used to reload the folders but not the list.
+  }, [patientId, currentFolderId, refreshKey])
 
   /**
    * Re-read after a save, via the page's single loader.
@@ -2334,6 +2373,13 @@ procedureTypeId: it.procedureTypeId ?? null,
           recordsFailed={sectionFailed("dentalRecords")}
           onRetryRecords={retrySections}
           onEdit={() => setEditDialogOpen(true)}
+          onEditRecord={(recordId) => {
+            const record = dentalRecords.find((r) => r.id === recordId)
+            if (!record) return
+            setEditingRecord(record)
+            setRecordFocusNotes(true)
+            setRecordModalOpen(true)
+          }}
         />
 
         {/* An archived patient is hidden from every list and search but still reachable by direct URL —
@@ -2596,7 +2642,10 @@ procedureTypeId: it.procedureTypeId ?? null,
                          * 1 500 DT outstanding — and on a six-visit implant most séances collect nothing.
                          */
                         const onTreatment = !invoiced && record.treatmentPlanId != null
-                        const reste = Math.max(0, record.balance ?? record.cost - record.amountPaid)
+                        const note = noteFiguresByRecordId.get(record.id)
+                        const reste = note
+                          ? note.outstanding
+                          : Math.max(0, record.balance ?? record.cost - record.amountPaid)
                         // ⚠️ Tested here, not by letting the component return null: `CardList` drops a field on an
                         // empty *value*, and a React element is never empty — the row would keep an « NOTES »
                         // label over nothing.
@@ -2616,7 +2665,8 @@ procedureTypeId: it.procedureTypeId ?? null,
                             label: "Payé",
                             value: invoiced ? (
                               <BilledAmount
-                                amount={record.amountPaid}
+                                amount={note ? note.collected : record.amountPaid}
+                                fromNote={note != null}
                                 invoiceNumber={invoicingNumberByRecordId.get(record.id)}
                               />
                             ) : onTreatment ? (
@@ -2631,7 +2681,8 @@ procedureTypeId: it.procedureTypeId ?? null,
                           },
                           {
                             label: "Reste à payer",
-                            value: onTreatment ? (
+                            // A note over several fiches (`note === null`) has no per-fiche reste either.
+                            value: onTreatment || note === null ? (
                               // ⚠️ A séance of a treatment has no « reste » of its OWN — the act is priced once
                               // and what remains is the treatment’s, not this visit’s. Printing 0,000 here read
                               // as « rien à payer » beside a patient owing 500 on the devis; repeating the
@@ -2764,7 +2815,8 @@ procedureTypeId: it.procedureTypeId ?? null,
                             <TableCell>
                               {invoicedDentalRecordIds.has(record.id) ? (
                                 <BilledAmount
-                                  amount={record.amountPaid}
+                                  amount={noteFiguresByRecordId.get(record.id)?.collected ?? record.amountPaid}
+                                  fromNote={noteFiguresByRecordId.get(record.id) != null}
                                   invoiceNumber={invoicingNumberByRecordId.get(record.id)}
                                 />
                               ) : record.treatmentPlanId != null ? (
@@ -2783,12 +2835,16 @@ procedureTypeId: it.procedureTypeId ?? null,
                                 three places the same row said it. */}
                             <TableCell>
                               {(() => {
-                                // A séance of a treatment has no reste of its own — see the card list above.
-                                if (!invoicedDentalRecordIds.has(record.id)
-                                    && record.treatmentPlanId != null) {
+                                // A séance of a treatment, or a fiche on a shared note, has no reste of its own —
+                                // see the card list above.
+                                const note = noteFiguresByRecordId.get(record.id)
+                                if ((!invoicedDentalRecordIds.has(record.id) && record.treatmentPlanId != null)
+                                    || note === null) {
                                   return <span className="text-muted-foreground">—</span>
                                 }
-                                const reste = Math.max(0, record.balance ?? (record.cost - record.amountPaid))
+                                const reste = note
+                                  ? note.outstanding
+                                  : Math.max(0, record.balance ?? (record.cost - record.amountPaid))
                                 return reste > 0
                                   // `--warning-ink` — same fix as the card list above.
                                   ? <span className="font-semibold text-warning-ink">{formatDT(reste)}</span>
@@ -3967,12 +4023,15 @@ procedureTypeId: it.procedureTypeId ?? null,
           if (!open) {
             setEditingRecord(null)
             setReviewAppointmentId(null)
+            setRecordFocusNotes(false)
           }
         }}
+        focusNotes={recordFocusNotes}
         patientName={patientName}
         patientId={patient.id}
         record={editingRecord}
         isInvoiced={editingRecord ? invoicedDentalRecordIds.has(editingRecord.id) : false}
+        billedNote={editingRecord ? noteFiguresByRecordId.get(editingRecord.id) : undefined}
         patient={patient}
         planItems={openPlanItems}
         appointmentId={editingRecord ? null : reviewAppointmentId}

@@ -21,6 +21,9 @@ public abstract class HttpPushSender
         _httpClientFactory = httpClientFactory;
     }
 
+    /// <summary>For a sender that must make a call of its own before the send — FCM's access-token exchange.</summary>
+    protected IHttpClientFactory HttpClientFactory => _httpClientFactory;
+
     /// <summary>
     /// Does this refusal mean « this device is gone » rather than « try again later »? FCM answers
     /// <c>UNREGISTERED</c>, APNs <c>410 Gone</c> / <c>BadDeviceToken</c> — different enough that guessing one

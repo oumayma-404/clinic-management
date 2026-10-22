@@ -6,6 +6,12 @@ public interface IPdfGenerationService
 {
     Task<byte[]> GeneratePdfFromDocumentDataAsync(MedicalDocumentPdfData documentData, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Renders a medical document over letterhead bands held in memory — the preview of bands not saved yet. The
+    /// same renderer as the real documents, so what the cabinet approves is what prints.
+    /// </summary>
+    Task<byte[]> GeneratePdfWithLetterheadAsync(MedicalDocumentPdfData documentData, LetterheadImages letterhead, CancellationToken cancellationToken = default);
+
     /// <summary>Render a Tunisian note-d'honoraires (numbered invoice) to PDF — amounts in TND.</summary>
     Task<byte[]> GenerateInvoicePdfAsync(InvoicePdfData invoiceData, CancellationToken cancellationToken = default);
 

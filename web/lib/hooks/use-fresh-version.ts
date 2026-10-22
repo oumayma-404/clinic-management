@@ -34,6 +34,10 @@ export interface FreshVersion<T> {
  * with a reload. `edit-appointment-dialog` reads the appointment on open for this reason and was, until this
  * hook, the only form that did.</p>
  *
+ * <p>⚠️ The fiche de soins does NOT use this: its « Recharger » took the version alone and the next save wrote the
+ * screen over a colleague's fiche. It reconciles section by section instead — `components/record/fiche-merge.ts`,
+ * held by `check:responsive`'s N49.</p>
+ *
  * @param open   Whether the form is showing — the read happens on the transition into it.
  * @param key    The row's id. Drives the re-read, so `load` needs no memoisation.
  * @param snapshot The caller's own copy, used until the server answers and if the read fails.

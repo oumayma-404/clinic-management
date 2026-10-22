@@ -359,7 +359,8 @@ public class PushFanOutTests
                 NotificationCategory.AppointmentCancelled,
                 NotificationCategory.AppointmentRescheduled,
                 NotificationCategory.Reminder,
-                NotificationCategory.PostVisitReview
+                NotificationCategory.PostVisitReview,
+                NotificationCategory.StaffChatMessage
             },
             pushing);
     }

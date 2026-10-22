@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { Button } from "@/components/ui/button"
@@ -37,10 +37,13 @@ import { refusalFor } from "@/lib/api/upload-policy"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import Image from "next/image"
 import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
+import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
 import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { MoneyDiscreetCard } from "@/components/money-discreet-card"
+import { RelayCard } from "@/components/relay/relay-card"
+import { LetterheadCard } from "@/components/letterhead/letterhead-card"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import Link from "next/link"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
@@ -206,15 +209,20 @@ export default function ClinicSettings() {
     }
   }
 
+  // A fresh read that also refreshes the tab's shared status, so the rail and the pickers see the same answer.
+  const fetchUserStatus = useFetchUserStatus()
+
   // Load clinic data on mount
   useEffect(() => {
     loadClinicData()
   }, [])
 
+  // The loader is for the FIRST read only: on a later one it unmounted every card and reopened them all closed.
+  const loadedOnce = useRef(false)
   const loadClinicData = async () => {
-    setIsLoading(true)
+    if (!loadedOnce.current) setIsLoading(true)
     try {
-      const status = await clinicsApi.getUserStatus()
+      const status = await fetchUserStatus()
       if (status.hasClinic && status.clinic) {
         const clinic = status.clinic
         setClinicVersion(clinic.version)
@@ -280,6 +288,7 @@ export default function ClinicSettings() {
     } catch (err: any) {
       toast.error("Échec du chargement des données du cabinet : " + (err.message || "Erreur inconnue"))
     } finally {
+      loadedOnce.current = true
       setIsLoading(false)
     }
   }
@@ -971,6 +980,8 @@ export default function ClinicSettings() {
           )}
         </Card>
 
+        <LetterheadCard chipClassName={CONFIG_CHIP} canEdit={isClinicAdmin} />
+
         {/* Doctors Card Collapsible */}
         <Card>
           <CardHeader className="pb-3">
@@ -1502,6 +1513,9 @@ export default function ClinicSettings() {
 
         {/* Admin-only backup card — Local mode only (US-8 / FR-G). */}
         {mode === "local" && user?.role === "admin" && <BackupSettings />}
+
+        {/* clinic-pc-copy: « PC de secours ». The card renders nothing where the deployment has none (its read 404s). */}
+        {isClinicAdmin && <RelayCard />}
 
         {/* OS notifications, per platform (Part 6, AC-51/AC-52). Not mode-gated: the card's whole job is to say
             whether this installation can push, and hiding it where it cannot would leave the owner of a

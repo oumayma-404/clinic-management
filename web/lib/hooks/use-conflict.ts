@@ -32,6 +32,11 @@ export interface ConflictState {
   clearMessage: () => void
   /** Clear everything, including the consecutive-conflict counter. Call when the dialog opens. */
   reset: () => void
+  /**
+   * A refusal the CLIENT declares, shown like a 409 so « Recharger » is offered — `clinic-pc-copy` AC-3.2's first save
+   * after the app switched server. The consecutive count is untouched: nothing was sent, nothing was refused twice.
+   */
+  raise: (message: string) => void
 }
 
 /**
@@ -86,5 +91,10 @@ export function useConflict(): ConflictState {
     setErrorState(null)
   }, [])
 
-  return { error, isConflict, capture, setError, clearMessage, reset }
+  const raise = useCallback((message: string) => {
+    setIsConflict(true)
+    setErrorState(message)
+  }, [])
+
+  return { error, isConflict, capture, setError, clearMessage, reset, raise }
 }

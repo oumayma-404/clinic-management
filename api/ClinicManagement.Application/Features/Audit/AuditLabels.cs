@@ -59,6 +59,7 @@ public static class AuditLabels
         nameof(DentalActCode) => "Acte dentaire (DCH)",
         nameof(Medication) => "Médicament",
         nameof(StaffNotification) => "Notification interne",
+        nameof(StaffQuickMessageList) => "Messages rapides",
         nameof(DocumentEmail) => "Envoi de document",
         // The child tables. They never appear in « Journal d'activité » — the interceptor writes one row per
         // aggregate root — but the archive's restore report is keyed on the same CLR names and is read by a

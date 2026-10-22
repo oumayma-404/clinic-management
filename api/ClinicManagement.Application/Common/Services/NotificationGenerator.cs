@@ -694,6 +694,47 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task SyncRelayAlertsAsync(
+        Guid clinicId, IReadOnlyList<Features.Relay.RelayAlertRow> wanted, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetRelayAlertsAsync(clinicId, cancellationToken);
+            var changed = false;
+
+            foreach (var row in existing)
+            {
+                var keep = wanted.FirstOrDefault(w => w.Alert == row.RelayAlert);
+                if (keep is null || existing.First(e => e.RelayAlert == row.RelayAlert).Id != row.Id)
+                {
+                    // Ended, or a duplicate of one kept: off the bell.
+                    await _notifications.RemoveAsync(row, cancellationToken);
+                    changed = true;
+                }
+                else if (row.Title != keep.Title || row.Message != keep.Message)
+                {
+                    row.Restate(keep.Title, keep.Message);
+                    changed = true;
+                }
+            }
+
+            foreach (var row in wanted.Where(w => existing.All(e => e.RelayAlert != w.Alert)))
+            {
+                await _notifications.AddAsync(
+                    StaffNotification.ForRelay(Guid.NewGuid(), clinicId, row.Alert, row.Title, row.Message, DateTime.UtcNow),
+                    cancellationToken);
+                changed = true;
+            }
+
+            if (changed)
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+
+            return changed;
+        }, cancellationToken);
+    }
+
     public async Task SecondFactorResetAsync(
         Guid clinicId,
         string targetUserId,

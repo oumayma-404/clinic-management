@@ -35,7 +35,7 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     public async Task<IReadOnlyList<StaffNotification>> GetRecentForUserAsync(
         Guid clinicId, string userId, DateTime nowUtc, int take, CancellationToken cancellationToken = default)
     {
-        return await VisibleQuery(clinicId, userId, nowUtc)
+        return await VisibleQuery(_context, clinicId, userId, nowUtc)
             .OrderByDescending(n => n.EffectiveFeedTime)
             .Take(take)
             .ToListAsync(cancellationToken);
@@ -44,30 +44,42 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     public async Task<IReadOnlyCollection<Guid>> GetVisibleIdsForUserAsync(
         Guid clinicId, string userId, DateTime nowUtc, CancellationToken cancellationToken = default)
     {
-        return await VisibleQuery(clinicId, userId, nowUtc)
+        return await VisibleQuery(_context, clinicId, userId, nowUtc)
             .Select(n => n.Id)
             .ToListAsync(cancellationToken);
     }
 
     /// <summary>
-    /// The single definition of « what this viewer's bell shows »: due, in this clinic, NOT actor-excluded (the
-    /// viewer never sees their own action's notification), targeted at everyone or at this viewer, and not
-    /// dismissed by them.
+    /// The single definition of « what this viewer's bell shows »: due, in this clinic, addressed to this viewer
+    /// (<see cref="AddressedTo"/>), and not a review of a visit that did not happen.
     ///
     /// <para>⚠️ Extracted so the list and « Tout effacer » cannot disagree about what is on screen. A second
     /// hand-written copy of this predicate is how « effacer tout » leaves rows behind — the failure is silent,
-    /// since both halves look right in isolation.</para>
+    /// since both halves look right in isolation. Public and static so <c>StaffNotificationAudienceSqlTests</c>
+    /// compiles the very expression that ships.</para>
     /// </summary>
-    private IQueryable<StaffNotification> VisibleQuery(Guid clinicId, string userId, DateTime nowUtc)
+    public static IQueryable<StaffNotification> VisibleQuery(
+        ApplicationDbContext db, Guid clinicId, string userId, DateTime nowUtc)
     {
-        return _context.StaffNotifications
-            .Where(n => n.ClinicId == clinicId
-                        && n.EffectiveFeedTime <= nowUtc
-                        && (n.ActorUserId == null || n.ActorUserId != userId)
-                        && (n.TargetUserId == null || n.TargetUserId == userId)
-                        && !_context.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId))
-            .Where(NotAReviewOfAVisitThatDidNotHappen());
+        return db.StaffNotifications
+            .Where(n => n.ClinicId == clinicId && n.EffectiveFeedTime <= nowUtc)
+            .Where(AddressedTo(db, userId))
+            .Where(NotAReviewOfAVisitThatDidNotHappen(db));
     }
+
+    /// <summary>
+    /// Who a row is for, read by BOTH the list and the unread count: not the viewer's own action, aimed at everyone
+    /// or at this viewer, at everyone or at this viewer's <b>role</b>, and not dismissed by them.
+    ///
+    /// <para>⚠️ The role is read from the viewer's account at display time (<c>clinic-pc-copy</c> D9), never from the
+    /// token: an admin demoted this morning stops seeing admin rows on the next refresh.</para>
+    /// </summary>
+    public static System.Linq.Expressions.Expression<Func<StaffNotification, bool>> AddressedTo(
+        ApplicationDbContext db, string userId) =>
+        n => (n.ActorUserId == null || n.ActorUserId != userId)
+             && (n.TargetUserId == null || n.TargetUserId == userId)
+             && (n.TargetRole == null || db.Users.Any(u => u.Id == userId && u.Role == n.TargetRole))
+             && !db.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId);
 
     /// <summary>
     /// Hides a post-visit review whose séance was supprimée (« créé par erreur »), annulée or marked absent.
@@ -80,10 +92,11 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     /// <para>Phrased as « no such dead appointment exists » so an unscoped read fails open (shows the review)
     /// instead of hiding them all.</para>
     /// </summary>
-    private System.Linq.Expressions.Expression<Func<StaffNotification, bool>> NotAReviewOfAVisitThatDidNotHappen() =>
+    private static System.Linq.Expressions.Expression<Func<StaffNotification, bool>> NotAReviewOfAVisitThatDidNotHappen(
+        ApplicationDbContext db) =>
         n => n.Category != NotificationCategory.PostVisitReview
              || n.AppointmentId == null
-             || !_context.Appointments.Any(a => a.Id == n.AppointmentId
+             || !db.Appointments.Any(a => a.Id == n.AppointmentId
                                                 && (a.DisregardedAtUtc != null
                                                     || a.Status == AppointmentStatus.Cancelled
                                                     || a.Status == AppointmentStatus.NoShow));
@@ -91,21 +104,21 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     public async Task<int> CountUnreadAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
     {
-        return await UnreadQuery(clinicId, userId, userCreatedAtUtc, nowUtc)
+        return await UnreadQuery(_context, clinicId, userId, userCreatedAtUtc, nowUtc)
             .CountAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<StaffNotification>> GetUnreadForUserAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
     {
-        return await UnreadQuery(clinicId, userId, userCreatedAtUtc, nowUtc)
+        return await UnreadQuery(_context, clinicId, userId, userCreatedAtUtc, nowUtc)
             .ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyCollection<Guid>> GetUnreadIdsForUserAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
     {
-        return await UnreadQuery(clinicId, userId, userCreatedAtUtc, nowUtc)
+        return await UnreadQuery(_context, clinicId, userId, userCreatedAtUtc, nowUtc)
             .Select(n => n.Id)
             .ToListAsync(cancellationToken);
     }
@@ -114,21 +127,21 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     // everyone or this viewer, effective at/after the viewer's join time (late-joiner baseline), not dismissed
     // by them, and with no read marker.
     //
-    // ⚠️ The dismissal clause is load-bearing rather than tidy: this predicate drives the bell's BADGE and the
-    // post-visit popup's queue. Without it, clearing the bell would leave the badge counting rows the reader
-    // can no longer reach — an unread count with nothing behind it — and the popup would go on prompting for a
-    // review whose row the same person had just cleared.
-    private IQueryable<StaffNotification> UnreadQuery(Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc)
+    // ⚠️ The dismissal clause (inside AddressedTo) is load-bearing rather than tidy: this predicate drives the bell's
+    // BADGE and the post-visit popup's queue. Without it, clearing the bell would leave the badge counting rows the
+    // reader can no longer reach — an unread count with nothing behind it — and the popup would go on prompting for
+    // a review whose row the same person had just cleared. The same is true of the role clause: a secretary's badge
+    // must not count an admin row she cannot open.
+    public static IQueryable<StaffNotification> UnreadQuery(
+        ApplicationDbContext db, Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc)
     {
-        return _context.StaffNotifications
+        return db.StaffNotifications
             .Where(n => n.ClinicId == clinicId
                         && n.EffectiveFeedTime <= nowUtc
                         && n.EffectiveFeedTime >= userCreatedAtUtc
-                        && (n.ActorUserId == null || n.ActorUserId != userId)
-                        && (n.TargetUserId == null || n.TargetUserId == userId)
-                        && !_context.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId)
-                        && !_context.NotificationReads.Any(r => r.NotificationId == n.Id && r.UserId == userId))
-            .Where(NotAReviewOfAVisitThatDidNotHappen());
+                        && !db.NotificationReads.Any(r => r.NotificationId == n.Id && r.UserId == userId))
+            .Where(AddressedTo(db, userId))
+            .Where(NotAReviewOfAVisitThatDidNotHappen(db));
     }
 
     public async Task<IReadOnlyCollection<Guid>> GetReadNotificationIdsAsync(
@@ -288,9 +301,29 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     public async Task<IReadOnlyList<StaffNotification>> GetPendingReviewsForUserAsync(
         Guid clinicId, string userId, DateTime userCreatedAtUtc, DateTime nowUtc, CancellationToken cancellationToken = default)
     {
-        return await UnreadQuery(clinicId, userId, userCreatedAtUtc, nowUtc)
+        return await UnreadQuery(_context, clinicId, userId, userCreatedAtUtc, nowUtc)
             .Where(n => n.Category == NotificationCategory.PostVisitReview)
             .OrderByDescending(n => n.EffectiveFeedTime)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<StaffNotification>> GetRelayAlertsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters for its siblings' reason: the watcher runs UseSystemWide. The clinicId is the check.
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .Where(n => n.ClinicId == clinicId && n.Category == NotificationCategory.RelayAttention)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetClinicIdsWithRelayAlertsAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .Where(n => n.Category == NotificationCategory.RelayAttention)
+            .Select(n => n.ClinicId)
+            .Distinct()
             .ToListAsync(cancellationToken);
     }
 
