@@ -368,6 +368,21 @@ public class ClinicsController : ApiControllerBase
     }
 
     /// <summary>
+    /// Renders a draft reminder wording for the editor — the text a sample patient would receive and the count the
+    /// save checks against one SMS. A POST because the draft is a body, not a query string; it writes nothing.
+    /// </summary>
+    [HttpPost("reminder-settings/preview")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> PreviewReminderText(
+        [FromBody] PreviewReminderTextRequest request, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new PreviewReminderTextQuery { Template = request.Template }, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
     /// Get the recent reminder outbox rows for the current clinic with their delivery status (admin-only,
     /// AC-3) — so a failed reminder is noticed instead of vanishing. Recipient phone is masked.
     /// </summary>

@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
@@ -95,8 +96,8 @@ public class ReminderScheduler : IReminderScheduler
         {
             // Gate at ENQUEUE, not at dispatch. A patient with no deliverable phone can never receive this,
             // so queuing it only fills the outbox with rows that fail hours later for a reason nobody acts on.
-            var reachability = await ReachabilityOfAsync(patientId, cancellationToken);
-            if (reachability == PatientReachability.ConsentRefused)
+            var reach = await ReachabilityOfAsync(patientId, cancellationToken);
+            if (reach.State == PatientReachability.ConsentRefused)
             {
                 _logger.LogInformation(
                     "Skipped a recall for patient {PatientId}: the patient refused automated reminders.",
@@ -104,7 +105,7 @@ public class ReminderScheduler : IReminderScheduler
                 return RecallDispatchOutcome.ReminderConsentRefused;
             }
 
-            if (reachability == PatientReachability.NoDeliverablePhone)
+            if (reach.State == PatientReachability.NoDeliverablePhone)
             {
                 _logger.LogInformation(
                     "Skipped a recall for patient {PatientId}: no deliverable phone number.", patientId);
@@ -120,13 +121,22 @@ public class ReminderScheduler : IReminderScheduler
             // suppression AC-P3.2 exists to remove, and « Rappel envoyé … when no channel is configured » is
             // the audit's own wording. `SmsConfigured`/`WhatsAppConfigured` are the senders' own sendability
             // predicate, so this cannot disagree with what the dispatcher will do.
-            var sendable = settings.EnabledChannels.Where(c => IsSendable(c, settings)).ToList();
-            if (sendable.Count == 0)
+            var configured = settings.EnabledChannels.Where(c => IsSendable(c, settings)).ToList();
+            if (configured.Count == 0)
             {
                 _logger.LogInformation(
                     "Skipped a recall for patient {PatientId}: clinic {ClinicId} has no sendable reminder channel.",
                     patientId, clinicId);
                 return RecallDispatchOutcome.NoChannelConfigured;
+            }
+
+            // An SMS goes to a Tunisian mobile only, so a channel can be configured and still reach nobody here.
+            var sendable = configured.Where(c => Reaches(reach.Patient!, c)).ToList();
+            if (sendable.Count == 0)
+            {
+                _logger.LogInformation(
+                    "Skipped a recall for patient {PatientId}: no number any configured channel can reach.", patientId);
+                return RecallDispatchOutcome.NoDeliverablePhone;
             }
 
             // US-5 — the forfait is checked at ENQUEUE for the recall path, unlike an appointment reminder.
@@ -136,22 +146,20 @@ public class ReminderScheduler : IReminderScheduler
             // is a gesture somebody just made, and the honest answer has to come back to their hand — which is what
             // AC-5.1 asks for and what stops the patient being snoozed 30 days with nothing sent (AC-5.2).
             //
-            // ⚠️ Refused ONLY when WhatsApp is the sole sendable channel (AC-5.3). With SMS also sendable the relance
-            // succeeds and both rows are queued: a channel being exhausted is not the same as having no channel, and
-            // the WhatsApp row is simply held at dispatch by the same gate.
-            if (sendable.Count == 1
-                && sendable[0] == NotificationType.WhatsApp
+            // ⚠️ SMS is paid out of the same forfait since sms-rappels-tunisie-sms, so a spent forfait leaves no channel
+            // that could carry the relance: refused whenever every sendable channel is metered (AC-5.3's « the SMS
+            // still goes » no longer holds).
+            if (sendable.All(OutboxMessagingGate.IsMetered)
                 && await IsMessagingAllowanceExhaustedAsync(clinicId, cancellationToken))
             {
                 _logger.LogInformation(
-                    "Refused a recall for patient {PatientId}: clinic {ClinicId}'s WhatsApp forfait is spent and "
-                    + "WhatsApp is its only sendable channel.",
+                    "Refused a recall for patient {PatientId}: clinic {ClinicId}'s reminder forfait is spent.",
                     patientId, clinicId);
                 return RecallDispatchOutcome.MessagingAllowanceExhausted;
             }
 
             var clinic = await _clinics.GetByIdAsync(clinicId, cancellationToken);
-            var message = BuildRecallMessage(patientName, reason, clinic?.Name ?? FallbackClinicName);
+            var message = ReminderText.Capped(BuildRecallMessage(patientName, reason, clinic?.Name ?? FallbackClinicName));
             var sendTime = DateTime.UtcNow; // due now → dispatched on the next connectivity-gated tick
 
             foreach (var channel in sendable)
@@ -180,14 +188,14 @@ public class ReminderScheduler : IReminderScheduler
         // Same enqueue-time gate as the recall path, through the same method: no consent or no deliverable
         // phone, no row. This path has no outcome to return — it is called while an appointment is being
         // saved — so the distinction lives only in the log line.
-        var reachability = await ReachabilityOfAsync(patientId, cancellationToken);
-        if (reachability != PatientReachability.Reachable)
+        var reach = await ReachabilityOfAsync(patientId, cancellationToken);
+        if (reach.State != PatientReachability.Reachable)
         {
             _logger.LogInformation(
                 "Skipped reminders for appointment {AppointmentId}: patient {PatientId} is {Reason}.",
                 appointmentId,
                 patientId,
-                reachability == PatientReachability.ConsentRefused
+                reach.State == PatientReachability.ConsentRefused
                     ? "opted out of automated reminders"
                     : "without a deliverable phone number");
             return;
@@ -202,12 +210,16 @@ public class ReminderScheduler : IReminderScheduler
         // deliberately-not-a-failure, so it used to sit Pending at the front of the due scan for ever. Not
         // creating it is strictly better than creating one that has to be parked. (A channel configured *after*
         // this point is why `Notification.Unblock()` exists for the rows that do get parked.)
-        var sendable = settings.EnabledChannels.Where(c => IsSendable(c, settings)).ToList();
+        // A channel configured but unable to reach THIS patient (an SMS to a landline or a foreign number) is left
+        // out here, so it never becomes a row that fails at dispatch.
+        var sendable = settings.EnabledChannels
+            .Where(c => IsSendable(c, settings) && Reaches(reach.Patient!, c))
+            .ToList();
         if (sendable.Count == 0)
         {
             _logger.LogInformation(
-                "Skipped reminders for appointment {AppointmentId}: clinic {ClinicId} has no sendable reminder channel.",
-                appointmentId, clinicId);
+                "Skipped reminders for appointment {AppointmentId}: no sendable reminder channel reaches patient {PatientId}.",
+                appointmentId, patientId);
             return;
         }
 
@@ -233,8 +245,16 @@ public class ReminderScheduler : IReminderScheduler
             .Select(n => (n.Type, n.ScheduledFor))
             .ToHashSet();
 
+        // A preview only: the dispatcher renders the text again at send time from the live appointment (its acts,
+        // its moment, the cabinet's current wording) and records what it sent.
         var clinic = await _clinics.GetByIdAsync(clinicId, cancellationToken);
-        var message = BuildMessage(patientName, appointmentUtc, clinic?.Name ?? FallbackClinicName, settings.MessageTemplateBody);
+        var message = ReminderText.Render(new ReminderTextInput(
+            settings.MessageTemplateBody,
+            reach.Patient!.FirstName,
+            reach.Patient.LastName,
+            appointmentUtc,
+            [],
+            clinic?.Name ?? FallbackClinicName)).Text;
 
         foreach (var channel in sendable)
         {
@@ -247,7 +267,8 @@ public class ReminderScheduler : IReminderScheduler
 
                 var reminder = new Notification(
                     Guid.NewGuid(), channel, ReminderSubject, message, tier.SendAtUtc,
-                    appointmentId: appointmentId, patientId: patientId, clinicId: clinicId);
+                    appointmentId: appointmentId, patientId: patientId, clinicId: clinicId,
+                    appointmentMomentUtc: appointmentUtc);
                 await _notifications.AddAsync(reminder, cancellationToken);
             }
         }
@@ -264,11 +285,19 @@ public class ReminderScheduler : IReminderScheduler
     /// whole install. The « configured in the meantime » case is preserved by <c>Notification.Unblock()</c>
     /// instead, which recovers the rows already in the table.</para>
     /// </summary>
-    private static bool IsSendable(NotificationType channel, ResolvedReminderSettings settings) => channel switch
+    private static bool IsSendable(NotificationType channel, ResolvedReminderSettings settings) =>
+        settings.CanSend(channel);
+
+    /// <summary>
+    /// Has this patient a number the channel can reach? An SMS goes to a Tunisian mobile only (the gateway is
+    /// contracted for Tunisia, and a landline receives no SMS); WhatsApp reaches any number on file. The dispatcher
+    /// asks the same two members, so enqueue and send cannot disagree.
+    /// </summary>
+    private static bool Reaches(Patient patient, NotificationType channel) => channel switch
     {
-        NotificationType.SMS => settings.SmsConfigured,
-        NotificationType.WhatsApp => settings.WhatsAppConfigured,
-        _ => false, // Email/Both have no sender at all
+        NotificationType.SMS => patient.SmsNumberE164() != null,
+        NotificationType.WhatsApp => patient.PhoneNumber?.E164 != null,
+        _ => false,
     };
 
     /// <summary>
@@ -277,7 +306,7 @@ public class ReminderScheduler : IReminderScheduler
     /// missing is treated as unreachable rather than throwing: this whole class is best-effort.
     /// </summary>
     private async Task<bool> HasDeliverablePhoneAsync(Guid patientId, CancellationToken cancellationToken)
-        => await ReachabilityOfAsync(patientId, cancellationToken) == PatientReachability.Reachable;
+        => (await ReachabilityOfAsync(patientId, cancellationToken)).State == PatientReachability.Reachable;
 
     /// <summary>
     /// Why can — or cannot — this patient be sent an automated message? <b>One read, one answer, consulted by
@@ -292,14 +321,14 @@ public class ReminderScheduler : IReminderScheduler
     /// <para>A patient that has gone missing reads as unreachable rather than throwing — this whole class is
     /// best-effort — and a missing patient is also, correctly, not someone to message.</para>
     /// </summary>
-    private async Task<PatientReachability> ReachabilityOfAsync(
+    private async Task<PatientReach> ReachabilityOfAsync(
         Guid patientId, CancellationToken cancellationToken)
     {
         var patient = await _patients.GetByIdAsync(patientId, cancellationToken);
 
         if (patient is null)
         {
-            return PatientReachability.NoDeliverablePhone;
+            return new PatientReach(PatientReachability.NoDeliverablePhone, null);
         }
 
         // ⚠️ Consent is asked FIRST, and the order is the point. A refusal is a standing instruction about the
@@ -308,14 +337,17 @@ public class ReminderScheduler : IReminderScheduler
         // the action that would re-enrol them under the old behaviour.
         if (!patient.AcceptsReminders)
         {
-            return PatientReachability.ConsentRefused;
+            return new PatientReach(PatientReachability.ConsentRefused, patient);
         }
 
-        // `E164` is the stored normalisation; re-deriving here read every foreign number as unreachable.
-        return patient.PhoneNumber?.E164 != null
-            ? PatientReachability.Reachable
-            : PatientReachability.NoDeliverablePhone;
+        // `E164` is the stored normalisation; re-deriving here read every foreign number as unreachable. Which channel
+        // reaches it is asked per channel by `Reaches`; this answers « is there any number at all ».
+        return patient.PhoneNumber?.E164 != null || patient.SmsNumberE164() != null
+            ? new PatientReach(PatientReachability.Reachable, patient)
+            : new PatientReach(PatientReachability.NoDeliverablePhone, patient);
     }
+
+    private sealed record PatientReach(PatientReachability State, Patient? Patient);
 
     private enum PatientReachability
     {
@@ -401,27 +433,6 @@ public class ReminderScheduler : IReminderScheduler
         var motif = string.IsNullOrWhiteSpace(reason) ? "un contrôle" : reason.Trim();
         return $"Bonjour {patientName}, il est temps de programmer {motif} chez {clinicName}. Contactez-nous pour un rendez-vous.";
     }
-
-    // Uses the clinic's custom wording when set (with {patient}/{date}/{clinic} placeholders), else the
-    // built-in French default.
-    private static string BuildMessage(string patientName, DateTime appointmentUtc, string clinicName, string? template)
-    {
-        var when = FormatFr(appointmentUtc);
-        if (!string.IsNullOrWhiteSpace(template))
-        {
-            return template
-                .Replace("{patient}", patientName)
-                .Replace("{date}", when)
-                .Replace("{clinic}", clinicName);
-        }
-
-        return $"Rappel : {patientName}, vous avez un rendez-vous le {when} chez {clinicName}.";
-    }
-
-    // One formatter, shared with the dispatcher's staleness check (ReminderMessage): the check compares the
-    // body's stated moment against the appointment's current one, so a second copy of this format string here
-    // would make every reminder read as stale.
-    private static string FormatFr(DateTime utc) => ReminderMessage.FormatAppointmentMoment(utc);
 
     private static DateTime NormalizeUtc(DateTime dateTime) => dateTime.Kind switch
     {

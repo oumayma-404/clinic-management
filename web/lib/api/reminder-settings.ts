@@ -54,6 +54,33 @@ export interface ReminderSettingsDto {
    * « Rappels » owns the connection instead.
    */
   whatsAppVendorManaged: boolean
+  /**
+   * The SMS twin: the gateway is the vendor's own account here, so the cabinet only switches SMS on — the gateway
+   * fields are absent from the form and the server refuses them (`messaging_sms_is_vendor_managed`).
+   */
+  smsVendorManaged: boolean;
+  /** One SMS. Served so the editor restates no number. */
+  smsMaxLength: number;
+  /** The send times a cabinet may pick between, in hours before the appointment. */
+  allowedLeadTimeHours: number[];
+  /** How many of `allowedLeadTimeHours` may be chosen at once. */
+  maxLeadTimes: number;
+  /** The variables the message may use, in the order the editor offers them. */
+  messageVariables: string[];
+  /** The wording sent while `messageTemplateBody` is empty. */
+  defaultMessageTemplate: string;
+}
+
+/** What the reminder editor shows while the doctor types — rendered by the same code that sends. */
+export interface ReminderPreviewDto {
+  /** The reminder a sample patient would receive. */
+  text: string;
+  /** The figure the save holds to `maxLength`: the doctor's text plus the room kept for the name and the acts. */
+  usedLength: number;
+  maxLength: number;
+  /** The save's own refusal for this wording, or null when it may be saved. */
+  refusal: string | null;
+  refusalCode: string | null;
 }
 
 /**
@@ -147,6 +174,12 @@ export interface ReminderLogDto {
    * was reported as « en attente de forfait » and the practice waited for something that was never coming.
    */
   heldBySender: number;
+  /**
+   * The channels that can send right now (`SMS`, `WhatsApp`) — switched on AND configured, resolved by the server.
+   * The empty log reads « nothing is active » from THIS, never from an empty page: inferring it from the log
+   * claimed « Ni SMS ni WhatsApp n'est configuré » the day a cabinet switched SMS on.
+   */
+  sendingChannels: string[];
 }
 
 /** Payload posted after a successful Meta Embedded-Signup run (Cloud onboarding). */
@@ -187,6 +220,38 @@ export interface UpdateReminderSettingsRequest {
   smtpFromName?: string | null;
 }
 
+/**
+ * The full non-secret request for `update`, from the settings as last read.
+ *
+ * ⚠️ The PUT **replaces** every field it is given, so each editor (the « Rappels SMS » card in « Paramètres », the
+ * channels sheet on « Rappels ») starts from this and overrides only its own fields — an editor that built its own
+ * body from scratch would wipe what the other one saved. Secrets are never sent from here (blank ⇒ unchanged), and
+ * the identity fields the vendor provides are sent as `null`, which the server keeps from what it stored.
+ * The `version` is deliberately not copied: each caller sends the one from its own read.
+ */
+export function updateRequestFrom(settings: ReminderSettingsDto): UpdateReminderSettingsRequest {
+  const sms = !settings.smsVendorManaged
+  const whatsApp = !settings.whatsAppVendorManaged
+  return {
+    smsEnabled: settings.smsEnabled,
+    whatsAppEnabled: settings.whatsAppEnabled,
+    smsSenderId: sms ? settings.smsSenderId : null,
+    smsApiUrl: sms ? settings.smsApiUrl : null,
+    whatsAppPhoneNumberId: whatsApp ? settings.whatsAppPhoneNumberId : null,
+    whatsAppTemplateName: whatsApp ? settings.whatsAppTemplateName : null,
+    whatsAppTemplateLanguage: whatsApp ? settings.whatsAppTemplateLanguage : null,
+    whatsAppApiUrl: whatsApp ? settings.whatsAppApiUrl : null,
+    leadTimeHours: settings.leadTimeHours,
+    messageTemplateBody: settings.messageTemplateBody,
+    smtpHost: settings.smtpHost,
+    smtpPort: settings.smtpPort,
+    smtpUseTls: settings.smtpUseTls,
+    smtpUsername: settings.smtpUsername,
+    smtpFromAddress: settings.smtpFromAddress,
+    smtpFromName: settings.smtpFromName,
+  }
+}
+
 interface Result<T> {
   isSuccess: boolean;
   value: T | null;
@@ -209,6 +274,10 @@ export const reminderSettingsApi = {
     }
     return result.value;
   },
+
+  /** Renders a draft wording for the editor: the sample text and the count the save checks. Writes nothing. */
+  preview: async (template: string | null): Promise<ReminderPreviewDto> =>
+    apiPost<ReminderPreviewDto>('/clinics/reminder-settings/preview', { template }),
 
   // Cloud-only WhatsApp Embedded Signup. connect posts the SDK result; disconnect clears the connection.
   // A backend failure surfaces as an ApiError (thrown by the client) carrying the French message.

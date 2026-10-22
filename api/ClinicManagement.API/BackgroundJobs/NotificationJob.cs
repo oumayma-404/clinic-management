@@ -50,6 +50,7 @@ public class NotificationJob
     private readonly IVendorMessagingAvailability _messagingAvailability;
     private readonly IMessagingAllowanceRepository _allowances;
     private readonly IClinicReminderSettingsRepository _reminderSettings;
+    private readonly IClinicRepository _clinics;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly IClinicWriteFence _fence;
@@ -70,6 +71,7 @@ public class NotificationJob
         IVendorMessagingAvailability messagingAvailability,
         IMessagingAllowanceRepository allowances,
         IClinicReminderSettingsRepository reminderSettings,
+        IClinicRepository clinics,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
         IClinicWriteFence fence,
@@ -90,6 +92,7 @@ public class NotificationJob
         _messagingAvailability = messagingAvailability;
         _allowances = allowances;
         _reminderSettings = reminderSettings;
+        _clinics = clinics;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
         _logger = logger;
@@ -314,12 +317,8 @@ public class NotificationJob
     /// same single source of truth the senders, the enqueue gate and the admin effective-status badge use, so
     /// « why is this row blocked? » and « why will it not send? » can never be different answers.
     /// </summary>
-    private static bool IsSendable(NotificationType channel, ResolvedReminderSettings settings) => channel switch
-    {
-        NotificationType.SMS => settings.SmsConfigured,
-        NotificationType.WhatsApp => settings.WhatsAppConfigured,
-        _ => false,
-    };
+    private static bool IsSendable(NotificationType channel, ResolvedReminderSettings settings) =>
+        settings.CanSend(channel);
 
     /// <summary>
     /// AC-P4.32 — drops terminal rows past the retention window. This table had <b>no</b> purge of any kind, so
@@ -381,9 +380,10 @@ public class NotificationJob
         // AC-4: never send a reminder for an appointment that is no longer active at send time. The cancel/
         // no-show path voids reminders (ReminderScheduler.VoidForAppointmentAsync); this re-check is a safety
         // net for a void failure or a cancel-vs-tick race — drop the row terminally so it is not re-sent.
+        Appointment? appointment = null;
         if (notification.AppointmentId.HasValue)
         {
-            var appointment = await _appointmentRepository.GetByIdAsync(notification.AppointmentId.Value);
+            appointment = await _appointmentRepository.GetByIdAsync(notification.AppointmentId.Value);
             if (appointment == null
                 || appointment.Status == AppointmentStatus.Cancelled
                 || appointment.Status == AppointmentStatus.NoShow)
@@ -399,7 +399,14 @@ public class NotificationJob
             // This is the backstop that makes every *future* write-path omission harmless. It is not a
             // substitute for the write paths themselves — those void and re-enqueue, so the patient still gets a
             // reminder — which is why this outcome is a recorded failure and not a silent drop.
-            if (ReminderMessage.AnnouncesStaleMoment(notification.Message, appointment.AppointmentDateTime))
+            //
+            // A row queued since sms-rappels-tunisie-sms records the moment it was for, and its text is rendered below
+            // from the live appointment — so « moved » is a comparison of two instants, not a parse of the body. A row
+            // queued before carries a frozen body and keeps the body check.
+            var moved = notification.AppointmentMomentUtc is { } queuedFor
+                ? Math.Abs((queuedFor - appointment.AppointmentDateTime).TotalSeconds) >= 1
+                : ReminderMessage.AnnouncesStaleMoment(notification.Message, appointment.AppointmentDateTime);
+            if (moved)
             {
                 await FailAsync(notification, "Rendez-vous déplacé — rappel obsolète, non envoyé");
                 await SurfaceStaleAsync(notification, appointment.AppointmentDateTime);
@@ -440,12 +447,24 @@ public class NotificationJob
             return;
         }
 
-        // The stored normalisation — a foreign number reached nobody while this re-derived against Tunisia.
-        var phone = patient.PhoneNumber?.E164;
+        // Consent asked again at SEND time: a refusal recorded after the row was queued must stop it. Not surfaced —
+        // this is the patient's standing instruction being honoured, not a failure anybody has to act on.
+        if (!patient.AcceptsReminders)
+        {
+            await FailAsync(notification, "Le patient refuse les rappels automatiques — rappel non envoyé");
+            return;
+        }
+
+        // The stored normalisation — a foreign number reached nobody while this re-derived against Tunisia. An SMS
+        // goes to a Tunisian mobile only (the primary, else an extra number), the same rule the scheduler applied.
+        var phone = notification.Type == NotificationType.SMS ? patient.SmsNumberE164() : patient.PhoneNumber?.E164;
         if (phone == null)
         {
-            await FailAsync(notification, "Numéro de téléphone invalide");
-            await SurfaceFailureAsync(notification, patient.GetFullName(), "Numéro de téléphone invalide");
+            var reason = notification.Type == NotificationType.SMS
+                ? "Aucun numéro mobile tunisien pour ce patient"
+                : "Numéro de téléphone invalide";
+            await FailAsync(notification, reason);
+            await SurfaceFailureAsync(notification, patient.GetFullName(), reason);
             return;
         }
 
@@ -500,7 +519,18 @@ public class NotificationJob
             return;
         }
 
-        var result = await sender.SendAsync(phone, notification.Message, settings);
+        // The text is written NOW, from the live appointment, patient and the cabinet's current wording, and recorded
+        // on the row so it says what the patient received. A recall (no appointment) and a legacy row keep the body
+        // they were queued with.
+        if (appointment is not null && notification.AppointmentMomentUtc is not null)
+        {
+            notification.RecordRenderedMessage(await RenderAsync(appointment, patient, settings));
+        }
+
+        var outgoing = notification.Type == NotificationType.WhatsApp
+            ? ReminderText.ForWhatsApp(notification.Message)
+            : notification.Message;
+        var result = await sender.SendAsync(phone, outgoing, settings);
         switch (result.Outcome)
         {
             case ReminderSendOutcome.Sent:
@@ -608,6 +638,26 @@ public class NotificationJob
         }
     }
 
+    /// <summary>Renders a reminder from the live appointment — the clinic's name is cached for the tick.</summary>
+    private async Task<string> RenderAsync(Appointment appointment, Patient patient, ResolvedReminderSettings settings)
+    {
+        if (!_clinicNames.TryGetValue(appointment.ClinicId, out var clinicName))
+        {
+            clinicName = (await _clinics.GetByIdAsync(appointment.ClinicId))?.Name ?? "votre cabinet";
+            _clinicNames[appointment.ClinicId] = clinicName;
+        }
+
+        return ReminderText.Render(new ReminderTextInput(
+            settings.MessageTemplateBody,
+            patient.FirstName,
+            patient.LastName,
+            appointment.AppointmentDateTime,
+            appointment.BookedActNames(),
+            clinicName)).Text;
+    }
+
+    private readonly Dictionary<Guid, string> _clinicNames = new();
+
     /// <summary>
     /// Step 19, FR-6 — announces every 80/95/100 % threshold this send has just crossed, one genuinely new unread row
     /// each (AC-3.1, AC-3.2).
@@ -668,7 +718,7 @@ public class NotificationJob
         Dictionary<Guid, ClinicMessagingMonth?> cache)
     {
         if (!_messagingAvailability.SellsVendorMessaging
-            || notification.Type != NotificationType.WhatsApp
+            || !OutboxMessagingGate.IsMetered(notification.Type)
             || notification.ClinicId is not { } clinicId)
         {
             return null;

@@ -32,9 +32,10 @@ public class ReminderChannelSenderTests
     [Fact]
     public async Task Sms_Is_NotConfigured_When_Gateway_Is_Missing()
     {
-        var sender = new HttpSmsSender(
+        var sender = new TunisieSmsSender(
             Factory(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK))),
-            NullLogger<HttpSmsSender>.Instance);
+            new SmsProviderBreaker(),
+            NullLogger<TunisieSmsSender>.Instance);
 
         var result = await sender.SendAsync(
             "+21620123456", "Rappel", new ResolvedReminderSettings { EnabledChannels = NoChannels });
@@ -53,7 +54,7 @@ public class ReminderChannelSenderTests
             body = ReadBody(req);
             return new HttpResponseMessage(HttpStatusCode.OK);
         });
-        var sender = new HttpSmsSender(Factory(handler), NullLogger<HttpSmsSender>.Instance);
+        var sender = new TunisieSmsSender(Factory(handler), new SmsProviderBreaker(), NullLogger<TunisieSmsSender>.Instance);
 
         var result = await sender.SendAsync("+21620123456", "Rappel RDV", new ResolvedReminderSettings
         {
@@ -66,7 +67,8 @@ public class ReminderChannelSenderTests
         Assert.Equal(ReminderSendOutcome.Sent, result.Outcome);
         using var doc = JsonDocument.Parse(body!);
         Assert.Equal("MaClinique", doc.RootElement.GetProperty("sender").GetString());
-        Assert.Equal("+21620123456", doc.RootElement.GetProperty("to").GetString());
+        // Tunisie SMS takes the number without its « + » (provisional until the provider's API document).
+        Assert.Equal("21620123456", doc.RootElement.GetProperty("to").GetString());
         Assert.Equal("Rappel RDV", doc.RootElement.GetProperty("message").GetString());
         Assert.Contains("Bearer secret-key", captured!.Headers.GetValues("Authorization"));
     }
@@ -74,9 +76,10 @@ public class ReminderChannelSenderTests
     [Fact]
     public async Task Sms_Returns_Transient_On_Non_Success_Status()
     {
-        var sender = new HttpSmsSender(
+        var sender = new TunisieSmsSender(
             Factory(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError))),
-            NullLogger<HttpSmsSender>.Instance);
+            new SmsProviderBreaker(),
+            NullLogger<TunisieSmsSender>.Instance);
 
         var result = await sender.SendAsync("+21620123456", "Rappel", new ResolvedReminderSettings
         {

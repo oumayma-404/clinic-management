@@ -158,6 +158,34 @@ public class PhoneNumber : ValueObject
     public static bool IsDeliverable(string? raw, string? region = null) => ToE164(raw, region) != null;
 
     /// <summary>
+    /// True when <paramref name="e164"/> is a <b>Tunisian mobile</b> — the only numbers an SMS reminder goes to:
+    /// the vendor's gateway is contracted for Tunisia, and a landline cannot receive an SMS at all.
+    ///
+    /// <para>Takes the stored E.164 form (<see cref="E164"/>, <c>PatientPhone.E164</c>) rather than a typed one, so
+    /// the region a writer chose is already folded in. The numbering plan is the library's, never a prefix list
+    /// kept here.</para>
+    /// </summary>
+    public static bool IsTunisianMobile(string? e164)
+    {
+        if (string.IsNullOrWhiteSpace(e164))
+        {
+            return false;
+        }
+
+        try
+        {
+            var parsed = Util.Parse(e164, DefaultRegion);
+            return Util.IsValidNumber(parsed)
+                && Util.GetRegionCodeForNumber(parsed) == DefaultRegion
+                && Util.GetNumberType(parsed) is PhoneNumberType.MOBILE or PhoneNumberType.FIXED_LINE_OR_MOBILE;
+        }
+        catch (NumberParseException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// The ISO 3166-1 alpha-2 country of <paramref name="raw"/>, or <c>null</c> when it cannot be parsed.
     /// <para>Lets a stored number re-open its own country in the selector, so the control never disagrees with
     /// the field beside it (AC-11). Derived rather than stored — see the spec's Data / Schema Changes.</para>

@@ -2686,6 +2686,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid?>("AppointmentId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("AppointmentMomentUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int?>("BlockedReason")
                         .HasColumnType("integer");
 

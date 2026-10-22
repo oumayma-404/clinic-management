@@ -51,7 +51,18 @@ public abstract class HttpReminderChannelSender
             using var response = await client.SendAsync(request, timeoutCts.Token);
             if (response.IsSuccessStatusCode)
             {
-                return ReminderSendResult.Sent;
+                // A gateway may answer 200 and refuse inside the body (no credit, sender not approved), so a channel
+                // that knows its provider's codes reads them here. The default is Sent, unchanged for WhatsApp.
+                var successBody = await ReadBodyAsync(response, timeoutCts.Token);
+                var outcome = ClassifySuccess(successBody, channelLabel);
+                if (outcome.Outcome != ReminderSendOutcome.Sent)
+                {
+                    _logger.LogWarning(
+                        "{Channel} gateway answered {StatusCode} but refused the send. Response body: {Body}",
+                        channelLabel, (int)response.StatusCode, Truncate(successBody));
+                }
+
+                return outcome;
             }
 
             // ⚠️ Read the body ONCE and IN FULL, classify on that, and truncate only the copy the logger gets.
@@ -91,6 +102,13 @@ public abstract class HttpReminderChannelSender
     /// </param>
     protected virtual ReminderSendResult Classify(string body, int statusCode, string channelLabel) =>
         ReminderSendResult.Transient($"{channelLabel} gateway returned {statusCode}");
+
+    /// <summary>
+    /// How a <b>2xx</b> response is classified. A provider that reports its refusals inside a 200 overrides this; the
+    /// default trusts the status, which is what every channel did before. Same ⚠️ as <see cref="Classify"/>: nothing
+    /// from <paramref name="body"/> reaches the result.
+    /// </summary>
+    protected virtual ReminderSendResult ClassifySuccess(string body, string channelLabel) => ReminderSendResult.Sent;
 
     private static async Task<string> ReadBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {

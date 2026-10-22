@@ -113,11 +113,11 @@ export function ReminderLogTable({
             // wash, under the floor. --warning-ink is the darkened step that exists for exactly this pairing.
             chipClassName="bg-warning-wash text-warning-ink"
             title="Les rappels ne sont pas encore activés"
-            description="Ni SMS ni WhatsApp n'est configuré, donc aucun message ne part. Renseignez un canal pour commencer à envoyer des rappels de rendez-vous."
+            description="Aucun canal n'est actif, donc aucun message ne part. Activez les rappels SMS pour prévenir vos patients avant leurs rendez-vous."
             action={
               onConfigure && (
                 <Button size="sm" onClick={onConfigure}>
-                  Configurer les canaux
+                  Activer les rappels SMS
                 </Button>
               )
             }

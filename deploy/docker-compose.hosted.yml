@@ -288,6 +288,15 @@ services:
       # it — absent reads as absent, never as an invented address.
       Messaging__ContactEmail: ${MESSAGING_CONTACT_EMAIL:-}
       Messaging__ContactPhone: ${MESSAGING_CONTACT_PHONE:-}
+
+      # ── Rappels SMS — Tunisie SMS (sms-rappels-tunisie-sms) ─────────────────────────────────────────────────
+      # YOUR account, used for every cabinet: a cabinet cannot type its own gateway here (the API refuses it) and
+      # only switches SMS on in « Paramètres ». `Reminders__Channels` is deliberately NOT set: left empty, SMS is
+      # OFF until a cabinet opts in. Each SMS sent counts one message of the cabinet's forfait above.
+      # Empty URL, sender or key ⇒ SMS is not configured and no SMS reminder is queued.
+      Reminders__Sms__ApiUrl: ${REMINDERS_SMS_API_URL:-}
+      Reminders__Sms__SenderId: ${REMINDERS_SMS_SENDER_ID:-}
+      Reminders__Sms__ApiKey: ${REMINDERS_SMS_API_KEY:-}
     volumes:
       - dataprotection_keys:/keys
       # The internal root the connection string and the Minio client above both name. Read-only: this

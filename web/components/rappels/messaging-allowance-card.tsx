@@ -127,7 +127,7 @@ export function MessagingAllowanceCard({
           {/* `flex-1` below `sm:` so it claims the rest of its line; `sm:flex-none` so the meter — not the title —
               takes the slack once they share a row. No `truncate`: nothing here should ever be clipped. */}
           <div className="min-w-0 flex-1 sm:flex-none">
-            <h2 className="text-sm font-semibold">Forfait WhatsApp</h2>
+            <h2 className="text-sm font-semibold">Forfait de rappels</h2>
             <p className="mt-0.5 font-mono text-2xs text-muted-foreground">
               {data ? data.monthLabel : "Ce mois-ci"}
               {/* Present tense: `resetsOn` is a date in the FUTURE, so « renouvelé le » claimed the renewal had
@@ -139,7 +139,8 @@ export function MessagingAllowanceCard({
 
           {/* AC-1.4 — the sender state in WORDS, from the server's own label. Never a colour alone, and never
               re-derived here: « connecté » is not « prêt à envoyer », and only one place decides which. */}
-          {data && (
+          {/* WhatsApp's own state, so only where WhatsApp can be connected here — an SMS-only cabinet has none. */}
+          {data?.canConnect && (
             <span
               className={cn(
                 "shrink-0 basis-full rounded-full border px-2.5 py-1 text-xs font-medium sm:basis-auto",
@@ -196,7 +197,7 @@ export function MessagingAllowanceCard({
 
         {error ? (
           <LoadFailureNotice
-            message="Le forfait de rappels WhatsApp n'a pas pu être lu."
+            message="Le forfait de rappels n'a pas pu être lu."
             detail="Aucun chiffre n'est affiché pour ne pas vous induire en erreur."
             onRetry={onRetry}
           />
@@ -212,19 +213,18 @@ export function MessagingAllowanceCard({
           </p>
         ) : data.exhausted ? (
           <p role="status" className="text-sm text-warning-ink">
-            Votre forfait est épuisé pour ce mois-ci. Vos rendez-vous, vos dossiers et vos rappels SMS continuent
+            Votre forfait est épuisé pour ce mois-ci. Vos rendez-vous et vos dossiers continuent
             normalement. Les rappels en attente partiront dès que nous augmentons votre forfait ; votre forfait se
             renouvelle le {formatCalendarDay(data.resetsOn)}.{" "}
             Consultez le journal ci-dessous pour savoir quels patients n&apos;ont pas été prévenus.
           </p>
         ) : null}
 
-        {/* AC-2.6 — SMS is stated explicitly, and FR-1's duplicate disclosure beside it. Both are read once and
-            then never again, which is why they are quiet text rather than a callout. */}
+        {/* What counts, and FR-1's duplicate disclosure beside it. Both are read once and then never again, which
+            is why they are quiet text rather than a callout. SMS counts since sms-rappels-tunisie-sms. */}
         <div className="flex flex-col gap-2 border-t pt-3">
           <p className="text-xs text-muted-foreground">
-            Ce forfait ne concerne que les rappels <strong>WhatsApp</strong>. Vos rappels SMS ne sont pas comptés et
-            continuent normalement.{" "}
+            Chaque SMS et chaque message WhatsApp envoyé compte pour un rappel.{" "}
             {data?.measured && (
               <>
                 Un rappel envoyé deux fois — c&apos;est rare — compte deux fois, parce qu&apos;il nous est facturé

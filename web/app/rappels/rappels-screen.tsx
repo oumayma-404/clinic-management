@@ -1,7 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { SlidersHorizontal, X } from "lucide-react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { MessageSquareText, SlidersHorizontal, X } from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -24,6 +26,7 @@ import { MessagingAllowanceCard } from "@/components/rappels/messaging-allowance
 import { WhatsAppConnectCard } from "@/components/rappels/whatsapp-connect-card"
 import { MessagingAllowanceHistory } from "@/components/rappels/messaging-allowance-history"
 import { ReminderSettings } from "@/components/reminder-settings"
+import { REMINDER_SMS_ANCHOR } from "@/components/reminder-sms-card"
 import { reminderSettingsApi, type ReminderLogDto } from "@/lib/api/reminder-settings"
 import {
   reminderAllowanceApi,
@@ -66,13 +69,12 @@ type ChannelFilter = "all" | "SMS" | "WhatsApp"
  * <p>Reading the log is open to all staff — it is the secretary fielding « je n'ai rien reçu » who needs it, and a
  * row carries a patient name and a phone masked to two digits. <b>Writing</b> the channel settings stays admin.</p>
  *
- * <p>⚠️ <b>Not rendered today, and finished</b> — this is the screen as it shipped, kept verbatim. No SMS sender
- * and no WhatsApp number are contracted yet, so `app/rappels/page.tsx` shows « Bientôt disponible » instead;
- * putting the log back is one import and one line there. The file is a plain module beside the route (Next routes
- * `page`/`layout`/`route` only, so nothing here is reachable), which keeps `tsc`, `npm run build` and
- * `check:responsive` covering it — a screen parked outside the compiler is a screen that stops compiling.</p>
+ * <p>Rendered by `app/rappels/page.tsx` again since sms-rappels-tunisie-sms put a real SMS sender behind it; it was
+ * parked behind « Bientôt disponible » while nothing could be sent. The SMS switch, the send times and the wording
+ * live in « Paramètres » (`reminder-sms-card.tsx`), linked from the header.</p>
  */
 export function RappelsScreen() {
+  const router = useRouter()
   const { user } = useSession()
   const isAdmin = user?.role === "admin"
 
@@ -227,13 +229,11 @@ export function RappelsScreen() {
   const rows = data?.page.items ?? []
 
   /*
-   * "No channel is sendable" is inferred from the counters rather than fetched separately: an empty log with
-   * nothing ever sent AND nothing pending is the shape a clinic with no configured channel has. It only ever
-   * changes an empty state's wording, so a wrong guess costs a sentence, not correctness — and it avoids a
-   * second request on every page load to answer a question that matters on day one only.
+   * "No channel can send" comes from the server (`sendingChannels`), on the same read. It used to be INFERRED from
+   * an empty log — reasonable while nothing could send, and false the day a cabinet switched SMS on and had not had
+   * an appointment since: the page said « Ni SMS ni WhatsApp n'est configuré » right after the switch.
    */
-  const looksUnconfigured =
-    data !== null && data.sentToday === 0 && data.pending === 0 && data.page.totalCount === 0 && !isFiltered
+  const noChannelSending = data !== null && data.sendingChannels.length === 0 && !isFiltered
 
   /*
    * AC-4.9 — « en attente de forfait », counted apart from the undifferentiated « Bloqués » it is a subset of.
@@ -272,10 +272,19 @@ export function RappelsScreen() {
           }
           actions={
             isAdmin && (
-              <Button variant="outline" className="gap-2" onClick={() => setConfigOpen(true)}>
-                <SlidersHorizontal className="h-4 w-4" />
-                Configurer les canaux
-              </Button>
+              <>
+                {/* The SMS switch, the send times and the wording live in « Paramètres » — one home, linked. */}
+                <Button asChild variant="outline" className="gap-2">
+                  <Link href={`/settings#${REMINDER_SMS_ANCHOR}`}>
+                    <MessageSquareText className="h-4 w-4" />
+                    Message et horaires
+                  </Link>
+                </Button>
+                <Button variant="outline" className="gap-2" onClick={() => setConfigOpen(true)}>
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Configurer les canaux
+                </Button>
+              </>
             )
           }
         />
@@ -289,7 +298,7 @@ export function RappelsScreen() {
             {heldByAllowance === 1
               ? "1 rappel est en attente de forfait"
               : `${heldByAllowance.toLocaleString("fr-TN")} rappels sont en attente de forfait`}{" "}
-            — ils partiront dès que nous augmentons votre forfait WhatsApp.{" "}
+            — ils partiront dès que nous augmentons votre forfait.{" "}
             <button
               type="button"
               onClick={() => setFilter(setStatus)("blocked")}
@@ -410,8 +419,8 @@ export function RappelsScreen() {
           refreshing={refreshing}
           isFiltered={isFiltered}
           onResetFilters={resetFilters}
-          noChannelConfigured={looksUnconfigured}
-          onConfigure={isAdmin ? () => setConfigOpen(true) : undefined}
+          noChannelConfigured={noChannelSending}
+          onConfigure={isAdmin ? () => router.push(`/settings#${REMINDER_SMS_ANCHOR}`) : undefined}
           loadFailed={logFailed}
           onRetry={load}
         />

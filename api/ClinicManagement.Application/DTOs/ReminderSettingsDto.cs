@@ -1,3 +1,5 @@
+using ClinicManagement.Application.Features.Messaging;
+
 namespace ClinicManagement.Application.DTOs;
 
 /// <summary>Per-channel effective-status values returned by the reminder-settings GET (reliability-and-polish
@@ -67,6 +69,27 @@ public sealed record ReminderSettingsDto
     public bool WhatsAppVendorManaged { get; init; }
 
     /// <summary>
+    /// The SMS twin of <see cref="WhatsAppVendorManaged"/>: the gateway is the vendor's own account here, so the
+    /// cabinet only switches SMS on and off — the gateway fields are absent from the screen and refused by the save.
+    /// </summary>
+    public bool SmsVendorManaged { get; init; }
+
+    /// <summary>One SMS — the limit the message editor counts against. Served so the screen restates no number.</summary>
+    public int SmsMaxLength { get; init; } = ReminderText.SmsMaxLength;
+
+    /// <summary>The send times a cabinet may pick between, in hours before the appointment.</summary>
+    public IReadOnlyList<int> AllowedLeadTimeHours { get; init; } = ReminderTemplateRules.AllowedLeadTimeHours;
+
+    /// <summary>How many of <see cref="AllowedLeadTimeHours"/> may be chosen at once.</summary>
+    public int MaxLeadTimes { get; init; } = ReminderTemplateRules.MaxLeadTimes;
+
+    /// <summary>The variables the message may use, in the order the editor offers them.</summary>
+    public IReadOnlyList<string> MessageVariables { get; init; } = ReminderText.Variables;
+
+    /// <summary>The wording sent when <see cref="MessageTemplateBody"/> is empty.</summary>
+    public string DefaultMessageTemplate { get; init; } = ReminderText.DefaultTemplate;
+
+    /// <summary>
     /// Round-tripped by the settings sheet so two tabs cannot silently overwrite each other's channel configuration.
     /// <c>0</c> means « not supplied » and skips the check — which is what it was doing for every save.
     /// </summary>
@@ -123,4 +146,10 @@ public sealed record ConnectWhatsAppRequest
     public required string Code { get; init; }
     public required string WabaId { get; init; }
     public required string PhoneNumberId { get; init; }
+}
+
+/// <summary>A draft reminder wording sent by the editor for preview. Null or blank previews the default wording.</summary>
+public sealed record PreviewReminderTextRequest
+{
+    public string? Template { get; init; }
 }
