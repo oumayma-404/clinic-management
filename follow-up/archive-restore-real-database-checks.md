@@ -55,3 +55,8 @@ Rejected, with reasons:
 The six properties above have been reasoned through and reviewed but **not one of them has been executed against
 PostgreSQL**. Until the verb exists, an end-to-end restore on a real database — the export, the refusals, and
 the document-number continuation — is owed before this feature is relied on for a recovery.
+
+**2026-10-22 — first real-database run, and it found a defect.** A one-off probe on a throwaway PostgreSQL 16
+(save → export → delete → restore → read back) showed every restored patient losing its e-mail, phone and other
+owned values. Fixed in `ClinicArchiveStore.StageInsert` (see `features/clinic-data-archive-and-restore/notes.md`
+§ fix 2026-10-22). The probe was not kept — the suite touches no database — so this follow-up still stands.
