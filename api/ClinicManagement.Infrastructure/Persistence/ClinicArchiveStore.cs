@@ -413,13 +413,28 @@ public class ClinicArchiveStore : IClinicArchiveStore
                 : ReadValue(property, entity);
         }
 
-        foreach (var navigation in OwnedNavigations(entityType))
+        foreach (var navigation in OwnedReferences(entityType))
         {
             var owned = navigation.PropertyInfo?.GetValue(entity);
 
             row[navigation.Name] = owned is null
                 ? null
                 : ReadRow(navigation.TargetEntityType, owned, redacted: null);
+        }
+
+        foreach (var navigation in OwnedCollections(entityType))
+        {
+            var items = navigation.GetCollectionAccessor()?.GetOrCreate(entity, forMaterialization: false)
+                as System.Collections.IEnumerable;
+
+            // Sorted on each element's own serialized form: the live list comes back in whatever order PostgreSQL
+            // returns it, and RowsMatch compares arrays in order — an unsorted list reads as a conflict on a row
+            // nobody touched.
+            row[navigation.Name] = (items ?? Array.Empty<object>())
+                .Cast<object>()
+                .Select(item => ReadRow(navigation.TargetEntityType, item, redacted: null))
+                .OrderBy(item => JsonSerializer.Serialize(item, ClinicArchiveFormat.Json), StringComparer.Ordinal)
+                .ToList();
         }
 
         return row;
@@ -722,29 +737,54 @@ public class ClinicArchiveStore : IClinicArchiveStore
             }
         }
 
-        foreach (var navigation in OwnedNavigations(entityType))
+        foreach (var navigation in OwnedReferences(entityType))
         {
             if (!row.TryGetPropertyValue(navigation.Name, out var value) || value is not JsonObject ownedRow)
             {
                 continue;
             }
 
-            var owned = Materialize(navigation.TargetEntityType.ClrType);
-
-            foreach (var property in ArchivedProperties(navigation.TargetEntityType))
-            {
-                if (ownedRow.TryGetPropertyValue(property.Name, out var ownedValue))
-                {
-                    SetDirect(property, owned, Convert(ownedValue, property.ClrType));
-                }
-            }
-
-            navigation.PropertyInfo?.SetValue(instance, owned);
+            navigation.PropertyInfo?.SetValue(instance, MaterializeOwned(navigation.TargetEntityType, ownedRow));
         }
 
-        entry.State = EntityState.Added;
+        // An archive written before owned collections were carried has no key here, and the list stays empty —
+        // which is what that archive holds.
+        foreach (var navigation in OwnedCollections(entityType))
+        {
+            if (!row.TryGetPropertyValue(navigation.Name, out var value) || value is not JsonArray ownedRows)
+            {
+                continue;
+            }
 
-        return entry;
+            var accessor = navigation.GetCollectionAccessor()!;
+
+            foreach (var ownedRow in ownedRows.OfType<JsonObject>())
+            {
+                accessor.Add(instance, MaterializeOwned(navigation.TargetEntityType, ownedRow), forMaterialization: true);
+            }
+        }
+
+        // `Add`, never `entry.State = Added`: setting the state tracks this entity ALONE, so its owned values were
+        // never inserted — measured on PostgreSQL, a restored patient came back with its e-mail, phone, address and
+        // CNAM identity all NULL. `Add` walks the owned graph; a freshly materialised row has nothing else to reach.
+        _context.Add(instance);
+
+        return _context.Entry(instance);
+    }
+
+    private static object MaterializeOwned(IEntityType ownedType, JsonObject ownedRow)
+    {
+        var owned = Materialize(ownedType.ClrType);
+
+        foreach (var property in ArchivedProperties(ownedType))
+        {
+            if (ownedRow.TryGetPropertyValue(property.Name, out var ownedValue))
+            {
+                SetDirect(property, owned, Convert(ownedValue, property.ClrType));
+            }
+        }
+
+        return owned;
     }
 
     /// <summary>
@@ -810,8 +850,17 @@ public class ClinicArchiveStore : IClinicArchiveStore
     /// The value objects table-split into the same row (<c>Patient.Email</c>, both <c>PhoneNumber</c>s). They have
     /// no row of their own, so they travel nested inside their owner's rather than as a table.
     /// </summary>
-    private static IEnumerable<INavigation> OwnedNavigations(IEntityType entityType) =>
+    private static IEnumerable<INavigation> OwnedReferences(IEntityType entityType) =>
         entityType.GetNavigations().Where(n => n.ForeignKey.IsOwnership && !n.IsCollection);
+
+    /// <summary>
+    /// The owned lists (<c>Patient.AdditionalPhoneNumbers</c>, <c>StaffQuickMessageList.Items</c>). Each IS a table,
+    /// but an owned one, so <see cref="ClinicArchiveScope"/> never plans it: it travels as an array inside its
+    /// owner's row, or not at all — which is what it did until `PatientPhoneNumbers` was found missing from every
+    /// archive and recovery point.
+    /// </summary>
+    private static IEnumerable<INavigation> OwnedCollections(IEntityType entityType) =>
+        entityType.GetNavigations().Where(n => n.ForeignKey.IsOwnership && n.IsCollection);
 
     /// <summary>The single GUID primary key, or null for the composite and non-GUID keys this restore skips.</summary>
     private static IProperty? SingleGuidKey(IEntityType entityType)

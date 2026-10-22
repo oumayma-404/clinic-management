@@ -156,6 +156,10 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
   **`IgnoreQueryFilters()` deliberately**: on the console path the cabinet is being re-created and no clinic is in
   scope, so a filtered read would report every existing row as missing and turn « déjà présent » into a
   duplicate-key crash.
+  ⚠️ **Owned values and owned lists ride inside their owner's row, and `StageInsert` must `Add` the owner, never set
+  `State = Added`** — the state alone tracks the owner without its owned entries, so every restored patient lost its
+  e-mail, phone, address and CNAM identity, and the `OwnsMany` lists were not archived at all. See
+  `features/clinic-data-archive-and-restore/notes.md` § fix 2026-10-22.
   ⚠️ `Entity<T>.Version` is **not archived** — it maps onto PostgreSQL's `xmin`, so writing one back would assert a
   transaction id from another database.
   ⚠️ **« Store-generated » is not « has a database default », and reading it as one cost the feature its two worst

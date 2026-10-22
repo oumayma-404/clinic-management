@@ -94,3 +94,30 @@ the wrong move whatever the archive says.
 a GET the gate never inspects anyway. **The archive is not encrypted**, and the card says so in French in the same
 box as the button — it is a complete copy of the practice's medical records, and that is a separate decision with
 its own key-management question rather than a password box that protects nothing.
+
+## A restored patient comes back with its own e-mail, phone and other numbers (fix, 2026-10-22)
+
+Found while investigating why `Patient.AdditionalPhoneNumbers` was missing from every archive, and it was two
+defects stacked, both silent:
+
+- **Owned LISTS were never written into the archive.** `OwnedNavigations` took owned *references* only — the archive
+  predates every `OwnsMany` in the model — so `PatientPhoneNumbers` (2026-09-22) and `StaffQuickMessageList.Items`
+  (2026-10-15) were in no archive and no recovery point. Production on 2026-10-22: 15 extra numbers on 14 patients,
+  none in any of the 63 recovery points. They now travel as an array inside the owner's row, **sorted** on each
+  element's serialized form, because `RowsMatch` compares arrays in order and PostgreSQL returns an owned list in no
+  promised order.
+- **Owned VALUES were written but never inserted.** `StageInsert` ended on `entry.State = Added`, which tracks the
+  entity *alone*; the e-mail, phone, address, CNAM identity and emergency contact table-split into the patient's row
+  were on the instance and not in the change tracker, so the INSERT wrote them as NULL. Measured on a throwaway
+  PostgreSQL 16 (save → export → delete → restore → read back): `email=NULL phone=NULL extras=0` before,
+  `bechir@example.tn · +21620123456 · 1` after. `_context.Add(instance)` walks the owned graph; a freshly materialised
+  row reaches nothing else, and `ForgetRestoredRows` detaching the owner detaches its owned entries with it (checked).
+- ⚠️ A list restored empty is not harmless: `StaffQuickMessageCatalog.Effective` reads an existing list with no items
+  as « no buttons », and `SendArrivalNoticeCommand` then `.First()`s « Patient arrivé » out of it and throws.
+- ⚠️ Archives written before this fix still lack both, and nothing can put them back; an old archive restores the
+  lists empty (no key) — what it holds.
+- **Guard:** `Every_Owned_Navigation_Of_An_Archived_Table_Is_Restored_For_Insert` derives every owned navigation of
+  every planned table from the model and asserts each is staged as Added after a round trip — red-proofed by putting
+  `entry.State = Added` back (3 tests red). The unit suite still touches no database; the PostgreSQL run above was a
+  one-off probe, and `follow-up/archive-restore-real-database-checks.md` is still the standing gap — it would have
+  caught the second defect on its first run.

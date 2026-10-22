@@ -112,6 +112,113 @@ public class ClinicArchiveStoreMaterializationTests
 
         Assert.Equal("bechir@example.tn", restored.Email?.Value);
         Assert.Equal("+21620123456", restored.PhoneNumber?.Value);
+
+        // On the instance is not in the database. The save inserts only what the tracker holds as Added, and with
+        // `entry.State = Added` it held the patient alone — every restore wrote these columns as NULL.
+        db.ChangeTracker.DetectChanges();
+        Assert.Equal(EntityState.Added, db.ChangeTracker.Entries<Email>().Single().State);
+        Assert.Equal(EntityState.Added, db.ChangeTracker.Entries<PhoneNumber>().Single().State);
+    }
+
+    // An owned COLLECTION is a table of its own (`PatientPhoneNumbers`) that only travels nested in its owner's row,
+    // so leaving it out of that row loses it from every archive, restore and recovery point with no error.
+    [Fact]
+    public void An_Owned_Collection_Survives_The_Round_Trip()
+    {
+        using var db = Context();
+        var entityType = db.Model.FindEntityType(typeof(Patient))!;
+        var patient = APatient();
+        patient.SetAdditionalPhoneNumbers(new[]
+        {
+            new PatientPhone("06 12 34 56 78", "FR", sortOrder: 0),
+            new PatientPhone("+21698765432", sortOrder: 1),
+        });
+
+        var archived = ReadRow(entityType, patient);
+        StageInsert(new ClinicArchiveStore(db), entityType, archived, ClinicA);
+
+        var restored = Assert.Single(db.ChangeTracker.Entries<Patient>()).Entity;
+
+        Assert.Equal(
+            new[] { ("06 12 34 56 78", "+33612345678"), ("+21698765432", "+21698765432") },
+            restored.AdditionalPhoneNumbers.OrderBy(p => p.SortOrder).Select(p => (p.Value, p.E164)));
+
+        // On the instance is not in the database: the save inserts only what the tracker holds as Added.
+        db.ChangeTracker.DetectChanges();
+        Assert.Equal(2, db.ChangeTracker.Entries<PatientPhone>().Count(e => e.State == EntityState.Added));
+    }
+
+    // Derived over the model: every owned value and every owned list of every archived table must come back AND be
+    // staged for insert. Both halves failed silently — owned lists were never written into the archive, and owned
+    // values were written but never inserted — and the two lists that exist were each added after the archive.
+    [Fact]
+    public void Every_Owned_Navigation_Of_An_Archived_Table_Is_Restored_For_Insert()
+    {
+        using var db = Context();
+        var owners = ClinicArchiveScope.Resolve(db.Model).Tables
+            .Select(t => t.EntityType)
+            .Where(e => e.GetNavigations().Any(n => n.ForeignKey.IsOwnership))
+            .ToList();
+
+        Assert.Contains(owners, e => e.GetNavigations().Any(n => n.ForeignKey.IsOwnership && n.IsCollection));
+        Assert.Contains(owners, e => e.GetNavigations().Any(n => n.ForeignKey.IsOwnership && !n.IsCollection));
+
+        foreach (var owner in owners)
+        {
+            var owned = owner.GetNavigations().Where(n => n.ForeignKey.IsOwnership).ToList();
+            var live = Materialize(owner.ClrType);
+
+            foreach (var navigation in owned)
+            {
+                var value = Materialize(navigation.TargetEntityType.ClrType);
+
+                if (navigation.IsCollection)
+                {
+                    navigation.GetCollectionAccessor()!.Add(live, value, forMaterialization: true);
+                }
+                else
+                {
+                    navigation.PropertyInfo!.SetValue(live, value);
+                }
+            }
+
+            using var restoreDb = Context();
+            StageInsert(new ClinicArchiveStore(restoreDb), restoreDb.Model.FindEntityType(owner.ClrType)!,
+                ReadRow(owner, live), ClinicA);
+            restoreDb.ChangeTracker.DetectChanges();
+
+            foreach (var navigation in owned)
+            {
+                var added = restoreDb.ChangeTracker.Entries()
+                    .Count(e => e.Metadata.ClrType == navigation.TargetEntityType.ClrType
+                                && e.Metadata.FindOwnership()?.PrincipalToDependent?.Name == navigation.Name
+                                && e.State == EntityState.Added);
+
+                Assert.True(added == 1, $"{owner.ClrType.Name}.{navigation.Name}: {added} staged for insert, expected 1");
+            }
+        }
+    }
+
+    // Order in the archive must not depend on the order PostgreSQL returned the list in, or the restore reports a
+    // conflict on a row nobody touched.
+    [Fact]
+    public void An_Owned_Collection_Reads_The_Same_Whatever_Its_Order()
+    {
+        using var db = Context();
+        var entityType = db.Model.FindEntityType(typeof(Patient))!;
+        var patient = APatient();
+        patient.SetAdditionalPhoneNumbers(new[]
+        {
+            new PatientPhone("+21698765432", sortOrder: 0),
+            new PatientPhone("+21655111222", sortOrder: 1),
+        });
+        var archived = ReadRow(entityType, patient);
+
+        var phones = (List<PatientPhone>)entityType.FindNavigation(nameof(Patient.AdditionalPhoneNumbers))!
+            .GetCollectionAccessor()!.GetOrCreate(patient, forMaterialization: false);
+        phones.Reverse();
+
+        Assert.True(RowsMatch(entityType, archived, patient));
     }
 
     // [AC-1] The clinic is re-stamped from the caller rather than trusted from the file — belt and braces at the
