@@ -34,7 +34,7 @@ namespace ClinicManagement.API.BackgroundJobs;
 public class BackupHealthJob
 {
     /// <summary>Who receives the alert; unset ⇒ every active console account.</summary>
-    public const string AlertEmailKey = "Backup:AlertEmail";
+    public const string AlertEmailKey = VendorAlertRecipients.AlertEmailKey;
 
     private static readonly CultureInfo French = CultureInfo.GetCultureInfo("fr-FR");
 
@@ -124,17 +124,9 @@ public class BackupHealthJob
         }
     }
 
-    private async Task<IReadOnlyList<string>> RecipientsAsync(CancellationToken cancellationToken)
-    {
-        var configured = (_configuration[AlertEmailKey] ?? string.Empty)
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (configured.Length > 0)
-        {
-            return configured;
-        }
-
-        return await _accounts.GetActiveEmailsAsync(cancellationToken);
-    }
+    // The relay watch's rule too — one owner, so the two vendor alerts cannot reach different people.
+    private Task<IReadOnlyList<string>> RecipientsAsync(CancellationToken cancellationToken) =>
+        VendorAlertRecipients.ResolveAsync(_configuration[AlertEmailKey], _accounts, cancellationToken);
 
     /// <summary>The subject names the verdict, so an inbox list reads as the alarm without opening it.</summary>
     public static string Subject(PlatformBackupHealthDto health) =>

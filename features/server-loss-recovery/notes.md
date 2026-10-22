@@ -82,7 +82,9 @@ Verified red: with the original `\n` line restored, 23 checks fail. Shellcheck f
 That branch adds `IPlatformAccountRepository.GetActiveEmailsAsync` byte-identical to this one, and
 `Application/Features/Platform/VendorAlertRecipients.ResolveAsync` — the same « `Backup:AlertEmail`, else every
 active console account » rule as `BackupHealthJob.RecipientsAsync`. After the merge, switch the job to it and
-delete the private copy, so the recipient rule lives once.
+delete the private copy, so the recipient rule lives once. **Done in the merge with `main` (2026-10-22)**, which
+also put `BackupHealthJob` on `RelayFenceCoverageTests`' reviewed all-cabinet list (it writes no table) and gave
+`MonitorsSidecarBackups` its `ClinicRelay` value (false — a cabinet PC runs no sidecar).
 
 ### Not done / not exercised
 - **Installer compile** — Inno Setup is not installed here; CI's `installers` job compiles it.
