@@ -19,6 +19,11 @@ x-walg: &walg
   AWS_S3_FORCE_PATH_STYLE: "true"
   WALG_LIBSODIUM_KEY: roundtrip-only-libsodium-key-32b
 
+# ⚠️ `minio/minio` is no longer pullable from Docker Hub (2026-10: « pull access denied », every tag); this is the
+# Bitnami legacy build `e2e/relay-roundtrip/run.sh` already uses, pinned by digest. It runs as uid 1001 by default and
+# these data volumes are root-owned, so each service runs it as root with the plain `minio` binary.
+x-minio-image: &minio-image bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
+
 services:
   certs:
     build:
@@ -68,7 +73,9 @@ services:
 
   # The object store being backed up, on TLS like production (the leaf's SAN is `minio`).
   minio:
-    image: minio/minio:latest
+    image: *minio-image
+    user: "0:0"
+    entrypoint: ["minio"]
     depends_on:
       certs:
         condition: service_completed_successfully
@@ -82,7 +89,9 @@ services:
 
   # The « off-site » bucket. Plain HTTP: it stands in for a provider, and what crosses to it is age ciphertext.
   offsite:
-    image: minio/minio:latest
+    image: *minio-image
+    user: "0:0"
+    entrypoint: ["minio"]
     command: server /data
     environment:
       MINIO_ROOT_USER: offsite
@@ -213,7 +222,9 @@ services:
       retries: 30
 
   minio-restored:
-    image: minio/minio:latest
+    image: *minio-image
+    user: "0:0"
+    entrypoint: ["minio"]
     command: server /data
     environment:
       MINIO_ROOT_USER: roundtrip
