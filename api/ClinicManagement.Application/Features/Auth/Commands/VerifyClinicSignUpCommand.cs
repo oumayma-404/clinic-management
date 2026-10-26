@@ -64,6 +64,7 @@ public class VerifyClinicSignUpCommandHandler
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITransactionalEmailSender _emailSender;
     private readonly IPublicAppUrlProvider _appUrl;
+    private readonly IPlatformAccountRepository _platformAccounts;
     private readonly ILogger<VerifyClinicSignUpCommandHandler> _logger;
 
     public VerifyClinicSignUpCommandHandler(
@@ -80,6 +81,7 @@ public class VerifyClinicSignUpCommandHandler
         IUnitOfWork unitOfWork,
         ITransactionalEmailSender emailSender,
         IPublicAppUrlProvider appUrl,
+        IPlatformAccountRepository platformAccounts,
         ILogger<VerifyClinicSignUpCommandHandler> logger)
     {
         _signupRepository = signupRepository;
@@ -95,6 +97,7 @@ public class VerifyClinicSignUpCommandHandler
         _unitOfWork = unitOfWork;
         _emailSender = emailSender;
         _appUrl = appUrl;
+        _platformAccounts = platformAccounts;
         _logger = logger;
     }
 
@@ -142,6 +145,7 @@ public class VerifyClinicSignUpCommandHandler
             signup.Consume(nowUtc);
             await _signupRepository.UpdateAsync(signup, cancellationToken);
 
+            var doctorInfo = ReadDoctorInfo(signup.DoctorInfoJson);
             var provisionRequest = new LocalClinicRequest(
                 ClinicId: Guid.NewGuid(),
                 Name: signup.ClinicName,
@@ -154,7 +158,7 @@ public class VerifyClinicSignUpCommandHandler
                 Address: signup.Address,
                 Phone: signup.Phone,
                 City: signup.City,
-                DoctorInfo: ReadDoctorInfo(signup.DoctorInfoJson),
+                DoctorInfo: doctorInfo,
                 // Passed through raw: `ProvisionAsync` runs it through WorkingHoursSerializer.Normalize, the same
                 // one first-run setup's hours go through, so both doors produce an identically-shaped Clinic.
                 WorkingHoursJson: signup.WorkingHoursJson);
@@ -202,6 +206,17 @@ public class VerifyClinicSignUpCommandHandler
             }
 
             await SendWelcomeAsync(signup.FullName, signup.Email, cancellationToken);
+
+            await ConsoleTeamSignupNotice.SendAsync(
+                _platformAccounts,
+                _emailSender,
+                new SignupNoticeFacts(
+                    clinic.Name,
+                    signup.FullName,
+                    signup.Email,
+                    string.IsNullOrWhiteSpace(signup.Phone) ? doctorInfo?.Phone : signup.Phone),
+                _logger,
+                cancellationToken);
 
             return Result<ClinicSignUpVerificationDto>.Success(new ClinicSignUpVerificationDto
             {
