@@ -15,8 +15,8 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// The cloud's PC de secours watch (<c>clinic-pc-copy</c>), every minute and per cabinet:
 /// <list type="bullet">
 ///   <item>the admins' bell is made to say what <see cref="RelayAlertRules"/> says is true now (AC-2.2, EC-9, EC-10);</item>
-///   <item>the vendor is e-mailed <b>once</b> when a problem of <see cref="RelayVendorAlertRules"/> starts, and the
-///   episode is closed when it ends (AC-9.2, AC-9.4).</item>
+///   <item>an episode is opened when a problem of <see cref="RelayVendorAlertRules"/> starts and closed when it ends
+///   (AC-9.4); the vendor is e-mailed <b>once</b> per episode only when <see cref="EmailVendorAlertsKey"/> is on (AC-9.2).</item>
 /// </list>
 ///
 /// <para>A cabinet whose PC was retired (or whose relay row is gone) still gets one pass, with nothing wanted, so its
@@ -24,6 +24,9 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// </summary>
 public class RelayWatchJob
 {
+    /// <summary>« true » turns the vendor's PC de secours e-mails back on; off since 2026-10-26 at the vendor's request.</summary>
+    public const string EmailVendorAlertsKey = "Relay:EmailVendorAlerts";
+
     private readonly IClinicRelayRepository _relays;
     private readonly IClinicRepository _clinics;
     private readonly IStaffNotificationRepository _notifications;
@@ -166,6 +169,12 @@ public class RelayWatchJob
         await _unitOfWork.SaveChangesAsync();
 
         if (started.Count == 0)
+        {
+            return;
+        }
+
+        // Episodes are still recorded, so turning the e-mails back on does not replay every open problem at once.
+        if (!(bool.TryParse(_configuration[EmailVendorAlertsKey], out var emailVendor) && emailVendor))
         {
             return;
         }
