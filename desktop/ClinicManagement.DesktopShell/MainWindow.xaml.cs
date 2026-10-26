@@ -1384,10 +1384,7 @@ public partial class MainWindow : Window
         ModeChoicePanel.Visibility = Visibility.Collapsed;
     }
 
-    /// <summary>
-    /// The first screen a new install shows, and where « Changer de serveur » returns to. It is a fork, not a
-    /// setting: nothing is written until one of the two branches completes.
-    /// </summary>
+    /// <summary>The first screen a new install shows: APEXA Cloud only. Nothing is written until it is pressed.</summary>
     private void ShowModeChoice()
     {
         ModeChoicePanel.Visibility = Visibility.Visible;
@@ -1456,9 +1453,6 @@ public partial class MainWindow : Window
 
     // ---- Event handlers -------------------------------------------------------------------------
 
-    // Back to the fork, not to the address box: a clinic that moves from its own PC to the hosted plan would
-    // otherwise have to be told a hostname to type -- the exact question the chooser exists to avoid.
-
     /// <summary>« APEXA Cloud » -- the address is ours to know, so it is not asked for.</summary>
     private void ChooseHosted_Click(object sender, RoutedEventArgs e)
     {
@@ -1466,9 +1460,6 @@ public partial class MainWindow : Window
         ServerConfigStore.Save(_config);
         NavigateToServer();
     }
-
-    /// <summary>« Serveur du cabinet » -- the clinic's own PC, whose address only the clinic knows.</summary>
-    private void ChooseLocal_Click(object sender, RoutedEventArgs e) => ShowServerConfig();
 
     /// <summary>« Travailler sur le PC de secours » (manual takeover): the PC takes over, then the window moves there.</summary>
     private async void TakeOver_Click(object sender, RoutedEventArgs e)
