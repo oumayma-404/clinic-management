@@ -106,8 +106,15 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                   </TableCell>
                   {/* An absent address is « aucun compte administrateur », not an unknown one — but that is a
                       sentence for the fiche; here the em dash is the column's own convention. */}
-                  <TableCell className="max-w-[16rem] truncate" title={clinic.adminEmail ?? undefined}>
-                    {clinic.adminEmail ?? EM_DASH}
+                  <TableCell className="max-w-[16rem]">
+                    <span className="block truncate" title={clinic.adminEmail ?? undefined}>
+                      {clinic.adminEmail ?? EM_DASH}
+                    </span>
+                    {clinic.clinicPhone ? (
+                      <span className="block truncate text-xs text-muted-foreground tabular-nums">
+                        {clinic.clinicPhone}
+                      </span>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <StateBadge clinic={clinic} />
@@ -166,6 +173,7 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
             // First of the fields: on a phone the vendor is usually looking up who to write to. `CardList` drops a
             // field with no value, so a cabinet with no admin account shows no line rather than a dash.
             { label: "Administrateur", value: clinic.adminEmail ?? "" },
+            { label: "Téléphone", value: clinic.clinicPhone ?? "" },
             // The two activity markers move into the field list below `lg:` — the status slot holds one badge and
             // the entitlement is what the vendor reads first. They are words, not colours (AC-6.3).
             clinic.countersComputedAt === null

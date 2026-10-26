@@ -25,6 +25,8 @@ export interface PlatformClinicRow {
    * treats — see `PlatformReadShape` on why the `admin` prefix is what keeps that reviewable.
    */
   adminEmail: string | null;
+  /** The cabinet's own number, typed at sign-up — the admin account itself has no phone. */
+  clinicPhone: string | null;
   plan: string | null;
   planLabel: string | null;
   /**

@@ -126,6 +126,9 @@ resolved by **`IUserRepository.GetPrimaryAdminContactsAsync`**, one batched read
 `GetPrimaryAdminContactAsync` the fiche uses now **delegates to it**: « which admin is the contact? » is a precedence
 rule (active first, then the founder, then deterministic), and two expressions of it would drift into the list naming
 one person and the fiche naming another, with both screens looking right on their own.
+⚠️ **The phone beside the admin is the CABINET's** (`ClinicPhone`, 2026-10-26): a `User` has no phone, and the sign-up
+form asks only for the cabinet's number, so `Clinic.Phone` is the one number every self-signed cabinet has. It rides on
+the shared `PlatformClinicRow` projection, so the list and the fiche cannot show two different numbers.
 
 ## The console records what it looked at, and the record is readable (`platform-console` Part 3)
 

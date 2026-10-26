@@ -34,6 +34,7 @@ namespace ClinicManagement.Application.Features.Platform.Dtos;
 /// vendor bills and telephones — never somebody the practice treats. The <c>Admin</c> prefix is what keeps that
 /// reviewable; a bare <c>Email</c> would be one careless reuse away from a patient's.</para>
 /// </param>
+/// <param name="ClinicPhone">The number to ring — the cabinet's own, typed at sign-up; the admin account has none.</param>
 /// <param name="MessagingMeasured">
 /// Whether a WhatsApp-forfait counting row exists for the current Tunisian month
 /// (<c>vendor-whatsapp-messaging-quota</c> AC-8.3). ⚠️ <b>False is « non mesuré », not « zéro »</b>: one row exists per
@@ -54,6 +55,7 @@ public record PlatformClinicRowDto(
     string? City,
     DateTime CreatedAt,
     string? AdminEmail,
+    string? ClinicPhone,
     string? Plan,
     string? PlanLabel,
     string? State,

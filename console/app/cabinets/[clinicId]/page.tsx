@@ -350,6 +350,21 @@ function Administrator({ detail }: { detail: PlatformClinicDetail }) {
               )
             }
           />
+          <Figure
+            label="Téléphone"
+            value={
+              detail.clinic.clinicPhone ? (
+                <a
+                  className="underline underline-offset-4"
+                  href={`tel:${detail.clinic.clinicPhone.replace(/[^\d+]/g, "")}`}
+                >
+                  {detail.clinic.clinicPhone}
+                </a>
+              ) : (
+                EM_DASH
+              )
+            }
+          />
           {!detail.adminIsActive ? (
             <p className="text-sm text-destructive" role="note">
               Ce compte administrateur est désactivé : il ne peut plus se connecter. Ce n&apos;est pas la même chose

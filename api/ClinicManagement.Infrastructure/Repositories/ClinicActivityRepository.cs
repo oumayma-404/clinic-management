@@ -271,7 +271,8 @@ public class ClinicActivityRepository : IClinicActivityRepository
             // downstream may look at them without looking at this first.
             x.messagingMonth != null,
             x.messagingMonth != null ? x.messagingMonth.AllowanceMessages : 0,
-            x.messagingMonth != null ? x.messagingMonth.ConsumedMessages : 0);
+            x.messagingMonth != null ? x.messagingMonth.ConsumedMessages : 0,
+            x.clinic.Phone);
 
     public async Task<PlatformPortfolioTotals> GetPortfolioTotalsAsync(
         DateTime clinicToday, int expiringWithinDays, CancellationToken cancellationToken = default)
