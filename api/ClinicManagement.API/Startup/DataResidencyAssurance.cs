@@ -28,10 +28,15 @@ namespace ClinicManagement.API.Startup;
 /// <c>Security:AllowUnverifiedInternalTls</c> gets, and for the same reason.</para>
 ///
 /// <para>⚠️ <b>What it can see is not everything, and it says so rather than implying otherwise.</b> The nightly
-/// backup's destination is an <b>rclone remote</b> (<c>offsite:clinic-backups</c>) whose real host lives in
-/// <c>deploy/rclone/rclone.conf</c>, a file this process never reads — and it runs in a <i>sibling container</i>
-/// anyway. Such a destination is reported as <b>unverified</b>, never as satisfied: a guard that quietly passes
-/// what it cannot measure is worse than no guard, because it converts « unknown » into « checked ».</para>
+/// backup's destination is an <b>rclone remote</b> (<c>offsite:clinic-backups</c>). Since <c>server-loss-recovery</c>
+/// its endpoint arrives as <see cref="BackupRemoteEndpointKey"/> and is checked like the PITR one; a deployment that
+/// names the remote <i>without</i> an endpoint still gets it reported as <b>unverified</b>, never as satisfied: a
+/// guard that quietly passes what it cannot measure is worse than no guard, because it converts « unknown » into
+/// « checked ».</para>
+///
+/// <para>⚠️ <b>Adding that endpoint is a startup refusal waiting to happen on a deployment with a declared list</b>:
+/// a nightly bucket on a host the list does not name stops the API booting. Put its host in
+/// <c>RESIDENCY_ALLOWED_EGRESS_HOSTS_*</c> before deploying a <c>BACKUP_S3_ENDPOINT</c> — or move the bucket.</para>
 /// </summary>
 public static class DataResidencyAssurance
 {
@@ -46,6 +51,14 @@ public static class DataResidencyAssurance
 
     /// <summary>The nightly rclone destination. A remote NAME, so its host is deliberately NOT derivable here.</summary>
     public const string BackupRemoteKey = "Backup:Remote";
+
+    /// <summary>
+    /// The nightly destination's endpoint — a full URL, checkable like <see cref="PitrEndpointKey"/>. It exists since
+    /// <c>server-loss-recovery</c> configured the remote from <c>BACKUP_S3_*</c> in <c>.env</c> rather than from a
+    /// <c>rclone.conf</c> this process could not read; with it set, <see cref="BackupRemoteKey"/> is no longer
+    /// « unverified ».
+    /// </summary>
+    public const string BackupRemoteEndpointKey = "Backup:RemoteEndpoint";
 
     /// <summary>The object store. Internal on a compose deployment; a real host when it is somebody else's.</summary>
     public const string MinioEndpointKey = "MinIO:Endpoint";
@@ -119,17 +132,25 @@ public static class DataResidencyAssurance
             allowed,
             problems);
 
-        // ⚠️ Reported, never resolved. `offsite:clinic-backups` names an rclone remote; the host behind it is in
-        // deploy/rclone/rclone.conf, which this process does not read and which belongs to another container.
-        // Pretending to have checked it is the one outcome worse than admitting we cannot.
+        InspectUrlDestination(
+            configuration[BackupRemoteEndpointKey],
+            BackupRemoteEndpointKey,
+            "la sauvegarde nocturne (base complète, chaque fichier stocké et le trousseau de clés)",
+            "BACKUP_S3_ENDPOINT",
+            allowed,
+            problems);
+
+        // ⚠️ Reported, never resolved — but only when no endpoint was given. `offsite:clinic-backups` names an
+        // rclone remote; without `Backup:RemoteEndpoint` the host behind it is not something this process can
+        // see, and pretending to have checked it is the one outcome worse than admitting we cannot.
         var remote = configuration[BackupRemoteKey]?.Trim();
-        if (!string.IsNullOrEmpty(remote))
+        if (!string.IsNullOrEmpty(remote) && string.IsNullOrWhiteSpace(configuration[BackupRemoteEndpointKey]))
         {
             unverified.Add(
-                $"{BackupRemoteKey} vaut « {remote} » : c'est un *remote* rclone, dont l'hôte réel est défini "
-                + "dans deploy/rclone/rclone.conf et ne peut pas être vérifié depuis cette application. "
-                + "Vérifiez à la main que cette destination est en Tunisie — c'est une sauvegarde complète de "
-                + "la base.");
+                $"{BackupRemoteKey} vaut « {remote} » mais {BackupRemoteEndpointKey} est vide : l'hôte réel de "
+                + "cette destination ne peut pas être vérifié depuis cette application. Renseignez "
+                + "BACKUP_S3_ENDPOINT, ou vérifiez à la main que cette destination est en Tunisie — c'est une "
+                + "sauvegarde complète de la base.");
         }
 
         return new Result(Applies: true, problems, unverified);

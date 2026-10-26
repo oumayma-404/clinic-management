@@ -1,15 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { BackupHealthStrip } from "@/components/backup-health-strip";
 import { ClinicPortfolio } from "@/components/clinic-portfolio";
 import { PortfolioFilters } from "@/components/portfolio-filters";
 import { PortfolioPager } from "@/components/portfolio-pager";
 import { PortfolioSummary } from "@/components/portfolio-summary";
 import { ConsoleApiError } from "@/lib/api/client";
 import {
+  fetchBackupHealth,
   fetchPortfolio,
   fetchSummary,
   redirectIfPasswordChangeRequired,
+  type PlatformBackupHealth,
   type PortfolioQuery,
 } from "@/lib/api/platform";
 import { formatDateTime, formatFreshness } from "@/lib/format";
@@ -66,6 +69,15 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
     return <ReadFailure error={error} />;
   }
 
+  // Read after the portfolio and caught on its own: a backup-status read that fails must cost the vendor the strip
+  // (shown as « illisible »), never the portfolio beneath it.
+  let backupHealth: PlatformBackupHealth | null | "unreadable";
+  try {
+    backupHealth = await fetchBackupHealth(token);
+  } catch {
+    backupHealth = "unreadable";
+  }
+
   return (
     <main className="mx-auto w-full max-w-[100rem] px-4 py-6 sm:py-8">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -89,6 +101,8 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
       </header>
 
       <div className="mt-6 space-y-6">
+        <BackupHealthStrip health={backupHealth} />
+
         <PortfolioSummary summary={summary} />
 
         {/* ⚠️ The « presque épuisé » threshold comes from the PAGE the server just returned, not from a constant here:

@@ -9,7 +9,11 @@ rendering, local JWT auth (every deployment — Auth0 management is retired with
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
 `Extensions.cs` (`AddInfrastructure`).
 
-> **18 capabilities now** — the newest is **`SellsVendorMessaging`** (`HostedMultiTenant` only): does the *vendor*
+> **19 capabilities now** — the newest is **`MonitorsSidecarBackups`** (`HostedMultiTenant` only, `server-loss-recovery`):
+> the API reads what the host's backup sidecars last did (`HostBackupStatusReader`: the nightly run's
+> `backup.status` + `pg_stat_archiver`) for the console strip and the daily `BackupHealthJob` e-mail.
+>
+> Before it, **`SellsVendorMessaging`** (`HostedMultiTenant` only): does the *vendor*
 > buy this deployment's WhatsApp messages and meter them per cabinet? Where false the whole
 > `vendor-whatsapp-messaging-quota` feature is **absent** rather than present-and-refusing — no `/rappels` section,
 > no threshold warnings, no enforcement in the outbox, no daily `MessagingAllowanceJob`, no template submission,

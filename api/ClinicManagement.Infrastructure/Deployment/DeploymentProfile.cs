@@ -80,7 +80,8 @@ public sealed class DeploymentProfile
         bool mirrorsCloudClinic,
         bool runsClinicJobs,
         bool dispatchesOutboxes,
-        bool runsCutJobs)
+        bool runsCutJobs,
+        bool monitorsSidecarBackups)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -108,6 +109,7 @@ public sealed class DeploymentProfile
         RunsClinicJobs = runsClinicJobs;
         DispatchesOutboxes = dispatchesOutboxes;
         RunsCutJobs = runsCutJobs;
+        MonitorsSidecarBackups = monitorsSidecarBackups;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -336,6 +338,25 @@ public sealed class DeploymentProfile
     public bool RunsCutJobs { get; }
 
     /// <summary>
+    /// The host's off-site copies are made by sidecars the application never calls — the nightly <c>backup</c>
+    /// service and the WAL-G stream — and the API <b>watches their outcome</b>: it reads the status file the nightly
+    /// run writes and PostgreSQL's archiver statistics, shows them on the vendor console and e-mails the console's
+    /// accounts every morning one of them is not healthy (<c>server-loss-recovery</c> Part 3).
+    ///
+    /// <para><b>True for <see cref="DeploymentKind.HostedMultiTenant"/> alone.</b> It is the topology that runs
+    /// those sidecars, and it is where a silent failure cost something: the nightly run aborted for 33 nights with
+    /// its only record a <c>docker logs</c> line, so no copy of any patient file left the server in that time.
+    /// <see cref="DeploymentKind.SelfHostedLan"/> ✗ because its backup is the in-app <c>BackupJob</c>
+    /// (<see cref="BacksUpItsOwnData"/>), which already records every run and raises its own stale alert; there is
+    /// no sidecar there to watch.</para>
+    ///
+    /// <para>⚠️ <b>Not <c>!BacksUpItsOwnData</c></b>, though it answers the same today: « the application does not
+    /// back itself up » and « the application reads a sidecar's report » are two facts, and a topology with neither
+    /// (a host backing up by its own means) would be told by the inverted flag to watch a file nobody writes.</para>
+    /// </summary>
+    public bool MonitorsSidecarBackups { get; }
+
+    /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
     ///
     /// <para><b>Per-platform, not one boolean</b>, because a deployment with a Firebase project and no Apple key
@@ -460,7 +481,9 @@ public sealed class DeploymentProfile
             mirrorsCloudClinic: false,
             runsClinicJobs: true,
             dispatchesOutboxes: true,
-            runsCutJobs: false),
+            runsCutJobs: false,
+            // No sidecar to watch: the in-app BackupJob above records its own runs and raises its own alert.
+            monitorsSidecarBackups: false),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -505,7 +528,10 @@ public sealed class DeploymentProfile
             mirrorsCloudClinic: false,
             runsClinicJobs: true,
             dispatchesOutboxes: true,
-            runsCutJobs: false),
+            runsCutJobs: false,
+            // The topology that runs the backup + pitr sidecars — and where their failure went unnoticed for 33
+            // nights. The API reads their outcome and tells the vendor.
+            monitorsSidecarBackups: true),
 
         // A cabinet PC built from the LAN server bundle, holding a copy of one cloud clinic (clinic-pc-copy).
         DeploymentKind.ClinicRelay => new DeploymentProfile(
@@ -539,7 +565,9 @@ public sealed class DeploymentProfile
             // The cloud runs them; the PC runs only the cut's two, and only while it holds the lease (below).
             runsClinicJobs: false,
             dispatchesOutboxes: false,
-            runsCutJobs: true),
+            runsCutJobs: true,
+            // No sidecar on a cabinet PC: the cloud's host runs them and the cloud's API watches them.
+            monitorsSidecarBackups: false),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

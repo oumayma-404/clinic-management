@@ -10,8 +10,11 @@ RUN apk add --no-cache rclone tar gzip age
 COPY backup.sh /usr/local/bin/backup.sh
 COPY mirror-objects.sh /usr/local/bin/mirror-objects.sh
 COPY check-keyring.sh /usr/local/bin/check-keyring.sh
+COPY keyring-id.sh /usr/local/bin/keyring-id.sh
+COPY restore-drill.sh /usr/local/bin/restore-drill.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/backup.sh /usr/local/bin/mirror-objects.sh \
-    /usr/local/bin/check-keyring.sh /usr/local/bin/entrypoint.sh
+    /usr/local/bin/check-keyring.sh /usr/local/bin/keyring-id.sh \
+    /usr/local/bin/restore-drill.sh /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

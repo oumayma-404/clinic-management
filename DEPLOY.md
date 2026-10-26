@@ -138,39 +138,12 @@ docker compose -f docker-compose.prod.yml logs -f caddy api
 
 ## Backup & restore
 
-**Nightly (automatic):** the `backup` container runs `BACKUP_CRON` (default `0 2 * * *`),
-producing a custom-format `pg_dump` + a `tar.gz` of the MinIO data, and uploading both to
-`BACKUP_REMOTE`. Local staged copies live in the `backups` volume and are pruned after
-`BACKUP_RETENTION_DAYS`.
-
-**On demand:**
-
-```bash
-docker compose -f docker-compose.prod.yml run --rm backup /usr/local/bin/backup.sh
-```
-
-The script fails loud (non-zero exit) on any error — never a silent partial.
-
-**Restore the database** (into a running stack):
-
-```bash
-# copy a dump back onto the VPS, then:
-cat db-<TS>.dump | docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_restore --clean --if-exists --no-owner --no-privileges \
-  -U "$POSTGRES_USER" -d "$POSTGRES_DB"
-```
-
-**Restore MinIO objects:** stop the stack, extract the archive into the `minio_data` volume, restart.
-
-```bash
-docker compose -f docker-compose.prod.yml down
-docker run --rm -v clinic-management_minio_data:/data -v "$PWD":/backup alpine \
-  sh -c "tar xzf /backup/minio-<TS>.tar.gz -C /data"
-docker compose -f docker-compose.prod.yml up -d
-```
-
-> **Test your restore.** After the first backup, do a dry-run `pg_restore` into a throwaway
-> database to confirm the dump is loadable (schema + data).
+> ⚠️ **Retired — this section described the CloudBrowser deployment, and was wrong for the hosted one.** The
+> nightly run no longer produces a MinIO `tar.gz` (it is an encrypted incremental mirror plus the key ring), its
+> « on demand » command never ran a backup (the image's entrypoint ignores its arguments), and the restore steps
+> here never touched the key ring. The procedure, both off-site copies and how each restores — tested end to end
+> by `deploy/backup/test/roundtrip.sh` — are in **[`deploy/RESTORE-DRILL.md`](deploy/RESTORE-DRILL.md)**; the
+> configuration is in [`deploy/README.md`](deploy/README.md).
 
 ---
 
@@ -221,54 +194,10 @@ docker compose -f docker-compose.prod.yml run --rm --entrypoint /usr/local/bin/p
 
 ### Restore to a point in time
 
-Restores go into a **throwaway instance on a fresh volume** — never over the live `PGDATA` — so you
-can inspect the result before deciding how to cut over.
-
-```bash
-cd deploy    # .env here supplies the WALG_S3_* creds (same off-site prefix)
-
-# 1. A fresh, empty volume for the restore target.
-docker volume create clinic_pitr_restore
-
-# 2. List base backups, then fetch the one that PRECEDES your target time. For the headline
-#    case (restore to just before an accidental delete), the delete may be OLDER than the most
-#    recent nightly base backup — e.g. deleted 10:00 yesterday, base backup ran 01:00 today — so
-#    LATEST would be AFTER your target and Postgres refuses recovery ("recovery_target_time is
-#    before backup end"). Pick the specific base_... name from backup-list that ends before your
-#    target time and pass it explicitly:
-docker compose -f docker-compose.prod.yml run --rm --no-deps --entrypoint wal-g pitr backup-list
-docker compose -f docker-compose.prod.yml run --rm --no-deps \
-  -v clinic_pitr_restore:/restore --entrypoint wal-g pitr \
-  backup-fetch /restore base_000000010000000000000005   # ← the base that PRECEDES your target
-#    (LATEST is a valid shortcut ONLY when your target time is newer than the most recent base backup.)
-
-# 3. Configure recovery to the exact instant; Postgres will replay WAL from the off-site
-#    archive (restore_command) up to the target, then promote.
-docker compose -f docker-compose.prod.yml run --rm --no-deps \
-  -v clinic_pitr_restore:/restore --entrypoint sh pitr -c '
-    {
-      echo "restore_command = '\''wal-g wal-fetch %f %p'\''"
-      echo "recovery_target_time = '\''2026-07-13 14:29:59+00'\''"
-      echo "recovery_target_action = '\''promote'\''"
-    } >> /restore/postgresql.auto.conf
-    touch /restore/recovery.signal
-  '
-
-# 4. Start a throwaway Postgres on the restored volume (needs .env for wal-fetch to reach S3).
-docker run --rm --name clinic-pitr-verify --env-file .env \
-  -v clinic_pitr_restore:/var/lib/postgresql/data \
-  clinic-postgres-pitr:16 postgres
-#    Watch the logs for: "recovery stopping before ..." then "database system is ready to accept
-#    connections". In another shell:
-
-# 5. Verify — data written AFTER the target time is absent, data before it is present.
-docker exec -it clinic-pitr-verify \
-  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select max(created_at) from appointments;"
-
-# 6. Tear down when satisfied.
-docker rm -f clinic-pitr-verify
-docker volume rm clinic_pitr_restore
-```
+> ⚠️ **Moved to [`deploy/RESTORE-DRILL.md`](deploy/RESTORE-DRILL.md) § « Path B », and corrected.** The version
+> that stood here passed `--env-file .env` to the restore container, but wal-g reads `AWS_*` and `.env` holds
+> `WALG_S3_*` (docker-compose.prod.yml maps one onto the other), so `wal-fetch` could not reach the bucket. It had
+> never been run. The new one is run end to end by `deploy/backup/test/roundtrip.sh` on every change to `deploy/`.
 
 ### PITR operational notes
 

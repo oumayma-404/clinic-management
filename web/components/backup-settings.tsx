@@ -217,8 +217,9 @@ export function BackupSettings() {
     ⚠️ It claims **nothing about whether a backup has happened** — not a date, and not the fact either. The first
     draft said « vos données sont sauvegardées automatiquement par l'hébergeur », which this application cannot
     verify and which is outright false in two ordinary cases: the dev compose runs no `backup` sidecar at all, and
-    a hosted deployment whose operator never set `BACKUP_REMOTE` gets `backup.sh`'s own « kept LOCAL ONLY — not
-    off-server » warning. A reassurance nobody checked is worse than no reassurance, because it is read by the one
+    on the live server the nightly run failed for 33 nights with nothing on any screen (server-loss-recovery —
+    the vendor console now shows it and e-mails it; this card still does not). A reassurance nobody checked is
+    worse than no reassurance, because it is read by the one
     person who would otherwise go and ask. So the card states only what is true here — the control is not on this
     screen — and names who can answer the rest.
 

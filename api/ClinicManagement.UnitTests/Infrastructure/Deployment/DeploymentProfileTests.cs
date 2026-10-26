@@ -89,7 +89,10 @@ public class DeploymentProfileTests
             [nameof(DeploymentProfile.RunsClinicJobs)] = (true, true, false),
             [nameof(DeploymentProfile.DispatchesOutboxes)] = (true, true, false),
             // Deviation 88: the PC de secours runs the cut's two jobs, gated by the write fence.
-            [nameof(DeploymentProfile.RunsCutJobs)] = (false, false, true)
+            [nameof(DeploymentProfile.RunsCutJobs)] = (false, false, true),
+            // server-loss-recovery Part 3: the topology whose backup sidecars the API watches. ✗ on the LAN
+            // because its in-app BackupJob already records and alerts; ✗ on a PC de secours, which runs none.
+            [nameof(DeploymentProfile.MonitorsSidecarBackups)] = (false, true, false)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -153,7 +156,8 @@ public class DeploymentProfileTests
             // clinic-pc-copy: false on the LAN server too — one is the hosted side's, the other the PC de secours's.
             nameof(DeploymentProfile.PublishesChangeFeed),
             nameof(DeploymentProfile.MirrorsCloudClinic),
-            nameof(DeploymentProfile.RunsCutJobs)
+            nameof(DeploymentProfile.RunsCutJobs),
+            nameof(DeploymentProfile.MonitorsSidecarBackups)
         };
 
         foreach (var capability in Capabilities())
