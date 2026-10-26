@@ -49,3 +49,13 @@ recovery verbs). Fixed in `deploy/docker-compose.hosted.yml` + `.env.hosted.exam
 `TransportConfigurationTests.The_Hosted_Deployment_Wires_Outbound_Email` plus a derived sibling asserting every
 `Notification__Smtp__*` variable the compose file interpolates is named in the template an operator copies.
 **Nothing refuses to start over it** — it is the one go-live value with no boot-time guard.
+
+## The vendor team is told when a cabinet signs itself up (2026-10-26)
+
+On a successful verification, `ConsoleTeamSignupNotice` e-mails « Nouveau cabinet inscrit sur APEXA » (cabinet,
+nom, e-mail, téléphone — the practitioner's phone when the cabinet's is blank) to **every active `PlatformAccount`
+and to nobody else**. ⚠️ The recipients come from `IPlatformAccountRepository.GetActiveEmailsAsync`, never from a
+config list: console accounts are created by the `platform-account` verb alone, so no web path can add a recipient
+to a message carrying a stranger's contact details. One message per recipient (no shared « To »), fixed subject
+(the cabinet name is a stranger's input and stays out of the headers), best-effort after the commit like the
+welcome e-mail. Nothing is sent on a LAN install — it has no console accounts. `ConsoleTeamSignupNoticeTests`.
