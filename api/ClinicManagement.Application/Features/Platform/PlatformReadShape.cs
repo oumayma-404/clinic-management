@@ -154,6 +154,8 @@ public static class PlatformReadShape
         "AdminName",
         "AdminEmail",
         "AdminIsActive",
+        // The cabinet's own number, typed at sign-up — `Clinic` prefixed for the reason `Admin` is: never a patient's.
+        "ClinicPhone",
 
         // The six-month trend (AC-3.1). Counts per month and how many days of it were measured — never a per-day
         // list of what was done, which is a different and much sharper read.

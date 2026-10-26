@@ -62,7 +62,8 @@ public class PlatformPortfolioQueryTests
         bool hasEntitlement = true,
         DateTime? endsOn = null,
         bool suspended = false,
-        SubscriptionPeriodKind? coverKind = SubscriptionPeriodKind.Paid) =>
+        SubscriptionPeriodKind? coverKind = SubscriptionPeriodKind.Paid,
+        string? phone = null) =>
         new(Guid.NewGuid(), name, "Tunis", new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc),
             HasEntitlement: hasEntitlement,
             Plan: SubscriptionPlan.Cabinet,
@@ -72,7 +73,8 @@ public class PlatformPortfolioQueryTests
             Users: 3, Patients: 412, Appointments30d: 96, Writes7d: 4, Writes30d: writes30d, ActiveDays30d: 9,
             LastWriteAt: new DateTime(2026, 8, 9, 10, 0, 0, DateTimeKind.Utc),
             LastLoginAt: new DateTime(2026, 8, 10, 7, 0, 0, DateTimeKind.Utc),
-            CountersComputedAt: computedAt);
+            CountersComputedAt: computedAt,
+            ClinicPhone: phone);
 
     private void WirePage(params PlatformClinicRow[] rows) =>
         _activity.Setup(r => r.GetPortfolioAsync(
@@ -291,6 +293,18 @@ public class PlatformPortfolioQueryTests
         _users.Verify(
             r => r.GetPrimaryAdminContactsAsync(It.IsAny<IEnumerable<Guid>>(), It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    // The cabinet's own number reaches its row, and a cabinet without one reads null rather than a neighbour's.
+    [Fact]
+    public async Task Each_Row_Carries_Its_Own_Cabinets_Phone()
+    {
+        WirePage(Row(name: "Cabinet Ben Ali", phone: "+216 71 123 456"), Row(name: "Cabinet Trabelsi"));
+
+        var result = await ListHandler().Handle(new ListPlatformClinicsQuery(), CancellationToken.None);
+
+        Assert.Equal("+216 71 123 456", result.Value!.Items[0].ClinicPhone);
+        Assert.Null(result.Value.Items[1].ClinicPhone);
     }
 
     // [FR-13] A cabinet with NO entitlement row is its own answer, in words. It is not « Expiré » — nobody chose

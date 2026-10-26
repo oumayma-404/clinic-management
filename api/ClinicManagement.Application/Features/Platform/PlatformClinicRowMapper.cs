@@ -65,6 +65,7 @@ public static class PlatformClinicRowMapper
             City: row.City,
             CreatedAt: row.CreatedAt,
             AdminEmail: adminEmail,
+            ClinicPhone: row.ClinicPhone,
             Plan: row.Plan?.ToString(),
             PlanLabel: row.Plan is { } plan ? SubscriptionLabels.Plan(plan) : null,
             State: status?.State.ToString(),

@@ -216,6 +216,7 @@ public enum PlatformPortfolioSort
 /// envoyé » is a claim about the practice. It is a separate flag rather than a null in the two figures below so no screen
 /// can get the distinction wrong by forgetting one of them.
 /// </param>
+/// <param name="ClinicPhone">The cabinet's own number — the one the sign-up form asks for.</param>
 public record PlatformClinicRow(
     Guid ClinicId,
     string Name,
@@ -237,7 +238,8 @@ public record PlatformClinicRow(
     DateTime? CountersComputedAt,
     bool HasMessagingMonth = false,
     int MessagingAllowance = 0,
-    int MessagingConsumed = 0);
+    int MessagingConsumed = 0,
+    string? ClinicPhone = null);
 
 /// <summary>
 /// Portfolio-wide counts for the summary strip (AC-2.7).
