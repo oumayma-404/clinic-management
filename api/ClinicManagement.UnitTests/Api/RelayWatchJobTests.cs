@@ -33,6 +33,7 @@ public class RelayWatchJobTests
 
     public RelayWatchJobTests()
     {
+        _settings[RelayWatchJob.EmailVendorAlertsKey] = "true";
         _notifications.Setup(n => n.GetRelayAlertsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<StaffNotification>());
         _notifications.Setup(n => n.GetClinicIdsWithRelayAlertsAsync(It.IsAny<CancellationToken>()))
@@ -160,6 +161,23 @@ public class RelayWatchJobTests
         _email.Verify(e => e.SendAsync("alertes@apexa.tn", It.IsAny<string>(), It.IsAny<EmailContent>(),
             It.IsAny<CancellationToken>()), Times.Once);
         _accounts.Verify(a => a.GetActiveEmailsAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // Off by default: the episode is still recorded, and nobody at the vendor is e-mailed.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("false")]
+    [InlineData("oui")]
+    public async Task Without_The_Setting_No_Vendor_Email_Is_Sent(string? setting)
+    {
+        _settings[RelayWatchJob.EmailVendorAlertsKey] = setting;
+        Live(StoppedPc());
+
+        await Job().WatchRelays();
+
+        Assert.Null(Assert.Single(_incidents).EmailedAtUtc);
+        _email.Verify(e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // A code that lapsed unused sits beside the PC actually installed: the installed one is the one watched.

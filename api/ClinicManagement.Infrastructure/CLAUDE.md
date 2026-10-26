@@ -601,7 +601,8 @@ no consent flag and no audit of which patient was sent.
   (one read per page, same « newest row » order as the card) through `PlatformClinicRowMapper`.
   The same job e-mails the **vendor** once per problem episode (`RelayIncidents`, `RelayVendorAlertRules`) through
   `Application/Features/Platform/VendorAlertRecipients` — the channel shared with `server-loss-recovery`'s backup
-  alerts (`Backup:AlertEmail`, else every active console account). ⚠️ `RelayIncident` is on `ClinicArchiveScope.Excluded`
+  alerts (`Backup:AlertEmail`, else every active console account). ⚠️ **Off since 2026-10-26** at the vendor's request:
+  episodes are still recorded, and only `Relay:EmailVendorAlerts=true` sends them. ⚠️ `RelayIncident` is on `ClinicArchiveScope.Excluded`
   (hence the copy's too) and is deliberately not an aggregate root, so it never reaches the cabinet's journal.
 - **Retired PC (PC side)**: `RelayLocalStatus` (singleton, re-reads the state file every 5 s) is what the login and
   `RelayLeaseGateMiddleware` ask — a retired PC opens for admins only, and nothing about it is written to the DB.
