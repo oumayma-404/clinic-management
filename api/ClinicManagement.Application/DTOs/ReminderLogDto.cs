@@ -35,6 +35,11 @@ namespace ClinicManagement.Application.DTOs;
 /// <paramref name="HeldByAllowance"/>: the two have different remedies, and the practice can act on neither if it
 /// is told the wrong one.
 /// </param>
+/// <param name="SendingChannels">
+/// The channels that can send right now (`SMS`, `WhatsApp`) — switched on AND configured, resolved server-side.
+/// The page used to <i>infer</i> « nothing is configured » from an empty log, which read false the day a cabinet
+/// switched SMS on and had not had an appointment since. No credential travels here, so every role may read it.
+/// </param>
 public record ReminderLogDto(
     PagedResult<ReminderStatusDto> Page,
     int SentToday,
@@ -42,4 +47,5 @@ public record ReminderLogDto(
     int FailedRecent,
     int Blocked,
     int HeldByAllowance,
-    int HeldBySender);
+    int HeldBySender,
+    IReadOnlyList<string> SendingChannels);

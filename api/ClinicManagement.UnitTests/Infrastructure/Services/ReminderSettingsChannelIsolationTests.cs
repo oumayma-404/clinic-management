@@ -37,7 +37,7 @@ public class ReminderSettingsChannelIsolationTests
     private readonly Mock<IReminderSecretProtector> _protector = new();
 
     private ReminderSettingsProvider Provider() =>
-        new(_repository.Object, _protector.Object, Configuration(), NullLogger<ReminderSettingsProvider>.Instance);
+        new(_repository.Object, _protector.Object, Configuration(), Mock.Of<IVendorMessagingAvailability>(), NullLogger<ReminderSettingsProvider>.Instance);
 
     private static IConfiguration Configuration() =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>

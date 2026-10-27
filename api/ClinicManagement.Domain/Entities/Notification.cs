@@ -31,6 +31,13 @@ public class Notification : Entity<Guid>
     /// </summary>
     public OutboxBlockReason? BlockedReason { get; private set; }
 
+    /// <summary>
+    /// The appointment moment this reminder was queued for. The dispatcher renders the text at send time from the
+    /// live appointment, so a row whose appointment has since moved is caught by comparing this, not by parsing the
+    /// body. Null on rows queued before the column existed: those still carry a frozen body and are checked on it.
+    /// </summary>
+    public DateTime? AppointmentMomentUtc { get; private set; }
+
     // Navigation properties
     public Appointment? Appointment { get; private set; }
     public Patient? Patient { get; private set; }
@@ -45,7 +52,8 @@ public class Notification : Entity<Guid>
         DateTime scheduledFor,
         Guid? appointmentId = null,
         Guid? patientId = null,
-        Guid? clinicId = null)
+        Guid? clinicId = null,
+        DateTime? appointmentMomentUtc = null)
     {
         Id = id;
         Type = type;
@@ -55,8 +63,18 @@ public class Notification : Entity<Guid>
         AppointmentId = appointmentId;
         PatientId = patientId;
         ClinicId = clinicId;
+        AppointmentMomentUtc = appointmentMomentUtc;
         Status = NotificationStatus.Pending;
         CreatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Replaces the queued preview with the text actually sent, rendered at dispatch — so the row records what the
+    /// patient received.
+    /// </summary>
+    public void RecordRenderedMessage(string message)
+    {
+        Message = message ?? throw new ArgumentNullException(nameof(message));
     }
 
     public void MarkAsSent()

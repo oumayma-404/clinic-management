@@ -26,6 +26,7 @@ public class ReminderSettingsProvider : IReminderSettingsProvider
     private readonly IClinicReminderSettingsRepository _repository;
     private readonly IReminderSecretProtector _secretProtector;
     private readonly IConfiguration _configuration;
+    private readonly IVendorMessagingAvailability _vendorMessaging;
     private readonly ILogger<ReminderSettingsProvider> _logger;
 
     // Dedupe decryption-failure Error logs within this (scoped) instance so one dispatch tick doesn't
@@ -42,11 +43,13 @@ public class ReminderSettingsProvider : IReminderSettingsProvider
         IClinicReminderSettingsRepository repository,
         IReminderSecretProtector secretProtector,
         IConfiguration configuration,
+        IVendorMessagingAvailability vendorMessaging,
         ILogger<ReminderSettingsProvider> logger)
     {
         _repository = repository;
         _secretProtector = secretProtector;
         _configuration = configuration;
+        _vendorMessaging = vendorMessaging;
         _logger = logger;
     }
 
@@ -70,7 +73,9 @@ public class ReminderSettingsProvider : IReminderSettingsProvider
 
         // ⚠️ Each channel resolves as an ATOMIC UNIT — see ClaimsItsOwn* below. Resolving the endpoint and the
         // secret independently is how the install's credential ended up being offered to a tenant-chosen host.
-        var clinicOwnsSms = ClaimsItsOwnSms(clinic);
+        // Where the vendor sells messaging the SMS gateway is its own account for every cabinet: a stale gateway field
+        // on a clinic row must never detach that cabinet from it (the save refuses new ones — MessagingRefusals.ManualSms).
+        var clinicOwnsSms = !_vendorMessaging.SellsVendorMessaging && ClaimsItsOwnSms(clinic);
         var clinicOwnsWhatsApp = ClaimsItsOwnWhatsApp(clinic);
         var clinicOwnsSmtp = ClaimsItsOwnSmtp(clinic);
 

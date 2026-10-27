@@ -69,7 +69,7 @@ export function MessagingAllowanceHistory({
                 loading={loading}
                 skeletonRows={4}
                 empty="Aucun mois mesuré pour l'instant."
-                ariaLabel="Historique mensuel du forfait de rappels WhatsApp"
+                ariaLabel="Historique mensuel du forfait de rappels"
               />
             </div>
 

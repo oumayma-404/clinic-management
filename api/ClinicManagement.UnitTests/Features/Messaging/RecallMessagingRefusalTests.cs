@@ -47,21 +47,18 @@ public class RecallMessagingRefusalTests
     }
 
     /// <summary>
-    /// AC-5.3 — SMS is <b>also</b> sendable, so the relance succeeds and <b>both</b> rows are queued. A channel being
-    /// exhausted is not the same as having no channel; the WhatsApp row is held at dispatch by the gate, and the SMS
-    /// one goes out normally (AC-4.6).
+    /// sms-rappels-tunisie-sms, reversing AC-5.3 — the SMS is paid out of the same forfait now, so with it spent no
+    /// sendable channel can carry the relance: refused, and nothing queued.
     /// </summary>
     [Fact]
-    public async Task With_Sms_Also_Sendable_The_Relance_Succeeds_And_Both_Rows_Are_Queued()
+    public async Task With_Sms_Also_Sendable_A_Spent_Forfait_Still_Refuses()
     {
         var harness = new SchedulerHarness(exhausted: true, "Sms", "WhatsApp");
 
         var outcome = await harness.ScheduleRecall();
 
-        Assert.Equal(RecallDispatchOutcome.Enqueued, outcome);
-        Assert.Equal(2, harness.Added.Count);
-        Assert.Contains(harness.Added, n => n.Type == NotificationType.SMS);
-        Assert.Contains(harness.Added, n => n.Type == NotificationType.WhatsApp);
+        Assert.Equal(RecallDispatchOutcome.MessagingAllowanceExhausted, outcome);
+        Assert.Empty(harness.Added);
     }
 
     /// <summary>A forfait with room left changes nothing at all: the WhatsApp row is queued as before.</summary>

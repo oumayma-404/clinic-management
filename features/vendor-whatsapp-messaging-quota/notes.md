@@ -5,6 +5,10 @@ Moved out of the root `CLAUDE.md` verbatim so it is no longer loaded into every 
 indexes it under **Architecture notes**. `spec.md` is what was asked for, `stories/` how it was built,
 and this is what shipped.
 
+> ⚠️ **Reversed by `sms-rappels-tunisie-sms` (2026-10-20): an SMS now counts one message of the same forfait** —
+> both channels are the vendor's account. Every « SMS is never counted » / AC-4.6 statement below is history; see
+> [`../sms-rappels-tunisie-sms/notes.md`](../sms-rappels-tunisie-sms/notes.md) § Money.
+
 ## The vendor buys the WhatsApp messages and a cabinet spends them (`vendor-whatsapp-messaging-quota`, Parts 0–5)
 
 each practice gets a **monthly allowance of WhatsApp appointment reminders**, counted one per message actually
