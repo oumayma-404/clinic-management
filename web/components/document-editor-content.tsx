@@ -2338,14 +2338,15 @@ export function DocumentEditorContent() {
                     Enregistré dans le dossier du patient. Le PDF est ajouté à ses fichiers dès qu&apos;il est
                     généré.
                   </p>
-                  {/* `flex-wrap` + a real basis on each: two French labels that can neither shrink nor wrap
-                      measure past this panel at 320 px — the `RecordSection` trap, one surface over. */}
+                  {/* Basis `auto` + `whitespace-normal`: each button takes its own row before its label is squeezed,
+                      and breaks the label only when alone and still too wide. `basis-40` + `min-w-0` kept both on one
+                      row in this 330 px panel from 1280 px up, and « Ouvrir le dossier du patient » ran out of its button. */}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="min-w-0 shrink grow basis-40 coarse:h-11"
+                      className="h-auto min-h-8 min-w-0 shrink grow whitespace-normal py-1.5 coarse:min-h-11"
                       onClick={() => setSavedPreviewOpen(true)}
                     >
                       <FileText className="mr-2 h-4 w-4 shrink-0" />
@@ -2355,7 +2356,7 @@ export function DocumentEditorContent() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="min-w-0 shrink grow basis-40 coarse:h-11"
+                      className="h-auto min-h-8 min-w-0 shrink grow whitespace-normal py-1.5 coarse:min-h-11"
                       /*
                        * ⚠️ **The patient's FILE DRAWER, not `?tab=documents` on the patient page.** Reported
                        * as « ouvrir le dossier du patient is not working properly … the patient folder with
