@@ -3,10 +3,13 @@
 import { Fragment, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Check, ClipboardCheck, EyeOff, FileText, Receipt, Undo2, UserCheck, UserX } from "lucide-react"
+import { CalendarClock, Check, ClipboardCheck, EyeOff, FileText, MoreHorizontal, Receipt, Undo2, UserCheck, UserX } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { LateArrivalChips } from "@/components/appointment-late-arrival-chips"
+import { PostponeAppointmentDialog } from "@/components/appointment-postpone-dialog"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import { EmptyState } from "@/components/ui/empty-state"
 import { EmptyJoke } from "@/components/ui/empty-joke"
@@ -88,6 +91,7 @@ export function VisitClosureList({
   /** The séance(s) « Retirer de la liste » is being asked about — one row, or every row on screen. */
   const [disregarding, setDisregarding] = useState<VisitToCloseDto[] | null>(null)
   const [billing, setBilling] = useState<{ record: DentalRecordDto; patientName: string } | null>(null)
+  const [postponing, setPostponing] = useState<VisitToCloseDto | null>(null)
 
   /** « Venu » / « Absent ». The two legal answers to the presence question, and an ordinary status update. */
   const answerPresence = async (visit: VisitToCloseDto, came: boolean) => {
@@ -98,6 +102,20 @@ export function VisitClosureList({
       onChanged()
     } catch (err) {
       // The dialog-stays-open rule, one surface over: the row stays exactly as it was and the message says why.
+      showErrorToast(err)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  /** « Venu en retard » — this list's « Venu » plus the retard, in one write. */
+  const answerLate = async (visit: VisitToCloseDto, minutes: number) => {
+    setBusyId(visit.appointmentId)
+    try {
+      await appointmentsApi.update(visit.appointmentId, { status: "Completed", lateArrivalMinutes: minutes })
+      toast.success(`Séance marquée comme honorée · retard de ${minutes} min.`)
+      onChanged()
+    } catch (err) {
       showErrorToast(err)
     } finally {
       setBusyId(null)
@@ -302,6 +320,8 @@ export function VisitClosureList({
                               visit={visit}
                               busy={busyId === visit.appointmentId}
                               onPresence={answerPresence}
+                              onLate={answerLate}
+                              onPostpone={setPostponing}
                               onFiche={openFiche}
                               onBilling={openBilling}
                               onNothingToBill={setNothingToBillFor}
@@ -355,6 +375,8 @@ export function VisitClosureList({
                           visit={v}
                           busy={busyId === v.appointmentId}
                           onPresence={answerPresence}
+                          onLate={answerLate}
+                          onPostpone={setPostponing}
                           onFiche={openFiche}
                           onBilling={openBilling}
                           onNothingToBill={setNothingToBillFor}
@@ -427,7 +449,57 @@ export function VisitClosureList({
           onChanged()
         }}
       />
+
+      <PostponeAppointmentDialog
+        appointmentId={postponing?.appointmentId ?? null}
+        open={postponing !== null}
+        onOpenChange={(open) => !open && setPostponing(null)}
+        onDone={() => onChanged()}
+      />
     </>
+  )
+}
+
+/** « Venu en retard » — the one rarer answer, kept one tap behind the row's three buttons. */
+function PresenceLateArrival({
+  visit,
+  busy,
+  onLate,
+}: {
+  visit: VisitToCloseDto
+  busy: boolean
+  onLate: (visit: VisitToCloseDto, minutes: number) => void | Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          className="px-2 coarse:size-11"
+          aria-label={`Noter un retard pour ${visit.patientName}`}
+        >
+          <MoreHorizontal aria-hidden="true" className="size-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[min(16rem,calc(100vw-2rem))] p-1">
+        <div className="space-y-1.5 px-2 py-1.5">
+          <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Venu en retard</p>
+          <LateArrivalChips
+            value={null}
+            label={`Retard de ${visit.patientName}`}
+            disabled={busy}
+            onChange={(minutes) => {
+              if (minutes === null) return
+              setOpen(false)
+              void onLate(visit, minutes)
+            }}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -581,6 +653,8 @@ function RowActions({
   visit,
   busy,
   onPresence,
+  onLate,
+  onPostpone,
   onFiche,
   onBilling,
   onNothingToBill,
@@ -591,6 +665,8 @@ function RowActions({
   visit: VisitToCloseDto
   busy: boolean
   onPresence: (visit: VisitToCloseDto, came: boolean) => void
+  onLate: (visit: VisitToCloseDto, minutes: number) => void | Promise<void>
+  onPostpone: (visit: VisitToCloseDto) => void
   onFiche: (visit: VisitToCloseDto) => void
   onBilling: (visit: VisitToCloseDto) => void | Promise<void>
   onNothingToBill: (visit: VisitToCloseDto) => void
@@ -661,6 +737,21 @@ function RowActions({
           <UserX aria-hidden="true" className="me-1.5 size-4" />
           Absent
         </Button>
+        {visit.patientId && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => onPostpone(visit)}
+              aria-label={`Reporter la séance de ${visit.patientName}`}
+            >
+              <CalendarClock aria-hidden="true" className="me-1.5 size-4" />
+              Reporter
+            </Button>
+            <PresenceLateArrival visit={visit} busy={busy} onLate={onLate} />
+          </>
+        )}
         {setAside}
       </>
     )

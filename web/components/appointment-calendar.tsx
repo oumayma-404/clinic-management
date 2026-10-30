@@ -27,6 +27,7 @@ import {
   CalendarCheck,
   CalendarOff,
   CalendarPlus,
+  Clock,
   Filter,
   CloudOff,
   UploadCloud,
@@ -1801,9 +1802,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     // sighted users only.
     // J3: on a finished visit the act is the one BOOKED — its fiche may record another — so it says « prévu ».
     const bookedActPrefix = canonicalStatus === "Completed" ? "prévu : " : ""
+    // The booked slot never moves for a retard; this mark is the only place the agenda states one.
+    const lateArrival = appointment.lateArrivalMinutes ?? 0
     const blockLabel = `${appointment.patientName} · ${format(aptStart, "HH:mm")} · ${durationMinutes} min · ${statusLabel}${
-      actsSummary ? ` · ${bookedActPrefix}${actsSummary}` : ""
-    }${planSeance ? " · séance d'un devis" : ""}`
+      lateArrival > 0 ? ` · arrivé avec ${lateArrival} min de retard` : ""
+    }${actsSummary ? ` · ${bookedActPrefix}${actsSummary}` : ""}${planSeance ? " · séance d'un devis" : ""}`
 
     /*
      * The phone block is a different shape, not the desktop block scaled down.
@@ -1887,6 +1890,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             >
               {appointment.patientName}
             </span>
+            {!narrowColumn && lateArrival > 0 && (
+              <span aria-hidden="true" className="shrink-0 text-2xs font-semibold tabular-nums text-warning-ink">
+                +{lateArrival}
+              </span>
+            )}
           </span>
           {/* 30, not 40. A 30-minute visit — the default — is exactly 32 px at `HOUR_HEIGHT_PHONE`, so a 40 px
               gate excluded the single most common appointment in the app from ever showing its start time, and
@@ -1960,6 +1968,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           >
             {appointment.patientName}
           </span>
+          {!isVerySmall && lateArrival > 0 && (
+            <span
+              aria-hidden="true"
+              className="inline-flex h-4 shrink-0 items-center gap-0.5 rounded-full bg-white/60 px-1 text-2xs font-semibold leading-none tabular-nums text-warning-ink dark:bg-background/50"
+            >
+              <Clock className="size-2.5" />+{lateArrival}
+            </span>
+          )}
           {/* The multi-act signal stays a badge: it is a *count*, so it must not be mistaken for the act's name,
               and it is the one thing a grouped séance cannot say any other way at this width. */}
           {!isVerySmall && actsCount > 1 && (

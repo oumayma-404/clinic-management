@@ -1,6 +1,7 @@
 import { apiGet, apiPost, apiPut } from './client';
 import type {
   AppointmentDto,
+  FreeSlotsDto,
   RecurringAppointmentDto,
   RecurringSeriesResultDto,
   VisitToCloseDto,
@@ -210,6 +211,13 @@ export const appointmentsApi = {
     return apiGet<AppointmentDto>(`/appointments/${id}`);
   },
 
+  /**
+   * Where this visit can move to: its practitioner's free starts for its own length, from `from` (`YYYY-MM-DD`,
+   * default the clinic's today) over `days` (1–31, default 14). Built from the save's own rules on the server.
+   */
+  freeSlots: async (id: string, params?: { from?: string; days?: number }): Promise<FreeSlotsDto> =>
+    apiGet<FreeSlotsDto>(`/appointments/${id}/free-slots`, params),
+
   create: async (data: {
     patientId?: string | null;
     appointmentDateTime: string;
@@ -296,6 +304,8 @@ export const appointmentsApi = {
     treatmentPlanId?: string;
     /** `null` clears the plan-act link. */
     treatmentPlanItemId?: string | null;
+    /** « Retard » in minutes; `null` clears it. Omit it on every save that is not about the retard. */
+    lateArrivalMinutes?: number | null;
   }): Promise<AppointmentDto> => {
     return apiPut<AppointmentDto>(`/appointments/${id}`, data);
   },

@@ -271,7 +271,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 // the linked doctor if any (else all staff). Deferred visibility replaces a background job.
                 await _notificationGenerator.EnsurePostVisitReviewAsync(
                     clinicId, appointment.Id, appointment.DoctorId, patientName,
-                    appointment.AppointmentDateTime + appointment.Duration, cancellationToken);
+                    appointment.ExpectedEndUtc, cancellationToken);
 
                 // Outbound SMS/WhatsApp reminder(s): enqueued to the Notification outbox per configured
                 // channel, sent later by the connectivity-gated dispatcher. Best-effort, never fails create.
@@ -297,6 +297,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 ProcedureColorHex = appointment.ProcedureColorHex,
                 Procedures = appointment.ToProcedureDtos(),
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
+                LateArrivalMinutes = appointment.LateArrivalMinutes,
                 CreatedAt = appointment.CreatedAt,
                 Version = appointment.Version,
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null

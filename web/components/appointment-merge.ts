@@ -22,6 +22,8 @@ export interface AppointmentValues {
   start: string
   minutes: number
   status: string
+  /** Part of the « Statut » section: a retard is a statement about the same presence. */
+  lateArrivalMinutes: number | null
   doctorId: string
   acts: readonly SelectedAct[]
   notes: string
@@ -52,7 +54,7 @@ function canonicalAct(act: SelectedAct) {
 export function appointmentSnapshot(values: AppointmentValues): Record<AppointmentSection, string> {
   return {
     when: JSON.stringify([values.day, values.start, values.minutes]),
-    status: values.status.toLowerCase(),
+    status: JSON.stringify([values.status.toLowerCase(), values.lateArrivalMinutes]),
     doctor: values.doctorId || "",
     acts: JSON.stringify(values.acts.map(canonicalAct)),
     notes: values.notes.trim(),

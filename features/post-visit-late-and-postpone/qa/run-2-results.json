@@ -1,0 +1,123 @@
+{
+  "today": "2026-10-30",
+  "stamp": "1568",
+  "records": {
+    "R1": {
+      "id": "baa7975f-1ad5-4bad-b112-afed4a36b599",
+      "patientId": "bc30c91f-7479-408e-99e0-dbde7f188a4e",
+      "name": "Test R1-1568"
+    },
+    "RD": {
+      "id": "dd260681-4d30-44aa-8709-6063f7cc7a48",
+      "patientId": "5b2cabcb-6e33-41d2-b8f0-979ade8a72dd",
+      "name": "Test RD-1568"
+    },
+    "R2": {
+      "id": "765e4512-0754-4b97-a099-8c1bd5c69ab9",
+      "patientId": "71f51030-b29e-4779-be1e-62c7741e588d",
+      "name": "Test R2-1568"
+    },
+    "R3": {
+      "id": "22550252-62b5-4810-a0d9-6844956bffb8",
+      "patientId": "b542eed6-b90a-4db7-a6ec-6452bda35c2a",
+      "name": "Test R3-1568"
+    },
+    "R4": {
+      "id": "af8c806a-2f62-4175-8d3e-87550b5a140c",
+      "patientId": "6542e82f-c69d-4d3e-bbf7-cc904bb81469",
+      "name": "Test R4-1568"
+    },
+    "R6": {
+      "id": "6ab142f8-9747-43cf-b836-d9d40ce1adab",
+      "patientId": "e73f94e7-7eef-4f33-b2b5-0ed64a6cde0a",
+      "name": "Test R6-1568"
+    },
+    "R7": {
+      "id": "9978900e-d3a1-417b-bfb8-a784eaaad2dc",
+      "patientId": "4d8b982e-e425-4061-a188-7c63a3cfa759",
+      "name": "Test R7-1568"
+    },
+    "R9": {
+      "id": "e3920106-f2f3-45cf-ad20-72c8beced079",
+      "patientId": "a1c0d880-934d-410a-8dcf-89cd77585a76",
+      "name": "Test R9-1568"
+    },
+    "R10": {
+      "id": "ab8f49dc-fabe-4c19-80cf-bd36a9853a05",
+      "patientId": "bed725c5-3768-4e2b-b2fd-4aee79d4c7b7",
+      "name": "Test R10-1568"
+    },
+    "R14": {
+      "id": "af1e23a6-0d0c-40cf-802d-3f6d0f2f3ca3",
+      "patientId": "0e64de1f-e02e-4861-b4dc-fc8056fb93fd",
+      "name": "Test R14-1568"
+    },
+    "R15": {
+      "id": "f245d826-c2c3-4dff-8bd9-9d903cfa9a08",
+      "patientId": "5ae626c2-d5d7-4104-9059-6d2b80f5ed13",
+      "name": "Test R15-1568"
+    },
+    "RT": {
+      "id": "da4a87bb-801d-4fa9-8ba8-4f729447fd8b",
+      "patientId": "09a0a573-200b-4043-9cea-a6eaf9a3558d",
+      "name": "Test RT-1568"
+    },
+    "R16": {
+      "id": "45815afe-70c2-4bd1-ba6c-a6ea7b1ffe13",
+      "patientId": "0263828f-588c-4467-867f-9d4984b94427",
+      "name": "Test R16-1568"
+    },
+    "R8": {
+      "id": "5b640b6a-6f7c-4b4f-b4fe-d39f6b9b5ec6",
+      "patientId": "852ca512-9984-466e-947e-67af71affbf3",
+      "name": "Test R8-1568"
+    },
+    "R12": {
+      "id": "84f237a3-0989-420e-af1b-82242aac6042",
+      "patientId": "15df58e1-e37f-4a69-b239-d8cc29de4de8",
+      "name": "Test R12-1568"
+    },
+    "R11": {
+      "id": "68b32f01-05f2-4eac-8413-f7ee36739cf5",
+      "patientId": "ae9211ae-e681-4dc5-b9ef-57503b9146cb",
+      "name": "Test R11-1568"
+    }
+  },
+  "a5": {
+    "check1": null,
+    "check2": null
+  },
+  "envNotes": [],
+  "results": [
+    {
+      "id": "C1-popover",
+      "outcome": "pass",
+      "m": "⋯ popover 247px inside 320, scrollWidth 320"
+    },
+    {
+      "id": "C1-button",
+      "outcome": "pass",
+      "m": "« Reporter » row button inside 320 (42–150, 32px tall)"
+    },
+    {
+      "id": "C1-dialog",
+      "outcome": "pass",
+      "m": "Reporter sheet 320px, every button inside, scrollWidth 320"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "one PUT { status: Completed, lateArrivalMinutes: 10 }; row now asks « Fiche »"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "colleague's move → banner « Cet enregistrement a été modifié par quelqu'un d'autre pendant votre s » + Recharger → subject 15:30, typed 14:00 kept → moved"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "1024: actions end 987 ≤ box 999, ⋯ 44px · 1180: actions end 1143 ≤ box 1155, ⋯ 44px"
+    }
+  ]
+}

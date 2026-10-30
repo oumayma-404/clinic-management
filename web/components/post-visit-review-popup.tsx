@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { ClipboardPlus, UserCheck, UserX } from "lucide-react"
+import { CalendarClock, ClipboardPlus, Clock } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -17,11 +17,13 @@ import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { useSession } from "@/lib/auth/session"
 import { notificationsApi } from "@/lib/api/notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
-import type { PendingReviewDto } from "@/lib/api/types"
+import type { AppointmentDto, PendingReviewDto } from "@/lib/api/types"
 import { showErrorToast } from "@/lib/errors"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { normalizeStatus } from "@/components/appointment-labels"
+import { LateArrivalChips } from "@/components/appointment-late-arrival-chips"
+import { PostponeAppointmentDialog, PostponeForm, postponeSubject } from "@/components/appointment-postpone-dialog"
 
 // How often to poll for due reviews (deferred-visibility means one can become due while the app is open).
 const POLL_INTERVAL_MS = 60_000
@@ -50,8 +52,11 @@ function promptSentence(patientName: string | null | undefined): string {
 
 const PRESENCE_QUESTION = "Le patient est-il venu ?"
 
-/** Step 1 asks whether the patient came; step 2 offers the fiche. A visit already « Terminé » starts on step 2. */
-type PromptStep = "presence" | "fiche"
+/**
+ * Step 1 asks whether the patient came; step 2 offers the fiche (and a retard); « postpone » moves the visit. A visit
+ * already « Terminé », or carrying a retard, starts on step 2.
+ */
+type PromptStep = "presence" | "fiche" | "postpone"
 
 // sonner's buttons are 24 px; the toast only renders on a coarse pointer, so they take the 44 px floor here.
 const TOAST_BUTTON_CLASS = "h-11! px-4! text-sm!"
@@ -62,6 +67,9 @@ interface ResolvedVisit {
   patientId: string | null
   patientName: string | null
   status: string | null
+  lateArrivalMinutes: number | null
+  /** The read itself, for « Reporter »; null when it failed, which withholds that answer. */
+  appointment: AppointmentDto | null
 }
 
 /** Midnight tonight, local. The reminder is never urgent, so tomorrow is soon enough to ask again. */
@@ -279,12 +287,21 @@ export function PostVisitReviewPopup() {
           patientId: a.patientId ?? null,
           patientName: a.patientName ?? null,
           status: a.status ?? null,
+          lateArrivalMinutes: a.lateArrivalMinutes ?? null,
+          appointment: a,
         })
       })
       .catch(() => {
         // The bare fact stands in for the name; « Remplir » looks the appointment up again on press.
         if (cancelled || !mountedRef.current) return
-        setVisit({ appointmentId: activeAppointmentId, patientId: null, patientName: null, status: null })
+        setVisit({
+          appointmentId: activeAppointmentId,
+          patientId: null,
+          patientName: null,
+          status: null,
+          lateArrivalMinutes: null,
+          appointment: null,
+        })
       })
     return () => {
       cancelled = true
@@ -297,13 +314,31 @@ export function PostVisitReviewPopup() {
   // The appointment « Venu » was answered for — no write, so it lives only here until the fiche is saved.
   const [cameFor, setCameFor] = useState<string | null>(null)
   const [markingAbsent, setMarkingAbsent] = useState(false)
+  /** The appointment the inline « Reporter » step is open for (dialog path). */
+  const [postponeFor, setPostponeFor] = useState<string | null>(null)
+  /** The appointment the « Reporter » dialog is open for (tablet path — a toast cannot hold a form). */
+  const [postponeDialogFor, setPostponeDialogFor] = useState<string | null>(null)
+  const [lateOpen, setLateOpen] = useState(false)
+  const [savingLate, setSavingLate] = useState(false)
   const alreadyCompleted = activeVisit?.status != null && normalizeStatus(activeVisit.status) === "Completed"
+  const lateArrival = activeVisit?.lateArrivalMinutes ?? null
+  // A recorded retard says the patient came, so « venu ? » is not asked again.
   const step: PromptStep =
-    activeAppointmentId !== null && (cameFor === activeAppointmentId || alreadyCompleted) ? "fiche" : "presence"
+    activeAppointmentId === null
+      ? "presence"
+      : postponeFor === activeAppointmentId
+        ? "postpone"
+        : cameFor === activeAppointmentId || alreadyCompleted || lateArrival !== null
+          ? "fiche"
+          : "presence"
   const sentence =
     step === "presence"
       ? `${promptSentence(activeVisit?.patientName)} ${PRESENCE_QUESTION}`
       : promptSentence(activeVisit?.patientName)
+
+  useEffect(() => {
+    setLateOpen(false)
+  }, [activeAppointmentId])
 
   /**
    * Snoozes every review currently known to be pending, until the end of the local day.
@@ -375,11 +410,14 @@ export function PostVisitReviewPopup() {
   const handleAbsent = useCallback(() => {
     if (!active?.appointmentId || markingAbsent) return
     const appointmentId = active.appointmentId
+    const toastId = `pvr-${active.id}`
     setMarkingAbsent(true)
     void (async () => {
       try {
         await appointmentsApi.update(appointmentId, { status: "NoShow" })
         toast.success("Patient marqué comme absent.")
+        // The tablet's answers live in the toast's own body now, so nothing else closes it.
+        toast.dismiss(toastId)
         setDismissed(true)
       } catch (err) {
         showErrorToast(err)
@@ -390,6 +428,49 @@ export function PostVisitReviewPopup() {
       }
     })()
   }, [active, markingAbsent, refetch])
+
+  /** « Reporter » — inline on the dialog; on a tablet the toast closes and the form opens as a dialog of its own. */
+  const handlePostpone = useCallback(
+    (asDialog: boolean) => {
+      if (!active || !activeVisit?.appointment) return
+      if (asDialog) {
+        toast.dismiss(`pvr-${active.id}`)
+        setPostponeDialogFor(active.appointmentId ?? null)
+      } else {
+        setPostponeFor(active.appointmentId ?? null)
+      }
+    },
+    [active, activeVisit],
+  )
+
+  /** Moved or put on the Liste d'attente: closes like « Absent », without snoozing the rest of the queue. */
+  const handlePostponed = useCallback(() => {
+    setPostponeFor(null)
+    setPostponeDialogFor(null)
+    setDismissed(true)
+  }, [])
+
+  /** Saves the retard at once (null clears it) — no status is written, exactly like « Venu ». */
+  const recordLateArrival = useCallback(
+    (minutes: number | null) => {
+      if (!activeAppointmentId || savingLate) return
+      const appointmentId = activeAppointmentId
+      setSavingLate(true)
+      void (async () => {
+        try {
+          await appointmentsApi.update(appointmentId, { lateArrivalMinutes: minutes })
+          setVisit((v) => (v && v.appointmentId === appointmentId ? { ...v, lateArrivalMinutes: minutes } : v))
+          setLateOpen(false)
+          toast.success(minutes === null ? "Retard retiré." : `Retard de ${minutes} min noté.`)
+        } catch (err) {
+          showErrorToast(err)
+        } finally {
+          if (mountedRef.current) setSavingLate(false)
+        }
+      })()
+    },
+    [activeAppointmentId, savingLate],
+  )
 
   /*
    * The latch. Closed → consult the body and open only if nothing else is on screen. Open → leave it alone.
@@ -415,6 +496,7 @@ export function PostVisitReviewPopup() {
    */
   const handleLater = useCallback(() => {
     setDismissed(true)
+    setPostponeFor(null)
     snoozeAll()
   }, [snoozeAll])
 
@@ -444,35 +526,67 @@ export function PostVisitReviewPopup() {
     // decided to speak », so the two paths cannot drift apart again. A toast sets no scroll lock, so it was
     // never at risk of the self-reference the dialog was; sharing the latch is for the drift, not the race.
     if (isPhone || !isCoarse || active === null || dismissed || !mayPrompt || onAPatientFile || !visitSettled) return
+    // The « Reporter » dialog stands in for the toast; closing it without an answer brings the toast back.
+    if (postponeDialogFor !== null) return
 
+    const presence = step === "presence"
     // Same id on both steps, so « Venu » turns this toast into the « Remplir » one in place.
     toast(PROMPT_TITLE, {
       id: `pvr-${active.id}`,
-      description: sentence,
+      // A sonner toast holds two buttons, so the three answers sit under the sentence — 44 px, grown not overlaid.
+      description: presence ? (
+        <div className="space-y-2">
+          <p>{sentence}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" className="h-11 px-4" onClick={handleCame} disabled={markingAbsent}>
+              Venu
+            </Button>
+            <Button size="sm" variant="outline" className="h-11 bg-card px-4" onClick={handleAbsent} disabled={markingAbsent}>
+              Absent
+            </Button>
+            {activeVisit?.appointment && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-11 bg-card px-4"
+                onClick={() => handlePostpone(true)}
+                disabled={markingAbsent}
+              >
+                Reporter
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : (
+        sentence
+      ),
       duration: 30_000,
       icon: <ClipboardPlus className="h-5 w-5 text-primary" />,
       classNames: { actionButton: TOAST_BUTTON_CLASS, cancelButton: TOAST_BUTTON_CLASS },
-      action:
-        step === "presence"
-          ? {
-              label: "Venu",
-              onClick: (event) => {
-                // Keeps the toast up: sonner closes it after an action unless the event is prevented.
-                event.preventDefault()
-                handleCame()
-              },
-            }
-          : { label: "Remplir", onClick: handleAddRecord },
-      // Explicit `undefined` on step 2: sonner merges an update into the live toast, so omitting it keeps « Absent ».
-      cancel: step === "presence" ? { label: "Absent", onClick: handleAbsent } : undefined,
+      // Explicit `undefined`s: sonner merges an update into the live toast, so an omitted key would linger.
+      action: presence ? undefined : { label: "Remplir", onClick: handleAddRecord },
+      cancel: undefined,
       onDismiss: handleLater,
       onAutoClose: handleLater,
     })
-  }, [isPhone, isCoarse, active, dismissed, mayPrompt, onAPatientFile, visitSettled, sentence, step, handleAddRecord, handleCame, handleAbsent, handleLater])
+  }, [isPhone, isCoarse, active, activeVisit, dismissed, mayPrompt, onAPatientFile, visitSettled, sentence, step, markingAbsent, postponeDialogFor, handleAddRecord, handleCame, handleAbsent, handlePostpone, handleLater])
 
-  // On a phone the header bell *is* the prompt; on a tablet the toast above is. Either way the dialog would be
-  // a second copy of a reminder the user has already been given.
-  if (isPhone || isCoarse) return null
+  const postponeDialog = (
+    <PostponeAppointmentDialog
+      appointmentId={postponeDialogFor}
+      open={postponeDialogFor !== null}
+      onOpenChange={(next) => {
+        if (!next) setPostponeDialogFor(null)
+      }}
+      onDone={handlePostponed}
+    />
+  )
+
+  // On a phone the header bell *is* the prompt; on a tablet the toast above is — plus « Reporter »'s own dialog.
+  if (isPhone) return null
+  if (isCoarse) return postponeDialog
+
+  const postponing = step === "postpone" ? activeVisit?.appointment ?? null : null
 
   return (
     <Dialog
@@ -484,35 +598,84 @@ export function PostVisitReviewPopup() {
       <DialogContent className="md:max-w-md">
         <DialogHeader>
           <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <ClipboardPlus className="h-5 w-5" />
+            {postponing ? <CalendarClock className="h-5 w-5" /> : <ClipboardPlus className="h-5 w-5" />}
           </div>
-          <DialogTitle>{PROMPT_TITLE}</DialogTitle>
-          <DialogDescription>{sentence}</DialogDescription>
+          <DialogTitle>{postponing ? "Reporter la séance" : PROMPT_TITLE}</DialogTitle>
+          <DialogDescription>{postponing ? postponeSubject(postponing) : sentence}</DialogDescription>
         </DialogHeader>
-        {step === "presence" ? (
+        {postponing ? (
+          <PostponeForm
+            appointment={postponing}
+            onBack={() => setPostponeFor(null)}
+            onDone={handlePostponed}
+            onReloaded={(fresh) =>
+              setVisit((v) =>
+                v && v.appointmentId === fresh.id
+                  ? { ...v, status: fresh.status ?? null, lateArrivalMinutes: fresh.lateArrivalMinutes ?? null, appointment: fresh }
+                  : v,
+              )
+            }
+          />
+        ) : step === "presence" ? (
+          // Words only, and the same label while in flight: four buttons fit one line of the 448 px dialog that way.
           <DialogFooter className="gap-2 sm:gap-2">
             {/* « Plus tard » stays a button on this step: `e2e/lib/goto.ts` dismisses the prompt by its name. */}
             <Button variant="ghost" onClick={handleLater} className="sm:me-auto">
               Plus tard
             </Button>
+            {activeVisit?.appointment && (
+              <Button variant="outline" onClick={() => handlePostpone(false)} disabled={markingAbsent}>
+                Reporter
+              </Button>
+            )}
             <Button variant="outline" onClick={handleAbsent} disabled={markingAbsent}>
-              <UserX aria-hidden="true" className="me-1.5 size-4" />
-              {markingAbsent ? "Enregistrement…" : "Absent"}
+              Absent
             </Button>
             <Button onClick={handleCame} disabled={markingAbsent}>
-              <UserCheck aria-hidden="true" className="me-1.5 size-4" />
               Venu
             </Button>
           </DialogFooter>
         ) : (
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="outline" onClick={handleLater}>
-              Plus tard
-            </Button>
-            <Button onClick={handleAddRecord} disabled={resolving}>
-              {resolving ? "Ouverture…" : "Remplir la fiche de soins"}
-            </Button>
-          </DialogFooter>
+          <>
+            <div className="flex min-h-9 flex-wrap items-center gap-2">
+              {lateOpen ? (
+                <LateArrivalChips
+                  value={lateArrival}
+                  onChange={recordLateArrival}
+                  withNone={lateArrival !== null}
+                  disabled={savingLate}
+                />
+              ) : lateArrival !== null ? (
+                <>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-wash px-2.5 py-1 text-sm font-medium text-warning-ink">
+                    <Clock aria-hidden="true" className="size-3.5" />
+                    Retard de {lateArrival} min
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={() => setLateOpen(true)} disabled={savingLate}>
+                    Modifier
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="-ms-2 text-muted-foreground"
+                  onClick={() => setLateOpen(true)}
+                >
+                  <Clock aria-hidden="true" className="size-4" />
+                  Noter un retard
+                </Button>
+              )}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button variant="outline" onClick={handleLater}>
+                Plus tard
+              </Button>
+              <Button onClick={handleAddRecord} disabled={resolving}>
+                {resolving ? "Ouverture…" : "Remplir la fiche de soins"}
+              </Button>
+            </DialogFooter>
+          </>
         )}
       </DialogContent>
     </Dialog>

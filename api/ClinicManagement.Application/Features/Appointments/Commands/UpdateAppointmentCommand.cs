@@ -82,6 +82,14 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     private Guid? _doctorId;
     private Guid? _treatmentPlanItemId;
     private List<AppointmentProcedureRequest>? _procedures;
+    private int? _lateArrivalMinutes;
+
+    /// <summary>« Retard » in minutes. Explicit <c>null</c> clears it; omitting leaves it — never sent by an ordinary edit.</summary>
+    public int? LateArrivalMinutes
+    {
+        get => _lateArrivalMinutes;
+        set { _lateArrivalMinutes = value; LateArrivalMinutesSpecified = true; }
+    }
 
     /// <summary>
     /// The acts of this séance, replaced wholesale. Tri-state like everything else here: **omit** the key to leave
@@ -150,6 +158,7 @@ public class UpdateAppointmentCommand : IRequest<Result<AppointmentDto>>
     [JsonIgnore] public bool DoctorIdSpecified { get; private set; }
     [JsonIgnore] public bool TreatmentPlanItemIdSpecified { get; private set; }
     [JsonIgnore] public bool ProceduresSpecified { get; private set; }
+    [JsonIgnore] public bool LateArrivalMinutesSpecified { get; private set; }
 }
 
 public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointmentCommand, Result<AppointmentDto>>
@@ -496,6 +505,12 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 }
             }
 
+            // After the date and the status, so the domain judges the retard against the visit they produced.
+            if (request.LateArrivalMinutesSpecified)
+            {
+                appointment.RecordLateArrival(request.LateArrivalMinutes);
+            }
+
             // Move or clear the treatment-plan act this appointment schedules (AC-17). Only when the caller
             // actually sent the field — see the tri-state note on the command. Rescheduling an appointment
             // onto a different act now updates the link instead of leaving a stale one pointing at the act
@@ -531,10 +546,14 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             // exempt and the two would have disagreed about the same rule. The helper is the only authority now:
             // it decides what competes with what (`CompetesFor`), including the unassigned « créneau occupé » rows
             // that a named practitioner must also respect.
-            if (scheduleChanged
-                && appointment.Status != AppointmentStatus.Cancelled
-                && appointment.Status != AppointmentStatus.Completed
-                && appointment.Status != AppointmentStatus.NoShow)
+            var movedWhileActive = scheduleChanged
+                                   && appointment.Status is not (AppointmentStatus.Cancelled
+                                       or AppointmentStatus.Completed or AppointmentStatus.NoShow);
+            // Back from « Absent » or « Annulé » the row holds its slot again, so it meets the same guard rather
+            // than the database's bare 409.
+            var regainsSlot = (oldStatus is AppointmentStatus.NoShow or AppointmentStatus.Cancelled)
+                              && appointment.Status is not (AppointmentStatus.NoShow or AppointmentStatus.Cancelled);
+            if (movedWhileActive || regainsSlot)
             {
                 // AC-P1.20/1.39: the same shared guard the create path uses, with the widened scan window (A-3).
                 var collision = await AppointmentScheduling.FindCollisionAsync(
@@ -559,7 +578,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 }
 
                 // AC-P1.20/1.28: moving an appointment is subject to the same working-hours rule as booking it.
-                if (!request.AllowOutsideWorkingHours)
+                if (movedWhileActive && !request.AllowOutsideWorkingHours)
                 {
                     var hoursCheck = await AppointmentScheduling.CheckWorkingHoursAsync(
                         _doctorRepository, _clinicRepository, _doctorLeaveRepository, clinicResult.Value, appointment.DoctorId,
@@ -653,7 +672,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 {
                     await _notificationGenerator.EnsurePostVisitReviewAsync(
                         appointment.ClinicId, appointment.Id, appointment.DoctorId, patientName,
-                        appointment.AppointmentDateTime + appointment.Duration, cancellationToken);
+                        appointment.ExpectedEndUtc, cancellationToken);
                 }
                 else if (appointment.Status == AppointmentStatus.Completed
                          && oldStatus != AppointmentStatus.Completed)
@@ -713,6 +732,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 ProcedureColorHex = appointment.ProcedureType?.Color.Value ?? appointment.ProcedureColorHex,
                 Procedures = appointment.ToProcedureDtos(),
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
+                LateArrivalMinutes = appointment.LateArrivalMinutes,
                 // Reflects committed state; the async Google sync below may set the id afterwards, and
                 // the frontend refetches (bumps refreshKey) to clear the "non synchronisé" badge.
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null
