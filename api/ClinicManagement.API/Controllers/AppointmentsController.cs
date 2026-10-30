@@ -251,6 +251,23 @@ public class AppointmentsController : ApiControllerBase
     }
 
     /// <summary>
+    /// Where this visit can move to: its practitioner's free starts for its own length, day by day — « Reporter »'s
+    /// list, built from the booking guard's own rules so a listed time is one the save accepts.
+    /// </summary>
+    [HttpGet("{id:guid}/free-slots")]
+    public async Task<ActionResult<FreeSlotsDto>> GetFreeSlots(Guid id, [FromQuery] DateOnly? from = null, [FromQuery] int days = 14)
+    {
+        var result = await _mediator.Send(new GetFreeSlotsQuery { AppointmentId = id, From = from, Days = days });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result, StatusCodes.Status404NotFound);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
     /// Create a new appointment
     /// </summary>
     [HttpPost]

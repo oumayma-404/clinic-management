@@ -26,6 +26,9 @@ public class DoctorLeave : AggregateRoot<Guid>
 
     public int DayCount => EndDate.DayNumber - StartDate.DayNumber + 1;
 
+    /// <summary>Touches the inclusive day window — the repository's SQL overlap test, for a congé already loaded.</summary>
+    public bool Covers(DateOnly fromDay, DateOnly toDay) => StartDate <= toDay && fromDay <= EndDate;
+
     private DoctorLeave() { } // For EF Core
 
     public DoctorLeave(Guid id, Guid clinicId, Guid doctorId, DateOnly startDate, DateOnly endDate, string? note)

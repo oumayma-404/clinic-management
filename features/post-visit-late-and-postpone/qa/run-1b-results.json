@@ -1,0 +1,143 @@
+{
+  "today": "2026-10-30",
+  "stamp": "8695",
+  "records": {
+    "R1": {
+      "id": "284b56be-701c-417b-b7c8-e135c9a76df8",
+      "patientId": "09a2ce00-1596-441e-9182-7f2092b894c5",
+      "name": "Test R1-8695"
+    },
+    "RD": {
+      "id": "148d916d-6e30-492f-926a-4c5998cc4de7",
+      "patientId": "579b7644-5231-4543-998a-359df6a5a352",
+      "name": "Test RD-8695"
+    },
+    "R2": {
+      "id": "588f88a1-144c-4f6d-847f-38cf0a34450e",
+      "patientId": "a2072ede-daa0-468e-9816-571a81767390",
+      "name": "Test R2-8695"
+    },
+    "R3": {
+      "id": "67ad7232-997b-4610-aad3-f63fbec293bc",
+      "patientId": "a6bdf8b9-ce0b-42df-8079-95bf13a82c0e",
+      "name": "Test R3-8695"
+    },
+    "R4": {
+      "id": "974f109c-2715-4a02-828c-33ebd0f0b7d4",
+      "patientId": "244d2010-ad4a-4582-9c81-b47bc2505238",
+      "name": "Test R4-8695"
+    },
+    "R6": {
+      "id": "d14bd29c-20d1-4283-b437-c31de92bc5e3",
+      "patientId": "4ee8c746-7b40-4e2f-82e1-33df56d13159",
+      "name": "Test R6-8695"
+    },
+    "R7": {
+      "id": "14a4a0ed-e682-4183-abea-31cc622e69e7",
+      "patientId": "8845055b-75ca-4159-a58f-8c2b914e42db",
+      "name": "Test R7-8695"
+    },
+    "R9": {
+      "id": "f5ea3367-ad92-4696-adc3-c065dcf11362",
+      "patientId": "6d350e11-505d-4270-978d-018600af99c5",
+      "name": "Test R9-8695"
+    },
+    "R10": {
+      "id": "019eb314-cb24-4c29-aa27-c5e6b17b3718",
+      "patientId": "238d7ffd-4e4d-4e7a-92b5-48cdbc327f9d",
+      "name": "Test R10-8695"
+    },
+    "R14": {
+      "id": "08621112-5329-4866-a2fa-0bd123e05c48",
+      "patientId": "d5a58513-c606-4c95-a612-5413be1d6262",
+      "name": "Test R14-8695"
+    },
+    "R15": {
+      "id": "f71309da-9eeb-446d-be6c-6e043cfb05d8",
+      "patientId": "f7eda798-eeb1-4f21-96f5-119ce70191f2",
+      "name": "Test R15-8695"
+    },
+    "RT": {
+      "id": "0683b749-f377-4675-b076-6940c91f8a4b",
+      "patientId": "518a09bd-b949-4a08-be53-158ad6d61fab",
+      "name": "Test RT-8695"
+    },
+    "R16": {
+      "id": "ccb4a289-662f-4dd5-882c-04bb04ede581",
+      "patientId": "f8ae8443-98f5-4dad-9a3e-8a5877674ed7",
+      "name": "Test R16-8695"
+    },
+    "R13": {
+      "id": "5df182b8-4234-4dd3-98e4-ee794d4219a9",
+      "patientId": "00fe0f69-1a5d-4a56-afd5-d629fcc4efdc",
+      "name": "Test R13-8695"
+    },
+    "R5": {
+      "id": "13849189-192c-402c-bad4-e8916b5a6416",
+      "patientId": "66b77c52-0e7b-40ed-921d-b988414a8bad",
+      "name": "Test R5-8695"
+    },
+    "R8": {
+      "id": "cc2de201-fbd6-4963-9a8a-0c92d502721c",
+      "patientId": "7c27b533-f5a7-4e8e-bcd1-712d1342c90d",
+      "name": "Test R8-8695"
+    },
+    "R12": {
+      "id": "12349d44-892a-40a3-89de-ec8949ec8ec4",
+      "patientId": "f1ffde99-3cef-4ec7-b3d3-b7b33b8d49ac",
+      "name": "Test R12-8695"
+    },
+    "R11": {
+      "id": "5a6540d6-6005-43a4-980f-6453358e0cb4",
+      "patientId": "0effdd4c-22ac-40a0-aa80-ce2785b558d7",
+      "name": "Test R11-8695"
+    },
+    "RX1": {
+      "id": "eaf73157-b805-4d24-bc6b-fdf268b5d477",
+      "patientId": "dd4bfce2-23ff-4f45-87e6-a31c94a5a64f",
+      "name": "Test RX1-8695"
+    },
+    "RX2": {
+      "id": "6253c4e6-597a-4027-a7e6-c17fefc959c1",
+      "patientId": "36b00308-aaf4-4567-9195-a27270ad0288",
+      "name": "Test RX2-8695"
+    },
+    "RX3": {
+      "id": "d64f95d7-af37-4270-8f7d-a3fd5e599374",
+      "patientId": "88127eb0-8db0-4a58-9510-b6b055ee3cd4",
+      "name": "Test RX3-8695"
+    },
+    "RY": {
+      "id": "0cf920be-267f-46c6-a75b-52dbec0e956e",
+      "patientId": "fae85211-4efe-4246-b74f-6d8e00f5c156",
+      "name": "Test RY-8695"
+    }
+  },
+  "a5": {
+    "check1": null,
+    "check2": null
+  },
+  "envNotes": [],
+  "results": [
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "1024: actions end 987 ≤ box 999, ⋯ 44px · 1180: actions end 1143 ≤ box 1155, ⋯ 44px"
+    },
+    {
+      "id": "D6-free",
+      "outcome": "pass",
+      "m": "agenda ⋯ offers « Terminé » on an Absent block; free slot → Terminé"
+    },
+    {
+      "id": "D6-taken",
+      "outcome": "pass",
+      "m": "slot given away → toast « Ce créneau est déjà réservé pour ce praticien (29/10 20:00–21:00). », statut stays Absent"
+    },
+    {
+      "id": "D7",
+      "outcome": "pass",
+      "m": "409 → Recharger → 30 shown (colleague's), section named; save lands (sent no retard key)"
+    }
+  ]
+}

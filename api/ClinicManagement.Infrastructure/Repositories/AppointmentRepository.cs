@@ -270,7 +270,7 @@ public class AppointmentRepository : IAppointmentRepository
             .ToListAsync(cancellationToken);
 
         // The half SQL cannot do — see the interface for why `AppointmentDateTime + Duration` has no translation.
-        return candidates.Where(a => a.AppointmentDateTime + a.Duration > nowUtc).ToList();
+        return candidates.Where(a => !a.HasEndedBy(nowUtc)).ToList();
     }
 
     /// <summary>
@@ -300,7 +300,7 @@ public class AppointmentRepository : IAppointmentRepository
             .ToListAsync(cancellationToken);
 
         // Mirror of the start pass's residual test: `<=` where that one reads `>`.
-        return candidates.Where(a => a.AppointmentDateTime + a.Duration <= nowUtc).ToList();
+        return candidates.Where(a => a.HasEndedBy(nowUtc)).ToList();
     }
 
     public async Task<IReadOnlyList<Appointment>> GetClosureCandidatesAsync(

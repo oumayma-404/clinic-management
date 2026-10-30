@@ -236,7 +236,7 @@ public static class ExportTables
     {
         var table = CsvTable.Create(
             "Date et heure", "Durée (min)", "Patient", "Praticien", "Actes prévus", "Statut",
-            "Facture", "Notes");
+            "Retard (min)", "Facture", "Notes");
 
         foreach (var a in appointments)
         {
@@ -254,6 +254,7 @@ public static class ExportTables
                 CsvCell.Text(a.DoctorName),
                 CsvCell.Text(acts),
                 CsvCell.Text(FrenchAppointmentStatus(a.Status)),
+                CsvCell.Number(a.LateArrivalMinutes),
                 CsvCell.Text(a.InvoiceNumber),
                 CsvCell.Text(a.Notes));
         }

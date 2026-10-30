@@ -1,0 +1,108 @@
+{
+  "today": "2026-10-30",
+  "stamp": "8973",
+  "records": {
+    "R1": {
+      "id": "190488c5-3697-4563-8caf-900942e6e2f6",
+      "patientId": "d2dbb2be-4b62-456a-9f7d-9da959ac70f3",
+      "name": "Test R1-8973"
+    },
+    "RD": {
+      "id": "f89c42c8-a5c3-46bc-93e4-b9213c67ba79",
+      "patientId": "1bb41629-a940-42b0-add7-fecb4bfc4ead",
+      "name": "Test RD-8973"
+    },
+    "R2": {
+      "id": "20a36026-c520-46d9-b119-9d42044f3e82",
+      "patientId": "db7b8688-15ff-46e5-959c-900d3d73c5d3",
+      "name": "Test R2-8973"
+    },
+    "R3": {
+      "id": "32a2d929-fc15-4bea-b778-5882c1a52cf6",
+      "patientId": "c5b044b0-9074-4b70-80c7-63dd20e81431",
+      "name": "Test R3-8973"
+    },
+    "R4": {
+      "id": "af02dd3e-882d-47b5-8806-fb0bf40e0a7e",
+      "patientId": "65dbd4f9-9ee7-4a38-9259-5e214e1fdf11",
+      "name": "Test R4-8973"
+    },
+    "R6": {
+      "id": "b6029674-4ea7-492c-83be-ddbd32258dec",
+      "patientId": "8651fc75-8426-47d8-b8ae-cdcbbbe287a0",
+      "name": "Test R6-8973"
+    },
+    "R7": {
+      "id": "31a6f868-bff3-4afd-b756-f47ef592d07e",
+      "patientId": "3a6cdc53-7717-4775-bec4-7e701f86b62a",
+      "name": "Test R7-8973"
+    },
+    "R9": {
+      "id": "59217d08-fd73-48fd-8ea3-475f3631354e",
+      "patientId": "4e9512c6-ca0b-41cc-a5a2-1b158d25b25b",
+      "name": "Test R9-8973"
+    },
+    "R10": {
+      "id": "f58589c1-f9bb-4535-83d9-d5d95a2e3022",
+      "patientId": "338b668f-8b0e-4c8f-b3e1-0fcfce65921a",
+      "name": "Test R10-8973"
+    },
+    "R14": {
+      "id": "09d4ef10-38b7-4d30-978f-55b27ae3bf52",
+      "patientId": "89b84bb2-9ad8-4d56-b935-758b612ebbe9",
+      "name": "Test R14-8973"
+    },
+    "R15": {
+      "id": "65e78762-d89d-4ce2-b08a-a8782f8d937e",
+      "patientId": "9cef0a3b-abbf-41a8-8a96-677747c80b41",
+      "name": "Test R15-8973"
+    },
+    "RT": {
+      "id": "ecdbac77-4094-4d5f-b41e-a77af1de280b",
+      "patientId": "406c36a5-63d9-4f29-8025-4e2976a3a2ae",
+      "name": "Test RT-8973"
+    },
+    "R16": {
+      "id": "dc064a17-661b-4d8e-8915-6499b2b96fa7",
+      "patientId": "b3ec8259-4ba1-47cc-aceb-8d45f2b41e8e",
+      "name": "Test R16-8973"
+    },
+    "RF2": {
+      "id": "776b122a-89c6-4c48-a20a-0b6d46617d87",
+      "patientId": "cf6e3dcd-7f13-43b6-9479-7450613525f3",
+      "name": "Test RF2-8973"
+    },
+    "RF3": {
+      "id": "3a295d69-8c7e-40e3-bc03-5447e4c1e68b",
+      "patientId": "d5645205-bd1a-4200-b96b-e6f518de6422",
+      "name": "Test RF3-8973"
+    },
+    "R8": {
+      "id": "04d3e4ad-972f-4ebb-9c1c-7381f6b828c3",
+      "patientId": "6ae1056b-08ee-4a84-8f75-47f9b83bb352",
+      "name": "Test R8-8973"
+    },
+    "R12": {
+      "id": "02a79f47-5570-4f23-80ef-86e2af56f097",
+      "patientId": "a7081023-d8d8-4302-a4f2-811d6c545db0",
+      "name": "Test R12-8973"
+    },
+    "R11": {
+      "id": "da79bd58-a1ec-4841-9140-297ac67e9cfa",
+      "patientId": "3ae68268-e58b-42eb-a91d-82799f3cb187",
+      "name": "Test R11-8973"
+    }
+  },
+  "a5": {
+    "check1": null,
+    "check2": null
+  },
+  "envNotes": [],
+  "results": [
+    {
+      "id": "F4",
+      "outcome": "pass",
+      "m": "calendar 2026-11-20 → read from=2026-11-20, its chip checked, « Heures libres · vendredi 20 novembre » listed"
+    }
+  ]
+}

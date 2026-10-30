@@ -1,3 +1,4 @@
+using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Application.Features.Appointments;
@@ -37,10 +38,11 @@ public readonly record struct VisitClosureInput(
     bool HasLiveInvoice,
     bool CoveredByPlan,
     bool NothingToBill,
-    bool Disregarded = false)
+    bool Disregarded = false,
+    int? LateArrivalMinutes = null)
 {
-    /// <summary>The first instant the slot no longer covers.</summary>
-    public DateTime EndUtc => StartUtc + Duration;
+    /// <summary>The first instant the séance no longer covers — its booked end pushed back by any retard.</summary>
+    public DateTime EndUtc => Appointment.ExpectedEnd(StartUtc, Duration, LateArrivalMinutes);
 }
 
 /// <summary>

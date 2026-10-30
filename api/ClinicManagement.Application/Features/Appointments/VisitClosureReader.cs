@@ -228,6 +228,7 @@ public static class VisitClosureReader
                 || (hasFiche && rows!.Any(r => billedFicheIds.Contains(r.DentalRecordId))),
             CoveredByPlan: appointment.LinkedTreatmentPlanItemIds.Any(debtBearingItemIds.Contains),
             NothingToBill: appointment.IsNothingToBill,
-            Disregarded: appointment.IsDisregarded);
+            Disregarded: appointment.IsDisregarded,
+            LateArrivalMinutes: appointment.LateArrivalMinutes);
     }
 }

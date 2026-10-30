@@ -1,0 +1,468 @@
+{
+  "today": "2026-10-30",
+  "stamp": "1421",
+  "records": {
+    "R1": {
+      "id": "c24d08e9-c38d-403e-bfcc-7059348e9db7",
+      "patientId": "86ea1139-7be3-4734-beba-d71fb888f926",
+      "name": "Test R1-1421"
+    },
+    "RD": {
+      "id": "ec973315-e086-4796-ae6f-890c39e75024",
+      "patientId": "dc24d366-7728-4a88-8cc2-ffdd6373522c",
+      "name": "Test RD-1421"
+    },
+    "R2": {
+      "id": "6d814305-eed6-419a-aedf-8cc2ea0b5a1f",
+      "patientId": "3eacb541-5e62-4b39-8e34-b8e292950c81",
+      "name": "Test R2-1421"
+    },
+    "R3": {
+      "id": "7293404d-2dbe-4a9e-bca1-e36491200754",
+      "patientId": "ef98f84c-1819-4bac-84dd-1bf1eec4116f",
+      "name": "Test R3-1421"
+    },
+    "R4": {
+      "id": "f1feab58-6540-41b3-b262-f42548b33e07",
+      "patientId": "246e71bc-a245-4352-8dd8-39a9431bb6c8",
+      "name": "Test R4-1421"
+    },
+    "R6": {
+      "id": "6c71d069-c84e-48b9-af8b-f2c58d178f17",
+      "patientId": "f6b74ca9-420b-486f-9aee-157ba595ccc6",
+      "name": "Test R6-1421"
+    },
+    "R7": {
+      "id": "0f9c0b81-8a77-431c-80ab-d28e2ce7f25a",
+      "patientId": "315eeb10-d065-44f0-a1b3-377da714f1ec",
+      "name": "Test R7-1421"
+    },
+    "R9": {
+      "id": "aa462b21-80b9-407c-ba47-5e5e92882488",
+      "patientId": "3651d66f-80da-463b-a6d8-106a0632cbb8",
+      "name": "Test R9-1421"
+    },
+    "R10": {
+      "id": "4194e2ea-9c83-48bc-abfe-e49840e0083e",
+      "patientId": "85fe7565-dde9-4eb9-9d71-6c75124381e9",
+      "name": "Test R10-1421"
+    },
+    "R14": {
+      "id": "386e2983-92de-4758-b62d-39a00e31c769",
+      "patientId": "3b44661d-9acf-4d32-9329-c8fa7dae23ad",
+      "name": "Test R14-1421"
+    },
+    "R15": {
+      "id": "cf0dd7cf-5754-4be9-92af-ca53209f04c7",
+      "patientId": "aad90ee4-6b40-4729-bbbe-3d14a82aa998",
+      "name": "Test R15-1421"
+    },
+    "RT": {
+      "id": "f92ea39b-af4b-4d14-b6a8-0bc239ff29a2",
+      "patientId": "2dce1ef6-5179-4434-9931-b13107b366ca",
+      "name": "Test RT-1421"
+    },
+    "R16": {
+      "id": "839ad3ca-22dc-44e7-aaea-7fdc4fa4238e",
+      "patientId": "00a651e3-c90b-4a12-9a0e-352a55225f1e",
+      "name": "Test R16-1421"
+    },
+    "RF2": {
+      "id": "229ac29e-bf62-466d-81b2-1650fa008b75",
+      "patientId": "e5936961-854d-4e11-85ed-f430ee9e1085",
+      "name": "Test RF2-1421"
+    },
+    "RF3": {
+      "id": "572aaf84-4e66-4c4e-9df0-0f1d9128cbc8",
+      "patientId": "3cb0289f-4e42-4269-9de7-b0ea0f43e9e7",
+      "name": "Test RF3-1421"
+    },
+    "RF5": {
+      "id": "4b848a16-7fb2-4b72-a5fc-1ed92cdbd7a6",
+      "patientId": "8a675bd9-e26e-487a-b35e-364797351b3f",
+      "name": "Test RF5-1421"
+    },
+    "RF6": {
+      "id": "287eed65-b9b3-4e1c-a63a-080f44556ec5",
+      "patientId": "861be13d-dcc8-46c7-aee0-6832c5c1fd98",
+      "name": "Test RF6-1421"
+    },
+    "R13": {
+      "id": "0f622b73-1294-409b-9e29-58529a8d5879",
+      "patientId": "06faadee-b2c6-4bef-9ddf-48a73b402410",
+      "name": "Test R13-1421"
+    },
+    "R5": {
+      "id": "7eaef7e9-bb5c-48ff-80f2-52a13d0a2b8c",
+      "patientId": "beed3e0c-51ed-4a08-a62a-f91336d35f3a",
+      "name": "Test R5-1421"
+    },
+    "R8": {
+      "id": "d2f58109-4a8c-44c1-97f9-78a43e3aed34",
+      "patientId": "7bcfcc82-1f6d-4a51-9869-4a48994942c8",
+      "name": "Test R8-1421"
+    },
+    "R12": {
+      "id": "6b209d70-e632-4a6a-a1be-e4dcd493479a",
+      "patientId": "66d95fce-b8ff-49b5-b46b-f7f08836bd50",
+      "name": "Test R12-1421"
+    },
+    "R11": {
+      "id": "5451cff3-b827-4e8d-9072-a51d3fa12705",
+      "patientId": "a6381a75-703b-42e2-9047-46bff51f17de",
+      "name": "Test R11-1421"
+    },
+    "R7b": {
+      "id": "5911f407-dcb2-4985-ad68-5e3075748913",
+      "patientId": "db818224-e144-42ae-bfd9-5c6084f40441",
+      "name": "Test R7b-1421"
+    },
+    "RB4": {
+      "id": "cc39fb80-d5f3-4c5f-9c0d-75eea2926450",
+      "patientId": "b94c4e17-4812-4cca-907c-cc15ff9e4acd",
+      "name": "Test RB4-1421"
+    },
+    "RX1": {
+      "id": "22e8c9da-af51-4daa-b6e5-ddd4dacb0e1e",
+      "patientId": "6e880b90-ed8e-44c9-8fc8-f590590e8bf2",
+      "name": "Test RX1-1421"
+    },
+    "RX2": {
+      "id": "76773284-b7df-46b9-887e-f5283db23cf6",
+      "patientId": "0a829d3e-73bf-45bc-a39f-0b4de7ca5301",
+      "name": "Test RX2-1421"
+    },
+    "RX3": {
+      "id": "939e106c-51a8-4c78-a251-a964f6aab35d",
+      "patientId": "66f0a2a1-2ec2-41b8-bd5a-5e2811b75f7d",
+      "name": "Test RX3-1421"
+    },
+    "RY": {
+      "id": "24366471-f4b5-42a3-89f3-7c9376afc366",
+      "patientId": "4d8a1fdb-5173-4cfc-98be-67268a02b49b",
+      "name": "Test RY-1421"
+    }
+  },
+  "a5": {
+    "check1": {
+      "status": "InProgress",
+      "late": 5,
+      "listed": false,
+      "pending": false,
+      "at": "11:43:10"
+    },
+    "check2": {
+      "status": "AwaitingClosure",
+      "pending": true,
+      "at": "11:48:15"
+    }
+  },
+  "envNotes": [],
+  "results": [
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "4 answers on one line inside a 448px dialog (tops 406,406,406,406) · run6-A1-1536x730.png"
+    },
+    {
+      "id": "A1@820",
+      "outcome": "pass",
+      "m": "one line at 820 (fine pointer), dialog 448px"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "« Retour » brings the four answers back"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "« Reporter » at y=506 inside a 730px window"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "chip « Demain 24 libres » → listed 12:00 (checked) → Reporter → moved to 2026-10-31 12:00, no refusal, review gone"
+    },
+    {
+      "id": "A2-footer",
+      "outcome": "pass",
+      "m": "footer one row, every button inside (Retour 569–645 · Mettre en liste d'attente 680–869 · Reporter 877–967; box 569–967)"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "failed cancel → error toast, form kept open (« Panne simulée (QA). »)"
+    },
+    {
+      "id": "B6-dup",
+      "outcome": "pass",
+      "m": "retry added no second waiting-list entry (1)"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "Annulé, motif « Reporté par le patient » (sql), toast shown"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "retard 15 saved at once, statut unchanged (AwaitingClosure), pill shown"
+    },
+    {
+      "id": "A4-aucun",
+      "outcome": "pass",
+      "m": "« Aucun » cleared it"
+    },
+    {
+      "id": "A4-again",
+      "outcome": "pass",
+      "m": "15 recorded again for A6"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "exactly one review for R2 after the retard"
+    },
+    {
+      "id": "B1-list",
+      "outcome": "pass",
+      "m": "the taken 09:00 is not offered in the list"
+    },
+    {
+      "id": "B1-seen",
+      "outcome": "pass",
+      "m": "the clash is on screen beside the buttons"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "clash named (« Ce créneau est déjà réservé pour ce praticien (31/10 09:00–09:30). ») → « Reporter quand même » → moved"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "closed hour named (« Salma Ben Youssef : Le samedi, le cabinet est ouvert de 09:00 à 17:00. Le rendez ») → moved anyway"
+    },
+    {
+      "id": "F2-seen",
+      "outcome": "pass",
+      "m": "the refusal is on screen beside the buttons"
+    },
+    {
+      "id": "F2-footer",
+      "outcome": "pass",
+      "m": "refusal footer: 2 row(s), every button inside (Retour 569–645 · Mettre en liste d'attente 778–967 · Reporter quand même 789–967; box 569–967)"
+    },
+    {
+      "id": "F2",
+      "outcome": "pass",
+      "m": "chip « Lun. 2 Congé » → « Le praticien est en congé ce jour-là. », no time listed, Reporter disabled"
+    },
+    {
+      "id": "F2-typed",
+      "outcome": "pass",
+      "m": "typed 14:00 on the congé → refused « Salma Ben Youssef est en congé du 02/11 au 04/11. » + « Reporter quand même »; not moved"
+    },
+    {
+      "id": "F3",
+      "outcome": "pass",
+      "m": "500 → « Les heures libres n'ont pas pu être chargées. » + Réessayer; the typed time stays usable (day 31/10/2026)"
+    },
+    {
+      "id": "F3-retry",
+      "outcome": "pass",
+      "m": "Réessayer → 5 day chips and the free-time grid"
+    },
+    {
+      "id": "F4",
+      "outcome": "pass",
+      "m": "calendar 2026-11-20 → read from=2026-11-20, its chip checked, « Heures libres · vendredi 20 novembre » listed"
+    },
+    {
+      "id": "F5",
+      "outcome": "pass",
+      "m": "listed 11:42 went past while open → pressed: no PUT, list re-read, « Cette heure est déjà passée. », Reporter disabled"
+    },
+    {
+      "id": "F6",
+      "outcome": "pass",
+      "m": "taken since the read → « Ce créneau est déjà réservé pour ce praticien (31/10 09:00–09:30). » + « Reporter quand même »; list re-read, 09:00 no longer listed; not moved"
+    },
+    {
+      "id": "F7",
+      "outcome": "pass",
+      "m": "no hours saved → « Aucun horaire n'est enregistré pour ce cabinet. », calendar + typed time, no grid, Reporter usable"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "« Plus tard » closes and the prompt stays away after a reload (snoozed)"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "block shows « +15 », name « …arrivé avec 15 min de retard… »"
+    },
+    {
+      "id": "A6@390",
+      "outcome": "pass",
+      "m": "phone block shows « +15 »"
+    },
+    {
+      "id": "A7-en-cours",
+      "outcome": "pass",
+      "m": "En cours: « Reporter… » + « Retard »"
+    },
+    {
+      "id": "A7-termine",
+      "outcome": "pass",
+      "m": "Terminé: « Retard », no « Reporter… »"
+    },
+    {
+      "id": "A7-planifie",
+      "outcome": "pass",
+      "m": "Planifié: « Reporter… », no « Retard »"
+    },
+    {
+      "id": "A7-save",
+      "outcome": "pass",
+      "m": "⋯ « 20 min » → PUT { lateArrivalMinutes: 20 } only, saved"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "an ordinary save sends no retard key; retard 10 kept"
+    },
+    {
+      "id": "A9-change",
+      "outcome": "pass",
+      "m": "15 shown, 20 saved"
+    },
+    {
+      "id": "A9-aucun",
+      "outcome": "pass",
+      "m": "« Aucun » sent null, cleared"
+    },
+    {
+      "id": "A9-absent",
+      "outcome": "pass",
+      "m": "Absent hides the chips; save → NoShow, retard erased"
+    },
+    {
+      "id": "A10-free",
+      "outcome": "pass",
+      "m": "Absent → Terminé on a free slot"
+    },
+    {
+      "id": "A10-taken",
+      "outcome": "pass",
+      "m": "clash named (« Enregistrer sur un créneau déjà pris ? Ce créneau est déjà réservé pour ce praticien (29/10 14:30–15:00). Noté comme double rendez-vous voulu Annuler Continuer ») → Continuer → Terminé"
+    },
+    {
+      "id": "C1-popover",
+      "outcome": "pass",
+      "m": "⋯ popover 245px inside 320, scrollWidth 320"
+    },
+    {
+      "id": "C1-button",
+      "outcome": "pass",
+      "m": "« Reporter » row button inside 320 (42–150, 32px tall)"
+    },
+    {
+      "id": "C1-dialog",
+      "outcome": "pass",
+      "m": "Reporter sheet 320px, every button inside, scrollWidth 320"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "one PUT { status: Completed, lateArrivalMinutes: 10 }; row now asks « Fiche »"
+    },
+    {
+      "id": "B7-seen",
+      "outcome": "pass",
+      "m": "« Recharger » is on screen beside the buttons"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "colleague's move → banner « Cet enregistrement a été modifié par quelqu'un d'autre pendant votre s » + Recharger → subject 15:30, typed 14:00 kept → moved"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "edit dialog: taken slot → existing confirmation → saved"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "reactivation into a taken slot → 400 slot_taken (« Ce créneau est déjà réservé pour ce praticien (29/10 16:00–1 »); with override → 200"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "{ NoShow, 15 } refused 400 « Un retard ne se note que pour un patient venu : ce rendez-vous est « A »"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "Planifié + retard → 400; 241 min → 400 (« Le retard doit être compris entre 1 et 240 minutes. »)"
+    },
+    {
+      "id": "D4",
+      "outcome": "pass",
+      "m": "CSV column « Retard (min) » at #6; R14 → 10"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "1024: actions end 987 ≤ box 999, ⋯ 44px · 1180: actions end 1143 ≤ box 1155, ⋯ 44px"
+    },
+    {
+      "id": "D6-free",
+      "outcome": "pass",
+      "m": "agenda ⋯ offers « Terminé » on an Absent block; free slot → Terminé"
+    },
+    {
+      "id": "D6-taken",
+      "outcome": "pass",
+      "m": "slot given away → toast « Ce créneau est déjà réservé pour ce praticien (29/10 20:00–21:00). », statut stays Absent"
+    },
+    {
+      "id": "D7",
+      "outcome": "pass",
+      "m": "409 → Recharger → 30 shown (colleague's), section named; save lands (sent no retard key)"
+    },
+    {
+      "id": "A5-held",
+      "outcome": "pass",
+      "m": "at booked end +70 s (11:43:10): still En cours, not on « À clôturer », no prompt"
+    },
+    {
+      "id": "A5-due",
+      "outcome": "pass",
+      "m": "at booked end + retard +75 s (11:48:15): Séance passée, prompt due"
+    },
+    {
+      "id": "A5-popup",
+      "outcome": "pass",
+      "m": "prompt opens on the fiche step with « Retard de 5 min »"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "coarse toast: Venu 44 · Absent 44 · Reporter 44 px; Reporter → dialog"
+    },
+    {
+      "id": "A11-slots",
+      "outcome": "pass",
+      "m": "coarse: 5 day chips ≥ 44 px, 17 times ≥ 44 px"
+    },
+    {
+      "id": "A11-phone",
+      "outcome": "pass",
+      "m": "phone: no toast, no dialog"
+    }
+  ]
+}

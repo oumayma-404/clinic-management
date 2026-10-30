@@ -261,10 +261,18 @@ public static class AppointmentScheduling
         TimeSpan duration,
         CancellationToken cancellationToken)
     {
-        var start = NormalizeUtc(candidateStartUtc);
-        var lastInstant = duration > TimeSpan.Zero ? start + duration - TimeSpan.FromTicks(1) : start;
-        var firstDay = DateOnly.FromDateTime(ClinicClock.ToClinicLocal(start));
-        var lastDay = DateOnly.FromDateTime(ClinicClock.ToClinicLocal(lastInstant));
+        var (firstDay, lastDay) = LocalDaysOf(candidateStartUtc, duration);
         return leaves.FindOverlappingAsync(clinicId, doctorId, firstDay, lastDay, cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// The clinic-local days a window touches, end-exclusive — the day rule a congé is matched on, shared by the
+    /// booking guard and <see cref="FreeSlotFinder"/> so the two cannot disagree about which day a slot is on.
+    /// </summary>
+    public static (DateOnly First, DateOnly Last) LocalDaysOf(DateTime startUtc, TimeSpan duration)
+    {
+        var start = NormalizeUtc(startUtc);
+        var lastInstant = duration > TimeSpan.Zero ? start + duration - TimeSpan.FromTicks(1) : start;
+        return (DateOnly.FromDateTime(ClinicClock.ToClinicLocal(start)), DateOnly.FromDateTime(ClinicClock.ToClinicLocal(lastInstant)));
     }
 }

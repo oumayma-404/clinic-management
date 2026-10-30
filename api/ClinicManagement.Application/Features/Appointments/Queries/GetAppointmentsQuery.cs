@@ -115,6 +115,7 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
                 TreatmentPlanItemId = a.TreatmentPlanItemId,
                 InvoiceId = invoiceLinks.GetValueOrDefault(a.Id)?.InvoiceId,
                 InvoiceNumber = invoiceLinks.GetValueOrDefault(a.Id)?.Number,
+                LateArrivalMinutes = a.LateArrivalMinutes,
                 CreatedAt = a.CreatedAt,
                 Version = a.Version,
                 IsSyncedToGoogle = a.GoogleCalendarEventId != null

@@ -92,7 +92,8 @@ import { ApiErrorCode } from "@/lib/api/client"
 import { specialtyLabel } from "@/lib/specialties"
 import Link from "next/link"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
-import { MANUALLY_SETTABLE_STATUSES, appointmentStatusLabel } from "@/components/appointment-labels"
+import { MANUALLY_SETTABLE_STATUSES, admitsLateArrival, appointmentStatusLabel } from "@/components/appointment-labels"
+import { LateArrivalChips } from "@/components/appointment-late-arrival-chips"
 import { ArrivalButton, useArrivalAction } from "@/components/staff-chat/arrival-action"
 
 /**
@@ -162,6 +163,8 @@ interface CarriedAppointment {
   duration: string
   durationTouched: boolean
   status: string
+  /** Optional: a form carried by an older build has none. */
+  lateArrivalMinutes?: number | null
   doctorId: string
   acts: SelectedAct[]
   notes: string
@@ -189,7 +192,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    * given away twice). The statut is now sent **only when it actually changed**.
    */
   const [hydratedStatus, setHydratedStatus] = useState<string>("scheduled")
-  
+  /** « Retard », and the value the save compares it with — sent only when it changed, like the statut. */
+  const [lateArrival, setLateArrival] = useState<number | null>(null)
+  const [hydratedLateArrival, setHydratedLateArrival] = useState<number | null>(null)
+
   // Load doctors list
   const { allDoctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
 
@@ -681,7 +687,10 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       setEndMinute(String(endTotalMinutes % 60).padStart(2, "0"))
       setUseEndTime(false)
     },
-    status: (appointment) => setStatus(appointment.status.toLowerCase()),
+    status: (appointment) => {
+      setStatus(appointment.status.toLowerCase())
+      setLateArrival(appointment.lateArrivalMinutes ?? null)
+    },
     doctor: (appointment) => setSelectedDoctorId(doctorIdOf(appointment)),
     acts: (appointment) => {
       setSelectedActs(actsOf(appointment))
@@ -704,6 +713,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       start: format(at, "HH:mm"),
       minutes: parseDurationToMinutes(appointment.duration),
       status: appointment.status.toLowerCase(),
+      lateArrivalMinutes: appointment.lateArrivalMinutes ?? null,
       doctorId: doctorIdOf(appointment),
       acts: actsOf(appointment),
       notes: appointment.notes ?? "",
@@ -717,6 +727,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       start: `${startHour}:${startMinute}`,
       minutes: calculatedDuration,
       status,
+      lateArrivalMinutes: lateArrival,
       doctorId: selectedDoctorId,
       acts: selectedActs,
       notes,
@@ -738,6 +749,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     for (const section of take) applySection[section](server)
     // The save compares the statut with what the SERVER holds, so this follows the server whatever was kept.
     setHydratedStatus(server.status.toLowerCase())
+    setHydratedLateArrival(server.lateArrivalMinutes ?? null)
     openedRef.current = server
     if (named.length > 0) setTakenOver((prev) => [...new Set([...prev, ...named])])
   }
@@ -758,7 +770,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     state: {
       day: date ? date.toISOString() : null,
       startHour, startMinute, useEndTime, endHour, endMinute, duration, durationTouched,
-      status, doctorId: selectedDoctorId, acts: selectedActs, notes, showNotes,
+      status, lateArrivalMinutes: lateArrival, doctorId: selectedDoctorId, acts: selectedActs, notes, showNotes,
       opened: openedRef.current,
     },
     restore: (s) => {
@@ -771,6 +783,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       setDuration(s.duration)
       setDurationTouched(s.durationTouched)
       setStatus(s.status)
+      setLateArrival(s.lateArrivalMinutes ?? null)
       setSelectedDoctorId(s.doctorId)
       setSelectedActs(s.acts)
       setNotes(s.notes)
@@ -778,6 +791,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       if (s.opened && s.opened.id === appointment?.id) {
         openedRef.current = s.opened
         setHydratedStatus(s.opened.status.toLowerCase())
+        setHydratedLateArrival(s.opened.lateArrivalMinutes ?? null)
       }
     },
   })
@@ -801,6 +815,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
     // Remembered so the save can tell « the user changed the statut » from « the form is echoing what it was
     // hydrated with ». See the `status` key in `performUpdate`.
     setHydratedStatus(appointment.status.toLowerCase())
+    setHydratedLateArrival(appointment.lateArrivalMinutes ?? null)
     for (const section of APPOINTMENT_SECTIONS) applySection[section](appointment)
     openedRef.current = appointment
     setTakenOver([])
@@ -969,6 +984,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
          * server dutifully re-marked the patient absent for a visit nobody had missed yet.
          */
         status: status !== hydratedStatus ? status : undefined,
+        // Same rule as the statut, and only while the statut chosen can carry one — the server erases it otherwise.
+        lateArrivalMinutes:
+          admitsLateArrival(status) && lateArrival !== hydratedLateArrival ? lateArrival : undefined,
         // Replaces the whole list. `[]` is a real instruction here (« ce rendez-vous n'a plus d'acte ») and the
         // server distinguishes it from an omitted key, which is why this dialog always sends it and the cancel
         // path — which posts { status } alone — never does.
@@ -1240,6 +1258,19 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                   )
                 })}
               </div>
+              {admitsLateArrival(status) && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-baseline gap-2">
+                    <Label className="text-sm">Retard</Label>
+                    {lateArrival !== hydratedLateArrival && (
+                      <span role="status" className="text-2xs font-medium text-warning-ink">
+                        non enregistré
+                      </span>
+                    )}
+                  </div>
+                  <LateArrivalChips value={lateArrival} onChange={setLateArrival} withNone disabled={loading} />
+                </div>
+              )}
             </div>
 
             {/*

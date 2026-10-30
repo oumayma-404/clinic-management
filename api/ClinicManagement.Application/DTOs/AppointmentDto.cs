@@ -64,6 +64,10 @@ public class AppointmentDto
 
     /// <summary>The billing invoice's number, or null while it is still a draft (a draft consumes no number).</summary>
     public string? InvoiceNumber { get; set; }
+
+    /// <summary>« Retard » — minutes the patient arrived after the booked start; null when nobody recorded one.</summary>
+    public int? LateArrivalMinutes { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     /// <summary>

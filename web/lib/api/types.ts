@@ -757,8 +757,26 @@ export interface AppointmentDto {
   invoiceId?: string | null;
   /** The billing invoice's number, or null while it is still a draft (a draft consumes no number). */
   invoiceNumber?: string | null;
+  /** « Retard » — minutes the patient arrived after the booked start; null/absent when nobody recorded one. */
+  lateArrivalMinutes?: number | null;
   /** True when the appointment is reflected in Google Calendar (derived server-side from the event id). */
   isSyncedToGoogle: boolean;
+}
+
+/** What a day offers to a booking — the server's `FreeDayState` member names. */
+export type FreeDayState = 'Open' | 'Full' | 'Closed' | 'Leave' | 'Unrestricted';
+
+/** One clinic-local day of a practitioner's free starts (`GET /appointments/{id}/free-slots`). */
+export interface FreeDayDto {
+  /** `YYYY-MM-DD`, clinic-local. */
+  date: string;
+  state: FreeDayState;
+  /** `HH:mm`, clinic-local, in order — each one accepted by the save without an override. */
+  starts: string[];
+}
+
+export interface FreeSlotsDto {
+  days: FreeDayDto[];
 }
 
 // A medication catalog entry (DB-backed, global reference data from GET /api/medications). Used by the

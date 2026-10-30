@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
-import { Loader2, MoreHorizontal, Trash2 } from "lucide-react"
+import { CalendarClock, Loader2, MoreHorizontal, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -18,7 +18,9 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { appointmentStatusLabel } from "@/components/appointment-labels"
+import { admitsLateArrival, appointmentStatusLabel, isPostponable } from "@/components/appointment-labels"
+import { LateArrivalChips } from "@/components/appointment-late-arrival-chips"
+import { PostponeAppointmentDialog } from "@/components/appointment-postpone-dialog"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { showErrorToast } from "@/lib/errors"
 import { cn } from "@/lib/utils"
@@ -78,8 +80,28 @@ export function AppointmentQuickActions({
   const [confirmCancel, setConfirmCancel] = useState(false)
   const cancelNeedsConfirm = appointment.status === "Completed" || Boolean(appointment.invoiceId)
   const arrival = useArrivalAction(appointment, open, () => setOpen(false))
+  const [postponeOpen, setPostponeOpen] = useState(false)
+  const canPostpone = isPostponable(appointment.status)
+  const canRecordLate = admitsLateArrival(appointment.status)
+  const lateArrival = appointment.lateArrivalMinutes ?? null
 
   const options = appointment.allowedNextStatuses ?? []
+
+  /** The retard alone travels; no version — a one-tap fact, like the popup's « Absent ». */
+  const recordLate = async (minutes: number | null) => {
+    if (saving) return
+    setSaving(true)
+    try {
+      await appointmentsApi.update(appointment.id, { lateArrivalMinutes: minutes })
+      toast.success(minutes === null ? "Retard retiré" : `Retard de ${minutes} min noté`)
+      setOpen(false)
+      onChanged?.()
+    } catch (err) {
+      showErrorToast(err)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const apply = async (status: string, confirmed = false) => {
     if (saving) return
@@ -187,6 +209,38 @@ export function AppointmentQuickActions({
               <div role="separator" className="my-1 h-px bg-border" />
             </>
           )}
+          {canPostpone && (
+            <>
+              <Button
+                variant="ghost"
+                className="w-full justify-start coarse:min-h-11"
+                disabled={saving}
+                onClick={() => {
+                  // Closed first, as for « Supprimer »: a dialog opened over an open popover leaves two focus traps.
+                  setOpen(false)
+                  setPostponeOpen(true)
+                }}
+              >
+                <CalendarClock className="size-4" aria-hidden="true" />
+                Reporter…
+              </Button>
+              {!canRecordLate && <div role="separator" className="my-1 h-px bg-border" />}
+            </>
+          )}
+          {canRecordLate && (
+            <>
+              <div className="space-y-1.5 px-2 py-1.5">
+                <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Retard</p>
+                <LateArrivalChips
+                  value={lateArrival}
+                  onChange={(minutes) => void recordLate(minutes)}
+                  withNone={lateArrival !== null}
+                  disabled={saving}
+                />
+              </div>
+              <div role="separator" className="my-1 h-px bg-border" />
+            </>
+          )}
           {arrival.control && (
             <>
               <ArrivalPopoverButton control={arrival.control} />
@@ -211,6 +265,13 @@ export function AppointmentQuickActions({
       </Popover>
 
       {arrival.dialog}
+
+      <PostponeAppointmentDialog
+        appointmentId={postponeOpen ? appointment.id : null}
+        open={postponeOpen}
+        onOpenChange={setPostponeOpen}
+        onDone={() => onChanged?.()}
+      />
 
       <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
         <AlertDialogContent onClick={(e) => e.stopPropagation()}>

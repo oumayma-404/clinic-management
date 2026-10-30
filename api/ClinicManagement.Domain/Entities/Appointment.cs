@@ -21,6 +21,9 @@ public class Appointment : AggregateRoot<Guid>
     public DateTime? CancelledAt { get; private set; }
     public string? GoogleCalendarEventId { get; private set; }
 
+    /// <summary>« Retard » — minutes the patient arrived after the booked start; null when nobody recorded one.</summary>
+    public int? LateArrivalMinutes { get; private set; }
+
     /// <summary>
     /// The <see cref="Common.Entity{TId}.Version"/> this row carried before the run of <b>automatic</b> writes
     /// that has touched it since the last time a person did — or null when the most recent writer was a person.
@@ -378,8 +381,31 @@ public class Appointment : AggregateRoot<Guid>
         [AppointmentStatus.Cancelled] = new[] { AppointmentStatus.Scheduled },
         // Cancelled stays reachable from NoShow: `CancelRecurringSeriesCommand` voids a whole series and does
         // not skip missed occurrences, so removing it would make that command throw on rows it cancels today.
-        [AppointmentStatus.NoShow] = new[] { AppointmentStatus.Scheduled, AppointmentStatus.Cancelled },
+        // Completed is the very late patient who turns up after being marked absent (« finalement venu »).
+        [AppointmentStatus.NoShow] = new[]
+        {
+            AppointmentStatus.Scheduled, AppointmentStatus.Cancelled, AppointmentStatus.Completed,
+        },
     };
+
+    /// <summary>The longest retard that can be recorded, in minutes.</summary>
+    public const int MaxLateArrivalMinutes = 240;
+
+    /// <summary>The statuses that may carry a retard — the patient is, or was, there. Every other status erases it.</summary>
+    public static readonly IReadOnlyCollection<AppointmentStatus> LateArrivalStatuses = new[]
+    {
+        AppointmentStatus.InProgress, AppointmentStatus.AwaitingClosure, AppointmentStatus.Completed,
+    };
+
+    /// <summary>When a séance really ends: the booked end plus any retard. The booked slot itself never grows.</summary>
+    public static DateTime ExpectedEnd(DateTime startUtc, TimeSpan duration, int? lateArrivalMinutes) =>
+        startUtc + duration + TimeSpan.FromMinutes(lateArrivalMinutes ?? 0);
+
+    /// <inheritdoc cref="ExpectedEnd(DateTime, TimeSpan, int?)"/>
+    public DateTime ExpectedEndUtc => ExpectedEnd(AppointmentDateTime, Duration, LateArrivalMinutes);
+
+    /// <summary>True once the séance has really ended — the one rule the progress job, the post-visit prompt and « À clôturer » share.</summary>
+    public bool HasEndedBy(DateTime nowUtc) => ExpectedEndUtc <= nowUtc;
 
     /// <summary>
     /// The statuses this appointment may move to right now. Surfaced on <c>AppointmentDto</c> so the status
@@ -599,6 +625,7 @@ public class Appointment : AggregateRoot<Guid>
         Status = AppointmentStatus.Cancelled;
         CancellationReason = reason;
         CancelledAt = DateTime.UtcNow;
+        LateArrivalMinutes = null;
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -611,6 +638,37 @@ public class Appointment : AggregateRoot<Guid>
         }
 
         Status = AppointmentStatus.NoShow;
+        LateArrivalMinutes = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Record — or clear, with null — how late the patient arrived. A fact about the visit: it never moves the
+    /// booked slot, and only a status in <see cref="LateArrivalStatuses"/> may carry it.
+    /// </summary>
+    public void RecordLateArrival(int? minutes)
+    {
+        if (minutes is not null)
+        {
+            if (!LateArrivalStatuses.Contains(Status))
+            {
+                throw new InvalidOperationException(
+                    $"Un retard ne se note que pour un patient venu : ce rendez-vous est « {FrenchLabel(Status)} ».");
+            }
+
+            if (minutes < 1 || minutes > MaxLateArrivalMinutes)
+            {
+                throw new InvalidOperationException(
+                    $"Le retard doit être compris entre 1 et {MaxLateArrivalMinutes} minutes.");
+            }
+        }
+
+        if (LateArrivalMinutes == minutes)
+        {
+            return;
+        }
+
+        LateArrivalMinutes = minutes;
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -641,6 +699,8 @@ public class Appointment : AggregateRoot<Guid>
             throw new InvalidOperationException(CancelledCannotMoveMessage);
         }
 
+        // Compared to the minute: a form rebuilds the instant without its seconds, which is not a move.
+        var moved = ToMinute(newDateTime) != ToMinute(AppointmentDateTime);
         AppointmentDateTime = newDateTime;
         // `AwaitingClosure` joins NoShow for the same reason: both are statements about a slot that has passed,
         // and carrying either onto a new date would badge a visit that has not happened yet as one that has.
@@ -650,8 +710,17 @@ public class Appointment : AggregateRoot<Guid>
             Status = AppointmentStatus.Scheduled;
         }
 
+        // A retard is measured against the booked start, so it cannot outlive a move.
+        if (moved || !LateArrivalStatuses.Contains(Status))
+        {
+            LateArrivalMinutes = null;
+        }
+
         UpdatedAt = DateTime.UtcNow;
     }
+
+    private static DateTime ToMinute(DateTime value) =>
+        new(value.Ticks - value.Ticks % TimeSpan.TicksPerMinute, value.Kind);
 
     /// <summary>The refusal for moving a cancelled visit — shared by the domain and the edit handler.</summary>
     public const string CancelledCannotMoveMessage =
@@ -671,6 +740,7 @@ public class Appointment : AggregateRoot<Guid>
         Status = AppointmentStatus.Scheduled;
         CancellationReason = null;
         CancelledAt = null;
+        LateArrivalMinutes = null;
         UpdatedAt = DateTime.UtcNow;
     }
 

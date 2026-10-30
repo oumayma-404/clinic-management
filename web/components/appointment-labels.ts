@@ -41,6 +41,26 @@ export const MANUALLY_SETTABLE_STATUSES = APPOINTMENT_STATUSES.filter(
   (s) => s !== "AwaitingClosure",
 );
 
+/** Statuts that may carry a retard — the patient is, or was, there. Mirrors `Appointment.LateArrivalStatuses` (tested both ways). */
+export const LATE_ARRIVAL_STATUSES = ["InProgress", "AwaitingClosure", "Completed"] as const;
+
+/** Statuts « Reporter » is offered on: a visit still to come, or whose presence nobody has answered yet. */
+export const POSTPONABLE_STATUSES = ["Scheduled", "Confirmed", "InProgress", "AwaitingClosure"] as const;
+
+/** May this statut carry a retard? Accepts any casing — the edit dialog holds its statut lowercased. */
+export function admitsLateArrival(status: string | null | undefined): boolean {
+  if (!status) return false;
+  const normalized = normalizeStatus(status);
+  return (LATE_ARRIVAL_STATUSES as readonly string[]).includes(normalized);
+}
+
+/** Is « Reporter » offered for this statut? */
+export function isPostponable(status: string | null | undefined): boolean {
+  if (!status) return false;
+  const normalized = normalizeStatus(status);
+  return (POSTPONABLE_STATUSES as readonly string[]).includes(normalized);
+}
+
 export const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
   Scheduled: "Planifié",
   Confirmed: "Confirmé",
