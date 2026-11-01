@@ -7,7 +7,7 @@ using ClinicManagement.Domain.Repositories;
 namespace ClinicManagement.Application.Features.Messaging;
 
 /// <summary>
-/// <b>May this cabinet's queued WhatsApp reminders leave the building?</b> FR-4's and FR-7's enforcement, consulted at
+/// <b>May this cabinet's queued SMS and WhatsApp reminders leave the building?</b> FR-4's and FR-7's enforcement, consulted at
 /// dispatch <i>and</i> at un-park (AC-4.8): a cabinet that has spent its forfait has its reminders <b>held</b> rather
 /// than sent or failed, and they go out by themselves the moment the vendor grants more (AC-4.2, EC-2).
 ///
@@ -18,8 +18,10 @@ namespace ClinicManagement.Application.Features.Messaging;
 /// wording</b>: a cabinet with no usable template is told <i>that</i>, not that its forfait ran out, because only one
 /// of the two is something anybody can act on.</para>
 ///
-/// <para><b>⚠️ WhatsApp rows only (AC-4.6).</b> An SMS reminder for the same appointment is untouched — it is not paid
-/// for out of this forfait — so a row of any other channel is never even looked up.</para>
+/// <para><b>⚠️ SMS and WhatsApp rows (<c>sms-rappels-tunisie-sms</c>, reversing AC-4.6).</b> Both channels are the
+/// vendor's account and both are paid out of the one forfait: one SMS is one message. The <b>template</b> term stays
+/// WhatsApp's alone — an SMS has no template to approve — which is why the decision is cached per (cabinet, channel):
+/// a WhatsApp template under review must never hold the same cabinet's SMS rows.</para>
 ///
 /// <para><b>⚠️ Asked AFTER the subscription gate (AC-4.7, EC-8).</b> A cabinet that may not record new work at all is
 /// told <i>that</i>; « forfait épuisé » would send a practice with a lapsed subscription to ask us for more messages.
@@ -36,7 +38,7 @@ public sealed class OutboxMessagingGate
     private readonly IMessagingAllowanceRepository _allowances;
     private readonly IClinicReminderSettingsRepository _settings;
     private readonly DateTime _clinicToday;
-    private readonly Dictionary<Guid, OutboxBlock?> _decided = new();
+    private readonly Dictionary<(Guid Clinic, NotificationType Channel), OutboxBlock?> _decided = new();
 
     /// <param name="clinicToday">
     /// The clinic-local day, resolved once by the caller through <c>ClinicClock.ClinicToday()</c> — the same reason
@@ -73,7 +75,7 @@ public sealed class OutboxMessagingGate
     /// caller cannot read the reason of a decision that was « send ».
     /// </summary>
     /// <param name="channel">
-    /// The row's channel. Anything but <see cref="NotificationType.WhatsApp"/> returns null without a query (AC-4.6).
+    /// The row's channel. Anything but SMS or WhatsApp returns null without a query — no other channel is sold.
     /// </param>
     /// <param name="clinicId">
     /// Nullable because a reminder's is: rows enqueued before per-clinic settings existed carry none, and a row with no
@@ -83,27 +85,31 @@ public sealed class OutboxMessagingGate
         NotificationType channel, Guid? clinicId, CancellationToken cancellationToken = default)
     {
         if (!_availability.SellsVendorMessaging
-            || channel != NotificationType.WhatsApp
+            || !IsMetered(channel)
             || clinicId is not { } id)
         {
             return null;
         }
 
-        if (_decided.TryGetValue(id, out var cached))
+        if (_decided.TryGetValue((id, channel), out var cached))
         {
             return cached;
         }
 
-        var decision = await DecideAsync(id, cancellationToken);
-        _decided[id] = decision;
+        var decision = await DecideAsync(id, channel, cancellationToken);
+        _decided[(id, channel)] = decision;
         return decision;
     }
+
+    /// <summary>The channels paid out of the forfait — the vendor's own SMS account and its WhatsApp numbers.</summary>
+    public static bool IsMetered(NotificationType channel) =>
+        channel is NotificationType.SMS or NotificationType.WhatsApp;
 
     /// <summary>
     /// The ordered terms. Part 4 adds the <b>template</b> term at the top of this method — the slot is declared here so
     /// that part adds a <i>term</i> rather than a second gate, and so both of the job's call sites inherit it for free.
     /// </summary>
-    private async Task<OutboxBlock?> DecideAsync(Guid clinicId, CancellationToken cancellationToken)
+    private async Task<OutboxBlock?> DecideAsync(Guid clinicId, NotificationType channel, CancellationToken cancellationToken)
     {
         // ── Term 1 (§ 33a): the template is not usable (FR-7) ────────────────────────────────────────────────
         // It cannot live in the sender: a sender runs *after* the send call, so FR-7's « consume nothing » would
@@ -113,7 +119,9 @@ public sealed class OutboxMessagingGate
         // ⚠️ A cabinet with NO stored status passes. That is « we do not track a template for this cabinet », which
         // is true of every cabinet sending today on the install's own pre-approved one — holding those would stop
         // every reminder on the deployment the day this shipped, for a template Meta approved long ago.
-        var settings = await _settings.GetByClinicIdAsync(clinicId, cancellationToken);
+        var settings = channel == NotificationType.WhatsApp
+            ? await _settings.GetByClinicIdAsync(clinicId, cancellationToken)
+            : null;
         if (settings?.WhatsAppTemplateStatus is { } template && template != WhatsAppTemplateStatus.Approved)
         {
             return new OutboxBlock(

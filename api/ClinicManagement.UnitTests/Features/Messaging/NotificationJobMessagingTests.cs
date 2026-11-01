@@ -212,7 +212,7 @@ public class NotificationJobMessagingTests
                 Mock.Of<ISubscriptionPolicy>(p => p.RequiresSubscription == false),
                 new Mock<IClinicSubscriptionRepository>().Object,
                 Availability.Object, Allowances.Object, ReminderSettings.Object,
-                new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
+                new Mock<IClinicRepository>().Object, new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
                 ClinicManagement.UnitTests.Common.TestFence.None,
                 NullLogger<NotificationJob>.Instance);
         }
@@ -275,7 +275,7 @@ public class NotificationJobMessagingTests
     }
 
     [Fact]
-    public async Task An_Sms_Send_Counts_Nothing() // [AC-4.6]
+    public async Task An_Sms_Send_Counts_One_Message() // [sms-rappels-tunisie-sms, reversing AC-4.6]
     {
         var row = new Notification(
             Guid.NewGuid(), NotificationType.SMS, "Rappel", "Rappel : Jean.", DateTime.UtcNow.AddMinutes(-1),
@@ -287,8 +287,8 @@ public class NotificationJobMessagingTests
         await harness.Job.ProcessPendingNotifications();
 
         Assert.Equal(NotificationStatus.Sent, row.Status);
-        // The forfait pays for WhatsApp and nothing else.
-        Assert.Equal(5, harness.Month!.ConsumedMessages);
+        // The vendor's SMS account is paid out of the same forfait: one SMS, one message.
+        Assert.Equal(6, harness.Month!.ConsumedMessages);
     }
 
     /// <summary>

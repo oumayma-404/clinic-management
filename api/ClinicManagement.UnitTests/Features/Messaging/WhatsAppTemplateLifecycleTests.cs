@@ -342,7 +342,7 @@ public class WhatsAppTemplateLifecycleTests
         availability.SetupGet(a => a.SellsVendorMessaging).Returns(true);
 
         return new UpdateClinicReminderSettingsCommandHandler(
-            settings.Object, users.Object, context.Object, Mock.Of<IReminderSecretProtector>(),
+            settings.Object, users.Object, Mock.Of<IClinicRepository>(), context.Object, Mock.Of<IReminderSecretProtector>(),
             provider.Object, Mock.Of<IOutboundEndpointPolicy>(), availability.Object, Mock.Of<IUnitOfWork>());
     }
 
@@ -402,7 +402,8 @@ public class WhatsAppTemplateLifecycleTests
             new UpdateClinicReminderSettingsCommand
             {
                 // Exactly what the screen posts: an SMS change, and nulls for the WhatsApp identity it no longer shows.
-                Settings = new UpdateReminderSettingsRequest { SmsSenderId = "MaClinique" },
+                // (Switching SMS on — the sender id is the vendor's own here and refused, see ManualSms.)
+                Settings = new UpdateReminderSettingsRequest { SmsEnabled = true },
             },
             CancellationToken.None);
 

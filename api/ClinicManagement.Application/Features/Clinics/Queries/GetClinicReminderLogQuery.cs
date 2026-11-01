@@ -49,15 +49,18 @@ public class GetClinicReminderLogQueryHandler : IRequestHandler<GetClinicReminde
     private readonly INotificationRepository _notificationRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
+    private readonly IReminderSettingsProvider _settingsProvider;
 
     public GetClinicReminderLogQueryHandler(
         INotificationRepository notificationRepository,
         IUserRepository userRepository,
-        IClinicContext clinicContext)
+        IClinicContext clinicContext,
+        IReminderSettingsProvider settingsProvider)
     {
         _notificationRepository = notificationRepository;
         _userRepository = userRepository;
         _clinicContext = clinicContext;
+        _settingsProvider = settingsProvider;
     }
 
     public async Task<Result<ReminderLogDto>> Handle(
@@ -94,6 +97,12 @@ public class GetClinicReminderLogQueryHandler : IRequestHandler<GetClinicReminde
             var counts = await _notificationRepository.GetClinicLogCountsAsync(
                 user.ClinicId, todayFrom, todayTo, failedSince, cancellationToken);
 
+            var settings = await _settingsProvider.ResolveAsync(user.ClinicId, cancellationToken);
+            var sending = new[] { NotificationType.SMS, NotificationType.WhatsApp }
+                .Where(settings.CanSend)
+                .Select(channel => channel == NotificationType.SMS ? "SMS" : "WhatsApp")
+                .ToList();
+
             return Result<ReminderLogDto>.Success(new ReminderLogDto(
                 new PagedResult<ReminderStatusDto>(
                     page.Items.Select(ReminderStatusMapper.ToDto).ToList(),
@@ -105,7 +114,8 @@ public class GetClinicReminderLogQueryHandler : IRequestHandler<GetClinicReminde
                 counts.FailedRecent,
                 counts.Blocked,
                 counts.HeldByAllowance,
-                counts.HeldBySender));
+                counts.HeldBySender,
+                sending));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

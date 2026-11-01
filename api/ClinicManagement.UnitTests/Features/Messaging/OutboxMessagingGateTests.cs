@@ -94,17 +94,18 @@ public class OutboxMessagingGateTests
     // ---- What it must not touch ------------------------------------------------------------------
 
     /// <summary>
-    /// [AC-4.6] An SMS reminder for the same appointment is untouched — it is not paid for out of this forfait — and
-    /// it is never even looked up.
+    /// [sms-rappels-tunisie-sms, reversing AC-4.6] An SMS is the vendor's account too and is paid out of the same
+    /// forfait, so a spent forfait holds the SMS row exactly as it holds a WhatsApp one.
     /// </summary>
     [Fact]
-    public async Task An_Sms_Row_Is_Never_Consulted_Even_On_An_Exhausted_Cabinet()
+    public async Task An_Sms_Row_Is_Held_On_An_Exhausted_Cabinet()
     {
         var harness = new Harness();
         harness.WithMonth(Clinic, "2026-08", allowance: 100, consumed: 100);
 
-        Assert.Null(await harness.Gate().ReviewAsync(NotificationType.SMS, Clinic));
-        Assert.Equal(0, harness.MonthReads);
+        var block = await harness.Gate().ReviewAsync(NotificationType.SMS, Clinic);
+
+        Assert.Equal(OutboxBlockReason.MessagingAllowanceExhausted, block?.Reason);
     }
 
     /// <summary>
@@ -389,14 +390,21 @@ public class OutboxMessagingGateTests
         Assert.NotEqual(waitingSentence, refusedSentence);
     }
 
-    /// <summary>[AC-4.6] An SMS row is still never looked up, template or no template.</summary>
+    /// <summary>
+    /// An SMS has no template to approve: a WhatsApp template under review must never hold the same cabinet's SMS
+    /// rows, even within one tick where the WhatsApp decision is already cached.
+    /// </summary>
     [Fact]
-    public async Task An_Sms_Row_Ignores_The_Template_Term_Too()
+    public async Task An_Sms_Row_Ignores_The_WhatsApp_Template_Term()
     {
         var harness = new Harness();
         harness.WithTemplate(Clinic, WhatsAppTemplateStatus.Rejected);
+        harness.WithMonth(Clinic, "2026-08", allowance: 100, consumed: 10);
+        var gate = harness.Gate();
 
-        Assert.Null(await harness.Gate().ReviewAsync(NotificationType.SMS, Clinic));
-        Assert.Equal(0, harness.SettingsReads);
+        Assert.Equal(
+            OutboxBlockReason.MessagingTemplateNotReady,
+            (await gate.ReviewAsync(NotificationType.WhatsApp, Clinic))?.Reason);
+        Assert.Null(await gate.ReviewAsync(NotificationType.SMS, Clinic));
     }
 }

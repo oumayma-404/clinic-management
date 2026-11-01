@@ -40,7 +40,7 @@ public class ReminderSettingsProviderTests
         }).Build();
 
     private ReminderSettingsProvider Provider(IConfiguration configuration) =>
-        new(_repository.Object, _protector.Object, configuration, NullLogger<ReminderSettingsProvider>.Instance);
+        new(_repository.Object, _protector.Object, configuration, Mock.Of<IVendorMessagingAvailability>(), NullLogger<ReminderSettingsProvider>.Instance);
 
     private void HasClinicSettings(ClinicReminderSettings settings) =>
         _repository.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(settings);

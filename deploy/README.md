@@ -630,8 +630,9 @@ re-read** — a few minutes at most — with nobody signing out.
 
 **You buy the WhatsApp messages; a cabinet spends them.** Each practice gets a monthly allowance of WhatsApp
 appointment reminders, counted one per message actually sent; past it, reminders are **held** rather than dropped —
-they go out when you top the cabinet up, and nothing is lost. SMS is never counted, and an exhausted forfait never
-affects anything but WhatsApp reminders.
+they go out when you top the cabinet up, and nothing is lost. Since `sms-rappels-tunisie-sms` an **SMS counts one
+message too** — both channels are your account — so an exhausted forfait holds SMS reminders as well. The SMS gateway
+is set once for the whole deployment (`REMINDERS_SMS_*`, see `.env.hosted.example`); a cabinet only switches SMS on.
 
 Like subscriptions this is `HostedMultiTenant` only, decided by `Deployment__Profile` and by nothing an operator
 can set. Elsewhere the whole feature is **absent**: no screen section, no notifications, no enforcement, no daily

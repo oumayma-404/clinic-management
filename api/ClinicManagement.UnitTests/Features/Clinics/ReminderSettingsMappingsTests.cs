@@ -18,7 +18,7 @@ public class ReminderSettingsMappingsTests
     {
         ClinicReminderSettings? settings = null;
 
-        var dto = settings.ToDto(vendorManagedWhatsApp: false);
+        var dto = settings.ToDto(vendorManagedMessaging: false);
 
         Assert.Equal("NotConnected", dto.WhatsAppConnectionStatus);
         Assert.Null(dto.WhatsAppBusinessAccountId);
@@ -34,7 +34,7 @@ public class ReminderSettingsMappingsTests
         settings.ApplyWhatsAppConnection("WABA-1", "PN-99");
         settings.SetWhatsAppAccessTokenEncrypted("enc-token");
 
-        var dto = settings.ToDto(vendorManagedWhatsApp: false);
+        var dto = settings.ToDto(vendorManagedMessaging: false);
 
         Assert.Equal("Connected", dto.WhatsAppConnectionStatus);
         Assert.Equal("WABA-1", dto.WhatsAppBusinessAccountId);

@@ -497,4 +497,86 @@ public class ReminderSchedulerTests
         Assert.Single(h.Added.Select(n => n.ScheduledFor).Distinct());
         Assert.All(h.Added, n => Assert.Null(n.AppointmentId));
     }
+
+    // ---- sms-rappels-tunisie-sms ---------------------------------------------------------------------
+
+    private static Patient PatientNumbered(Guid id, string primary, params string[] extras)
+    {
+        var patient = new Patient(
+            id, ClinicId, "Sami", "Ben Ali", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc), "M",
+            phoneNumber: new PhoneNumber(primary));
+        patient.SetAdditionalPhoneNumbers(extras.Select((n, i) => new PatientPhone(n, sortOrder: i)));
+        return patient;
+    }
+
+    /// <summary>An SMS goes to a Tunisian mobile only; WhatsApp still reaches a landline's owner on file.</summary>
+    [Fact]
+    public async Task A_Landline_Gets_No_Sms_Row_But_Keeps_Its_WhatsApp_One()
+    {
+        var h = new Harness("Sms", "WhatsApp");
+        var patientId = Guid.NewGuid();
+        h.Patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PatientNumbered(patientId, "71 123 456"));
+
+        await h.Scheduler().ScheduleForAppointmentAsync(
+            ClinicId, Guid.NewGuid(), patientId, "Sami Ben Ali", DateTime.UtcNow.AddDays(2));
+
+        Assert.NotEmpty(h.Added);
+        Assert.All(h.Added, n => Assert.Equal(NotificationType.WhatsApp, n.Type));
+    }
+
+    [Fact]
+    public async Task A_Foreign_Number_Gets_No_Sms_Row()
+    {
+        var h = new Harness("Sms");
+        var patientId = Guid.NewGuid();
+        h.Patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PatientNumbered(patientId, "+33 6 12 34 56 78"));
+
+        await h.Scheduler().ScheduleForAppointmentAsync(
+            ClinicId, Guid.NewGuid(), patientId, "Sami Ben Ali", DateTime.UtcNow.AddDays(2));
+
+        Assert.Empty(h.Added);
+    }
+
+    [Fact]
+    public async Task A_Landline_Primary_With_An_Extra_Mobile_Gets_Its_Sms()
+    {
+        var h = new Harness("Sms");
+        var patientId = Guid.NewGuid();
+        h.Patients.Setup(r => r.GetByIdAsync(patientId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PatientNumbered(patientId, "71 123 456", "55 123 456"));
+
+        await h.Scheduler().ScheduleForAppointmentAsync(
+            ClinicId, Guid.NewGuid(), patientId, "Sami Ben Ali", DateTime.UtcNow.AddDays(2));
+
+        Assert.NotEmpty(h.Added);
+        Assert.All(h.Added, n => Assert.Equal(NotificationType.SMS, n.Type));
+    }
+
+    /// <summary>The row remembers the moment it was queued for: that is how the dispatcher sees a moved visit.</summary>
+    [Fact]
+    public async Task A_Queued_Reminder_Records_The_Moment_It_Is_For()
+    {
+        var h = new Harness("Sms");
+        var appointment = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(2), DateTimeKind.Utc);
+
+        await h.Scheduler().ScheduleForAppointmentAsync(ClinicId, Guid.NewGuid(), Guid.NewGuid(), "Jean Dupont", appointment);
+
+        Assert.NotEmpty(h.Added);
+        Assert.All(h.Added, n => Assert.Equal(appointment, n.AppointmentMomentUtc));
+        Assert.All(h.Added, n => Assert.True(n.Message.Length <= 157, n.Message));
+    }
+
+    [Fact]
+    public async Task A_Recall_Is_Held_To_One_Sms_In_Plain_Letters()
+    {
+        var h = new Harness("Sms");
+
+        await h.Scheduler().ScheduleRecallAsync(ClinicId, Guid.NewGuid(), "Jean Dupont", "contrôle");
+
+        var row = Assert.Single(h.Added);
+        Assert.Contains("controle", row.Message);
+        Assert.True(row.Message.Length <= 157);
+    }
 }

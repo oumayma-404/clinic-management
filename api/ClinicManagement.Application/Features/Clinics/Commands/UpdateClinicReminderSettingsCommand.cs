@@ -25,6 +25,7 @@ public class UpdateClinicReminderSettingsCommandHandler
 {
     private readonly IClinicReminderSettingsRepository _settingsRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IClinicRepository _clinicRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IReminderSecretProtector _secretProtector;
     private readonly IReminderSettingsProvider _settingsProvider;
@@ -35,6 +36,7 @@ public class UpdateClinicReminderSettingsCommandHandler
     public UpdateClinicReminderSettingsCommandHandler(
         IClinicReminderSettingsRepository settingsRepository,
         IUserRepository userRepository,
+        IClinicRepository clinicRepository,
         IClinicContext clinicContext,
         IReminderSecretProtector secretProtector,
         IReminderSettingsProvider settingsProvider,
@@ -44,6 +46,7 @@ public class UpdateClinicReminderSettingsCommandHandler
     {
         _settingsRepository = settingsRepository;
         _userRepository = userRepository;
+        _clinicRepository = clinicRepository;
         _clinicContext = clinicContext;
         _secretProtector = secretProtector;
         _settingsProvider = settingsProvider;
@@ -102,6 +105,27 @@ public class UpdateClinicReminderSettingsCommandHandler
             var whatsAppTemplateLanguage =
                 vendorManagesWhatsApp ? settings.WhatsAppTemplateLanguage : input.WhatsAppTemplateLanguage;
 
+            // The SMS twin: where the vendor sells messaging the gateway is its own account (sender, key, URL), and
+            // the cabinet only switches the channel on. Refused rather than ignored, and the stored values are kept
+            // for the reason the WhatsApp ones are — the screen posts nulls for fields it no longer renders.
+            var vendorManagesSms = _vendorMessaging.SellsVendorMessaging;
+            if (vendorManagesSms && ClaimsAnSmsCredential(input))
+            {
+                return Result<ReminderSettingsDto>.Failure(MessagingRefusals.ManualSms, MessagingRefusals.ManualSmsCode);
+            }
+
+            var smsSenderId = vendorManagesSms ? settings.SmsSenderId : input.SmsSenderId;
+            var smsApiUrl = vendorManagesSms ? settings.SmsApiUrl : input.SmsApiUrl;
+
+            // Checked at save so the renderer, at send, only ever shortens a name or an act — never the doctor's text.
+            var clinic = await _clinicRepository.GetByIdAsync(user.ClinicId, cancellationToken);
+            var refusal = ReminderTemplateRules.CheckLeadTimes(input.LeadTimeHours)
+                ?? ReminderTemplateRules.CheckTemplate(input.MessageTemplateBody, clinic?.Name ?? string.Empty);
+            if (refusal is not null)
+            {
+                return Result<ReminderSettingsDto>.Failure(refusal.Sentence, refusal.Code);
+            }
+
             // The three endpoint fields are the ones a tenant can aim anywhere, so the domain refuses a
             // non-public target. Caught here rather than left to the exception middleware: this is a typo in a
             // settings form, and it must come back as the French 400 the screen renders — not a generic 500.
@@ -111,11 +135,11 @@ public class UpdateClinicReminderSettingsCommandHandler
                 settings.ApplyNonSecretSettings(
                     input.SmsEnabled,
                     input.WhatsAppEnabled,
-                    input.SmsSenderId,
+                    smsSenderId,
                     whatsAppPhoneNumberId,
                     whatsAppTemplateName,
                     whatsAppTemplateLanguage,
-                    input.SmsApiUrl,
+                    smsApiUrl,
                     whatsAppApiUrl,
                     input.LeadTimeHours,
                     input.MessageTemplateBody,
@@ -168,7 +192,7 @@ public class UpdateClinicReminderSettingsCommandHandler
             // Return the freshly-resolved effective status too, so the UI can immediately show whether the
             // channel is now actually sendable (AC-2) without a second round-trip.
             var resolved = await _settingsProvider.ResolveAsync(user.ClinicId, cancellationToken);
-            var dto = settings.ToDto(vendorManagesWhatsApp) with
+            var dto = settings.ToDto(_vendorMessaging.SellsVendorMessaging) with
             {
                 SmsEffectiveStatus = resolved.SmsConfigured
                     ? ReminderEffectiveStatus.Configured
@@ -194,6 +218,11 @@ public class UpdateClinicReminderSettingsCommandHandler
     /// <c>ReminderSettingsProvider.ClaimsItsOwnWhatsApp</c> reads, deliberately: what AC-1.7 refuses is exactly what
     /// would make the cabinet own its own channel.
     /// </summary>
+    private static bool ClaimsAnSmsCredential(UpdateReminderSettingsRequest input) =>
+        !string.IsNullOrWhiteSpace(input.SmsApiUrl)
+        || !string.IsNullOrWhiteSpace(input.SmsSenderId)
+        || !string.IsNullOrWhiteSpace(input.SmsApiKey);
+
     private static bool ClaimsAWhatsAppCredential(UpdateReminderSettingsRequest input) =>
         !string.IsNullOrWhiteSpace(input.WhatsAppApiUrl)
         || !string.IsNullOrWhiteSpace(input.WhatsAppPhoneNumberId)

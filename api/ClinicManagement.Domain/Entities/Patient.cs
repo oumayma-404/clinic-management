@@ -702,5 +702,22 @@ public class Patient : AggregateRoot<Guid>
     }
 
     public string GetFullName() => $"{FirstName} {LastName}";
+
+    /// <summary>
+    /// The number an SMS reminder goes to: the primary when it is a Tunisian mobile, else the first extra number that
+    /// is, else <c>null</c>. A landline primary with a mobile beside it is the ordinary case this exists for.
+    /// </summary>
+    public string? SmsNumberE164()
+    {
+        if (ValueObjects.PhoneNumber.IsTunisianMobile(PhoneNumber?.E164))
+        {
+            return PhoneNumber!.E164;
+        }
+
+        return _additionalPhoneNumbers
+            .OrderBy(p => p.SortOrder)
+            .Select(p => p.E164)
+            .FirstOrDefault(ValueObjects.PhoneNumber.IsTunisianMobile);
+    }
 }
 

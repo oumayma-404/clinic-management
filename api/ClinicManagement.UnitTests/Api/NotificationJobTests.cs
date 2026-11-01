@@ -118,7 +118,7 @@ public class NotificationJobTests
             new Mock<IClinicReminderSettingsRepository>().Object,
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
-            new Mock<IAuditActorProvider>().Object,
+            new Mock<IClinicRepository>().Object, new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
             fence ?? ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
@@ -405,7 +405,7 @@ public class NotificationJobTests
             new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
             new Mock<IClinicReminderSettingsRepository>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
-            new Mock<IAuditActorProvider>().Object,
+            new Mock<IClinicRepository>().Object, new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
             ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
@@ -464,7 +464,7 @@ public class NotificationJobTests
             new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
             new Mock<IClinicReminderSettingsRepository>().Object,
             // I6: permissive audit-actor mock — see the shared builder above.
-            new Mock<IAuditActorProvider>().Object,
+            new Mock<IClinicRepository>().Object, new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
             ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
@@ -529,7 +529,7 @@ public class NotificationJobTests
             new Mock<IClinicReminderSettingsRepository>().Object,
             // I6 wired an audit actor into every job. A permissive mock keeps these scenarios exactly as they
             // were: the job declares itself, nothing here observes it.
-            new Mock<IAuditActorProvider>().Object,
+            new Mock<IClinicRepository>().Object, new Mock<IAuditActorProvider>().Object,
             new Mock<ITenantScope>().Object,
             ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
@@ -750,7 +750,7 @@ public class NotificationJobTests
             // NotificationJobMessagingTests.
             new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
             new Mock<IClinicReminderSettingsRepository>().Object,
-            new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
+            new Mock<IClinicRepository>().Object, new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
             ClinicManagement.UnitTests.Common.TestFence.None,
             NullLogger<NotificationJob>.Instance);
     }

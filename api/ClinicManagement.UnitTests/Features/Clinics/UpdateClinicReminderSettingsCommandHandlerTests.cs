@@ -1,4 +1,5 @@
-﻿using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Features.Messaging;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Clinics.Commands;
@@ -44,7 +45,7 @@ public class UpdateClinicReminderSettingsCommandHandlerTests
     }
 
     private UpdateClinicReminderSettingsCommandHandler Handler() =>
-        new(_settings.Object, _users.Object, _context.Object, _protector.Object, _provider.Object,
+        new(_settings.Object, _users.Object, Mock.Of<IClinicRepository>(), _context.Object, _protector.Object, _provider.Object,
             _endpointPolicy.Object, _vendorMessaging.Object, _uow.Object);
 
     private static User Local(string role) =>
@@ -122,5 +123,76 @@ public class UpdateClinicReminderSettingsCommandHandlerTests
         Assert.True(result.Value!.SmsApiKeyConfigured);
         _protector.Verify(p => p.Protect(It.IsAny<string>()), Times.Never);
         _settings.Verify(r => r.UpdateAsync(existing, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // ---- sms-rappels-tunisie-sms ---------------------------------------------------------------------
+
+    /// <summary>Where the vendor sells messaging the SMS gateway is its own account: a typed one is refused by code.</summary>
+    [Theory]
+    [InlineData("https://sms.example/send", null, null)]
+    [InlineData(null, "MaClinique", null)]
+    [InlineData(null, null, "a-key")]
+    public async Task A_Typed_Sms_Gateway_Is_Refused_Where_The_Vendor_Provides_It(string? url, string? sender, string? key)
+    {
+        CallerIs(Local("admin"));
+        _vendorMessaging.SetupGet(v => v.SellsVendorMessaging).Returns(true);
+
+        var result = await Handler().Handle(Command(new UpdateReminderSettingsRequest
+        {
+            SmsApiUrl = url,
+            SmsSenderId = sender,
+            SmsApiKey = key,
+        }), CancellationToken.None);
+
+        Assert.Equal(MessagingRefusals.ManualSmsCode, result.Code);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Sms_Can_Still_Be_Switched_On_Where_The_Vendor_Provides_It()
+    {
+        CallerIs(Local("admin"));
+        _vendorMessaging.SetupGet(v => v.SellsVendorMessaging).Returns(true);
+        _settings.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ClinicReminderSettings?)null);
+
+        var result = await Handler().Handle(Command(new UpdateReminderSettingsRequest
+        {
+            SmsEnabled = true,
+            LeadTimeHours = [24],
+            MessageTemplateBody = "Rappel le {date}.\nMerci de venir 10 min en avance.",
+        }), CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.True(result.Value!.SmsVendorManaged);
+        Assert.Equal(157, result.Value.SmsMaxLength);
+    }
+
+    [Fact]
+    public async Task A_Wording_Over_One_Sms_Is_Refused_Before_Anything_Is_Saved()
+    {
+        CallerIs(Local("admin"));
+
+        var result = await Handler().Handle(Command(new UpdateReminderSettingsRequest
+        {
+            MessageTemplateBody = "Rappel le {date}. " + new string('x', 160),
+        }), CancellationToken.None);
+
+        Assert.Equal(ReminderTemplateRules.TooLongCode, result.Code);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_Send_Time_Outside_The_Choices_Is_Refused()
+    {
+        CallerIs(Local("admin"));
+
+        var result = await Handler().Handle(Command(new UpdateReminderSettingsRequest
+        {
+            LeadTimeHours = [24, 12, 6],
+        }), CancellationToken.None);
+
+        Assert.Equal(ReminderTemplateRules.LeadTimeCode, result.Code);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

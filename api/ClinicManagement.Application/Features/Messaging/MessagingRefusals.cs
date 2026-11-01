@@ -4,7 +4,7 @@ using ClinicManagement.Domain.Enums;
 namespace ClinicManagement.Application.Features.Messaging;
 
 /// <summary>
-/// The clinic-facing sentences a cabinet meets when its WhatsApp reminder forfait cannot cover a send, each with the
+/// The clinic-facing sentences a cabinet meets when its reminder forfait (SMS and WhatsApp) cannot cover a send, each with the
 /// machine-readable code beside it (FR-10).
 ///
 /// <para><b>One authority, because the sentence and the code are one statement.</b> The gate writes them onto the
@@ -43,8 +43,8 @@ public static class MessagingRefusals
     /// </summary>
     /// <param name="resetsOn">The first day of the next Tunisian month — <c>ClinicClock.FirstDayOfNextMonth</c>.</param>
     public static string Exhausted(DateTime resetsOn) =>
-        "Votre forfait de rappels WhatsApp est épuisé pour ce mois-ci. "
-        + "Vos rendez-vous, vos dossiers et vos rappels SMS continuent normalement. "
+        "Votre forfait de rappels (SMS et WhatsApp) est épuisé pour ce mois-ci. "
+        + "Vos rendez-vous et vos dossiers continuent normalement. "
         + "Les rappels en attente partiront dès que nous augmentons votre forfait ; "
         + $"votre forfait se renouvelle le {resetsOn.ToString(DateFormat, CultureInfo.InvariantCulture)}. "
         + "Consultez « Rappels » pour savoir quels patients n'ont pas été prévenus.";
@@ -54,8 +54,8 @@ public static class MessagingRefusals
     /// sending the practice to wait for a renewal would leave them waiting for something that will not happen.
     /// </summary>
     public const string Missing =
-        "Le forfait de rappels WhatsApp de ce cabinet est introuvable. "
-        + "Vos rappels WhatsApp sont en attente — contactez-nous, nous le rétablissons.";
+        "Le forfait de rappels de ce cabinet est introuvable. "
+        + "Vos rappels SMS et WhatsApp sont en attente — contactez-nous, nous le rétablissons.";
 
     /// <summary>
     /// AC-5.1's « Relancer » refusal. Shorter than <see cref="Exhausted"/> because it answers a gesture the user just
@@ -63,7 +63,7 @@ public static class MessagingRefusals
     /// contacté » — so the patient does not silently stay on the relance list.
     /// </summary>
     public const string RecallExhausted =
-        "Votre forfait de rappels WhatsApp est épuisé pour ce mois-ci. "
+        "Votre forfait de rappels est épuisé pour ce mois-ci. "
         + "Vous pouvez contacter ce patient autrement, puis utiliser « Marquer comme contacté ».";
 
     /// <summary>
@@ -73,11 +73,11 @@ public static class MessagingRefusals
     /// — nothing was lost and nothing was attempted.
     /// </summary>
     public static string ParkedExhausted(DateTime resetsOn) =>
-        $"Forfait de rappels WhatsApp épuisé — envoi en attente, renouvellement le "
+        $"Forfait de rappels épuisé — envoi en attente, renouvellement le "
         + resetsOn.ToString(DateFormat, CultureInfo.InvariantCulture);
 
     public const string ParkedMissing =
-        "Forfait de rappels WhatsApp introuvable — envoi en attente du rétablissement";
+        "Forfait de rappels introuvable — envoi en attente du rétablissement";
 
     /// <summary>AC-1.7 — the cabinet's WhatsApp identity is ours to provision, not theirs to type.</summary>
     public const string ManualWhatsAppCode = "messaging_whatsapp_is_vendor_managed";
@@ -92,6 +92,14 @@ public static class MessagingRefusals
     public const string ManualWhatsApp =
         "Les identifiants WhatsApp sont fournis par nous sur cette installation et ne se saisissent pas ici. "
         + "Utilisez « Connecter WhatsApp » : votre numéro et votre modèle de message sont configurés pour vous.";
+
+    /// <summary>The SMS gateway is the vendor's own account on this installation, not the cabinet's to type.</summary>
+    public const string ManualSmsCode = "messaging_sms_is_vendor_managed";
+
+    /// <summary>Twin of <see cref="ManualWhatsApp"/>: says what to do instead of only refusing.</summary>
+    public const string ManualSms =
+        "L'envoi des SMS est assuré par nous sur cette installation : il n'y a rien à saisir. "
+        + "Activez simplement « Rappels SMS » dans les paramètres du cabinet.";
 
     /// <summary>
     /// § 33a's parked sentence: the cabinet's WhatsApp template is not usable, so the send waits (FR-7, EC-9, EC-10).

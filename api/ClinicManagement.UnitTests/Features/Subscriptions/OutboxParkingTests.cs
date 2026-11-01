@@ -145,7 +145,7 @@ public class OutboxParkingTests
                 // entitlement-parking cases keep asserting the subscription gate alone.
                 new Mock<IVendorMessagingAvailability>().Object, new Mock<IMessagingAllowanceRepository>().Object,
                 new Mock<IClinicReminderSettingsRepository>().Object,
-                new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
+                new Mock<IClinicRepository>().Object, new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
                 ClinicManagement.UnitTests.Common.TestFence.None,
                 NullLogger<NotificationJob>.Instance);
         }

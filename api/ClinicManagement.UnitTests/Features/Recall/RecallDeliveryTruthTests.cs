@@ -263,7 +263,7 @@ public class RecallDeliveryTruthTests
                 new Mock<IMessagingAllowanceRepository>().Object,
                 new Mock<IClinicReminderSettingsRepository>().Object,
                 // I6: the job names itself as the audit actor. Permissive mock — unobserved here.
-                new Mock<IAuditActorProvider>().Object,
+                new Mock<IClinicRepository>().Object, new Mock<IAuditActorProvider>().Object,
                 new Mock<ITenantScope>().Object,
                 ClinicManagement.UnitTests.Common.TestFence.None,
                 NullLogger<NotificationJob>.Instance);
