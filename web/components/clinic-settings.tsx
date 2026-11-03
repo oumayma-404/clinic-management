@@ -46,6 +46,7 @@ import { RelayCard } from "@/components/relay/relay-card"
 import { LetterheadCard } from "@/components/letterhead/letterhead-card"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import Link from "next/link"
+import { HelpRows, useHelpContact } from "@/components/help-menu"
 import { DoctorDocumentIdentityDialog } from "@/components/doctor-document-identity-dialog"
 import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
 import { DoctorLeavesDisclosure } from "@/components/doctor-leaves/doctor-leaves-card"
@@ -130,6 +131,7 @@ export default function ClinicSettings() {
   const { accessToken } = useAuthToken()
   const { mode, user } = useSession()
   const policy = useUploadPolicy("profile-image")
+  const helpContact = useHelpContact()
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -1538,9 +1540,15 @@ export default function ClinicSettings() {
                     this screen knows, so it now points at the person who installed the clinic rather than
                     inventing a contact that does not answer. */}
                 <p className="text-xs font-medium text-accent-foreground">Besoin d&apos;aide ?</p>
-                <p className="text-xs text-primary">
-                  Contactez la personne qui a installé votre logiciel de cabinet.
-                </p>
+                {/* The same rows as « Aide » in the header, where the vendor publishes a number; otherwise (a clinic's
+                    own PC) the person who installed it is still the right answer. */}
+                {helpContact.phone ? (
+                  <HelpRows phone={helpContact.phone} whatsapp={helpContact.whatsapp} />
+                ) : (
+                  <p className="text-xs text-primary">
+                    Contactez la personne qui a installé votre logiciel de cabinet.
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>

@@ -28,6 +28,9 @@ export const ONBOARDING_VIDEOS = {
 
 export type OnboardingVideoKey = keyof typeof ONBOARDING_VIDEOS
 
+/** The site page listing all eight (apexa.tn « Tutoriels ») — « Aide » and the welcome e-mail point here. */
+export const ONBOARDING_VIDEOS_PAGE = "https://apexa.tn/tutoriels.html"
+
 /** The watch URL, or null for a video not filmed yet. */
 export function onboardingVideoUrl(video: OnboardingVideo): string | null {
   return video.youtubeId ? `https://www.youtube.com/watch?v=${video.youtubeId}` : null

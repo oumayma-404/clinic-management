@@ -22,6 +22,7 @@ import { ConnectivityIndicator } from "@/components/connectivity-indicator"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { NotificationPanel } from "@/components/notification-panel"
 import { StaffChatLauncher } from "@/components/staff-chat/staff-chat-launcher"
+import { HelpMenu } from "@/components/help-menu"
 import { PostVisitReviewPopup } from "@/components/post-visit-review-popup"
 import { useNotifications } from "@/lib/hooks/use-notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
@@ -415,6 +416,8 @@ export function DashboardHeader() {
 
       <div className="flex shrink-0 items-center gap-1 md:gap-4">
         <ConnectivityIndicator />
+
+        <HelpMenu />
 
         <StaffChatLauncher />
 
