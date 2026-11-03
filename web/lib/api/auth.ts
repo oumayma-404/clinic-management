@@ -118,7 +118,8 @@ export interface AuthModeDto {
 
 /** What the invitation page greets with (`POST /api/auth/invitation/preview`). */
 export interface StaffInvitationPreviewDto {
-  firstName: string;
+  /** As the admin typed it (« Dr Ross Geller ») — the e-mail greets with the same name. May be empty. */
+  fullName: string;
   email: string;
   clinicName: string;
 }

@@ -35,3 +35,6 @@ Line numbers are `origin/main` @ `66ecc657`.
 | 27 | `public-routes.ts` | `/invitation` | middleware, `public-routes-have-one-owner` | must change |
 | 28 | `HelpRows({ phone, whatsapp, onFeedback? })` (R2) | shared « Aide » rows | header « Aide », Paramètres « Besoin d'aide ? » | must re-test |
 | 29 | `useInlineNewPatient` + `NewPatientFields` + `DuplicatePatientDialog` (R2) | extracted from the booking dialog | booking dialog, devis form | must re-test — new patient, duplicate both answers, create-once, phone check |
+| 30 | `CreatedClinicUserDto.temporaryPassword` nullable (C) | create response | `user-management.tsx` (the only reader) | must change — branch on the response: temp password vs invitation link |
+| 31 | `/login` `?email=` prefill (C) | login effect | enrol (`?enrol=1&email=`), replace (`?replace=1&email=`), plain sign-in | must re-test — plain sign-in empty, prefill shown, `passwordChanged=1` banner |
+| 32 | « Réinitialiser » ↔ « Renvoyer l'e-mail » swap (C) | users row actions | both trees; reset after first sign-in | must re-test — reset still offered once she has signed in |

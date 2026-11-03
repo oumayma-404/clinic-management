@@ -17,7 +17,8 @@ public class PreviewStaffInvitationQuery : IRequest<Result<StaffInvitationPrevie
     public string Token { get; set; } = string.Empty;
 }
 
-public sealed record StaffInvitationPreviewDto(string FirstName, string Email, string ClinicName);
+/// <summary>The name exactly as the admin typed it — the e-mail greets the same way (« Dr Ross » is not « Dr »).</summary>
+public sealed record StaffInvitationPreviewDto(string FullName, string Email, string ClinicName);
 
 public class PreviewStaffInvitationQueryHandler
     : IRequestHandler<PreviewStaffInvitationQuery, Result<StaffInvitationPreviewDto>>
@@ -53,11 +54,9 @@ public class PreviewStaffInvitationQueryHandler
 
             var (_, user) = found.Value;
             var clinic = await _clinics.GetByIdAsync(user.ClinicId, cancellationToken);
-            var firstName = (user.FullName ?? string.Empty).Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .FirstOrDefault() ?? string.Empty;
 
             return Result<StaffInvitationPreviewDto>.Success(
-                new StaffInvitationPreviewDto(firstName, user.Email ?? string.Empty, clinic?.Name ?? string.Empty));
+                new StaffInvitationPreviewDto((user.FullName ?? string.Empty).Trim(), user.Email ?? string.Empty, clinic?.Name ?? string.Empty));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

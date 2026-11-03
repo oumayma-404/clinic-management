@@ -41,7 +41,7 @@ type Stage =
   | { kind: "reading" }
   | { kind: "no-token" }
   | { kind: "unusable"; message: string }
-  | { kind: "read-failed" }
+  | { kind: "read-failed"; detail: string }
   | { kind: "ready"; preview: StaffInvitationPreviewDto }
 
 /**
@@ -77,7 +77,13 @@ export default function InvitationPage() {
       setStage(
         isUnusableLink(err)
           ? { kind: "unusable", message: getErrorMessage(err, UNUSABLE_LINK) }
-          : { kind: "read-failed" },
+          : {
+              kind: "read-failed",
+              // A network drop and a server refusal (« trop de tentatives… ») call for different advice.
+              detail: isNetworkError(err)
+                ? "Vérifiez votre connexion, puis réessayez — votre lien reste valable."
+                : getErrorMessage(err, "Réessayez dans un instant — votre lien reste valable."),
+            },
       )
     }
   }, [])
@@ -124,7 +130,9 @@ export default function InvitationPage() {
           {stage.kind === "ready" ? (
             <>
               <CardHeader className="space-y-1">
-                <CardTitle className="text-2xl font-bold">Bienvenue, {stage.preview.firstName}</CardTitle>
+                <CardTitle className="text-2xl font-bold [overflow-wrap:anywhere]">
+                  {stage.preview.fullName ? `Bienvenue, ${stage.preview.fullName}` : "Bienvenue"}
+                </CardTitle>
                 <CardDescription>
                   {stage.preview.clinicName} vous a créé un compte APEXA. Choisissez votre mot de passe.
                 </CardDescription>
@@ -149,10 +157,14 @@ export default function InvitationPage() {
                   <div className="space-y-2">
                     {/* The floor is interpolated, never a digit in the sentence (`PasswordFloorSingleSourceTests`),
                         and stated only once the server's figure is known. */}
-                    <Label htmlFor="invitation-password">
-                      Mot de passe
+                    {/* `flex-wrap` + two unbreakable halves: `Label` is a flex row, so at 320 px the two halves each
+                        wrapped inside their own column side by side. Now the floor drops to the next line whole. */}
+                    <Label htmlFor="invitation-password" className="flex-wrap gap-x-1.5 gap-y-0.5">
+                      <span className="whitespace-nowrap">Mot de passe</span>
                       {minLength !== null && (
-                        <span className="font-normal text-muted-foreground"> · au moins {minLength} caractères</span>
+                        <span className="whitespace-nowrap font-normal text-muted-foreground">
+                          · au moins {minLength} caractères
+                        </span>
                       )}
                     </Label>
                     <PasswordInput
@@ -193,7 +205,7 @@ export default function InvitationPage() {
             <CardContent className="py-6">
               <LoadFailureNotice
                 message="L'invitation n'a pas pu être lue."
-                detail="Vérifiez votre connexion, puis réessayez — votre lien reste valable."
+                detail={stage.detail}
                 onRetry={() => void readPreview()}
               />
             </CardContent>

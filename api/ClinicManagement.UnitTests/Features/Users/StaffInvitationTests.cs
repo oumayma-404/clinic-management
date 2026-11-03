@@ -304,7 +304,7 @@ public class StaffInvitationTests
         await Accept().Handle(new AcceptStaffInvitationCommand { Token = token, Password = "Un-bon-mot-de-passe-2026" }, CancellationToken.None);
         var after = await Preview().Handle(new PreviewStaffInvitationQuery { Token = token }, CancellationToken.None);
 
-        Assert.Equal(new StaffInvitationPreviewDto("Amel", "amel@cabinet.tn", "Cabinet Dr Geller"), before.Value);
+        Assert.Equal(new StaffInvitationPreviewDto("Amel Ben Salah", "amel@cabinet.tn", "Cabinet Dr Geller"), before.Value);
         Assert.Equal(StaffInvitations.InvalidCode, after.Code);
     }
 }
