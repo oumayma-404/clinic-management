@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useState } from "react"
 
 import { FeedbackDialog, StarRow } from "@/components/feedback/feedback-dialog"
 import { Button } from "@/components/ui/button"
@@ -15,10 +15,17 @@ const CHECK_MS = 5_000
 
 /**
  * Module-level, because the header — and this card with it — remounts on every screen: when the tab first mounted
- * it (so moving between screens does not restart the minute), and whether this showing was already reported.
+ * it (so moving between screens does not restart the minute), whether this showing was already reported, and
+ * whether the card is up.
+ *
+ * <p>⚠️ `latched` is what keeps the card in place across a screen change. As component state it reset on every
+ * remount, the body marker went with the old instance, and on the new screen the « Séance terminée » question found
+ * the body free before the new card had shown itself again — so the visit question took the screen and the card
+ * vanished (QA run 1, F-1).</p>
  */
 let firstMountAt: number | null = null
 let shownReported = false
+let latched = false
 
 /** True while something else owns the screen or the keyboard: a dialog, a sheet, or a field being typed in. */
 function screenIsBusy(): boolean {
@@ -40,7 +47,8 @@ function screenIsBusy(): boolean {
  */
 export function FeedbackPromptCard() {
   const [eligible, setEligible] = useState(false)
-  const [visible, setVisible] = useState(false)
+  // Already up on the previous screen → up from this instance's first render, with no wait and no re-check.
+  const [visible, setVisible] = useState(() => latched)
   const [dialogRating, setDialogRating] = useState<number | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
 
@@ -66,6 +74,7 @@ export function FeedbackPromptCard() {
     const tryShow = () => {
       if (Date.now() - (firstMountAt ?? Date.now()) < SETTLE_MS) return
       if (screenIsBusy()) return
+      latched = true
       setVisible(true)
     }
     tryShow()
@@ -73,21 +82,29 @@ export function FeedbackPromptCard() {
     return () => window.clearInterval(timer)
   }, [eligible, visible])
 
-  // Counted once per appearance, and the body marker the post-visit question reads.
+  // Counted once per appearance.
   useEffect(() => {
+    if (!visible || shownReported) return
+    shownReported = true
+    void feedbackApi.setPrompt("shown").catch(() => {
+      // A lost count only means the card may be shown once more — never worth an error over the page.
+      shownReported = false
+    })
+  }, [visible])
+
+  /*
+   * The body marker the « Séance terminée » question reads. A LAYOUT effect, deliberately: on a screen change the old
+   * header's cleanup and this one both run before any passive effect of the commit, so the visit question's own check
+   * (a passive effect) can never see the body free between the two cards.
+   */
+  useLayoutEffect(() => {
     if (!visible) return
-    if (!shownReported) {
-      shownReported = true
-      void feedbackApi.setPrompt("shown").catch(() => {
-        // A lost count only means the card may be shown once more — never worth an error over the page.
-        shownReported = false
-      })
-    }
     document.body.setAttribute(FEEDBACK_CARD_OPEN_ATTR, "")
     return () => document.body.removeAttribute(FEEDBACK_CARD_OPEN_ATTR)
   }, [visible])
 
   const hide = () => {
+    latched = false
     setVisible(false)
     setEligible(false)
   }

@@ -33,3 +33,5 @@ Line numbers are `origin/main` @ `66ecc657`.
 | 25 | Console navigation | third link | « Cabinets », « Journal » | unaffected — additive |
 | 26 | Welcome e-mail | one detail line | `ConsoleTeamSignupNoticeTests` (visitor gets exactly one e-mail) | unaffected — same e-mail |
 | 27 | `public-routes.ts` | `/invitation` | middleware, `public-routes-have-one-owner` | must change |
+| 28 | `HelpRows({ phone, whatsapp, onFeedback? })` (R2) | shared « Aide » rows | header « Aide », Paramètres « Besoin d'aide ? » | must re-test |
+| 29 | `useInlineNewPatient` + `NewPatientFields` + `DuplicatePatientDialog` (R2) | extracted from the booking dialog | booking dialog, devis form | must re-test — new patient, duplicate both answers, create-once, phone check |

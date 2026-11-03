@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { addDays, format } from "date-fns"
 import { fr } from "date-fns/locale"
 import { ArrowLeft, MessageSquareText } from "lucide-react"
@@ -35,7 +35,6 @@ const STEPS = [
 const FACTS = ["Mobiles tunisiens", "Pas la nuit", "Un patient peut refuser", "Forfait mensuel de messages"] as const
 
 export default function RappelsPage() {
-  const router = useRouter()
   const { data: status } = useUserStatus()
   const clinicName = status?.clinic?.name ?? status?.clinicName ?? "votre cabinet"
 
@@ -87,9 +86,12 @@ export default function RappelsPage() {
               ))}
             </ul>
 
-            <Button variant="outline" className="min-h-11 gap-2" onClick={() => router.push("/appointments")}>
-              <ArrowLeft className="size-4" aria-hidden="true" />
-              Retour à l&apos;agenda
+            {/* A link, not a button that navigates: it can be opened in a new tab and is announced as one. */}
+            <Button asChild variant="outline" className="min-h-11 gap-2">
+              <Link href="/appointments">
+                <ArrowLeft className="size-4" aria-hidden="true" />
+                Retour à l&apos;agenda
+              </Link>
             </Button>
           </section>
 
