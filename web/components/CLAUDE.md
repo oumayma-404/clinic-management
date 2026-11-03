@@ -30,6 +30,13 @@ Feature/screen components for the clinic frontend; `components/ui/` holds shadcn
 
 > ⚠️ **Treatment flow UX (2026-09-24, `features/treatment-flow-ux/notes.md`) reworded and restructured the booking dialogs, the fiche de soins, the treatment workspace and the patient band.** Where a row below quotes an older on-screen string, the notes file is current: one vocabulary (Traitement · Devis n° / Pas de devis · Séance · Fait · Prix du traitement · Payé / Encaisser · Reste à payer · Non réclamé · Remettre à faire · par dent / pour tout), no instruction captions, consequences as bold bullets (`treatment-plans/plan-consequences.tsx`), `seance-strip.tsx` everywhere. New shared modules: `plan-amend-payload.ts` (the ONE amend builder — the full form and the in-row price/remise editor both use it), `plan-consequences.tsx`, `use-booking-plan-steps.tsx` (the treatment's séances window opened from either booking dialog). The continuation dialog is inline in the booking picker now (`continue-session-dialog.tsx` keeps only the loader + `ContinuationChoice`); `plan-step-suggestion-notice.tsx` exports `ContinueTreatmentList`; the edit dialog's footer is « ⋯ » · Fermer · Enregistrer.
 
+## Premiers pas (`guided-first-days`)
+
+| File | What it renders / does |
+|------|------------------------|
+| `onboarding/video-link.tsx` | « Voir la vidéo · 0:53 » — one `lib/onboarding-videos.ts` video, on YouTube in a new tab (the shells hand it to the system browser). Renders nothing for a video not filmed yet. |
+| `security/totp-enrolment-step.tsx` | Since `guided-first-days` A it takes the server's `qrStatus`: « Même QR code que tout à l'heure » (green) or « Nouveau QR code : il remplace le précédent » naming the authenticator line to delete (amber, from the URI's `issuer`). Nothing for a first QR. |
+
 ## Messagerie interne (`staff-chat`)
 
 | File | What it renders / does |

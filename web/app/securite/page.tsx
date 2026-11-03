@@ -193,7 +193,7 @@ function SecurityContent() {
                        beside it and not to this one, so « Activer le second facteur » navigated away and returned
                        home having done nothing. It is why no praticien could enrol voluntarily by any route. */
                     <Button asChild className="min-h-11">
-                      <a href="/login?enrol=1">Activer maintenant</a>
+                      <a href="/login?enrol=1&from=securite">Activer maintenant</a>
                     </Button>
                   }
                 />

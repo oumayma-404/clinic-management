@@ -4,17 +4,26 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { AlertCircle, CheckCircle2, Loader2, WifiOff } from "lucide-react"
 
+import { VideoLink } from "@/components/onboarding/video-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { authApi } from "@/lib/api/auth"
+import { PRODUCT_NAME } from "@/lib/brand"
 import { getErrorMessage, isNetworkError } from "@/lib/errors"
 import { replaceUrl } from "@/lib/history"
+import { ONBOARDING_VIDEOS } from "@/lib/onboarding-videos"
 
 type VerificationState =
   | { kind: "verifying" }
   | { kind: "done"; clinicName: string; message: string }
   | { kind: "refused"; message: string }
   | { kind: "offline"; message: string }
+
+/** Where the authenticator the first sign-in asks for is installed from. */
+const AUTHENTICATOR_STORES = [
+  { label: "Google Play", href: "https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" },
+  { label: "App Store", href: "https://apps.apple.com/app/google-authenticator/id388497605" },
+] as const
 
 /** The single French refusal the server sends for expired / unknown / malformed / now-taken. */
 const FALLBACK_REFUSAL =
@@ -123,15 +132,68 @@ export default function SignUpVerifierPage() {
             title={`${state.clinicName} est créé`}
             description={state.message}
           >
-            {/* No session is issued here (the server sends no token and sets no cookie), so this is a link to the
-                login screen and not a redirect into the app — the visitor signs in with the password they chose. */}
-            <Button asChild className="w-full">
-              <Link href="/login">Se connecter</Link>
-            </Button>
+            <div className="space-y-3">
+              <NextStepSecurityCode />
+              {/* No session is issued here (the server sends no token and sets no cookie), so this is a link to the
+                  login screen and not a redirect into the app — the visitor signs in with the password they chose. */}
+              <Button asChild className="min-h-11 w-full">
+                <Link href="/login">Se connecter</Link>
+              </Button>
+              <VideoLink video={ONBOARDING_VIDEOS.firstSignIn} className="w-full" />
+            </div>
           </Panel>
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * The code asked for at the first sign-in, announced BEFORE it is needed (guided-first-days A). Until now only the
+ * welcome e-mail mentioned it, and that e-mail arrives after this page — so the first anybody heard of an
+ * authenticator was a QR code on the sign-in screen, with no app on the phone to scan it.
+ */
+function NextStepSecurityCode() {
+  return (
+    <section aria-labelledby="next-step-title" className="space-y-3 rounded-lg border bg-muted/30 p-3 text-start">
+      <h2 id="next-step-title" className="text-sm font-semibold">
+        Prochaine étape : votre code de sécurité
+      </h2>
+      <ol className="space-y-3 text-sm">
+        <li className="flex gap-3">
+          <StepNumber n={1} />
+          <div className="min-w-0 space-y-2">
+            <p>Installez Google Authenticator sur votre téléphone.</p>
+            <div className="flex flex-wrap gap-2">
+              {AUTHENTICATOR_STORES.map((store) => (
+                <Button key={store.label} asChild variant="outline" size="sm" className="min-h-11 bg-card">
+                  <a href={store.href} target="_blank" rel="noopener noreferrer">
+                    <span className="sr-only">Google Authenticator sur </span>
+                    {store.label}
+                  </a>
+                </Button>
+              ))}
+            </div>
+          </div>
+        </li>
+        <li className="flex gap-3">
+          <StepNumber n={2} />
+          <p className="min-w-0">Connectez-vous : {PRODUCT_NAME} affiche un QR code à scanner.</p>
+        </li>
+      </ol>
+    </section>
+  )
+}
+
+/** The visible number of an `<ol>` item — the list already announces its position, so this one is hidden. */
+function StepNumber({ n }: { n: number }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
+    >
+      {n}
+    </span>
   )
 }
 

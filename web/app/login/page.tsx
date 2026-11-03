@@ -13,10 +13,11 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { deviceName } from '@/lib/auth/device-name'
 import { FormErrorBanner } from '@/components/ui/form-error-banner'
 import { TotpCodeField } from '@/components/security/totp-code-field'
-import { TotpEnrolmentStep } from '@/components/security/totp-enrolment-step'
+import { TotpEnrolmentStep, type TotpQrStatus } from '@/components/security/totp-enrolment-step'
 import { RecoveryCodesPanel } from '@/components/security/recovery-codes-panel'
 import { usePasswordResetEnabled } from '@/lib/hooks/use-password-policy'
 import { PRODUCT_NAME } from '@/lib/brand'
+import { appSurface } from '@/lib/shell'
 
 export default function LoginPage() {
   const { user, isLoading, mode } = useSession()
@@ -190,6 +191,8 @@ interface EnrolmentMaterial {
   secretUri: string | null
   secret: string | null
   qrPng: string | null
+  /** Whether this is the QR shown a moment ago, or one that replaced it — the screen says which. */
+  qrStatus: TotpQrStatus | null
 }
 
 /**
@@ -222,19 +225,28 @@ function LocalLoginForm() {
   const [sessionsEnded, setSessionsEnded] = useState(false)
 
   /*
-   * « Rester connecté sur cet appareil » — unticked by default, deliberately.
+   * « Rester connecté sur cet appareil » — unticked in a browser, ticked inside the apps.
    *
-   * The right answer for the reception PC half the practice shares is « no », and a default is exactly what a
-   * shared machine gets: nobody unticks a box on a screen they pass through twice a day. The dentist signing in
-   * on their own PC ticks it once and stops meeting the authenticator every morning.
+   * In a browser the right answer for the reception PC half the practice shares is « no », and a default is exactly
+   * what a shared machine gets: nobody unticks a box on a screen they pass through twice a day.
+   *
+   * Inside the Windows or phone app it starts ticked (guided-first-days A): somebody installed the app on this
+   * device for themselves, and unticked meant the authenticator every morning plus a full sign-out after 30 minutes
+   * idle — the screen most trial cabinets met on day two and never got past. Set after mount, so the server render
+   * (always unticked) matches; nobody can have touched the box before hydration.
    *
    * ⚠️ It lives at the top level of this component, not inside the password step, because the two-step sign-in
    * unmounts that step: the box is ticked on the password screen and the value has to survive into the request
    * that carries the code, which is the one that actually opens the session.
    */
   const [trustDevice, setTrustDevice] = useState(false)
+  // « Plus tard » on the voluntary activation only. Arriving from a refused session (`?enrol=1` with no `from`),
+  // the app would refuse again at once, so « Plus tard » would loop straight back here.
+  const [enrolFromSecurite, setEnrolFromSecurite] = useState(false)
 
   useEffect(() => {
+    if (appSurface() !== 'browser') setTrustDevice(true)
+
     const params = new URLSearchParams(window.location.search)
     setPasswordChanged(params.get('passwordChanged') === '1')
     setSessionsEnded(params.get('sessionsEnded') === '1')
@@ -242,6 +254,7 @@ function LocalLoginForm() {
     // (A.4, step 28): the refusal has to have a destination, or the app looks usable and is dead.
     if (params.get('enrol') === '1') {
       setMode('enrol')
+      setEnrolFromSecurite(params.get('from') === 'securite')
       const address = params.get('email')
       if (address) setEmail(address)
     }
@@ -284,6 +297,7 @@ function LocalLoginForm() {
         secretUri: data?.secretUri ?? null,
         secret: data?.secret ?? null,
         qrPng: data?.secretQrPng ?? null,
+        qrStatus: data?.qrStatus ?? null,
       })
       setMode('enrol')
     } catch {
@@ -547,15 +561,17 @@ function LocalLoginForm() {
           <Button type="submit" className="min-h-11 w-full" disabled={isSubmitting}>
             {isSubmitting ? 'Préparation…' : 'Continuer'}
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className="min-h-11 w-full"
-            disabled={isSubmitting}
-            onClick={goHome}
-          >
-            Plus tard
-          </Button>
+          {enrolFromSecurite && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="min-h-11 w-full"
+              disabled={isSubmitting}
+              onClick={goHome}
+            >
+              Plus tard
+            </Button>
+          )}
         </form>
       </LoginShell>
     )
@@ -576,6 +592,7 @@ function LocalLoginForm() {
             secret={material?.secret ?? null}
             onRetry={requestEnrolmentMaterial}
             busy={isSubmitting}
+            qrStatus={material?.qrStatus ?? null}
           />
           <TotpCodeField
             value={totpCode}

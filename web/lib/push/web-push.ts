@@ -1,4 +1,5 @@
 import { pushDevicesApi } from "@/lib/api/push-devices"
+import { isAppleMobile, isStandalone } from "@/lib/shell"
 
 /**
  * Web Push (staff-chat Part 8): notifications for a browser, and above all for an iPhone home-screen app, which can
@@ -21,16 +22,6 @@ export type WebPushCapability = "unsupported" | "home-screen" | "supported"
 
 let registered: string | null = null
 let publicKey: Promise<string | null> | null = null
-
-/** An iPhone or iPad — iPadOS reports itself as a Mac, with a touch screen. */
-export function isAppleMobile(): boolean {
-  return /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-}
-
-function isStandalone(): boolean {
-  const legacy = (navigator as Navigator & { standalone?: boolean }).standalone
-  return legacy === true || window.matchMedia?.("(display-mode: standalone)").matches === true
-}
 
 /** What this browser can do, before asking the server. `home-screen`: an iPhone in Safari, which must install the app first. */
 export function webPushCapability(): WebPushCapability {

@@ -2,7 +2,11 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Check, Copy, QrCode } from 'lucide-react'
+import { Check, Copy, QrCode, RefreshCw } from 'lucide-react'
+import { quoteFr } from '@/lib/format'
+
+/** What the server says about the QR it just handed back (`EnrolTotpCommand`'s `QrStatus`). */
+export type TotpQrStatus = 'first' | 'same' | 'replaced'
 
 interface TotpEnrolmentStepProps {
   /** `data:image/png;base64,…`, or null when the server could not render one. */
@@ -14,6 +18,21 @@ interface TotpEnrolmentStepProps {
   /** Re-runs step one, for the « la préparation a échoué » path. */
   onRetry: () => void
   busy?: boolean
+  /**
+   * `same`: the QR shown a moment ago, so a phone that already scanned it just types the code. `replaced`: the
+   * line already in the phone stops working — the one case worth saying out loud. `first` / absent: nothing.
+   */
+  qrStatus?: TotpQrStatus | null
+}
+
+/** The practice name the authenticator files this account under — the `issuer` the server put in the URI. */
+function issuerOf(secretUri: string | null): string | null {
+  if (!secretUri) return null
+  try {
+    return new URL(secretUri).searchParams.get('issuer') || null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -29,7 +48,7 @@ interface TotpEnrolmentStepProps {
  * « still loading » forever. The readable secret below is a complete way in either way, so the retry is an
  * improvement rather than the only path.
  */
-export function TotpEnrolmentStep({ qrPng, secretUri, secret, onRetry, busy }: TotpEnrolmentStepProps) {
+export function TotpEnrolmentStep({ qrPng, secretUri, secret, onRetry, busy, qrStatus }: TotpEnrolmentStepProps) {
   const [copied, setCopied] = useState<'secret' | 'uri' | null>(null)
 
   const copy = async (what: 'secret' | 'uri', value: string) => {
@@ -42,8 +61,34 @@ export function TotpEnrolmentStep({ qrPng, secretUri, secret, onRetry, busy }: T
     }
   }
 
+  const issuer = issuerOf(secretUri)
+
   return (
     <div className="space-y-4">
+      {qrStatus === 'same' && (
+        <div role="status" className="flex items-start gap-2 rounded-lg border border-success/25 bg-success-wash p-3 text-sm">
+          <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
+          <p>
+            <span className="font-medium">Même QR code que tout à l&apos;heure.</span> Déjà scanné ? Saisissez
+            simplement le code.
+          </p>
+        </div>
+      )}
+      {qrStatus === 'replaced' && (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-wash p-3 text-sm text-warning-ink"
+        >
+          <RefreshCw aria-hidden className="mt-0.5 size-4 shrink-0" />
+          <p>
+            <span className="font-medium">Nouveau QR code : il remplace le précédent.</span>{' '}
+            {issuer
+              ? `Dans votre application, supprimez la ligne ${quoteFr(issuer)}, puis scannez celui-ci.`
+              : 'Dans votre application, supprimez l’ancienne ligne de ce compte, puis scannez celui-ci.'}
+          </p>
+        </div>
+      )}
+
       <p className="text-sm text-muted-foreground">
         Ouvrez votre application d&apos;authentification (Google Authenticator, Microsoft Authenticator, FreeOTP…)
         et ajoutez ce compte, puis saisissez le code affiché.

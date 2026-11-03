@@ -167,7 +167,8 @@ with its video (and later its guide), and a phone step fed by the first sign-in 
 ### Files to modify
 - `api/…/Domain/Entities/User.cs` — `PhoneAppFirstSignInAt`, `PhoneAppPlatform` (string, `android` |
   `ios-home-screen`), `RecordPhoneAppSignIn(string surface, DateTime nowUtc)` — **first time only**, never
-  overwritten, ignored for `windows`/`browser`.
+  overwritten, ignored for `windows`/`browser`. ✅ Done in A1. ⚠️ B1: `web/lib/shell.ts` also answers `ios` (the
+  native iPhone shell, written, never compiled) — add `PhoneAppSurfaces.Ios = "ios"` so it counts the day it ships.
 - `api/…/API/Models/LoginRequest.cs:21` + `api/…/Features/Auth/Commands/LoginCommand.cs` — optional
   `ClientSurface`; on a successful sign-in (:252-277) call `RecordPhoneAppSignIn`. Same in
   `RedeemRecoveryCodeCommand` (a sign-in too).

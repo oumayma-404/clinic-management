@@ -52,7 +52,8 @@ and then calls into nothing is a French error on a screen nobody can explain.
 type IdentityOutcome = "confirmed" | "rejected" | "cancelled" | "unavailable"
 ```
 
-The Local session ends after 30 minutes of inactivity. In a browser that means the cookie is cleared and the user
+The Local session ends after 30 minutes of inactivity — 8 hours on a device where « Rester connecté » was
+ticked, which inside a shell is the default (guided-first-days A). In a browser that means the cookie is cleared and the user
 lands on `/login` with their place remembered. In a shell the phone's own lock is already the barrier that
 matters, so the session is **paused** instead: `web/components/session-lock-gate.tsx` covers the app, calls this,
 and on `"confirmed"` re-arms the timer and uncovers it. **The session cookie is never cleared on that path** —
