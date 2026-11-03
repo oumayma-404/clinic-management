@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { FEEDBACK_CARD_OPEN_ATTR } from "@/lib/feedback"
 import { useSession } from "@/lib/auth/session"
 import { notificationsApi } from "@/lib/api/notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
@@ -202,7 +203,10 @@ export function PostVisitReviewPopup() {
   useEffect(() => {
     const bump = () => setBusyTick((n) => n + 1)
     const observer = new MutationObserver(bump)
-    observer.observe(document.body, { attributes: true, attributeFilter: ["data-sheet-open", "data-scroll-locked"] })
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["data-sheet-open", "data-scroll-locked", FEEDBACK_CARD_OPEN_ATTR],
+    })
     return () => observer.disconnect()
   }, [])
 
@@ -483,7 +487,10 @@ export function PostVisitReviewPopup() {
     }
     if (mayPrompt) return
     const somethingElseIsOpen =
-      document.body.hasAttribute("data-sheet-open") || document.body.hasAttribute("data-scroll-locked")
+      document.body.hasAttribute("data-sheet-open") ||
+      document.body.hasAttribute("data-scroll-locked") ||
+      // The week-one feedback card is up: two questions at once is one too many.
+      document.body.hasAttribute(FEEDBACK_CARD_OPEN_ATTR)
     if (!somethingElseIsOpen) setMayPrompt(true)
   }, [active, dismissed, mayPrompt, busyTick])
 

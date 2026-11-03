@@ -157,14 +157,29 @@ public class FeedbackTests
     }
 
     [Fact]
+    public void Reporting_The_Same_Showing_From_Several_Pages_Counts_It_Once()
+    {
+        var now = new DateTime(2026, 11, 10, 9, 0, 0, DateTimeKind.Utc);
+        var prompt = new UserFeedbackPrompt("u1", now);
+
+        prompt.MarkShown(now);
+        prompt.MarkShown(now.AddMinutes(1));
+        prompt.MarkShown(now.AddMinutes(2));
+
+        Assert.Equal(1, prompt.TimesShown);
+        Assert.True(prompt.MayShow(now.AddMinutes(3)));
+    }
+
+    [Fact]
     public void Plus_Tard_On_The_Last_Showing_Closes_It_So_Later_Never_Means_Again()
     {
         var now = new DateTime(2026, 11, 10, 9, 0, 0, DateTimeKind.Utc);
         var prompt = new UserFeedbackPrompt("u1", now);
         prompt.MarkShown(now);
-        prompt.MarkShown(now);
-
         prompt.Later(now);
+        prompt.MarkShown(now.AddDays(7));
+
+        prompt.Later(now.AddDays(7));
 
         Assert.True(prompt.IsClosed);
         Assert.Equal(UserFeedbackPrompt.ClosedByNever, prompt.ClosedReason);

@@ -44,9 +44,14 @@ public class UserFeedbackPrompt : Entity<string>
     public bool MayShow(DateTime nowUtc) =>
         !IsClosed && TimesShown < MaxShows && (LaterUntil is null || LaterUntil <= nowUtc);
 
+    /// <summary>
+    /// The card appeared. Idempotent within a showing: the browser reports it on every page that mounts the card,
+    /// so the count is « which showing is this » — the first, or the one after « Plus tard » — never a tally of pages.
+    /// </summary>
     public void MarkShown(DateTime? nowUtc = null)
     {
-        TimesShown++;
+        var showing = LaterUntil is null ? 1 : MaxShows;
+        if (TimesShown < showing) TimesShown = showing;
         UpdatedAt = nowUtc ?? DateTime.UtcNow;
     }
 

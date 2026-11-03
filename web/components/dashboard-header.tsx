@@ -24,6 +24,7 @@ import { NotificationPanel } from "@/components/notification-panel"
 import { StaffChatLauncher } from "@/components/staff-chat/staff-chat-launcher"
 import { HelpMenu } from "@/components/help-menu"
 import { PostVisitReviewPopup } from "@/components/post-visit-review-popup"
+import { FeedbackPromptCard } from "@/components/feedback/feedback-prompt-card"
 import { useNotifications } from "@/lib/hooks/use-notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
@@ -266,6 +267,7 @@ export function DashboardHeader() {
   return (
     <>
     <PostVisitReviewPopup />
+    <FeedbackPromptCard />
     {/* Reflows rather than overflows below `md:` (AC-P3.15): tighter padding and gaps, and the user block drops
         its name/email text so the row fits 375 px.
 

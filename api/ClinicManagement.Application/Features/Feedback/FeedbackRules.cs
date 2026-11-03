@@ -46,7 +46,7 @@ public static class FeedbackRules
         ["devis"] = "Devis",
         ["caisse"] = "Caisse",
         ["documents"] = "Documents",
-        ["telephone"] = "Application téléphone",
+        ["telephone"] = "Téléphone",
     };
 
     /// <summary>The question is put to a person whose account is at least this old…</summary>
