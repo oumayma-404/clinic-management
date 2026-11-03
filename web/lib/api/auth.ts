@@ -109,6 +109,18 @@ export interface AuthModeDto {
   relayFeedEnabled?: boolean;
   /** clinic-pc-copy: this server IS a PC de secours (`=== true`). */
   isClinicRelay?: boolean;
+  /**
+   * guided-first-days C: an admin adds a colleague by e-mail — the colleague chooses her own password behind a
+   * one-time link — instead of being handed a temporary password. Online version only; read `=== true`.
+   */
+  invitesStaffByLink?: boolean;
+}
+
+/** What the invitation page greets with (`POST /api/auth/invitation/preview`). */
+export interface StaffInvitationPreviewDto {
+  firstName: string;
+  email: string;
+  clinicName: string;
 }
 
 /** What `POST /api/auth/signup` requests. Mirrors the backend `ClinicSignUpRequest`. */
@@ -194,5 +206,17 @@ export const authApi = {
    */
   completePasswordReset: async (token: string, newPassword: string): Promise<void> => {
     await apiPost<Record<string, never>>('/auth/password-reset/complete', { token, newPassword }, null);
+  },
+
+  /**
+   * guided-first-days C: who the invitation is for. A POST so the token never sits in a URL; a used, expired,
+   * re-sent or unknown link is a 410 carrying the server's one sentence.
+   */
+  previewInvitation: async (token: string): Promise<StaffInvitationPreviewDto> =>
+    apiPost<StaffInvitationPreviewDto>('/auth/invitation/preview', { token }, null),
+
+  /** Sets the colleague's first password and spends the link. No session: she signs in at `/login` afterwards. */
+  acceptInvitation: async (token: string, password: string): Promise<void> => {
+    await apiPost<Record<string, never>>('/auth/invitation/accept', { token, password }, null);
   },
 };

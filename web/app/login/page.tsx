@@ -250,13 +250,15 @@ function LocalLoginForm() {
     const params = new URLSearchParams(window.location.search)
     setPasswordChanged(params.get('passwordChanged') === '1')
     setSessionsEnded(params.get('sessionsEnded') === '1')
+    // `?email=` fills the address in every mode: the enrol and replace doors below send it, and so does
+    // `/invitation` once a colleague has chosen her first password (guided-first-days C).
+    const address = params.get('email')
+    if (address) setEmail(address)
     // The client routes here with `?enrol=1&email=…` when a live session meets `totp_enrolment_required`
     // (A.4, step 28): the refusal has to have a destination, or the app looks usable and is dead.
     if (params.get('enrol') === '1') {
       setMode('enrol')
       setEnrolFromSecurite(params.get('from') === 'securite')
-      const address = params.get('email')
-      if (address) setEmail(address)
     }
 
     // « Sécurité » routes here with `?replace=1` while the window a redeemed code opened is still open. Same
@@ -264,8 +266,6 @@ function LocalLoginForm() {
     // password form and reads as having lost the session.
     if (params.get('replace') === '1') {
       setMode('replace')
-      const address = params.get('email')
-      if (address) setEmail(address)
     }
   }, [])
 

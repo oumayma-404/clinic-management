@@ -83,6 +83,25 @@ export function usePasswordResetEnabled(): boolean | null {
 }
 
 /**
+ * Whether an admin adds a colleague by e-mail invitation here (`guided-first-days` C) rather than by temporary
+ * password. Only the WORDING of « Inviter » reads it — what the create call actually did is read from its own
+ * response, so a failed probe costs a label, never a wrong dialog. `=== true`, the rolling-deploy convention.
+ */
+export function useInvitesStaffByLink(): boolean {
+  const [enabled, setEnabled] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    load()
+      .then((mode) => { if (active) setEnabled(mode.invitesStaffByLink === true) })
+      .catch(() => { /* stays false: the create flow still reads its own response */ })
+    return () => { active = false }
+  }, [])
+
+  return enabled
+}
+
+/**
  * Whether this deployment still lets somebody create their own account from a clinic code.
  *
  * ⚠️ **Defaults to `true`, and a failed probe leaves it there.** Every consumer gates on the flag rather than on

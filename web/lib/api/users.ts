@@ -30,6 +30,8 @@ export interface ClinicUserDto {
    */
   isPendingActivation: boolean;
   mustChangePassword: boolean;
+  /** guided-first-days C: an e-mailed invitation is waiting to be used — « Invitation envoyée » on the row. */
+  invitationPending?: boolean;
   lastLoginAt?: string;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the role / activation actions. */
   version: number;
@@ -63,7 +65,18 @@ export interface CreatedClinicUserDto {
   email?: string;
   fullName?: string;
   role: string;
-  temporaryPassword: string;
+  /** Null when the colleague was invited by e-mail (online version): she chooses her own password. */
+  temporaryPassword: string | null;
+  /** Online: whether the invitation e-mail left. False means « copiez le lien » — the account exists. */
+  invitationEmailed?: boolean;
+  /** Online: the invitation link, returned once (only its hash is stored). */
+  invitationUrl?: string | null;
+}
+
+/** « Renvoyer l'e-mail » — a new link (the old one stops working) and whether the e-mail left. */
+export interface StaffInvitationResultDto {
+  invitationEmailed: boolean;
+  invitationUrl: string;
 }
 
 export const usersApi = {
@@ -100,6 +113,11 @@ export const usersApi = {
     doctorInfo?: { firstName: string; lastName: string; specialty: string; phone?: string };
   }): Promise<CreatedClinicUserDto> => {
     return apiPost<CreatedClinicUserDto>('/users', data);
+  },
+
+  /** guided-first-days C: a new invitation for a colleague who never signed in. 404 where nobody is invited by link. */
+  resendInvitation: async (id: string): Promise<StaffInvitationResultDto> => {
+    return apiPost<StaffInvitationResultDto>(`/users/${id}/invitation`, {});
   },
 
   // AC-5.2: reset a user's password → temporary password returned once for the admin to relay.

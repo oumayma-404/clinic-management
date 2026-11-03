@@ -35,7 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal } from "lucide-react"
+import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal, Send } from "lucide-react"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import {
@@ -55,7 +55,7 @@ import {
 import { clinicsApi } from "@/lib/api/clinics"
 import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
 import { authApi } from "@/lib/api/auth"
-import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
+import { useInvitesStaffByLink, useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -71,6 +71,7 @@ type PendingAction =
   | { type: "status"; user: ClinicUserDto }
   | { type: "regenerate" }
   | { type: "role"; user: ClinicUserDto; role: UserRole }
+  | { type: "resend"; user: ClinicUserDto }
 
 export function UserManagement() {
   const { user: currentUser, mode } = useSession()
@@ -100,6 +101,14 @@ export function UserManagement() {
   // The shared capability read — see useSelfRegistrationEnabled. It was a private effect here, which is how
   // `clinic-settings.tsx`'s copy of the clinic code went ungated on the hosted deployment.
   const selfRegistrationEnabled = useSelfRegistrationEnabled()
+  /**
+   * guided-first-days C — online, a colleague is INVITED: APEXA e-mails her a one-time link and she chooses her own
+   * password. This flag only words the buttons; what a create actually did is read from its response
+   * (`temporaryPassword` vs `invitationUrl`), so a failed probe can never open the wrong dialog.
+   */
+  const invitesByLink = useInvitesStaffByLink()
+  /** « Renvoyer l'e-mail » replaces « Réinitialiser » for a colleague who has never signed in: she has no password to reset. */
+  const canResendInvitation = (u: ClinicUserDto) => invitesByLink && u.isActive && !u.lastLoginAt
   const [userPage, setUserPage] = useState<ClinicUsersPageDto>(() => ({
     ...emptyPage<ClinicUserDto>(),
     pendingActivationCount: 0,
@@ -126,6 +135,11 @@ export function UserManagement() {
   // because it is the same fact with the same handling rules.
   const [tempPassword, setTempPassword] = useState<{ email?: string; password: string } | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // The invitation link, shown once after « Envoyer l'invitation » or « Renvoyer l'e-mail » (only its hash is
+  // stored). `emailed: false` is the case it exists for: the account is there, the mail did not leave.
+  const [invitation, setInvitation] = useState<{ email?: string; url: string; emailed: boolean } | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   // « Créer un compte » (US-3).
   const [createOpen, setCreateOpen] = useState(false)
@@ -250,6 +264,11 @@ export function UserManagement() {
         const clinic = await clinicsApi.regenerateCode()
         setClinicCode(clinic.code || "")
         toast.success("Code du cabinet régénéré. L'ancien code ne fonctionne plus.")
+      } else if (pending.type === "resend") {
+        // No toast: the dialog that opens says whether the e-mail left, and carries the link either way.
+        const result = await usersApi.resendInvitation(pending.user.id)
+        setInvitation({ email: pending.user.email, url: result.invitationUrl, emailed: result.invitationEmailed })
+        await loadData()
       } else if (pending.type === "role") {
         await usersApi.setRole(pending.user.id, pending.role, await currentVersion(pending.user))
         toast.success(
@@ -293,14 +312,33 @@ export function UserManagement() {
       setCreateFirstName("")
       setCreateLastName("")
       setCreateSpecialty(DOCTOR_SPECIALTIES[0])
-      setTempPassword({ email: created.email, password: created.temporaryPassword })
-      toast.success("Compte créé. Communiquez le mot de passe temporaire à la personne concernée.")
+      // The response says which door was used, not the mode probe: online without a public address the server
+      // still hands back a temporary password, because a link to nowhere is worse.
+      if (created.temporaryPassword) {
+        setTempPassword({ email: created.email, password: created.temporaryPassword })
+        toast.success("Compte créé. Communiquez le mot de passe temporaire à la personne concernée.")
+      } else if (created.invitationUrl) {
+        setInvitation({ email: created.email, url: created.invitationUrl, emailed: created.invitationEmailed === true })
+      } else {
+        toast.success("Compte créé.")
+      }
       await loadData()
     } catch (err) {
       // § 13: the dialog stays open with every field as typed — a duplicate email is corrected here, not retyped.
       setCreateError(err instanceof ApiError ? err.message : "La création du compte a échoué. Veuillez réessayer.")
     } finally {
       setCreating(false)
+    }
+  }
+
+  const copyInvitationLink = async () => {
+    if (!invitation) return
+    try {
+      await navigator.clipboard.writeText(invitation.url)
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 2000)
+    } catch {
+      // Clipboard unavailable — the link is still shown for manual copy.
     }
   }
 
@@ -460,7 +498,7 @@ export function UserManagement() {
                   }}
                 >
                   <UserPlus className="size-4" aria-hidden="true" />
-                  Créer un compte
+                  {invitesByLink ? "Inviter un collègue" : "Créer un compte"}
                 </Button>
               </CardAction>
             )}
@@ -554,6 +592,9 @@ export function UserManagement() {
                       {u.mustChangePassword && (
                         <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
                       )}
+                      {u.invitationPending && (
+                        <Badge variant="secondary" className={statusToneClass("pending")}>Invitation envoyée</Badge>
+                      )}
                     </>
                   )}
                   fields={(u) => [
@@ -596,10 +637,16 @@ export function UserManagement() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          {canResetPasswords && (
-                            <DropdownMenuItem onSelect={() => setPending({ type: "reset", user: u })}>
-                              Réinitialiser le mot de passe
+                          {canResendInvitation(u) ? (
+                            <DropdownMenuItem onSelect={() => setPending({ type: "resend", user: u })}>
+                              Renvoyer l&apos;e-mail
                             </DropdownMenuItem>
+                          ) : (
+                            canResetPasswords && (
+                              <DropdownMenuItem onSelect={() => setPending({ type: "reset", user: u })}>
+                                Réinitialiser le mot de passe
+                              </DropdownMenuItem>
+                            )
                           )}
                           {u.isActive ? (
                             <DropdownMenuItem
@@ -694,21 +741,38 @@ export function UserManagement() {
                               {user.mustChangePassword && (
                                 <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
                               )}
+                              {user.invitationPending && (
+                                <Badge variant="secondary" className={statusToneClass("pending")}>
+                                  Invitation envoyée
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="text-muted-foreground">{formatDate(user.lastLoginAt)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              {canResetPasswords && (
+                              {canResendInvitation(user) ? (
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   className="h-8 gap-1"
-                                  onClick={() => setPending({ type: "reset", user })}
+                                  onClick={() => setPending({ type: "resend", user })}
                                 >
-                                  <KeyRound className="h-3 w-3" />
-                                  Réinitialiser le mot de passe
+                                  <Send className="h-3 w-3" />
+                                  Renvoyer l&apos;e-mail
                                 </Button>
+                              ) : (
+                                canResetPasswords && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 gap-1"
+                                    onClick={() => setPending({ type: "reset", user })}
+                                  >
+                                    <KeyRound className="h-3 w-3" />
+                                    Réinitialiser le mot de passe
+                                  </Button>
+                                )
                               )}
                               {user.isActive ? (
                                 <Button
@@ -768,6 +832,7 @@ export function UserManagement() {
                     : "Réactiver cet utilisateur ?")}
               {pending?.type === "regenerate" && "Régénérer le code du cabinet ?"}
               {pending?.type === "role" && "Modifier le rôle de cet utilisateur ?"}
+              {pending?.type === "resend" && "Renvoyer l'invitation ?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending?.type === "reset" && (
@@ -797,6 +862,12 @@ export function UserManagement() {
               {pending?.type === "status" && !pending.user.isActive && !pending.user.isPendingActivation && (
                 <>
                   <span className="font-semibold">{pending.user.email}</span> pourra de nouveau se connecter.
+                </>
+              )}
+              {pending?.type === "resend" && (
+                <>
+                  Un nouveau lien est envoyé à <span className="font-semibold">{pending.user.email}</span>.
+                  L&apos;ancien lien ne fonctionnera plus.
                 </>
               )}
               {pending?.type === "regenerate" &&
@@ -836,10 +907,11 @@ export function UserManagement() {
       <Dialog open={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Créer un compte</DialogTitle>
+            <DialogTitle>{invitesByLink ? "Inviter un collègue" : "Créer un compte"}</DialogTitle>
             <DialogDescription>
-              Le mot de passe est généré et affiché une seule fois. La personne devra le changer à sa première
-              connexion.
+              {invitesByLink
+                ? "APEXA lui envoie un e-mail avec un lien pour choisir son mot de passe."
+                : "Le mot de passe est généré et affiché une seule fois. La personne devra le changer à sa première connexion."}
             </DialogDescription>
           </DialogHeader>
           <FormErrorBanner message={createError} />
@@ -971,7 +1043,13 @@ export function UserManagement() {
                   (!createFirstName.trim() || !createLastName.trim() || !createSpecialty))
               }
             >
-              {creating ? "Création…" : "Créer le compte"}
+              {invitesByLink
+                ? creating
+                  ? "Envoi…"
+                  : "Envoyer l'invitation"
+                : creating
+                  ? "Création…"
+                  : "Créer le compte"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1014,6 +1092,43 @@ export function UserManagement() {
           </div>
           <DialogFooter>
             <Button onClick={() => setTempPassword(null)}>Terminé</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* guided-first-days C — the invitation, shown once. The link is here even when the e-mail left: a spam
+          folder or a typo is found out later, and the link is what « Copier » hands over by WhatsApp. */}
+      <Dialog open={invitation !== null} onOpenChange={(open) => !open && setInvitation(null)}>
+        {/* Outside taps ignored for the temporary password's reason: it opens under the thumb that pressed send. */}
+        <DialogContent onInteractOutside={(event) => event.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>{invitation?.emailed ? "Invitation envoyée" : "L'e-mail n'est pas parti"}</DialogTitle>
+            <DialogDescription>
+              {invitation?.emailed ? (
+                <>
+                  <span className="font-semibold">{invitation.email || "La personne"}</span> a reçu un lien pour
+                  choisir son mot de passe. Il est valable 7 jours et ne sert qu&apos;une fois.
+                </>
+              ) : (
+                <>
+                  Le compte de <span className="font-semibold">{invitation?.email || "cette personne"}</span> existe,
+                  mais l&apos;e-mail n&apos;a pas pu être envoyé. Copiez le lien et envoyez-le-lui (WhatsApp, SMS…).
+                  Il est valable 7 jours.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 rounded-lg border bg-muted p-3">
+            <code className="min-w-0 flex-1 break-all font-mono text-xs">{invitation?.url}</code>
+            <Button variant="outline" size="sm" className="shrink-0 gap-1 coarse:h-11" onClick={copyInvitationLink}>
+              {linkCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {linkCopied ? "Copié" : "Copier le lien"}
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button className="coarse:h-11" onClick={() => setInvitation(null)}>
+              Terminé
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
