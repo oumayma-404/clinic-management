@@ -6,6 +6,7 @@ Track incomplete work, bugs, and technical debt across all features.
 
 | Item | Feature | Type | Priority | Created |
 |------|---------|------|----------|---------|
+| [Creating a patient from « Patients » does not open their page](./patient-create-does-not-open-page.md) | general | bug | medium | 2026-11-03 |
 | [Security & Tunisian-compliance remediation — what is still outstanding](./security-remediation-outstanding.md) | general | incomplete | high | 2026-08-31 |
 | [A write path for the per-clinic TTN identity (`set-clinic-ttn-identity` verb)](./ttn-per-clinic-identity-write-path.md) | multi-tenant-cloud | incomplete | high | 2026-08-06 |
 | [Verify/regenerate the CNAM EF migration with the EF tool](./cnam-migration-ef-verify.md) | cnam-bulletin-soins | parked | high | 2026-07-17 |

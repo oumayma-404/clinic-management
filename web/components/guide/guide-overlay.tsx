@@ -81,6 +81,11 @@ export function GuideOverlay({
   const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)")
 
   const [box, setBox] = useState<Box | null>(null)
+  // The step's dialog and its footer — the bubble goes beside the dialog, and never over its buttons.
+  const [scopeBox, setScopeBox] = useState<Box | null>(null)
+  const [footerBox, setFooterBox] = useState<Box | null>(null)
+  const scopeBoxRef = useRef<Box | null>(null)
+  const footerBoxRef = useRef<Box | null>(null)
   const [hidden, setHidden] = useState(false)
   const readViewport = () =>
     typeof window === "undefined" ? { w: 0, h: 0 } : { w: window.innerWidth, h: window.innerHeight }
@@ -180,6 +185,18 @@ export function GuideOverlay({
         boxRef.current = nextBox
         setBox(nextBox)
       }
+      const scopeEl = step.scope ? drawn(step.scope)[0] : undefined
+      const nextScope = scopeEl ? unionOf([scopeEl]) : null
+      const footerEl = scopeEl?.querySelector('[data-slot="dialog-footer"], [data-slot="sheet-footer"]')
+      const nextFooter = footerEl && !footerEl.querySelector(`[data-guide="${step.mark}"]`) ? unionOf([footerEl]) : null
+      if (!same(nextScope, scopeBoxRef.current)) {
+        scopeBoxRef.current = nextScope
+        setScopeBox(nextScope)
+      }
+      if (!same(nextFooter, footerBoxRef.current)) {
+        footerBoxRef.current = nextFooter
+        setFooterBox(nextFooter)
+      }
       if (window.innerWidth !== viewportRef.current.w || window.innerHeight !== viewportRef.current.h) {
         viewportRef.current = { w: window.innerWidth, h: window.innerHeight }
         setViewport(viewportRef.current)
@@ -203,23 +220,7 @@ export function GuideOverlay({
   const manual = "manual" in step.next
   const text = coarse && step.touchText ? step.touchText : step.text
 
-  // Where the bubble goes. On a phone it docks at the bottom, above the tab bar — or at the top when the lit control
-  // is down there itself (a dialog's footer, the agenda's « + »), so it never covers what it points at.
-  let bubbleStyle: React.CSSProperties
-  if (docked || !box) {
-    const targetLow = !!box && box.top + box.height > viewport.h - bubbleH - 3 * GAP
-    bubbleStyle = targetLow
-      ? { top: `calc(${GAP}px + env(safe-area-inset-top, 0px))`, left: GAP, right: GAP }
-      : { bottom: `calc(var(--bottom-inset, 0px) + ${GAP}px)`, left: GAP, right: GAP }
-    if (!docked) bubbleStyle = { ...bubbleStyle, left: "50%", right: "auto", width: 340, transform: "translateX(-50%)" }
-  } else {
-    const width = 340
-    const below = box.top + box.height + PAD + GAP
-    const above = box.top - PAD - GAP - bubbleH
-    const top = below + bubbleH <= viewport.h - GAP ? below : above >= GAP ? above : viewport.h - bubbleH - GAP
-    const left = Math.min(Math.max(box.left, GAP), Math.max(GAP, viewport.w - width - GAP))
-    bubbleStyle = { top, left, width }
-  }
+  const bubbleStyle = placeBubble({ box, scopeBox, footerBox, viewport, bubbleH, docked })
 
   return createPortal(
     <div className="pointer-events-none fixed inset-0 z-[60] print:hidden" aria-hidden={hidden || undefined}>
@@ -289,3 +290,76 @@ export function GuideOverlay({
     document.body,
   )
 }
+
+const BUBBLE_W = 340
+/** A phone's bottom bar, for the collision test only — the style itself reads `--bottom-inset`. */
+const BOTTOM_BAR_PX = 56
+
+function overlaps(a: Box, b: Box | null, margin = 0): boolean {
+  if (!b) return false
+  return !(
+    a.left + a.width <= b.left - margin ||
+    b.left + b.width + margin <= a.left ||
+    a.top + a.height <= b.top - margin ||
+    b.top + b.height + margin <= a.top
+  )
+}
+
+/**
+ * Where the bubble goes: never over the lit control, never over the buttons of the dialog it guides (« Annuler »
+ * must stay reachable), beside the dialog when the screen has the room. On a phone it docks full width at the
+ * bottom, above the tab bar — or at the top when the bottom would cover the lit control or the sheet's buttons.
+ */
+function placeBubble({
+  box,
+  scopeBox,
+  footerBox,
+  viewport,
+  bubbleH,
+  docked,
+}: {
+  box: Box | null
+  scopeBox: Box | null
+  footerBox: Box | null
+  viewport: { w: number; h: number }
+  bubbleH: number
+  docked: boolean
+}): React.CSSProperties {
+  const h = bubbleH || 140
+  const fits = (c: Box) =>
+    c.left >= GAP - 0.5 && c.top >= GAP - 0.5 && c.left + c.width <= viewport.w - GAP + 0.5 && c.top + c.height <= viewport.h - GAP + 0.5
+  const clear = (c: Box) => !(box && overlaps(c, box, PAD)) && !overlaps(c, footerBox)
+
+  if (docked) {
+    const bottom: Box = { left: GAP, width: viewport.w - 2 * GAP, top: viewport.h - BOTTOM_BAR_PX - GAP - h, height: h }
+    const top: Box = { left: GAP, width: viewport.w - 2 * GAP, top: GAP, height: h }
+    const useTop = !clear(bottom) && !(box && overlaps(top, box, PAD))
+    return useTop
+      ? { top: `calc(${GAP}px + env(safe-area-inset-top, 0px))`, left: GAP, right: GAP }
+      : { bottom: `calc(var(--bottom-inset, 0px) + ${GAP}px)`, left: GAP, right: GAP }
+  }
+
+  const width = Math.min(BUBBLE_W, viewport.w - 2 * GAP)
+  const clampLeft = (left: number) => Math.min(Math.max(left, GAP), Math.max(GAP, viewport.w - width - GAP))
+  const clampTop = (top: number) => Math.min(Math.max(top, GAP), Math.max(GAP, viewport.h - h - GAP))
+  const anchorTop = box ? clampTop(box.top) : clampTop(viewport.h / 2 - h / 2)
+
+  const candidates: Box[] = []
+  if (scopeBox) {
+    candidates.push({ left: scopeBox.left + scopeBox.width + GAP, top: anchorTop, width, height: h })
+    candidates.push({ left: scopeBox.left - GAP - width, top: anchorTop, width, height: h })
+  }
+  if (box) {
+    candidates.push({ left: clampLeft(box.left), top: box.top + box.height + PAD + GAP, width, height: h })
+    candidates.push({ left: clampLeft(box.left), top: box.top - PAD - GAP - h, width, height: h })
+  }
+  candidates.push(
+    { left: GAP, top: viewport.h - h - GAP, width, height: h },
+    { left: viewport.w - width - GAP, top: viewport.h - h - GAP, width, height: h },
+    { left: GAP, top: GAP, width, height: h },
+    { left: viewport.w - width - GAP, top: GAP, width, height: h },
+  )
+  const chosen = candidates.find((c) => fits(c) && clear(c)) ?? candidates.find(fits) ?? candidates[candidates.length - 1]
+  return { top: chosen.top, left: chosen.left, width }
+}
+

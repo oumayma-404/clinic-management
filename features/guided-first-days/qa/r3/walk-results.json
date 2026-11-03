@@ -1,0 +1,204 @@
+{
+  "stamp": "mw0xr909",
+  "results": [
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "« Me guider » on the five guided steps"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "no « Commencer » left on a guided step (security is done)"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "« Votre téléphone » keeps « Installer »"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "videos still beside the steps"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "no patient → « Ce guide a besoin d'un patient… », guide ends"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "on /patients with data-guide-running=\"patients\""
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "« Quitter le guide » → bubble and attribute gone"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "Escape with no dialog open ends the guide"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "leaving the guide's pages ends it"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "320: bubble inside the viewport, no overflow"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "closing the dialog without saving ends the guide, no « fait »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "on /users, data-guide-running=\"secretary\""
+    },
+    {
+      "id": "B9",
+      "outcome": "pass",
+      "m": "focus still in the field after « Suivant »"
+    },
+    {
+      "id": "B8",
+      "outcome": "pass",
+      "m": "the dialog stays open after « Suivant »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "saved → « Votre secrétaire a son compte. »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "bubble and attribute gone"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "« Votre premier patient est enregistré. »"
+    },
+    {
+      "id": "A3",
+      "outcome": "fail",
+      "m": "the patient page opens",
+      "d": "http://localhost:3097/patients"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "guide over"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "« + » lit, bubble docked at the top, no overflow"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "on /appointments (not the ?newAppointment deep link)"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "730 tall: bubble on screen, not over « Créer le rendez-vous »"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "bubble hidden while the duplicate confirmation is up"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "« Votre premier rendez-vous est dans l'agenda. »"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "guide over"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "« Votre première fiche de soins est enregistrée. »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "guide over"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "no post-visit question during the guide; it comes once the guide ends"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "on /settings"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "« Vos documents s'impriment sur votre papier. »"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "guide over"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "1440: the table shows the patients"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "390: the card list shows the patients"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "booking dialog opens with no guide, no bubble"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "after the guides: phone keeps « Installer », no « Me guider » left on done steps"
+    },
+    {
+      "id": "D4",
+      "outcome": "skip",
+      "m": "chat notice over dialogs needs a second signed-in colleague; the selector change is additive"
+    },
+    {
+      "id": "D5",
+      "outcome": "fail",
+      "m": "control, no guide: creating a patient on /patients opens their page",
+      "d": "http://localhost:3097/patients"
+    }
+  ],
+  "findings": [
+    {
+      "id": "A3",
+      "m": "the patient page opens",
+      "d": "http://localhost:3097/patients"
+    },
+    {
+      "id": "D5",
+      "m": "control, no guide: creating a patient on /patients opens their page",
+      "d": "http://localhost:3097/patients"
+    }
+  ]
+}
