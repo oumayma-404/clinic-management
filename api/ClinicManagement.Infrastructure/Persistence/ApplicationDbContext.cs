@@ -186,6 +186,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // « no such request », on the one path whose job is to tell those two apart.
     public DbSet<PasswordResetRequest> PasswordResetRequests { get; set; }
 
+    // guided-first-days C: a colleague's first-password link. No ClinicId (reached through its user, FK cascade), so no
+    // filter — the link is opened by an anonymous request with no clinic in scope, like a password reset.
+    public DbSet<StaffInvitation> StaffInvitations { get; set; }
+
     // The vendor's console identity population (platform-console FR-1). Like ClinicSignup above and for the same
     // structural reason, these carry **no ClinicId**: a console account belongs to no cabinet, which is the whole
     // point of it, so they sit outside the tenant filter by construction and need no named exemption in

@@ -96,6 +96,9 @@ public static class ClinicArchiveScope
         // both keyed on accounts the archive does not carry — and, through this set, kept off the PC de secours.
         nameof(ProductFeedback),
         nameof(UserFeedbackPrompt),
+        // guided-first-days C: a one-time credential for an account the archive does not carry — restoring it would
+        // re-arm a link nobody can still use; and an online-only flow, so it stays off the PC de secours too.
+        nameof(StaffInvitation),
         nameof(ClinicReminderSettings),
         nameof(PlatformAccount),
         nameof(PlatformRecoveryCode),

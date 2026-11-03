@@ -14,5 +14,12 @@ public class CreatedClinicUserDto
     public string? Email { get; set; }
     public string? FullName { get; set; }
     public string Role { get; set; } = string.Empty;
-    public string TemporaryPassword { get; set; } = string.Empty;
+    /// <summary>Null when the colleague was invited by e-mail (online) — she chooses her own password.</summary>
+    public string? TemporaryPassword { get; set; }
+
+    /// <summary>Online: whether the invitation e-mail left. False means « copiez le lien » — the account exists.</summary>
+    public bool InvitationEmailed { get; set; }
+
+    /// <summary>Online: the invitation link, returned once (only its hash is stored).</summary>
+    public string? InvitationUrl { get; set; }
 }

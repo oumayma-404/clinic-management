@@ -230,6 +230,7 @@ public static class Extensions
         // capability gate lives on the endpoints, not on whether the table can be read.
         services.AddScoped<IClinicSignupRepository, ClinicSignupRepository>();
         services.AddScoped<IPasswordResetRequestRepository, PasswordResetRequestRepository>();
+        services.AddScoped<IStaffInvitationRepository, StaffInvitationRepository>();
         // clinic-subscription — the entitlement and its ledger. ⚠️ Registered by **AddInfrastructure** and not
         // AddApplication, and that is load-bearing rather than conventional: `provision-clinic` builds its
         // container from this method alone, and it creates a cabinet — which must not come into existence without
@@ -464,6 +465,7 @@ public static class Extensions
         services.AddScoped<ClinicManagement.Application.Common.Files.ClinicStorageAllowance>();
         // Same lifetime reasoning as the profile it reads: immutable and derived from startup configuration.
         services.AddSingleton<ISecondFactorPolicy, SecondFactorPolicy>();
+        services.AddSingleton<IStaffInvitationPolicy, StaffInvitationPolicy>();
         services.AddSingleton<ISubscriptionPricing, SubscriptionPricing>();
 
         // vendor-whatsapp-messaging-quota — the same two kinds of seam, for the same structural reason (Application

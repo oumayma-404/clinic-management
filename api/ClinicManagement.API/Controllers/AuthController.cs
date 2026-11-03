@@ -96,6 +96,9 @@ public class AuthController : ApiControllerBase
             // screen has no way to tell a LAN install (no SMTP, no self-service) from a hosted one. Served here so
             // the screen cannot offer a door the endpoint below would 404.
             passwordResetEnabled = deployment.AllowsPasswordResetByEmail,
+            // guided-first-days C. « Inviter » and its e-mailed first-password link, or the temporary password a
+            // cabinet's own PC keeps — the users screen picks its branch from here, never from AUTH_MODE.
+            invitesStaffByLink = deployment.InvitesStaffByLink,
             // clinic-subscription Part C. The client mounts the « Abonnement » entry and (Part D) the banner from
             // this flag, never from probing the endpoint: a network failure and a genuine 404 are indistinguishable
             // to a probe, and EC-13 requires a failed read to be retryable rather than read as « aucun abonnement ».
@@ -268,6 +271,68 @@ public class AuthController : ApiControllerBase
             ? HandleFailure(result, StatusCodes.Status410Gone)
             : HandleFailure(result);
     }
+
+    /// <summary>
+    /// The invitation page's greeting (<c>guided-first-days</c> C): first name, identifiant, cabinet. A POST so the
+    /// token never lands in a URL; a used, expired, re-armed or unknown link is <b>410</b> with
+    /// <c>invitation_invalid</c>, the password reset's shape.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("guided-first-days C — an invitation lives on the cloud only; it is never carried to the PC de secours.")]
+    [HttpPost("invitation/preview")]
+    public async Task<IActionResult> PreviewInvitation([FromBody] InvitationTokenRequest request)
+    {
+        if (!Deployment.InvitesStaffByLink)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new PreviewStaffInvitationQuery { Token = request.Token });
+        if (result.IsSuccess)
+        {
+            return Ok(result.Value);
+        }
+
+        return result.Code == Application.Features.Users.StaffInvitations.InvalidCode
+            ? HandleFailure(result, StatusCodes.Status410Gone)
+            : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// The colleague chooses her password from the invitation (<c>guided-first-days</c> C). <b>No session</b> — she
+    /// signs in at <c>/login</c>, like after a password reset.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
+    [HttpPost("invitation/accept")]
+    public async Task<IActionResult> AcceptInvitation([FromBody] InvitationAcceptRequest request)
+    {
+        if (!Deployment.InvitesStaffByLink)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new AcceptStaffInvitationCommand
+        {
+            Token = request.Token,
+            Password = request.Password,
+        });
+
+        if (result.IsSuccess)
+        {
+            return Ok(new { });
+        }
+
+        return result.Code == Application.Features.Users.StaffInvitations.InvalidCode
+            ? HandleFailure(result, StatusCodes.Status410Gone)
+            : HandleFailure(result);
+    }
+
+    public sealed record InvitationTokenRequest(string Token);
+
+    public sealed record InvitationAcceptRequest(string Token, string Password);
 
     /// <summary>
     /// Local-mode login: email + password → signed JWT. Returns 401 on any failure.

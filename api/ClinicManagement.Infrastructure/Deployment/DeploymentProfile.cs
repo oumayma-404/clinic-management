@@ -71,6 +71,7 @@ public sealed class DeploymentProfile
         bool allowsSelfRegistration,
         bool allowsPublicClinicSignup,
         bool allowsPasswordResetByEmail,
+        bool invitesStaffByLink,
         bool servesPlatformConsole,
         bool requiresSubscription,
         bool backsUpItsOwnData,
@@ -98,6 +99,7 @@ public sealed class DeploymentProfile
         AllowsSelfRegistration = allowsSelfRegistration;
         AllowsPublicClinicSignup = allowsPublicClinicSignup;
         AllowsPasswordResetByEmail = allowsPasswordResetByEmail;
+        InvitesStaffByLink = invitesStaffByLink;
         ServesPlatformConsole = servesPlatformConsole;
         RequiresSubscription = requiresSubscription;
         BacksUpItsOwnData = backsUpItsOwnData;
@@ -204,6 +206,17 @@ public sealed class DeploymentProfile
     /// <see cref="AllowsPublicClinicSignup"/> is served there.</para>
     /// </summary>
     public bool AllowsPasswordResetByEmail { get; }
+
+    /// <summary>
+    /// A colleague's account is created with an <b>e-mailed link</b> to choose her own password, rather than with a
+    /// temporary password the administrator copies and passes on (<c>guided-first-days</c> C).
+    ///
+    /// <para><b>True for <see cref="DeploymentKind.HostedMultiTenant"/> alone</b>, for <see cref="AllowsPasswordResetByEmail"/>'s
+    /// reason: a cabinet's own PC has no mailbox and no public address a link could point at, so there the temporary
+    /// password stays exactly as it was. Off means <b>absent</b> — the two anonymous invitation routes and « Renvoyer
+    /// l'e-mail » 404 before the mediator.</para>
+    /// </summary>
+    public bool InvitesStaffByLink { get; }
 
     /// <summary>
     /// The vendor's private back-office exists on this deployment — a second identity population, a second Kestrel
@@ -442,6 +455,7 @@ public sealed class DeploymentProfile
             // present-and-broken. The ways back here are an administrator's reset and `reset-admin-password` on
             // that same machine, and the login screen names them rather than offering a door that cannot open.
             allowsPasswordResetByEmail: false,
+            invitesStaffByLink: false,
             // No portfolio to run — one cabinet per install — and the vendor is not on that surgery's network.
             servesPlatformConsole: false,
             // The data is on the practice's own PC. Refusing writes there would hold their patient records
@@ -487,6 +501,7 @@ public sealed class DeploymentProfile
             // verification this profile alone sends — and the one topology where a locked-out sole administrator
             // has nobody in the building to ask.
             allowsPasswordResetByEmail: true,
+            invitesStaffByLink: true,
             // The one topology with a portfolio to administer: many cabinets, one backend, one vendor behind it.
             servesPlatformConsole: true,
             // The only topology we host and bill: 30 free days, then read-only until a payment is recorded.
@@ -526,6 +541,7 @@ public sealed class DeploymentProfile
             allowsSelfRegistration: false,
             allowsPublicClinicSignup: false,
             allowsPasswordResetByEmail: false,
+            invitesStaffByLink: false,
             servesPlatformConsole: false,
             // The mirrored entitlement still applies during a cut, capped at 7 days past its end (FR-4).
             requiresSubscription: true,

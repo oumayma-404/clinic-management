@@ -164,6 +164,27 @@ public class UsersController : ApiControllerBase
     }
 
     /// <summary>
+    /// « Renvoyer l'e-mail » (<c>guided-first-days</c> C): a new invitation link for a colleague who has never signed in;
+    /// the previous link stops working. Returns whether the e-mail left and the link (shown once). 404 where the
+    /// deployment invites nobody by link (a cabinet's own PC keeps the temporary password).
+    /// </summary>
+    [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
+    [HttpPost("{id}/invitation")]
+    [AllowsWithoutSubscription(
+        "reset-password's reason — a colleague who never chose her password cannot reach the reads, exports and PDFs "
+        + "an expired cabinet keeps by right, and a new invitation is the only way she gets one.")]
+    public async Task<IActionResult> ResendInvitation(string id)
+    {
+        if (!_deployment.InvitesStaffByLink)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new ResendStaffInvitationCommand { UserId = id });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
     /// Deactivate or reactivate a user (AC-5.3). Historical records are retained.
     /// </summary>
     [OnlineOnly("FR-5 — deactivating an account happens on the cloud only (FR-11).")]

@@ -4136,6 +4136,54 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("StaffChatReadMarkers", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.StaffInvitation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("InvitedByUserId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.HasIndex("ConsumedAtUtc", "ExpiresAtUtc");
+
+                    b.ToTable("StaffInvitations", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.StaffMessage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6041,6 +6089,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()
                         .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.StaffInvitation", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

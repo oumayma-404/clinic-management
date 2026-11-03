@@ -17,9 +17,10 @@ public class SessionFamilyPurgeJobTests
     private readonly Mock<ISessionFamilyRepository> _sessions = new();
     private readonly Mock<IClinicSignupRepository> _signups = new();
     private readonly Mock<IPasswordResetRequestRepository> _resets = new();
+    private readonly Mock<IStaffInvitationRepository> _invitations = new();
 
     private SessionFamilyPurgeJob Job() => new(
-        _sessions.Object, _signups.Object, _resets.Object,
+        _sessions.Object, _signups.Object, _resets.Object, _invitations.Object,
         new Mock<IAuditActorProvider>().Object, new Mock<ITenantScope>().Object,
         NullLogger<SessionFamilyPurgeJob>.Instance);
 

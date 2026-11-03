@@ -123,6 +123,11 @@ public class ControllerAuthorizationCoverageTests
                                      // e-mail is not holding the second factor, so the person still signs in with
                                      // their six-digit code afterwards, which is what makes it safe for a mailbox
                                      // to be able to replace a password at all.
+        "Auth.PreviewInvitation",    // guided-first-days C: the invitation page's greeting (first name, identifiant,
+                                     // cabinet). Anonymous because the person has no password yet; the 32-byte
+                                     // single-use token IS the credential, gated by InvitesStaffByLink.
+        "Auth.AcceptInvitation",     // the other half: sets her first password and spends the link. Like the reset,
+                                     // it issues NO session — she signs in at /login afterwards.
         "CspReport.Receive",         // the CSP violation sink (hosted-security-hardening FR-4.5). Anonymous by
                                      // necessity: a violation fires most usefully on the LOGIN page, before any
                                      // session exists — the report that matters most is the one from the screen
