@@ -34,6 +34,8 @@ Feature/screen components for the clinic frontend; `components/ui/` holds shadcn
 
 | File | What it renders / does |
 |------|------------------------|
+| `dashboard/getting-started-card.tsx` | **« Premiers pas »** under the greeting (admin, a new cabinet's first 30 days): seven steps ticked by the server, the next one on the filled button, each with its YouTube video (round ▶ on a phone, its length from `sm:`). `GettingStartedBlock` owns the « Masquer » (hides the `gettingStarted` block, 5 s « Annuler ») and « Votre cabinet est prêt » toasts. A failed read shows nothing — never seven unticked steps. « Personnaliser » offers the switch only while the card applies (`omitKeys`). |
+| `dashboard/phone-app-dialog.tsx` | « L'application sur votre téléphone »: the Android QR from `GET /api/meta/phone-app` (the APK the in-app updater uses, white plate), the three iPhone steps on the current host, and « Déjà fait » per account. |
 | `onboarding/video-link.tsx` | « Voir la vidéo · 0:53 » — one `lib/onboarding-videos.ts` video, on YouTube in a new tab (the shells hand it to the system browser). Renders nothing for a video not filmed yet. |
 | `security/totp-enrolment-step.tsx` | Since `guided-first-days` A it takes the server's `qrStatus`: « Même QR code que tout à l'heure » (green) or « Nouveau QR code : il remplace le précédent » naming the authenticator line to delete (amber, from the URI's `issuer`). Nothing for a first QR. |
 

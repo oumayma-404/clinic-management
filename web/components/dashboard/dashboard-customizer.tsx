@@ -24,6 +24,11 @@ interface DashboardCustomizerProps {
   onShowAll: () => void
   saving?: boolean
   disabled?: boolean
+  /**
+   * Blocks that do not apply to this reader right now (« Premiers pas » for anyone but a new cabinet's
+   * administrator). Not offered and not counted: a switch that commands nothing on the page is noise.
+   */
+  omitKeys?: readonly DashboardBlockKey[]
 }
 
 /**
@@ -45,8 +50,11 @@ export function DashboardCustomizer({
   onShowAll,
   saving = false,
   disabled = false,
+  omitKeys = [],
 }: DashboardCustomizerProps) {
-  const visibleCount = DASHBOARD_BLOCK_KEYS.length - hidden.size
+  const offered = DASHBOARD_BLOCK_KEYS.filter((key) => !omitKeys.includes(key))
+  const hiddenCount = offered.filter((key) => hidden.has(key)).length
+  const visibleCount = offered.length - hiddenCount
 
   return (
     <Popover>
@@ -56,9 +64,9 @@ export function DashboardCustomizer({
           Personnaliser
           {/* The count is the only signal that the dashboard is not showing everything. Without it a user who hid
               six cards months ago has no way to know why a figure a colleague mentions is not on their screen. */}
-          {hidden.size > 0 && (
+          {hiddenCount > 0 && (
             <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-              {visibleCount}/{DASHBOARD_BLOCK_KEYS.length}
+              {visibleCount}/{offered.length}
             </span>
           )}
         </Button>
@@ -76,7 +84,7 @@ export function DashboardCustomizer({
 
         <div className="space-y-4 p-4">
           {DASHBOARD_SECTION_KEYS.map((section) => {
-            const keys = blocksInSection(section)
+            const keys = blocksInSection(section).filter((key) => !omitKeys.includes(key))
             if (keys.length === 0) return null
 
             return (

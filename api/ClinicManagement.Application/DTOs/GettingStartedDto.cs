@@ -5,9 +5,11 @@ public sealed record GettingStartedStepDto(string Key, bool Done);
 
 /// <summary>
 /// One account of the cabinet and whether it has signed in from the phone app — the « Déjà fait » chips of
-/// « Votre téléphone ». <paramref name="Platform"/> is <c>User.PhoneAppSurfaces</c>' value, null until then.
+/// « Votre téléphone ». <paramref name="Platform"/> is <c>User.PhoneAppSurfaces</c>' value, null until then;
+/// <paramref name="IsYou"/> marks the reader's own row (« Vous »).
 /// </summary>
-public sealed record PhoneAppPersonDto(string Name, string Role, string? Platform, DateTime? FirstSignInAt);
+public sealed record PhoneAppPersonDto(
+    string Name, string Role, string? Platform, DateTime? FirstSignInAt, bool IsYou);
 
 /// <summary>
 /// « Premiers pas » for the signed-in administrator's cabinet (<c>guided-first-days</c> B).

@@ -205,8 +205,10 @@ public class GetGettingStartedQueryTests
         var amel = Assert.Single(dto.PhoneApp, person => person.Name == "Amel");
         Assert.Equal(User.PhoneAppSurfaces.IosHomeScreen, amel.Platform);
         Assert.Equal(at, amel.FirstSignInAt);
+        Assert.False(amel.IsYou);
         var me = Assert.Single(dto.PhoneApp, person => person.Name == "Dr Geller");
         Assert.Null(me.Platform);
+        Assert.True(me.IsYou);
         // The step is the administrator's own: a colleague's phone does not tick it.
         Assert.False(Done(dto, GettingStartedKeys.PhoneApp));
     }

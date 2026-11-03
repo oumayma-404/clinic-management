@@ -2,6 +2,7 @@ import { apiGet, apiPut } from './client';
 import type {
   AppointmentStatusMixDto,
   DashboardDto,
+  GettingStartedDto,
   DashboardPeriodKey,
   DashboardPreferencesDto,
 } from './types';
@@ -32,6 +33,11 @@ export const dashboardApi = {
     doctorId?: string,
   ): Promise<AppointmentStatusMixDto> => {
     return apiGet<AppointmentStatusMixDto>('/dashboard/appointments-by-status', { from, to, doctorId });
+  },
+
+  /** « Premiers pas » — the new cabinet's setup steps. Administrators only (`AdminOnly` on the endpoint). */
+  getGettingStarted: async (): Promise<GettingStartedDto> => {
+    return apiGet<GettingStartedDto>('/dashboard/getting-started');
   },
 
   /**

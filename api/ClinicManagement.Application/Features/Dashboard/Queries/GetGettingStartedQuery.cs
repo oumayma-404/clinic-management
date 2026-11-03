@@ -115,7 +115,8 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
                     member.FullName ?? member.Email ?? string.Empty,
                     member.Role,
                     member.PhoneAppPlatform,
-                    member.PhoneAppFirstSignInAt))
+                    member.PhoneAppFirstSignInAt,
+                    IsYou: member.Id == user.Id))
                 .ToList();
 
             return Result<GettingStartedDto>.Success(new GettingStartedDto(true, steps, phoneApp));

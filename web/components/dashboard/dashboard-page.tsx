@@ -31,6 +31,8 @@ import { KpiCard } from "@/components/dashboard/kpi-card"
 import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { DashboardSection } from "@/components/dashboard/dashboard-section"
 import { DashboardCustomizer } from "@/components/dashboard/dashboard-customizer"
+import { GettingStartedBlock } from "@/components/dashboard/getting-started-card"
+import { useGettingStarted } from "@/lib/hooks/use-getting-started"
 import { PeriodSelector } from "@/components/dashboard/period-selector"
 import { CollectedTrendChart } from "@/components/dashboard/collected-trend-chart"
 import {
@@ -80,6 +82,9 @@ const PERIOD_PARAM = "period"
 /** Radix cannot hold an empty Select value, so « tous » is an explicit sentinel. */
 const ALL_DOCTORS = "all-doctors"
 const PERIODS: DashboardPeriodKey[] = ["Today", "Week", "Month"]
+
+/** « Premiers pas » left out of « Personnaliser » whenever the card does not apply to this reader. */
+const GETTING_STARTED_OMITTED: readonly DashboardBlockKey[] = ["gettingStarted"]
 
 /** How often the day zones re-read the clock. A minute is the finest unit anything here displays. */
 const CLOCK_TICK_MS = 60_000
@@ -179,6 +184,12 @@ function DashboardContent() {
   const { isVisible, hidden, toggle, resetToDefaults, showAll, loading: prefsLoading, saving } =
     useDashboardPreferences()
   const { moneyShown } = useMoneyVisibility()
+
+  // « Premiers pas » (guided-first-days B): the administrator, a new cabinet's first 30 days.
+  const { user } = useSession()
+  const isAdmin = user?.role === "admin"
+  const gettingStarted = useGettingStarted(isAdmin)
+  const gettingStartedApplies = isAdmin && gettingStarted.data?.visible === true
 
   /*
    * Today's appointments, fetched ONCE for the whole day board.
@@ -484,8 +495,18 @@ function DashboardContent() {
             onShowAll={showAll}
             saving={saving}
             disabled={prefsLoading}
+            omitKeys={gettingStartedApplies ? undefined : GETTING_STARTED_OMITTED}
           />
         </div>
+
+        {isAdmin && !prefsLoading && (
+          <GettingStartedBlock
+            data={gettingStarted.data}
+            shown={isVisible("gettingStarted")}
+            onToggle={() => toggle("gettingStarted")}
+            onReload={gettingStarted.reload}
+          />
+        )}
 
         {/* A failed read of today never renders as an empty day — that is « aucun rendez-vous », a different and
             confidently wrong fact. The list below carries the retry. */}

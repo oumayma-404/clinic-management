@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { ChevronDown, FileImage, Loader2 } from "lucide-react"
 
@@ -40,8 +40,22 @@ interface BandUrls {
  * « En-tête des documents » — whether the cabinet's documents print on its own paper, shown as a small A4 page.
  * Import, replace and withdraw all live here; the cutting itself is `LetterheadImportDialog`.
  */
+/** The anchor « Papier à en-tête » in « Premiers pas » links to (`/settings#en-tete`). */
+const ANCHOR = "en-tete"
+
 export function LetterheadCard({ chipClassName, canEdit }: LetterheadCardProps) {
   const [collapsed, setCollapsed] = useState(true)
+
+  // Arriving on `#en-tete`: open the card and bring it into view. The settings page renders it only once its
+  // own read has landed, which is after the browser's own jump to the fragment would have looked for it.
+  useEffect(() => {
+    if (window.location.hash !== `#${ANCHOR}`) return
+    setCollapsed(false)
+    const frame = requestAnimationFrame(() =>
+      document.getElementById(ANCHOR)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    )
+    return () => cancelAnimationFrame(frame)
+  }, [])
   const { letterhead, failed, header, footer, body, reload, set } = useClinicLetterhead()
   const [importOpen, setImportOpen] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
@@ -68,7 +82,7 @@ export function LetterheadCard({ chipClassName, canEdit }: LetterheadCardProps) 
     : null
 
   return (
-    <Card>
+    <Card id={ANCHOR} className="scroll-mt-4">
       <CardHeader className="pb-3">
         <button
           type="button"

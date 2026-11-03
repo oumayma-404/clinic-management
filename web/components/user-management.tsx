@@ -60,6 +60,8 @@ import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { useUrlFilterSeed } from "@/lib/hooks/use-url-filters"
+import { replaceUrl } from "@/lib/history"
 
 /** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code du cabinet ». */
 const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
@@ -137,6 +139,23 @@ export function UserManagement() {
   const [createSpecialty, setCreateSpecialty] = useState<string>(DOCTOR_SPECIALTIES[0])
   const [createError, setCreateError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+
+  /*
+   * `?invite=1` — « Votre secrétaire » in « Premiers pas » lands here with « Créer un compte » already open on the
+   * secretary role (guided-first-days B). Read once, then taken off the address bar so a reload does not re-open it.
+   */
+  const urlSeed = useUrlFilterSeed()
+  const [inviteRequested] = useState(() => urlSeed.get("invite") === "1")
+  useEffect(() => {
+    if (!inviteRequested) return
+    const url = new URL(window.location.href)
+    url.searchParams.delete("invite")
+    replaceUrl(url.pathname + url.search + url.hash)
+    if (!canCreateAccounts) return
+    setCreateRole("secretary")
+    setCreateError(null)
+    setCreateOpen(true)
+  }, [inviteRequested, canCreateAccounts])
 
   // Guards against setState after unmount (the admin can navigate away mid-load or mid-refresh).
   const mountedRef = useRef(true)
