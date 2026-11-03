@@ -15,7 +15,7 @@ import { FormErrorBanner } from '@/components/ui/form-error-banner'
 import { TotpCodeField } from '@/components/security/totp-code-field'
 import { TotpEnrolmentStep } from '@/components/security/totp-enrolment-step'
 import { RecoveryCodesPanel } from '@/components/security/recovery-codes-panel'
-import { usePasswordResetEnabled } from '@/lib/hooks/use-password-policy'
+import { usePasswordResetEnabled, useSecondFactorRecovery } from '@/lib/hooks/use-password-policy'
 import { PRODUCT_NAME } from '@/lib/brand'
 
 export default function LoginPage() {
@@ -695,6 +695,8 @@ function LocalLoginForm() {
           >
             Revenir au code de vérification
           </Button>
+
+          <NoRecoveryCodeLine />
         </form>
       </LoginShell>
     )
@@ -807,6 +809,43 @@ function ForgotPasswordLine() {
   return (
     <p className="text-center text-sm text-muted-foreground">
       Mot de passe oublié ? Demandez à un administrateur de votre cabinet de le réinitialiser.
+    </p>
+  )
+}
+
+/**
+ * « Pas de code de récupération ? » — who can clear the factor when the phone and the codes are both gone.
+ *
+ * ⚠️ Silent until the probe answers: the vendor (hosted) and the server PC (LAN) are opposite remedies. An older
+ * API that sends no answer gets the colleague-administrator sentence alone, which is true everywhere.
+ */
+function NoRecoveryCodeLine() {
+  const recovery = useSecondFactorRecovery()
+
+  if (recovery === null) {
+    return null
+  }
+
+  return (
+    <p className="text-center text-sm text-muted-foreground">
+      Pas de code de récupération ? Un administrateur de votre cabinet peut réinitialiser votre second facteur.
+      {recovery.vendor === true &&
+        (recovery.supportPhone ? (
+          <>
+            {' '}Sinon, appelez le support :{' '}
+            <a
+              href={`tel:${recovery.supportPhone.replace(/\s/g, '')}`}
+              className="whitespace-nowrap text-primary hover:underline"
+            >
+              {recovery.supportPhone}
+            </a>
+            .
+          </>
+        ) : (
+          ` Sinon, contactez le support ${PRODUCT_NAME}.`
+        ))}
+      {recovery.vendor === false &&
+        ' Sinon, la personne qui a installé le logiciel peut le faire depuis le PC serveur du cabinet.'}
     </p>
   )
 }

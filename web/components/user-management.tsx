@@ -35,9 +35,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal } from "lucide-react"
+import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal, ShieldOff } from "lucide-react"
+import { StepUpDialog } from "@/components/security/step-up-dialog"
+import { securityApi } from "@/lib/api/security"
 import { ZONES, zoneChipClass } from "@/lib/zones"
-import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_XL, TABLE_ONLY_XL } from "@/components/ui/card-list"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,6 +65,9 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 
 /** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code du cabinet ». */
 const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
+
+/** The step-up action the server's `UsersController.ResetTotpStepUpAction` expects. */
+const RESET_TOTP_ACTION = "reset-user-totp"
 
 type PendingAction =
   | { type: "reset"; user: ClinicUserDto }
@@ -188,6 +193,33 @@ export function UserManagement() {
   // (reset password / activate / deactivate) or registers.
   useClinicRealtime(RealtimeResource.Users, loadData)
 
+  // « Réinitialiser le second facteur » — the way back for a colleague whose phone and recovery codes are gone.
+  const [totpResetFor, setTotpResetFor] = useState<ClinicUserDto | null>(null)
+  // Which proof the step-up offers first; unknown offers the code, as `clinic-archive-card.tsx` does.
+  const [ownHasTotp, setOwnHasTotp] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    securityApi
+      .getTotpState()
+      .then((state) => { if (!cancelled) setOwnHasTotp(state.enrolledAt !== null) })
+      .catch(() => { /* left unknown — the server re-checks whichever proof arrives */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const resetSecondFactor = async (user: ClinicUserDto, confirmationToken: string) => {
+    setWorking(true)
+    try {
+      await securityApi.resetUserTotp(user.id, confirmationToken)
+      toast.success("Second facteur réinitialisé. La personne en activera un nouveau à sa prochaine connexion.")
+      await loadData()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "La réinitialisation a échoué. Veuillez réessayer.")
+    } finally {
+      setWorking(false)
+    }
+  }
+
   /**
    * Band B — the row's version as the server holds it *now*, for a per-row action. The rendered row is as old as
    * the last refetch, and two admins on this screen changing the same colleague's rôle would otherwise silently
@@ -307,6 +339,55 @@ export function UserManagement() {
   }
   const formatDate = (value?: string) =>
     value ? new Date(value).toLocaleString("fr-FR") : "Jamais"
+
+  /**
+   * A row's actions, as ONE menu shared by the card and the table. The table carried them as visible buttons,
+   * which put its min-content at ~920 px — the Actions column sat off-screen from 1024 to 1279 px — and gave the
+   * two trees two lists to keep in step.
+   */
+  const rowMenu = (u: ClinicUserDto) => {
+    // The server forbids self-deactivation (an unrecoverable lockout), and « Sécurité » is where you replace your own factor.
+    const isSelf = !!u.email && u.email === currentUser?.email
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label={`Actions pour ${u.fullName || u.email}`}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {canResetPasswords && (
+            <DropdownMenuItem onSelect={() => setPending({ type: "reset", user: u })}>
+              <KeyRound className="size-4" aria-hidden="true" />
+              Réinitialiser le mot de passe
+            </DropdownMenuItem>
+          )}
+          {u.hasSecondFactor === true && !isSelf && (
+            <DropdownMenuItem disabled={working} onSelect={() => setTotpResetFor(u)}>
+              <ShieldOff className="size-4" aria-hidden="true" />
+              Réinitialiser le second facteur
+            </DropdownMenuItem>
+          )}
+          {u.isActive ? (
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={isSelf}
+              onSelect={() => setPending({ type: "status", user: u })}
+            >
+              <UserX className="size-4" aria-hidden="true" />
+              Désactiver
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={() => setPending({ type: "status", user: u })}>
+              <UserCheck className="size-4" aria-hidden="true" />
+              {/* « Réactiver » is wrong for an account that was never active. */}
+              {u.isPendingActivation ? "Activer le compte" : "Réactiver"}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
 
   // `min-h-full`, not `min-h-screen` — see the note in `clinic-settings.tsx`: inside `<main>` a full-viewport
   // minimum is always taller than the container, so it guaranteed an unnecessary scroll and trailing dead space.
@@ -506,7 +587,7 @@ export function UserManagement() {
                       two and lose the current value from view; keeping it as a field keeps both.
                 */}
                 <CardList
-                  className={CARDS_ONLY_LG}
+                  className={CARDS_ONLY_XL}
                   ariaLabel="Utilisateurs du cabinet"
                   items={users}
                   getKey={(u) => u.id}
@@ -567,44 +648,12 @@ export function UserManagement() {
                     },
                     { label: "Dernière connexion", value: formatDate(u.lastLoginAt) },
                   ]}
-                  actions={(u) => {
-                    const isSelf = !!u.email && u.email === currentUser?.email
-                    return (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label={`Actions pour ${u.fullName || u.email}`}>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {canResetPasswords && (
-                            <DropdownMenuItem onSelect={() => setPending({ type: "reset", user: u })}>
-                              Réinitialiser le mot de passe
-                            </DropdownMenuItem>
-                          )}
-                          {u.isActive ? (
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              disabled={isSelf}
-                              onSelect={() => setPending({ type: "status", user: u })}
-                            >
-                              Désactiver
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem onSelect={() => setPending({ type: "status", user: u })}>
-                              {/* « Réactiver » is wrong for an account that was never active. */}
-                              {u.isPendingActivation ? "Activer le compte" : "Réactiver"}
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )
-                  }}
+                  actions={rowMenu}
                   empty={
                     debouncedSearch ? "Aucun utilisateur ne correspond à votre recherche" : "Aucun utilisateur"
                   }
                 />
-                <Table containerClassName={TABLE_ONLY_LG}>
+                <Table containerClassName={TABLE_ONLY_XL}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nom</TableHead>
@@ -625,11 +674,7 @@ export function UserManagement() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      users.map((user) => {
-                        // Backend forbids self-deactivation (would be an unrecoverable lockout);
-                        // mirror that here so the action isn't offered as a dead end.
-                        const isSelf = !!user.email && user.email === currentUser?.email
-                        return (
+                      users.map((user) => (
                         <TableRow key={user.id}>
                           <TableCell className="font-medium text-foreground">{user.fullName || "-"}</TableCell>
                           <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
@@ -678,47 +723,9 @@ export function UserManagement() {
                             </div>
                           </TableCell>
                           <TableCell className="text-muted-foreground">{formatDate(user.lastLoginAt)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              {canResetPasswords && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1"
-                                  onClick={() => setPending({ type: "reset", user })}
-                                >
-                                  <KeyRound className="h-3 w-3" />
-                                  Réinitialiser le mot de passe
-                                </Button>
-                              )}
-                              {user.isActive ? (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1 text-destructive hover:text-destructive"
-                                  onClick={() => setPending({ type: "status", user })}
-                                  disabled={isSelf}
-                                  title={isSelf ? "Vous ne pouvez pas désactiver votre propre compte" : undefined}
-                                >
-                                  <UserX className="h-3 w-3" />
-                                  Désactiver
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1"
-                                  onClick={() => setPending({ type: "status", user })}
-                                >
-                                  <UserCheck className="h-3 w-3" />
-                                  {user.isPendingActivation ? "Activer le compte" : "Réactiver"}
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
+                          <TableCell className="text-right">{rowMenu(user)}</TableCell>
                         </TableRow>
-                        )
-                      })
+                      ))
                     )}
                   </TableBody>
                 </Table>
@@ -808,6 +815,26 @@ export function UserManagement() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* The step-up IS the confirmation: its sentence names who loses what, so a second dialog would only repeat it. */}
+      <StepUpDialog
+        open={totpResetFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setTotpResetFor(null)
+        }}
+        action={RESET_TOTP_ACTION}
+        purpose={
+          totpResetFor
+            ? `Le second facteur de ${totpResetFor.email || totpResetFor.fullName} et ses codes de récupération seront supprimés, et ses sessions fermées. Cette personne en activera un nouveau à sa prochaine connexion.`
+            : ""
+        }
+        hasTotp={ownHasTotp ?? true}
+        onConfirmed={(confirmationToken) => {
+          const target = totpResetFor
+          setTotpResetFor(null)
+          if (target) void resetSecondFactor(target, confirmationToken)
+        }}
+      />
 
       {/*
         « Créer un compte » (US-3). No password field, deliberately: the server mints one, so an admin cannot

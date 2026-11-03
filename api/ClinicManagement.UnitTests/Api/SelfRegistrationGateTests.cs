@@ -40,7 +40,12 @@ public class SelfRegistrationGateTests
             .Build();
         var profile = DeploymentProfile.For(kind);
 
-        return new(mediator.Object, configuration, profile, new SubscriptionPolicy(profile, configuration));
+        return new(
+            mediator.Object,
+            configuration,
+            profile,
+            new SubscriptionPolicy(profile, configuration),
+            new SubscriptionPricing(configuration));
     }
 
     private static RegisterRequest AnyRegistration() => new()
@@ -169,6 +174,36 @@ public class SelfRegistrationGateTests
 
         Assert.False(Read<bool>(payload, "requiresSubscription"));
         Assert.Null(Read<int?>(payload, "trialDays"));
+    }
+
+    /// <summary>
+    /// The recovery screen names who can clear a lost second factor when no recovery code is left: the vendor's
+    /// console where one is served, the server PC's <c>reset-user-totp</c> verb otherwise.
+    /// </summary>
+    [Theory]
+    [InlineData(DeploymentKind.SelfHostedLan, false)]
+    [InlineData(DeploymentKind.HostedMultiTenant, true)]
+    public void GetMode_reports_whether_the_vendor_can_reset_a_second_factor(DeploymentKind kind, bool expected)
+    {
+        var payload = Assert.IsType<OkObjectResult>(Controller(new Mock<IMediator>(), kind).GetMode()).Value!;
+
+        Assert.Equal(expected, Read<bool>(payload, "vendorResetsSecondFactor"));
+    }
+
+    /// <summary>
+    /// The support number is the configured one, and only where the vendor can act on the call — a LAN install
+    /// must not send a locked-out dentist to a number that cannot clear anything on their own PC.
+    /// </summary>
+    [Theory]
+    [InlineData(DeploymentKind.HostedMultiTenant, "+216 71 000 000")]
+    [InlineData(DeploymentKind.SelfHostedLan, null)]
+    public void GetMode_reports_the_support_phone_only_where_the_vendor_resets(DeploymentKind kind, string? expected)
+    {
+        var payload = Assert.IsType<OkObjectResult>(
+            Controller(new Mock<IMediator>(), kind, ("Subscription:ContactPhone", "+216 71 000 000"))
+                .GetMode()).Value!;
+
+        Assert.Equal(expected, Read<string?>(payload, "supportPhone"));
     }
 
     // The action returns an anonymous type, so the wire names are only readable by reflection — which is the

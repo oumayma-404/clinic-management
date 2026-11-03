@@ -43,17 +43,20 @@ public class AuthController : ApiControllerBase
 
     private readonly DeploymentProfile _deployment;
     private readonly ISubscriptionPolicy _subscriptionPolicy;
+    private readonly ISubscriptionPricing _subscriptionPricing;
 
     public AuthController(
         IMediator mediator,
         IConfiguration configuration,
         DeploymentProfile deployment,
-        ISubscriptionPolicy subscriptionPolicy)
+        ISubscriptionPolicy subscriptionPolicy,
+        ISubscriptionPricing subscriptionPricing)
     {
         _mediator = mediator;
         _configuration = configuration;
         _deployment = deployment;
         _subscriptionPolicy = subscriptionPolicy;
+        _subscriptionPricing = subscriptionPricing;
     }
 
     // Injected, not re-resolved per request: AddInfrastructure already registers the resolved profile as a
@@ -118,6 +121,10 @@ public class AuthController : ApiControllerBase
             // clinic-pc-copy: whether this server can have a PC de secours, and whether it IS one.
             relayFeedEnabled = deployment.PublishesChangeFeed,
             isClinicRelay = deployment.MirrorsCloudClinic,
+            // Who rescues an account whose authenticator AND recovery codes are gone, named on the recovery
+            // screen: the vendor's console where one is served, the server PC's `reset-user-totp` verb otherwise.
+            vendorResetsSecondFactor = deployment.ServesPlatformConsole,
+            supportPhone = deployment.ServesPlatformConsole ? _subscriptionPricing.ContactPhone : null,
         });
     }
 

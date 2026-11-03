@@ -30,6 +30,8 @@ export interface ClinicUserDto {
    */
   isPendingActivation: boolean;
   mustChangePassword: boolean;
+  /** Holds a second factor — what offers « Réinitialiser le second facteur ». Optional, read `=== true` (rolling deploy). */
+  hasSecondFactor?: boolean;
   lastLoginAt?: string;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the role / activation actions. */
   version: number;

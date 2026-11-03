@@ -21,6 +21,10 @@ public class ClinicUserDto
     public bool IsPendingActivation { get; set; }
 
     public bool MustChangePassword { get; set; }
+
+    /// <summary>Whether the account holds a second factor — what decides if « Réinitialiser le second facteur » is offered on its row.</summary>
+    public bool HasSecondFactor { get; set; }
+
     public DateTime? LastLoginAt { get; set; }
 
     /// <summary>Round-tripped by the role / activation actions so a concurrent change is a 409, not an overwrite.</summary>
