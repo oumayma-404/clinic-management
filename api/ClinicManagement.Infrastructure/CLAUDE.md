@@ -347,6 +347,11 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   so no backfill and nothing for the destructive-before-backfill hazard to bite on; EF emitted no `xmin` because
   an `AddColumn` creates no table. Verified against the live database: the drift set before and after is
   **identical** (4 pre-existing, none touching `Users`).
+- **`20261103115435_AddOnboardingSignInColumns`** (`guided-first-days` A/B) — three nullable `Users` columns:
+  `TotpEnrolmentStartedAt` (a pending authenticator QR is shown again for 24 h instead of re-minted), and
+  `PhoneAppFirstSignInAt` / `PhoneAppPlatform` (`varchar(32)`, first sign-in from the phone app). Hand-written
+  (migration + Designer derived from the snapshot). No default, no backfill. Verified on a throwaway database:
+  `verify-schema` identical before and after, no `xmin` column.
 - **`20260815110947_AddSuppliers`** (`stock-fournisseurs`) — one new `Suppliers` table, `SupplierId` on
   `StockItems` **and** `LabWorkOrders`, four backfills, and the drop of the free-text `StockItems.Supplier`.
   ⚠️ **The statement order is the design, not the scaffolder's.** EF emitted `DropColumn("Supplier")` as the

@@ -22,11 +22,25 @@ namespace ClinicManagement.Application.Features.Auth.Commands;
 /// The generator is the one already live for the LAN trust page.</para>
 /// </param>
 /// <param name="RecoveryCodes">The eight codes, shown <b>once</b> — step two only.</param>
+/// <param name="QrStatus">
+/// Step one only: whether this QR is the account's <see cref="TotpQrStatus.First"/>, the <see cref="TotpQrStatus.Same"/>
+/// one shown a moment ago, or a new one that <see cref="TotpQrStatus.Replaced"/> an earlier one — so the screen can say
+/// which, since that is the one case where the line already in the phone stops working.
+/// </param>
 public record TotpEnrolmentDto(
     string? SecretUri,
     string? Secret,
     string? SecretQrPng,
-    IReadOnlyList<string>? RecoveryCodes);
+    IReadOnlyList<string>? RecoveryCodes,
+    string? QrStatus = null);
+
+/// <summary>The three answers <see cref="TotpEnrolmentDto.QrStatus"/> can carry.</summary>
+public static class TotpQrStatus
+{
+    public const string First = "first";
+    public const string Same = "same";
+    public const string Replaced = "replaced";
+}
 
 /// <summary>
 /// Enrols a clinic account's second factor from the login screen itself
@@ -68,6 +82,9 @@ public class EnrolTotpCommand : IRequest<Result<TotpEnrolmentDto>>
 
 public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<TotpEnrolmentDto>>
 {
+    /// <summary>How long a pending QR is shown again instead of replaced: the sign-up evening and the next morning.</summary>
+    public static readonly TimeSpan PendingQrLifetime = TimeSpan.FromHours(24);
+
     private readonly IUserRepository _userRepository;
     private readonly IClinicRepository _clinicRepository;
     private readonly ILocalAuthService _localAuthService;
@@ -160,10 +177,30 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
             // ── Step one: issue an unconfirmed secret and hand back something to scan ──────────────────────
             if (string.IsNullOrWhiteSpace(request.TotpCode))
             {
-                var secret = _totpService.GenerateSecret();
-                user.IssueTotpSecret(_secretProtector.Protect(secret));
-                _userRepository.Update(user);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                // ⚠️ The same pending secret comes back for 24 h (guided-first-days A). Minting on every call meant
+                // a second « Se connecter », a reload, or the Windows app after the browser silently killed the QR
+                // already scanned, and every code from the phone was then refused — the screen two of twelve
+                // self-signed-up cabinets never got past. Nothing is saved on this path, so a repeat no longer
+                // bumps TokenVersion either. Exposure is unchanged: the password was verified above, and anyone
+                // holding it could already complete an enrolment of a pending account.
+                string secret;
+                string qrStatus;
+                if (user.HasReusablePendingTotpSecret(PendingQrLifetime)
+                    && _secretProtector.TryUnprotect(user.ProtectedTotpSecret!, out var pending)
+                    && !string.IsNullOrEmpty(pending))
+                {
+                    secret = pending;
+                    qrStatus = TotpQrStatus.Same;
+                }
+                else
+                {
+                    var hadSecret = !string.IsNullOrEmpty(user.ProtectedTotpSecret);
+                    secret = _totpService.GenerateSecret();
+                    user.IssueTotpSecret(_secretProtector.Protect(secret));
+                    _userRepository.Update(user);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    qrStatus = hadSecret ? TotpQrStatus.Replaced : TotpQrStatus.First;
+                }
 
                 // The practice's name, so somebody working at two of them can tell the entries apart.
                 var clinic = await _clinicRepository.GetByIdAsync(user.ClinicId, cancellationToken);
@@ -187,7 +224,8 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
                     SecretUri: uri,
                     Secret: TotpEnrolmentUri.ForReading(secret),
                     SecretQrPng: qr,
-                    RecoveryCodes: null));
+                    RecoveryCodes: null,
+                    QrStatus: qrStatus));
             }
 
             // ── Step two: confirm it, and only now mint the recovery codes ────────────────────────────────

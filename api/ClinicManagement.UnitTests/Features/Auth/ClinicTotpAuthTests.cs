@@ -382,6 +382,108 @@ public class ClinicTotpAuthTests
         Assert.Equal(ClinicAuthRefusals.TotpAlreadyEnrolled, result.Code);
     }
 
+    // ── The same QR for 24 h (guided-first-days A) ──────────────────────────────────────────────────────
+    //
+    // Minting on every step one meant a second « Se connecter », a reload or the Windows app after the browser
+    // silently killed the line already scanned, and every code from the phone was then refused.
+
+    [Fact]
+    public async Task The_First_Step_One_Says_It_Is_The_First_Qr()
+    {
+        Account(User.RoleAdmin);
+        _totp.Setup(t => t.GenerateSecret()).Returns("JBSWY3DPEHPK3PXP");
+
+        var result = await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+
+        Assert.Equal(TotpQrStatus.First, result.Value!.QrStatus);
+    }
+
+    [Fact]
+    public async Task A_Second_Step_One_Within_A_Day_Shows_The_Same_Qr_And_Writes_Nothing()
+    {
+        var user = Account(User.RoleAdmin);
+        _totp.SetupSequence(t => t.GenerateSecret())
+            .Returns("JBSWY3DPEHPK3PXP")
+            .Returns("OTHERSECRET23456");
+
+        var first = await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+        var tokenVersion = user.TokenVersion;
+        var second = await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+
+        Assert.Equal(TotpQrStatus.Same, second.Value!.QrStatus);
+        Assert.Equal(first.Value!.SecretUri, second.Value.SecretUri);
+        Assert.Equal(first.Value.Secret, second.Value.Secret);
+        Assert.Equal("protected:JBSWY3DPEHPK3PXP", user.ProtectedTotpSecret);
+        // Nothing minted, nothing saved, and no session revoked by a repeat.
+        _totp.Verify(t => t.GenerateSecret(), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(tokenVersion, user.TokenVersion);
+    }
+
+    // The code from the phone that scanned the FIRST QR still confirms after the repeat.
+    [Fact]
+    public async Task A_Code_From_The_First_Scan_Confirms_After_A_Repeat()
+    {
+        var user = Account(User.RoleAdmin);
+        _totp.SetupSequence(t => t.GenerateSecret())
+            .Returns("JBSWY3DPEHPK3PXP")
+            .Returns("OTHERSECRET23456");
+        _totp.Setup(t => t.VerifyCode("JBSWY3DPEHPK3PXP", "123456")).Returns(true);
+
+        await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+        await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+        var confirmed = await EnrolHandler().Handle(Enrol("123456"), CancellationToken.None);
+
+        Assert.True(confirmed.IsSuccess);
+        Assert.True(user.IsTotpEnrolled);
+        Assert.Null(user.TotpEnrolmentStartedAt);
+    }
+
+    [Fact]
+    public async Task After_A_Day_A_New_Qr_Replaces_The_Old_One_And_Says_So()
+    {
+        var user = Account(User.RoleAdmin);
+        user.IssueTotpSecret("protected:JBSWY3DPEHPK3PXP", DateTime.UtcNow.AddHours(-25));
+        _totp.Setup(t => t.GenerateSecret()).Returns("NEWSECRET234567");
+
+        var result = await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+
+        Assert.Equal(TotpQrStatus.Replaced, result.Value!.QrStatus);
+        Assert.Equal("protected:NEWSECRET234567", user.ProtectedTotpSecret);
+    }
+
+    // A pending secret the key ring can no longer open is replaced, never handed back blank.
+    [Fact]
+    public async Task An_Unreadable_Pending_Secret_Is_Replaced()
+    {
+        var user = Account(User.RoleAdmin);
+        user.IssueTotpSecret("rotated-key-ring-blob");
+        _totp.Setup(t => t.GenerateSecret()).Returns("NEWSECRET234567");
+
+        var result = await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+
+        Assert.Equal(TotpQrStatus.Replaced, result.Value!.QrStatus);
+        Assert.Equal("protected:NEWSECRET234567", user.ProtectedTotpSecret);
+    }
+
+    // ⚠️ The reuse sits AFTER the password check: a wrong password must never see the pending QR.
+    [Fact]
+    public async Task A_Wrong_Password_Never_Sees_The_Pending_Qr()
+    {
+        var user = Account(User.RoleAdmin);
+        user.IssueTotpSecret("protected:JBSWY3DPEHPK3PXP");
+        _auth.Setup(a => a.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(PasswordVerificationOutcome.Failed);
+
+        var result = await EnrolHandler().Handle(
+            new EnrolTotpCommand { Email = "someone@clinic.com", Password = "mauvais-mot-de-passe" },
+            CancellationToken.None);
+
+        Assert.Equal(ClinicAuthRefusals.InvalidCredentials, result.Code);
+        Assert.Null(result.Value);
+        _qr.Verify(q => q.GeneratePng(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+    }
+
     // ── Recovery codes ──────────────────────────────────────────────────────────────────────────────────
 
     // [FR-1.4] A correct code signs in and is spent.
@@ -540,6 +642,8 @@ public class ClinicTotpAuthTests
 
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.Value!.SecretUri);
+        // The line already in the lost phone stops working, and the screen is told so.
+        Assert.Equal(TotpQrStatus.Replaced, result.Value.QrStatus);
         // Step one clears the old enrolment and every code it was proven with.
         Assert.False(user.IsTotpEnrolled);
         Assert.Equal(0, user.UnusedRecoveryCodeCount);

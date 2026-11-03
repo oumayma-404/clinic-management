@@ -4813,6 +4813,13 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<DateTime?>("PhoneAppFirstSignInAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PhoneAppPlatform")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("ProtectedTotpSecret")
                         .HasColumnType("text");
 
@@ -4827,6 +4834,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasDefaultValue(0);
 
                     b.Property<DateTime?>("TotpEnrolledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("TotpEnrolmentStartedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("TotpReenrolmentRequired")
