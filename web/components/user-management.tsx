@@ -211,7 +211,8 @@ export function UserManagement() {
     setWorking(true)
     try {
       await securityApi.resetUserTotp(user.id, confirmationToken)
-      toast.success("Second facteur réinitialisé. La personne en activera un nouveau à sa prochaine connexion.")
+      // What happened only: whether a new factor is then ASKED depends on the person's rôle (admins only here), so « à sa prochaine connexion » was false for a doctor.
+      toast.success("Second facteur réinitialisé. Ses sessions ont été fermées.")
       await loadData()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "La réinitialisation a échoué. Veuillez réessayer.")
@@ -825,7 +826,7 @@ export function UserManagement() {
         action={RESET_TOTP_ACTION}
         purpose={
           totpResetFor
-            ? `Le second facteur de ${totpResetFor.email || totpResetFor.fullName} et ses codes de récupération seront supprimés, et ses sessions fermées. Cette personne en activera un nouveau à sa prochaine connexion.`
+            ? `Le second facteur de ${totpResetFor.email || totpResetFor.fullName} et ses codes de récupération seront supprimés, et ses sessions fermées.`
             : ""
         }
         hasTotp={ownHasTotp ?? true}

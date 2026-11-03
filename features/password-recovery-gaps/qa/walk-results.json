@@ -1,0 +1,295 @@
+{
+  "stamp": "mw11u645",
+  "results": [
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "admin: enrolment then sign-in with a code lands in the app"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "vendorResetsSecondFactor: true"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "supportPhone « +216 20 123 456 »"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "second admin: first sign-in enrols her (8 codes)"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "doctor: first sign-in (password change) lands in the app"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "doctor: « Sécurité » → « Activer maintenant » → enrolment → back in the app"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "doctor enrolled with 8 recovery codes"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "doctor with a second factor: « Réinitialiser le second facteur » offered"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "own row: not offered"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "own row: « Désactiver » disabled"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "never-enrolled colleague: not offered"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "Annuler closes the dialog"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "still enrolled after Annuler"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "refusal shown in the dialog"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "still enrolled after a wrong code"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "« Confirmer » inside 730 px"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "sentence names his e-mail, the codes and the sessions"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "no claim about his next sign-in (F-1: a doctor is not asked for a new one)"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "toast « Second facteur réinitialisé. Ses sessions ont été fermées. »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "DB: not enrolled, no recovery codes"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "her menu no longer offers it"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "his open session is closed (next page → /login)"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "doctor (factor optional here): signs in with his password alone — nothing on screen claimed otherwise"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "toast « Second facteur réinitialisé. … »"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "DB: not enrolled, no recovery codes"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "she signs in again and meets the enrolment"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "confirmation asks"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "« Mot de passe temporaire » with a password"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "Désactiver → « Inactif »"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "Réactiver → « Actif »"
+    },
+    {
+      "id": "D4",
+      "outcome": "pass",
+      "m": "only Sami in the table"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "320px: cards"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "320px: no horizontal page scroll"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "320px: row menu button inside the viewport, no inner scroll"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "390px: cards"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "390px: no horizontal page scroll"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "390px: row menu button inside the viewport, no inner scroll"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "1024px: cards"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "1024px: no horizontal page scroll"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "1024px: row menu button inside the viewport, no inner scroll"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "1279px: cards"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "1279px: no horizontal page scroll"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "1279px: row menu button inside the viewport, no inner scroll"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "1280px: table"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "1280px: no horizontal page scroll"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "1280px: row menu button inside the viewport, no inner scroll"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "1440px: table"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "1440px: no horizontal page scroll"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "1440px: row menu button inside the viewport, no inner scroll"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "sentence + support number"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "tel link"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "« Revenir au code de vérification » still there"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "320: no horizontal page scroll"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "320: phone number on one line"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "LAN: server-PC sentence, no phone"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "older API: colleague sentence only"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "failed probe: no line"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "« Revenir au code de vérification » still there"
+    }
+  ]
+}
