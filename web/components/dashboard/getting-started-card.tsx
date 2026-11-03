@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Check, PlayCircle } from "lucide-react"
 
 import { PhoneAppDialog } from "@/components/dashboard/phone-app-dialog"
+import { useGuide } from "@/components/guide/guide-provider"
 import { Button } from "@/components/ui/button"
 import type { GettingStartedDto } from "@/lib/api/types"
 import { GETTING_STARTED_STEPS, type GettingStartedKey } from "@/lib/getting-started"
@@ -85,6 +86,7 @@ export function GettingStartedCard({
 }) {
   const [phoneOpen, setPhoneOpen] = useState(false)
   const { subscription } = useSubscription()
+  const { start: startGuide } = useGuide()
 
   const steps = data.steps.filter((step): step is { key: GettingStartedKey; done: boolean } =>
     step.key in GETTING_STARTED_STEPS,
@@ -182,7 +184,21 @@ export function GettingStartedCard({
                       </a>
                     </Button>
                   )}
-                  {meta.href ? (
+                  {/* The two ways to learn a step, side by side: its video, or « Me guider » over the real screen
+                      (guided-first-days F). A step with a guide offers it in place of « Commencer », whose page is
+                      the guide's first stop anyway. */}
+                  {meta.guide ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={isNext ? "default" : "outline"}
+                      className="min-h-9 coarse:min-h-11"
+                      onClick={() => startGuide(meta.guide!)}
+                      aria-label={`Me guider : ${meta.title}`}
+                    >
+                      Me guider
+                    </Button>
+                  ) : meta.href ? (
                     <Button
                       asChild
                       size="sm"

@@ -2239,6 +2239,7 @@ export function PatientRecordModal({
       <DialogContent
         mobile="sheet"
         className="gap-3 md:max-h-[92dvh] md:w-[min(96vw,780px)] md:max-w-[min(96vw,780px)]"
+        data-guide="record-dialog"
       >
         {/* One title for create and edit, the date beside it — the patient is named here, so no read-only
             « Patient » field. `flex-wrap`: at 320 px the date takes the line under the title. */}
@@ -2354,7 +2355,7 @@ export function PatientRecordModal({
           last. There is no composer and no read-back list: those were two views of one act, and the split is what
           made adding a second act look like losing the first.
         */}
-        <div ref={actsAnchorRef} className="space-y-2">
+        <div ref={actsAnchorRef} className="space-y-2" data-guide="record-acts">
           <div className="flex flex-wrap items-baseline gap-x-2">
             <Label className="text-xs font-semibold">Actes de la séance</Label>
             <span className="text-2xs tabular-nums text-muted-foreground">{actsSummary}</span>
@@ -3211,6 +3212,7 @@ export function PatientRecordModal({
                 // `whitespace-normal` below `sm:`: « Enregistrer la séance — 1 250,000 DT » is wider than a
                 // 320 px sheet and `Button` is `whitespace-nowrap`, so it wraps rather than overflowing.
                 className="h-auto min-h-9 w-full whitespace-normal py-2 sm:w-auto sm:min-w-[150px] sm:whitespace-nowrap"
+                data-guide="record-submit"
               >
                 {loading
                   ? "Enregistrement…"

@@ -492,6 +492,7 @@ export function UserManagement() {
                 <Button
                   size="sm"
                   className="w-full gap-2 sm:w-auto"
+                  data-guide="users-create"
                   onClick={() => {
                     setCreateError(null)
                     setCreateOpen(true)
@@ -905,7 +906,7 @@ export function UserManagement() {
         `md:` — three short fields is a light surface, not a data-entry one (§ 5).
       */}
       <Dialog open={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
-        <DialogContent>
+        <DialogContent data-guide="user-dialog">
           <DialogHeader>
             <DialogTitle>{invitesByLink ? "Inviter un collègue" : "Créer un compte"}</DialogTitle>
             <DialogDescription>
@@ -916,7 +917,7 @@ export function UserManagement() {
           </DialogHeader>
           <FormErrorBanner message={createError} />
           <div className="space-y-4">
-            <div className="space-y-2">
+            <div className="space-y-2" data-guide="user-fields">
               <Label htmlFor="create-user-fullname">Nom complet</Label>
               <Input
                 id="create-user-fullname"
@@ -926,7 +927,7 @@ export function UserManagement() {
                 disabled={creating}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" data-guide="user-fields">
               <Label htmlFor="create-user-email">E-mail</Label>
               <Input
                 id="create-user-email"
@@ -1034,6 +1035,7 @@ export function UserManagement() {
                 rather than merely unlikely — the same reasoning as `chequePaymentFields()`. */}
             <Button
               className="coarse:h-11"
+              data-guide="user-submit"
               onClick={submitCreate}
               disabled={
                 creating ||

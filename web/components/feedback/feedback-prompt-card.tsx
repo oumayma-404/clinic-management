@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { feedbackApi } from "@/lib/api/feedback"
 import { showErrorToast } from "@/lib/errors"
 import { FEEDBACK_CARD_OPEN_ATTR } from "@/lib/feedback"
+import { GUIDE_RUNNING_ATTR } from "@/lib/guides"
 
 /** Not in the first minute of a page load — a person who has just signed in came to do something. */
 const SETTLE_MS = 60_000
@@ -27,10 +28,11 @@ let firstMountAt: number | null = null
 let shownReported = false
 let latched = false
 
-/** True while something else owns the screen or the keyboard: a dialog, a sheet, or a field being typed in. */
+/** True while something else owns the screen or the keyboard: a dialog, a sheet, a guide, or a field being typed in. */
 function screenIsBusy(): boolean {
   const body = document.body
   if (body.hasAttribute("data-sheet-open") || body.hasAttribute("data-scroll-locked")) return true
+  if (body.hasAttribute(GUIDE_RUNNING_ATTR)) return true
   const active = document.activeElement as HTMLElement | null
   if (!active) return false
   return active.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)

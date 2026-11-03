@@ -1,8 +1,9 @@
 /**
- * What floats over every dialog on purpose: the staff chat's notice (staff-chat AC-4.2). Radix reads a press on it
- * as a press « outside » the open dialog and would close it — the fiche de soins, with what was typed in it.
+ * What floats over every dialog on purpose: the staff chat's notice (staff-chat AC-4.2) and the « Me guider »
+ * bubble (guided-first-days F — « Suivant » is pressed while the dialog it guides is open). Radix reads a press on
+ * either as a press « outside » the open dialog and would close it — the fiche de soins, with what was typed in it.
  */
-const FLOATING_OVER_DIALOGS = "[data-staff-chat-notice]"
+const FLOATING_OVER_DIALOGS = "[data-staff-chat-notice], [data-guide-bubble]"
 
 type OutsideEvent = { target: EventTarget | null; preventDefault(): void }
 

@@ -1151,7 +1151,11 @@ export function CreateAppointmentDialog({
         readable. Below `lg:` the pane becomes the strip above the footer instead. Both caps are prefixed — an
         unprefixed one would cancel the primitive's own mobile gutter (frontend rules § 4).
       */}
-      <DialogContent mobile="sheet" className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl lg:max-w-4xl">
+      <DialogContent
+        mobile="sheet"
+        className="gap-0 overflow-hidden p-0 md:max-h-[90dvh] md:max-w-2xl lg:max-w-4xl"
+        data-guide="booking-dialog"
+      >
         {/*
           The subtitle is `sr-only` at every width rather than deleted: Radix wants a description, and « Planifier
           un nouveau rendez-vous pour un patient » restates the title under a segmented that already says what is
@@ -1207,7 +1211,7 @@ export function CreateAppointmentDialog({
             The card chrome is gone: four bordered boxes of identical weight said nothing about which decision
             mattered, and cost ~120 px of the height that made this form scroll.
           */}
-          <div className="space-y-3">
+          <div className="space-y-3" data-guide="booking-patient">
 
             {patientIsFixed ? (
               <div className="space-y-2">
@@ -1394,7 +1398,7 @@ export function CreateAppointmentDialog({
           </div>
 
           {/* 2 — Quand. */}
-          <div className="space-y-3">
+          <div className="space-y-3" data-guide="booking-when">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {/* Date Picker */}
               <div className="space-y-2">
@@ -1554,6 +1558,7 @@ export function CreateAppointmentDialog({
               filled in. A « créneau occupé » has no acts by definition.
             */}
             {!isBusySlot && (
+              <div data-guide="booking-acts">
               <AppointmentActsPicker
                 procedureTypes={procedureTypes}
                 loading={loadingProcedureTypes}
@@ -1575,6 +1580,7 @@ export function CreateAppointmentDialog({
                 onEditPlanSteps={planSteps.onEditPlanSteps}
                 canEditPlanSteps={planSteps.canEditPlanSteps}
               />
+              </div>
             )}
 
             <div className="grid grid-cols-1 gap-4">
@@ -1658,7 +1664,7 @@ export function CreateAppointmentDialog({
             </Button>
             {/* No longer disabled on an overlap: the collision is advisory and the server offers the override.
                 Blocking here made the warning a dead end and hid the fact that proceeding is allowed. */}
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading} data-guide="booking-submit">
               {loading ? "Création…" : "Créer le rendez-vous"}
             </Button>
           </DialogFooter>

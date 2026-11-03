@@ -4492,6 +4492,65 @@ check(
   },
 );
 
+check(
+  "guide-marks-exist",
+  "N54",
+  "Every `data-guide` mark a « Me guider » guide names is on a control, and every mark on a control is named by a guide",
+  "guided-first-days F: a guide finds its control by `data-guide` alone, polling the page. A mark renamed or " +
+    "dropped from a screen raises no error anywhere — the guide simply waits ten seconds and stops with « le guide " +
+    "s'est arrêté », on the one flow meant to help somebody who is already lost. The other direction is the same " +
+    "defect one step later: a mark no guide names is a leftover the next author will trust. And only the overlay " +
+    "may draw `data-guide-bubble`, which every dialog lets presses through (`ui/floating-notice.ts`).",
+  () => {
+    const guideFiles = ALL_FILES.filter(
+      (f) => /^lib\/guides\/[a-z-]+\.ts$/.test(rel(f)) && !/\/(types|index)\.ts$/.test(rel(f)),
+    );
+    if (guideFiles.length === 0) {
+      return [{ file: "lib/guides", line: 0, text: "no guide files", full: "no guide found — this check is blind; retarget it rather than deleting it" }];
+    }
+
+    const named = new Map(); // mark → guide file
+    const hits = [];
+    for (const f of guideFiles) {
+      const src = read(f);
+      if (!/\bsteps:\s*\[/.test(src)) {
+        hits.push({ file: rel(f), line: 0, text: "unparsable", full: "no `steps: [` — this check cannot read the guide" });
+        continue;
+      }
+      for (const m of src.matchAll(/\b(?:mark|scope|visible):\s*"([a-z0-9-]+)"/g)) named.set(m[1], rel(f));
+    }
+
+    const onControls = new Map(); // mark → first file:line
+    for (const f of tsx()) {
+      const name = rel(f);
+      if (name.startsWith("lib/guides/")) continue;
+      const lines = read(f).split(/\r?\n/);
+      const masked = commentMask(lines);
+      lines.forEach((line, i) => {
+        if (masked[i]) return;
+        for (const m of line.matchAll(/data-guide=(?:"([a-z0-9-]+)"|\{[^}]*?"([a-z0-9-]+)")/g)) {
+          const mark = m[1] ?? m[2];
+          if (!onControls.has(mark)) onControls.set(mark, { file: name, line: i + 1 });
+        }
+        if (/data-guide-bubble/.test(line) && !["components/guide/guide-overlay.tsx", "components/ui/floating-notice.ts"].includes(name)) {
+          hits.push({ file: name, line: i + 1, text: "data-guide-bubble", full: "only the guide overlay draws the bubble that dialogs let through" });
+        }
+      });
+    }
+    if (named.size === 0 || onControls.size === 0) {
+      hits.push({ file: "lib/guides", line: 0, text: "vacuous", full: `named ${named.size}, on controls ${onControls.size} — this check is reading nothing` });
+    }
+
+    for (const [mark, file] of named) {
+      if (!onControls.has(mark)) hits.push({ file, line: 0, text: mark, full: `\`${mark}\` is named by a guide and carried by no control — the guide would wait, then stop` });
+    }
+    for (const [mark, at] of onControls) {
+      if (!named.has(mark)) hits.push({ file: at.file, line: at.line, text: mark, full: `\`data-guide="${mark}"\` is named by no guide` });
+    }
+    return hits;
+  }
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

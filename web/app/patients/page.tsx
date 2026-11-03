@@ -145,7 +145,7 @@ export default function PatientsPage() {
               )}
               {/* Same row floor as « Exporter » beside it — it painted 44 px on a coarse pointer while these two
                   painted 32 and 36, so the header read as three misaligned controls on a tablet. */}
-              <Button onClick={() => setCreateDialogOpen(true)} className="gap-2 coarse:h-11">
+              <Button onClick={() => setCreateDialogOpen(true)} className="gap-2 coarse:h-11" data-guide="patients-add">
                 <Plus className="h-4 w-4" />
                 Ajouter un patient
               </Button>

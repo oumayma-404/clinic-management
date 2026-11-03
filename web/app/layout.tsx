@@ -9,6 +9,7 @@ import { ClinicRealtimeProvider } from "@/lib/realtime/clinic-realtime-provider"
 import { QueryProvider } from "@/lib/query/query-provider"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { StaffChatProvider } from "@/components/staff-chat/staff-chat-provider"
+import { GuideProvider } from "@/components/guide/guide-provider"
 import { AppToaster } from "@/components/app-toaster"
 import { ClientVersionGate } from "@/components/client-version-gate"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -132,7 +133,10 @@ export default function RootLayout({
                   <MoneyVisibilityProvider>
                     <ConnectivityProvider>
                       <SidebarProvider>
-                        <StaffChatProvider>{children}</StaffChatProvider>
+                        <StaffChatProvider>
+                          {/* « Me guider »: above every page, so a guide survives the page changes it asks for. */}
+                          <GuideProvider>{children}</GuideProvider>
+                        </StaffChatProvider>
                       </SidebarProvider>
                     </ConnectivityProvider>
                   </MoneyVisibilityProvider>

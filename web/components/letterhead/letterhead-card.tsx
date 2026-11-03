@@ -129,7 +129,7 @@ export function LetterheadCard({ chipClassName, canEdit }: LetterheadCardProps) 
                 </p>
                 {canEdit ? (
                   <div className="flex flex-wrap gap-2">
-                    <Button onClick={() => setImportOpen(true)}>
+                    <Button onClick={() => setImportOpen(true)} data-guide="letterhead-import">
                       {onPaper ? "Remplacer" : "Importer mon papier à en-tête"}
                     </Button>
                     {onPaper && (

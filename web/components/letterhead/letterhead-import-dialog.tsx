@@ -182,6 +182,7 @@ export function LetterheadImportDialog({ open, onOpenChange, version, onSaved }:
       <DialogContent
         mobile="sheet"
         className="md:max-w-3xl"
+        data-guide="letterhead-dialog"
         // A page already cut is a few gestures of work; an outside tap must not throw it away.
         onInteractOutside={(event) => { if (page) event.preventDefault() }}
       >
@@ -199,6 +200,7 @@ export function LetterheadImportDialog({ open, onOpenChange, version, onSaved }:
           {step === "file" && (
             <label
               htmlFor={inputId}
+              data-guide="letterhead-file"
               className={cn(
                 "flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed",
                 "border-border bg-muted/30 p-6 text-center transition-colors hover:border-primary/50 hover:bg-primary/5",
@@ -315,7 +317,7 @@ export function LetterheadImportDialog({ open, onOpenChange, version, onSaved }:
               <Button variant="outline" onClick={() => setStep("file")} disabled={busy !== null}>
                 Changer de fichier
               </Button>
-              <Button onClick={() => void showPreview()} disabled={busy !== null}>
+              <Button onClick={() => void showPreview()} disabled={busy !== null} data-guide="letterhead-cut-next">
                 {busy === "preview" && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
                 Voir l'aperçu
               </Button>
@@ -326,7 +328,7 @@ export function LetterheadImportDialog({ open, onOpenChange, version, onSaved }:
               <Button variant="outline" onClick={() => setStep("cut")} disabled={busy !== null}>
                 Ajuster les lignes
               </Button>
-              <Button onClick={() => void save()} disabled={busy !== null}>
+              <Button onClick={() => void save()} disabled={busy !== null} data-guide="letterhead-save">
                 {busy === "saving" && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
                 Enregistrer
               </Button>

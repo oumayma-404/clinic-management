@@ -3091,7 +3091,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         )}
 
         {onNewAppointment && (
-          <Button onClick={onNewAppointment} size="sm" className="h-9 shrink-0 gap-2">
+          <Button onClick={onNewAppointment} size="sm" className="h-9 shrink-0 gap-2" data-guide="agenda-new">
             <Plus className="h-4 w-4" />
             {/* Labelled at every width this row renders at — an icon-only primary action on the busiest screen
                 in the app is the unlabelled-ghost-icon problem P3 spent a part removing. */}
@@ -3860,6 +3860,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           onClick={onNewAppointment}
           size="icon"
           aria-label="Nouveau rendez-vous"
+          data-guide="agenda-new"
           /* ⚠️ The offset is `env(safe-area-inset-bottom)` past 16 px, not a flat 16 px. The card now bleeds
              through `<main>`'s bottom gutter (`-mb-4`), so this button's containing block ends at the bottom bar
              rather than 16 px above it — and on a notched phone the bar itself sits on top of the home

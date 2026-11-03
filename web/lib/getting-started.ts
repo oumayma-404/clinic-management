@@ -1,3 +1,4 @@
+import type { GuideKey } from "@/lib/guides"
 import type { OnboardingVideoKey } from "@/lib/onboarding-videos"
 
 /**
@@ -24,14 +25,21 @@ export interface GettingStartedStepMeta {
   video: OnboardingVideoKey
   /** Where the step is done. Null when the card opens a dialog instead (« Votre téléphone »). */
   href: string | null
+  /** « Me guider » over the real screen (guided-first-days F); a step with a guide offers it instead of « Commencer ». */
+  guide?: GuideKey
 }
 
 export const GETTING_STARTED_STEPS: Record<GettingStartedKey, GettingStartedStepMeta> = {
   securityCode: { title: "Code de sécurité", video: "firstSignIn", href: "/securite" },
-  secretary: { title: "Votre secrétaire", video: "prepareCabinet", href: "/users?invite=1" },
+  secretary: { title: "Votre secrétaire", video: "prepareCabinet", href: "/users?invite=1", guide: "secretary" },
   phoneApp: { title: "Votre téléphone", video: "phoneApp", href: null },
-  patients: { title: "Vos patients", video: "firstPatient", href: "/patients?newPatient=1" },
-  appointment: { title: "Premier rendez-vous", video: "firstAppointment", href: "/appointments?newAppointment=1" },
-  dentalRecord: { title: "Première fiche de soins", video: "session", href: "/patients" },
-  letterhead: { title: "Papier à en-tête", video: "documents", href: "/settings#en-tete" },
+  patients: { title: "Vos patients", video: "firstPatient", href: "/patients?newPatient=1", guide: "patients" },
+  appointment: {
+    title: "Premier rendez-vous",
+    video: "firstAppointment",
+    href: "/appointments?newAppointment=1",
+    guide: "appointment",
+  },
+  dentalRecord: { title: "Première fiche de soins", video: "session", href: "/patients", guide: "dentalRecord" },
+  letterhead: { title: "Papier à en-tête", video: "documents", href: "/settings#en-tete", guide: "letterhead" },
 }
