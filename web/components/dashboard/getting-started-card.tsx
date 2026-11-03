@@ -96,8 +96,10 @@ export function GettingStartedCard({
 
   return (
     <section aria-labelledby="getting-started-title" className="rounded-xl border bg-card p-4 shadow-xs sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0 space-y-1">
+      {/* No wrap here: the TITLE gives way on a phone, so « Masquer » stays top-right instead of dropping to a line
+          of its own under the chip. */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-1">
           <p className="text-xs font-semibold uppercase tracking-wide text-primary">Premiers pas</p>
           <h2 id="getting-started-title" className="text-lg font-semibold leading-snug">
             Votre cabinet en {steps.length} étapes
@@ -113,7 +115,7 @@ export function GettingStartedCard({
             )}
           </p>
         </div>
-        <Button type="button" variant="ghost" size="sm" className="min-h-9 coarse:min-h-11" onClick={onHide}>
+        <Button type="button" variant="ghost" size="sm" className="-me-2 min-h-9 shrink-0 coarse:min-h-11" onClick={onHide}>
           Masquer
         </Button>
       </div>

@@ -104,7 +104,7 @@ export function PhoneAppDialog({
                   </p>
                   <p className="text-muted-foreground">
                     Ou, depuis le téléphone :{" "}
-                    <a href={download.androidUrl} className="break-all font-medium text-primary underline">
+                    <a href={download.androidUrl} className="font-medium text-primary underline">
                       télécharger l&apos;application
                     </a>
                   </p>
