@@ -22,6 +22,9 @@ public class LoginRequest
 
     /// <summary>What to call this device in « Mes appareils ». Free text; cleaned and capped server-side.</summary>
     public string? DeviceLabel { get; set; }
+
+    /// <summary>Where the sign-in comes from (<c>web/lib/shell.ts</c>'s <c>appSurface()</c>). Optional.</summary>
+    public string? ClientSurface { get; set; }
 }
 
 /// <summary>Step one carries no code; step two carries the one generated from the issued secret.</summary>
@@ -38,6 +41,9 @@ public class RedeemRecoveryCodeRequest
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string RecoveryCode { get; set; } = string.Empty;
+
+    /// <summary>Where the sign-in comes from — see <see cref="LoginRequest.ClientSurface"/>.</summary>
+    public string? ClientSurface { get; set; }
 }
 
 /// <summary>A current one-time code, proving the caller holds the authenticator right now.</summary>

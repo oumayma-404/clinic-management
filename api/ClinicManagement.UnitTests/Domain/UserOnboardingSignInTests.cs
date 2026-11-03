@@ -85,6 +85,7 @@ public class UserOnboardingSignInTests
     [Theory]
     [InlineData(User.PhoneAppSurfaces.Android)]
     [InlineData(User.PhoneAppSurfaces.IosHomeScreen)]
+    [InlineData(User.PhoneAppSurfaces.Ios)]
     public void The_first_phone_app_sign_in_is_recorded(string surface)
     {
         var user = LocalUser();

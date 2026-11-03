@@ -255,14 +255,20 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     /// <summary>Which phone app that first sign-in came from (<see cref="PhoneAppSurfaces"/>). Null with it.</summary>
     public string? PhoneAppPlatform { get; private set; }
 
-    /// <summary>The two surfaces that count as « the phone app ». The Windows shell and a browser do not.</summary>
+    /// <summary>
+    /// The surfaces that count as « the phone app » — the browser's <c>appSurface()</c> (<c>web/lib/shell.ts</c>)
+    /// names them. The Windows shell and a plain browser do not count.
+    /// </summary>
     public static class PhoneAppSurfaces
     {
         public const string Android = "android";
         public const string IosHomeScreen = "ios-home-screen";
 
+        /// <summary>The native iPhone shell — written, not yet shipped; counted so it needs nothing the day it is.</summary>
+        public const string Ios = "ios";
+
         public static bool IsPhoneApp(string? surface) =>
-            surface is Android or IosHomeScreen;
+            surface is Android or IosHomeScreen or Ios;
     }
 
     /// <summary>

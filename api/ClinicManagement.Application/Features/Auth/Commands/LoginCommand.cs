@@ -43,6 +43,13 @@ public class LoginCommand : IRequest<Result<LoginResultDto>>
     /// it. Free text, capped, and never a credential — see <c>SessionFamily.DeviceLabel</c>.
     /// </summary>
     public string? DeviceLabel { get; set; }
+
+    /// <summary>
+    /// Where the sign-in comes from (<c>web/lib/shell.ts</c>'s <c>appSurface()</c>). The first sign-in from the phone
+    /// app is recorded on the account — the « Votre téléphone » step of « Premiers pas » reads it. Free text from the
+    /// client; anything but a phone surface records nothing.
+    /// </summary>
+    public string? ClientSurface { get; set; }
 }
 
 public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginResultDto>>
@@ -251,6 +258,8 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
              */
             _auditActor.AuthenticatedAs(user.Id, user.Email);
             user.RecordSuccessfulLogin();
+            // Rides the one save below; first time only, never overwritten.
+            user.RecordPhoneAppSignIn(request.ClientSurface);
 
             // ── The durable session credential, and the chain it belongs to ───────────────────────────────
             //

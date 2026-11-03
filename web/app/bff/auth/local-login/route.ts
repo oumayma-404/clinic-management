@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
     totpCode?: string;
     trustDevice?: boolean;
     deviceLabel?: string;
+    clientSurface?: string;
   };
   try {
     body = await request.json();
@@ -59,6 +60,8 @@ export async function POST(request: NextRequest) {
         // whatever the browser sent and the server field is a bool — a string `"false"` is truthy in JSON.
         trustDevice: body.trustDevice === true,
         ...(body.deviceLabel ? { deviceLabel: body.deviceLabel } : {}),
+        // Where the sign-in comes from (`lib/shell.ts`); only a phone surface records anything server-side.
+        ...(typeof body.clientSurface === 'string' ? { clientSurface: body.clientSurface.slice(0, 32) } : {}),
       }),
     });
 

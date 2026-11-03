@@ -85,6 +85,9 @@ public interface IDentalRecordRepository
         DateTime sinceUtc,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Whether this cabinet has recorded any fiche de soins at all (« Premiers pas »). One <c>EXISTS</c>.</summary>
+    Task<bool> AnyForClinicAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
     Task<DentalRecord> AddAsync(DentalRecord dentalRecord, CancellationToken cancellationToken = default);
     Task UpdateAsync(DentalRecord dentalRecord, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

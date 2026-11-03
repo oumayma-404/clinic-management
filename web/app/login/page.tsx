@@ -330,6 +330,8 @@ function LocalLoginForm() {
           ...(totpCode ? { totpCode } : {}),
           trustDevice,
           ...(trustDevice ? { deviceLabel: deviceName() } : {}),
+          // The first sign-in from the phone app ticks « Votre téléphone » in « Premiers pas ».
+          clientSurface: appSurface(),
         }),
       })
       const data = await res.json().catch(() => null)
@@ -405,7 +407,7 @@ function LocalLoginForm() {
       const res = await fetch('/bff/auth/recovery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, recoveryCode }),
+        body: JSON.stringify({ email, password, recoveryCode, clientSurface: appSurface() }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok) {

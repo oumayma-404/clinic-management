@@ -25,6 +25,9 @@ public class RedeemRecoveryCodeCommand : IRequest<Result<LoginResultDto>>
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string RecoveryCode { get; set; } = string.Empty;
+
+    /// <summary>Where the sign-in comes from — see <c>LoginCommand.ClientSurface</c>.</summary>
+    public string? ClientSurface { get; set; }
 }
 
 public class RedeemRecoveryCodeCommandHandler
@@ -140,6 +143,7 @@ public class RedeemRecoveryCodeCommandHandler
             user.GrantTotpReplacement(ReplacementWindow);
 
             user.RecordSuccessfulLogin();
+            user.RecordPhoneAppSignIn(request.ClientSurface);
 
             // A sign-in, so it opens a chain exactly as the ordinary ladder does (FR-1.6) — staged before the
             // single save, for the reason `LoginCommand` states.

@@ -1,5 +1,6 @@
 using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Meta.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -263,6 +264,36 @@ public class MetaController : ApiControllerBase
 
     private string BuildAndroidDownloadUrl() =>
         $"{Request.Scheme}://{Request.Host}{ClientDownloadPath}/{AndroidDownloadSegment}";
+
+    /// <summary>
+    /// Where a phone downloads the Android app, and the same link as a QR code — « Votre téléphone » in
+    /// « Premiers pas » (<c>guided-first-days</c> B). Signed-in only; the download itself stays anonymous.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ The URL is the one the in-app updater is sent to (<c>android.downloadUrl</c>, else the store URL), built by
+    /// the same <see cref="WithAndroidPackage"/> as <c>client-requirements</c> — so the QR can never point at an
+    /// older APK than the one the app itself would update to. Both fields are null when this server ships no APK
+    /// and none is configured: the screen then says so rather than showing a dead code.
+    /// </remarks>
+    [HttpGet("phone-app")]
+    public IActionResult PhoneApp([FromServices] IQrCodeGenerator qrCodeGenerator)
+    {
+        var requirements = WithAndroidPackage(Models.ClientRequirements.Read(_configuration));
+        var url = !string.IsNullOrWhiteSpace(requirements.Android.DownloadUrl)
+            ? requirements.Android.DownloadUrl
+            : requirements.StoreUrls.Android;
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return Ok(new PhoneAppDownload(null, null));
+        }
+
+        var qr = "data:image/png;base64," + Convert.ToBase64String(qrCodeGenerator.GeneratePng(url));
+        return Ok(new PhoneAppDownload(url, qr));
+    }
+
+    /// <summary>The Android app's download link and its QR code (a <c>data:</c> PNG); both null when there is none.</summary>
+    public sealed record PhoneAppDownload(string? AndroidUrl, string? AndroidQrPng);
 
     /// <summary>
     /// What an upload door accepts, projected from the catalog (AC-5.1). Deliberately <b>not</b> exempt

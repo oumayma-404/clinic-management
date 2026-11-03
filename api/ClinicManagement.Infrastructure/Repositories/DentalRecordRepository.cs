@@ -54,6 +54,9 @@ public class DentalRecordRepository : IDentalRecordRepository
             .ToListAsync(cancellationToken);
     }
 
+    public Task<bool> AnyForClinicAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
+        _context.DentalRecords.AnyAsync(dr => dr.ClinicId == clinicId, cancellationToken);
+
     public async Task<IReadOnlyList<(Guid AppointmentId, Guid DentalRecordId, decimal Cost)>> GetAppointmentLinksAsync(
         Guid clinicId,
         IReadOnlyCollection<Guid> appointmentIds,

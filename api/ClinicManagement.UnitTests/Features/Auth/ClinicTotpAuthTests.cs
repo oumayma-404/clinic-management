@@ -382,6 +382,97 @@ public class ClinicTotpAuthTests
         Assert.Equal(ClinicAuthRefusals.TotpAlreadyEnrolled, result.Code);
     }
 
+    // ── The first sign-in from the phone app (guided-first-days B) ──────────────────────────────────────
+    //
+    // « Votre téléphone » in « Premiers pas » ticks from this, and nothing else on the server can tell: push is
+    // not configured everywhere, and a device label is sent only when « Rester connecté » is ticked.
+
+    private static LoginCommand LoginFrom(string? surface) => new()
+    {
+        Email = "someone@clinic.com",
+        Password = "un-mot-de-passe-long",
+        ClientSurface = surface
+    };
+
+    [Fact]
+    public async Task The_First_Sign_In_From_The_Phone_App_Is_Recorded_And_Never_Overwritten()
+    {
+        _policy.SetupGet(p => p.RequiresAdminSecondFactor).Returns(false);
+        var user = Account(User.RoleSecretary);
+
+        var first = await LoginHandler().Handle(LoginFrom(User.PhoneAppSurfaces.Android), CancellationToken.None);
+        var recordedAt = user.PhoneAppFirstSignInAt;
+        var second = await LoginHandler().Handle(LoginFrom(User.PhoneAppSurfaces.IosHomeScreen), CancellationToken.None);
+
+        Assert.True(first.IsSuccess);
+        Assert.True(second.IsSuccess);
+        Assert.NotNull(recordedAt);
+        Assert.Equal(recordedAt, user.PhoneAppFirstSignInAt);
+        Assert.Equal(User.PhoneAppSurfaces.Android, user.PhoneAppPlatform);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("windows")]
+    [InlineData("browser")]
+    public async Task A_Sign_In_From_Anywhere_Else_Records_Nothing(string? surface)
+    {
+        _policy.SetupGet(p => p.RequiresAdminSecondFactor).Returns(false);
+        var user = Account(User.RoleSecretary);
+
+        var result = await LoginHandler().Handle(LoginFrom(surface), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(user.PhoneAppFirstSignInAt);
+    }
+
+    // Only a sign-in that succeeded counts — a wrong password on the phone has not « installed the app ».
+    [Fact]
+    public async Task A_Refused_Sign_In_From_The_Phone_Records_Nothing()
+    {
+        _policy.SetupGet(p => p.RequiresAdminSecondFactor).Returns(false);
+        var user = Account(User.RoleSecretary);
+        _auth.Setup(a => a.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(PasswordVerificationOutcome.Failed);
+
+        var result = await LoginHandler().Handle(LoginFrom(User.PhoneAppSurfaces.Android), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Null(user.PhoneAppFirstSignInAt);
+    }
+
+    // The two-step sign-in: the password step opens no session, so it records nothing; the code step does.
+    [Fact]
+    public async Task Only_The_Step_That_Opens_The_Session_Records_The_Phone()
+    {
+        _policy.SetupGet(p => p.RequiresAdminSecondFactor).Returns(true);
+        var user = Enrolled(Account(User.RoleAdmin));
+        _totp.Setup(t => t.VerifyCode("JBSWY3DPEHPK3PXP", "123456")).Returns(true);
+
+        await LoginHandler().Handle(LoginFrom(User.PhoneAppSurfaces.Android), CancellationToken.None);
+        Assert.Null(user.PhoneAppFirstSignInAt);
+
+        var withCode = LoginFrom(User.PhoneAppSurfaces.Android);
+        withCode.TotpCode = "123456";
+        var result = await LoginHandler().Handle(withCode, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(user.PhoneAppFirstSignInAt);
+    }
+
+    [Fact]
+    public async Task A_Recovery_Code_Sign_In_From_The_Phone_App_Is_Recorded_Too()
+    {
+        var user = EnrolledWithOneCode(out var code);
+        var redeem = Redeem(code);
+        redeem.ClientSurface = User.PhoneAppSurfaces.Android;
+
+        var result = await RecoveryHandler().Handle(redeem, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(User.PhoneAppSurfaces.Android, user.PhoneAppPlatform);
+    }
+
     // ── The same QR for 24 h (guided-first-days A) ──────────────────────────────────────────────────────
     //
     // Minting on every step one meant a second « Se connecter », a reload or the Windows app after the browser

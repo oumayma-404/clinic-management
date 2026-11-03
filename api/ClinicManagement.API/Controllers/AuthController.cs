@@ -292,7 +292,8 @@ public class AuthController : ApiControllerBase
             Password = request.Password,
             TotpCode = request.TotpCode,
             TrustDevice = request.TrustDevice,
-            DeviceLabel = request.DeviceLabel
+            DeviceLabel = request.DeviceLabel,
+            ClientSurface = request.ClientSurface
         };
 
         var result = await _mediator.Send(command);
@@ -413,7 +414,8 @@ public class AuthController : ApiControllerBase
         {
             Email = request.Email,
             Password = request.Password,
-            RecoveryCode = request.RecoveryCode
+            RecoveryCode = request.RecoveryCode,
+            ClientSurface = request.ClientSurface
         });
 
         return result.IsSuccess ? Ok(result) : RefuseAuth(result);
