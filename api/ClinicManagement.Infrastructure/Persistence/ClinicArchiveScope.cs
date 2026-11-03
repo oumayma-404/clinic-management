@@ -92,6 +92,10 @@ public static class ClinicArchiveScope
         nameof(ClinicArchiveGrant),
         nameof(User),
         nameof(UserDashboardPreference),
+        // guided-first-days E: messages to the VENDOR (not the practice's record) and one person's question state,
+        // both keyed on accounts the archive does not carry — and, through this set, kept off the PC de secours.
+        nameof(ProductFeedback),
+        nameof(UserFeedbackPrompt),
         nameof(ClinicReminderSettings),
         nameof(PlatformAccount),
         nameof(PlatformRecoveryCode),

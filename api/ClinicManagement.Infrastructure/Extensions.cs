@@ -177,6 +177,7 @@ public static class Extensions
         // outbox holds, and the send history is a practice's record of documents that really did go out.
         services.AddScoped<IDocumentEmailRepository, DocumentEmailRepository>();
         services.AddScoped<IUserDashboardPreferenceRepository, UserDashboardPreferenceRepository>();
+        services.AddScoped<IFeedbackRepository, FeedbackRepository>();
         services.AddScoped<ICnamCatalogRepository, CnamCatalogRepository>();
         services.AddScoped<IMedicationCatalogRepository, MedicationCatalogRepository>();
         services.AddScoped<IDentalActCodeRepository, DentalActCodeRepository>();

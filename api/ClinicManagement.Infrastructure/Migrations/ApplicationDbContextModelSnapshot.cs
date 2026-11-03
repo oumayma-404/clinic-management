@@ -3599,6 +3599,77 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("ProcedureTypeMaterials", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ProductFeedback", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AuthorRole")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("EaseRating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FromScreen")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("HardAreasCsv")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<int?>("HelpRating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("LikedAreasCsv")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<bool>("MayContact")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ClinicId", "CreatedAt");
+
+                    b.ToTable("ProductFeedback", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PushDelivery", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4894,6 +4965,42 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("UserDashboardPreferences", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.UserFeedbackPrompt", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("UserId");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ClosedReason")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LaterUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("TimesShown")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("UserFeedbackPrompts", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.UserRecoveryCode", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5820,6 +5927,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ProductFeedback", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PushDelivery", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
@@ -6112,6 +6228,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasOne("ClinicManagement.Domain.Entities.User", null)
                         .WithOne()
                         .HasForeignKey("ClinicManagement.Domain.Entities.UserDashboardPreference", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.UserFeedbackPrompt", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.User", null)
+                        .WithOne()
+                        .HasForeignKey("ClinicManagement.Domain.Entities.UserFeedbackPrompt", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

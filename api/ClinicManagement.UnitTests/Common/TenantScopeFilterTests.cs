@@ -44,10 +44,11 @@ public class TenantScopeFilterTests
                            + "unattributed rows; all four reachable reads take a clinicId explicitly",
         // platform-console Part 2. These two are the VENDOR's measurements ABOUT a cabinet, not the cabinet's own
         // data: written by ClinicActivityCounterJob and read only by the console, both of which are cross-cabinet
-        // by definition and declare UseSystemWide. No clinic-facing surface reads them at all, so a per-clinic
-        // filter would guard a door nobody uses — while making the one legitimate reader depend on lifting it.
-        ["ClinicActivityDay"] = "vendor-console counters: no clinic-facing read exists, and both writers and the "
-                                + "only reader are cross-cabinet by construction",
+        // by definition and declare UseSystemWide. A per-clinic filter would make the legitimate reader depend on
+        // lifting it. guided-first-days E added ONE clinic-facing read — GetFeedbackPromptQuery counts the caller's
+        // own active days — and it names the cabinet explicitly from the caller's own account row.
+        ["ClinicActivityDay"] = "vendor-console counters: the writer and the console are cross-cabinet by "
+                                + "construction, and the one clinic-facing read names its cabinet explicitly",
         ["ClinicActivitySnapshot"] = "same — and the portfolio LEFT JOINs it across every cabinet, which is the "
                                      + "read the console exists to serve",
         // platform-console Part 3. The console's own access ledger. Its ClinicId is the cabinet that was LOOKED AT,
