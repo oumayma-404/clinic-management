@@ -81,9 +81,9 @@ import { toast } from "sonner"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
-import { isDeliverablePhone, PHONE_ERROR_FR, DEFAULT_REGION } from "@/lib/phone"
-import type { CountryCode } from "libphonenumber-js/max"
-import { PhoneField } from "@/components/ui/phone-field"
+import { useInlineNewPatient, type InlineNewPatientSnapshot } from "@/lib/hooks/use-inline-new-patient"
+import { NewPatientFields } from "@/components/patients/new-patient-fields"
+import { DuplicatePatientDialog } from "@/components/patients/duplicate-patient-dialog"
 import { specialtyLabel } from "@/lib/specialties"
 
 /**
@@ -141,10 +141,8 @@ interface CarriedBooking {
   isBusySlot: boolean
   isNewPatient: boolean
   selectedPatientId: string
-  newPatientFirstName: string
-  newPatientLastName: string
-  newPatientPhone: string
-  newPatientPhoneCountry: CountryCode
+  /** The walk-in's fields and, once created, its id — booked onto after the switch, never created twice. */
+  newPatient: InlineNewPatientSnapshot
   acts: SelectedAct[]
   durationTouched: boolean
   day: string | null
@@ -157,7 +155,6 @@ interface CarriedBooking {
   duration: string
   notes: string
   showNotes: boolean
-  createdPatientId: string | null
 }
 
 interface CreateAppointmentDialogProps {
@@ -275,10 +272,8 @@ export function CreateAppointmentDialog({
   const [isBusySlot, setIsBusySlot] = useState(false)
   const [isNewPatient, setIsNewPatient] = useState(false)
   const [selectedPatientId, setSelectedPatientId] = useState("")
-  const [newPatientFirstName, setNewPatientFirstName] = useState("")
-  const [newPatientLastName, setNewPatientLastName] = useState("")
-  const [newPatientPhone, setNewPatientPhone] = useState("")
-  const [newPatientPhoneCountry, setNewPatientPhoneCountry] = useState<CountryCode>(DEFAULT_REGION)
+  /** « Nouveau patient »: the fields, their check and the create-once memory — shared with the devis form. */
+  const newPatient = useInlineNewPatient()
   const [patients, setPatients] = useState<PatientDto[]>([])
   const [loadingPatients, setLoadingPatients] = useState(false)
 
@@ -371,7 +366,7 @@ export function CreateAppointmentDialog({
    * ⚠️ A ref, and it survives a failed attempt on purpose — `performCreate` runs again from the top on every
    * confirmation the server asks for (slot taken, out of hours, past time). Without it, one « créer quand
    * même » on a taken slot would leave the patient with two identical treatments. Exactly
-   * `createdPatientIdRef`'s reason, one object over. See {@link materialiseTreatments}.
+   * the created patient's reason (`useInlineNewPatient`), one object over. See {@link materialiseTreatments}.
    */
   const createdPlansRef = useRef<Map<string, TreatmentPlanDto>>(new Map())
   /** True once the visit is saved — a close before that undoes every plan in `createdPlansRef` (E4). */
@@ -544,27 +539,11 @@ export function CreateAppointmentDialog({
   const grantedOverridesRef = useRef<CreateOverrides>({ ...NO_OVERRIDES })
 
   /**
-   * The patient this submit sequence has **already created**, if any.
-   *
-   * ⚠️ This is the fix for the reported defect: a new patient booked into a taken slot ended up on `/patients`
-   * twice. `performCreate` is re-entered by design — the slot-taken, out-of-hours and past-time confirmations all
-   * call it again — and it re-ran `patientsApi.create` every time, so confirming « créer quand même » created a
-   * second patient. The first one is already committed and cannot be taken back, so the retry has to *reuse* it.
-   *
-   * <p>A ref rather than state, because the retry reads it in the same tick the confirmation grants the override;
-   * a state update would not have landed yet. Cleared only when the dialog closes — it is a fact about the
-   * database, not about this submit — which is also why the fields below go read-only once it is set: the patient
-   * exists under the name that was typed, and letting the name drift afterwards would silently produce the very
-   * second record this ref prevents.</p>
+   * ⚠️ `performCreate` is re-entered by design — the slot-taken, out-of-hours and past-time confirmations all call it
+   * again — so the patient it creates is created ONCE and reused by every retry (`useInlineNewPatient`'s ref). That
+   * is the fix for a walk-in booked into a taken slot ending up on /patients twice.
    */
-  const createdPatientIdRef = useRef<string | null>(null)
-  /**
-   * The created patient's name — and the **render signal** for the ref above, which a ref cannot be: a ref change
-   * does not re-render, so the read-only fields and their explanation would not appear until something else did.
-   * Set and cleared together with the ref, always.
-   */
-  const [createdPatientName, setCreatedPatientName] = useState<string | null>(null)
-  const patientAlreadyCreated = createdPatientName !== null
+  const patientAlreadyCreated = newPatient.alreadyCreated
 
 
   // Load patients when the dialog opens (the act catalogue is the shared cached read above).
@@ -706,9 +685,9 @@ export function CreateAppointmentDialog({
       setIsBusySlot(false)
       setIsNewPatient(false)
       setSelectedPatientId("")
-      setNewPatientFirstName("")
-      setNewPatientLastName("")
-      setNewPatientPhone("")
+      // The created-patient memory ends with the dialog too: a new booking starts from a blank new-patient form, and
+      // reusing an id across two openings would attach an unrelated appointment to whoever was created last.
+      newPatient.reset()
       setSelectedDoctorId("")
       setSelectedActs([])
       // Back to the caller's own defaults, not to the hardcoded pair: this dialog is a long-lived instance the
@@ -730,9 +709,6 @@ export function CreateAppointmentDialog({
       setSlotTakenPrompt(null)
       setOutsideHoursPrompt(null)
       setDuplicatePatientPrompt(null)
-      // The created-patient memory ends with the dialog: a new booking starts from a blank new-patient form, and
-      // reusing an id across two openings would attach an unrelated appointment to whoever was created last.
-      createdPatientIdRef.current = null
       // Same reason, and the consequence is worse: a treatment reused across two openings would attach a
       // second patient's séance to the first patient's plan. One that no visit was saved for is undone.
       if (!visitSavedRef.current && createdPlansRef.current.size > 0) {
@@ -740,7 +716,6 @@ export function CreateAppointmentDialog({
       }
       visitSavedRef.current = false
       createdPlansRef.current = new Map()
-      setCreatedPatientName(null)
       grantedOverridesRef.current = { ...NO_OVERRIDES }
       // Reset date to the caller's instant, else its day, else today
       setDate(defaultDate || defaultDay || new Date())
@@ -830,7 +805,7 @@ export function CreateAppointmentDialog({
       : isPlanScheduling
         ? presetPatientName ?? null
         : isNewPatient
-          ? [newPatientFirstName.trim(), newPatientLastName.trim()].filter(Boolean).join(" ") || null
+          ? newPatient.typedName
           : selectedPatientName || null,
     colorHex: leadColorHex,
     date,
@@ -857,14 +832,10 @@ export function CreateAppointmentDialog({
   const validateForm = (): boolean => {
     if (!isBusySlot) {
       if (isNewPatient) {
-        if (!newPatientFirstName.trim() || !newPatientLastName.trim()) {
-          setError("Saisissez le prénom et le nom du nouveau patient.")
-          return false
-        }
-        // Optional, reconciled with the patient form: the column is nullable and this door is where a walk-in is
-        // booked, often with a name alone. A number that IS given must still be deliverable.
-        if (newPatientPhone.trim() && !isDeliverablePhone(newPatientPhone, newPatientPhoneCountry)) {
-          setError(PHONE_ERROR_FR)
+        // A name is required, a number only if given (`useInlineNewPatient.validate`).
+        const invalid = newPatient.validate()
+        if (invalid) {
+          setError(invalid)
           return false
         }
       } else if (!selectedPatientId) {
@@ -946,46 +917,19 @@ export function CreateAppointmentDialog({
            * The already-created patient is committed and cannot be withdrawn, so the retry books the appointment
            * onto it. Nothing else in this function needs to know a retry is in progress.
            */
-          if (createdPatientIdRef.current) {
-            patientId = createdPatientIdRef.current
-          } else {
-            try {
-              const newPatient = await patientsApi.create({
-                firstName: newPatientFirstName.trim(),
-                lastName: newPatientLastName.trim(),
-                phoneNumber: newPatientPhone.trim() || null,
-                // The country control's own value — without it the server reads every number as Tunisian and
-                // refuses a foreign one that this dialog's own pre-check has already accepted.
-                phoneRegion: newPatientPhoneCountry,
-                // Absent on the first attempt: the server checks whether this person is already on file and
-                // refuses with `PatientDuplicate` if so. Only a confirmed prompt sets it.
-                allowDuplicate: granted.duplicatePatient || undefined,
-              })
-              patientId = newPatient.id
-              createdPatientIdRef.current = newPatient.id
-              setCreatedPatientName(`${newPatient.firstName} ${newPatient.lastName}`.trim())
-            } catch (err) {
-              // « Ce patient existe déjà » is a question, not a dead end — two people really can share a name, and
-              // this form is also where a walk-in with nothing but a name is registered. Guarded on the grant so a
-              // refusal that somehow persists surfaces as a real error instead of reopening the same prompt.
-              if (
-                err instanceof ApiError &&
-                err.code === ApiErrorCode.PatientDuplicate &&
-                !granted.duplicatePatient
-              ) {
-                setDuplicatePatientPrompt(err.message)
-                setLoading(false)
-                return
-              }
-              if (err instanceof ApiError) {
-                setError(`Échec de la création du patient : ${err.message}`)
-              } else {
-                setError("Échec de la création du patient")
-              }
-              setLoading(false)
-              return
-            }
+          const created = await newPatient.ensureCreated(granted.duplicatePatient)
+          if (created.kind === "duplicate") {
+            // « Ce patient existe déjà » is a question, not a dead end — two people really can share a name.
+            setDuplicatePatientPrompt(created.message)
+            setLoading(false)
+            return
           }
+          if (created.kind === "failed") {
+            setError(created.error)
+            setLoading(false)
+            return
+          }
+          patientId = created.id
         }
       }
 
@@ -1117,13 +1061,12 @@ export function CreateAppointmentDialog({
     dirty: true,
     state: {
       isBusySlot, isNewPatient, selectedPatientId,
-      newPatientFirstName, newPatientLastName, newPatientPhone, newPatientPhoneCountry,
+      newPatient: newPatient.snapshot(),
       acts: selectedActs, durationTouched,
       day: date ? date.toISOString() : null,
       doctorId: selectedDoctorId,
       startHour, startMinute, useEndTime, endHour, endMinute, duration,
       notes, showNotes,
-      createdPatientId: createdPatientIdRef.current,
     },
     restore: (s, draft) => {
       // Seeded, not changed: the patient-change effect must not drop the devis acts restored with it.
@@ -1131,10 +1074,9 @@ export function CreateAppointmentDialog({
       setIsBusySlot(s.isBusySlot)
       setIsNewPatient(s.isNewPatient)
       setSelectedPatientId(s.selectedPatientId)
-      setNewPatientFirstName(s.newPatientFirstName)
-      setNewPatientLastName(s.newPatientLastName)
-      setNewPatientPhone(s.newPatientPhone)
-      setNewPatientPhoneCountry(s.newPatientPhoneCountry)
+      // A patient already created before the switch is booked onto, never created a second time — and one created
+      // on the other server just before the switch may not exist here (`restore` drops it on a 404).
+      newPatient.restore(s.newPatient, draft.origin !== window.location.origin)
       setSelectedActs(s.acts)
       setDurationTouched(s.durationTouched)
       if (s.day) setDate(new Date(s.day))
@@ -1147,19 +1089,6 @@ export function CreateAppointmentDialog({
       setDuration(s.duration)
       setNotes(s.notes)
       setShowNotes(s.showNotes)
-      // A patient already created before the switch is booked onto, never created a second time.
-      if (s.createdPatientId) {
-        const id = s.createdPatientId
-        createdPatientIdRef.current = id
-        // A patient created on the other server just before the switch may not exist here: booked onto, every save fails.
-        if (draft.origin !== window.location.origin) {
-          patientsApi.get(id).catch((err) => {
-            if (err instanceof ApiError && err.status === 404 && createdPatientIdRef.current === id) {
-              createdPatientIdRef.current = null
-            }
-          })
-        }
-      }
     },
   })
 
@@ -1173,7 +1102,7 @@ export function CreateAppointmentDialog({
     setError(null)
     // A fresh submit re-asks every question: the user may have changed the time, the practitioner or the patient
     // since the last one, so a grant given about the previous attempt says nothing about this one. (The created
-    // patient is deliberately NOT reset — see `createdPatientIdRef`.)
+    // patient is deliberately NOT reset — see `useInlineNewPatient`.)
     grantedOverridesRef.current = { ...NO_OVERRIDES }
 
     if (!validateForm()) return
@@ -1252,9 +1181,7 @@ export function CreateAppointmentDialog({
                 if (busy) {
                   setIsNewPatient(false)
                   setSelectedPatientId("")
-                  setNewPatientFirstName("")
-                  setNewPatientLastName("")
-                  setNewPatientPhone("")
+                  newPatient.clearFields()
                   // A busy slot has no patient, so it has no clinical acts either.
                   setSelectedActs([])
                 }
@@ -1331,9 +1258,7 @@ export function CreateAppointmentDialog({
                     if (isNew) {
                       setSelectedPatientId("")
                     } else {
-                      setNewPatientFirstName("")
-                      setNewPatientLastName("")
-                      setNewPatientPhone("")
+                      newPatient.clearFields()
                     }
                   }}
                   options={[
@@ -1343,66 +1268,7 @@ export function CreateAppointmentDialog({
                 />
 
                 {isNewPatient ? (
-                  <div className="space-y-3">
-                    {/*
-                      The patient is created but the appointment is not — the state you are left in when a booking is
-                      refused after the patient went in (a taken slot, closed hours). Saying so is what makes the
-                      read-only fields legible instead of looking broken, and it is the honest answer to « why can I
-                      not correct the name now? »: the record exists, and editing this form cannot reach it.
-                    */}
-                    {patientAlreadyCreated && (
-                      <p
-                        role="status"
-                        className="rounded-md border border-warning/40 bg-warning-wash px-3 py-2 text-xs text-warning-ink"
-                      >
-                        <b>{createdPatientName ?? "Ce patient"}</b> est créé, pas le rendez-vous : réessayez.
-                      </p>
-                    )}
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="firstName" className="text-sm">
-                          Prénom *
-                        </Label>
-                        <Input
-                          id="firstName"
-                          placeholder="Mohamed"
-                          value={newPatientFirstName}
-                          onChange={(e) => setNewPatientFirstName(e.target.value)}
-                          className="h-10"
-                          disabled={patientAlreadyCreated}
-                          required
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="lastName" className="text-sm">
-                          Nom *
-                        </Label>
-                        <Input
-                          id="lastName"
-                          placeholder="Ben Salah"
-                          value={newPatientLastName}
-                          onChange={(e) => setNewPatientLastName(e.target.value)}
-                          className="h-10"
-                          disabled={patientAlreadyCreated}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="newPatientPhone" className="text-sm">
-                        Téléphone
-                      </Label>
-                      <PhoneField
-                        id="newPatientPhone"
-                        placeholder="Ex. 20 123 456"
-                        value={newPatientPhone}
-                        onChange={setNewPatientPhone}
-                        country={newPatientPhoneCountry}
-                        onCountryChange={setNewPatientPhoneCountry}
-                        disabled={patientAlreadyCreated}
-                      />
-                    </div>
-                  </div>
+                  <NewPatientFields patient={newPatient} />
                 ) : (
                   <div className="space-y-2">
                     {/* Visually hidden: the « Patient * » heading two rows up already names this field, and a
@@ -1915,50 +1781,20 @@ export function CreateAppointmentDialog({
       deleted afterwards, so it is the irreversible choice and is styled as one — the ordinary answer is to close this,
       turn « Nouveau patient » off and pick the existing patient from the list.
     */}
-    <AlertDialog
-      open={duplicatePatientPrompt !== null}
-      onOpenChange={(o) => { if (!o) setDuplicatePatientPrompt(null) }}
-    >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            {recapModel.patientName
-              ? `Créer quand même un dossier pour ${recapModel.patientName} ?`
-              : "Créer quand même ce patient ?"}
-          </AlertDialogTitle>
-          <AlertDialogDescription asChild>
-            <BookingPromptFacts message={duplicatePatientPrompt} />
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          {/* Named after what it does, and it does it: the safe answer is not « annuler the booking » but « this is
-              the patient you already have », so this switches the form back to the picker and clears what was typed
-              — the same thing the « Nouveau patient » switch does when turned off. Nothing was created, so there is
-              nothing to keep. */}
-          <AlertDialogCancel
-            disabled={loading}
-            onClick={() => {
-              setIsNewPatient(false)
-              setNewPatientFirstName("")
-              setNewPatientLastName("")
-              setNewPatientPhone("")
-            }}
-          >
-            Choisir un patient existant
-          </AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            onClick={() => {
-              setDuplicatePatientPrompt(null)
-              void performCreate({ duplicatePatient: true })
-            }}
-            disabled={loading}
-          >
-            Créer quand même
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <DuplicatePatientDialog
+      message={duplicatePatientPrompt}
+      patientName={recapModel.patientName}
+      busy={loading}
+      onDismiss={() => setDuplicatePatientPrompt(null)}
+      onPickExisting={() => {
+        setIsNewPatient(false)
+        newPatient.clearFields()
+      }}
+      onCreateAnyway={() => {
+        setDuplicatePatientPrompt(null)
+        void performCreate({ duplicatePatient: true })
+      }}
+    />
 
     {planSteps.stepsDialog}
       <DiscardChangesDialog guard={guard} />
