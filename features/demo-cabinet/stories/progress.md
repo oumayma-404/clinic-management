@@ -500,3 +500,25 @@ Off-plan, not changed: the agenda's « non synchronisé » badge shows on every 
 - Still a minus: « Aujourd'hui » (nothing recorded yet today, Net 0) and two grey drops on « 7 derniers jours » (today is in the window but empty).
 - Not changed: the « À traiter » counts (séances à clôturer, prothèse en retard) keep their red — they are work to do, not results.
 - Verified: 6 216 tests pass; tsc + check:responsive 85/85; cabinet rebuilt, Net 3 196 DT on the 30 days; eye check at 1440 / 820 / 640.
+
+## Story 7 — server prep on the VPS (2026-11-04, owner's OK « run A to D »)
+
+| Step | Done | Checks |
+|---|---|---|
+| DNS | owner added `demo.apexa.tn A 51.68.199.7` (OVH) | resolves on 8.8.8.8 · 1.1.1.1 · dns1.tn.ovh.net |
+| A database | role `clinic_demo` (CONNECTION LIMIT 25, statement + idle-in-tx timeouts 60 s), database `clinic_demo`; `REVOKE CONNECT … FROM PUBLIC` on production's DB (only role there is `clinic_user`) | demo role refused on production's DB, opens its own |
+| B storage | bucket `clinic-demo`, user `clinic-demo` with policy `clinic-demo-only` | refused on `clinic-files`, writes + deletes in `clinic-demo` |
+| C secrets | 4 `secrets/demo-*`, `1654:1001`, `0440` | signing key differs from production's; pfx opens |
+| D `.env` | backup `.env.bak-demo-20261104`; 4 `DEMO_*` lines | overlay resolves; api/web/console/postgres/minio/backup/pitr/certs identical with and without it; caddy gains only `DEMO_DOMAIN` + the site mount |
+
+Production `/health` 200 before and after every step. Pre-deploy reads: 11.6 GB RAM (9.7 free), 6 CPUs, 47 GB disk free, 14/100 DB connections.
+Runbook fixed after use: never `. ./.env` (values with spaces execute); MinIO root creds read inside the container.
+Not yet: the deploy (needs the owner's OK).
+
+### First deploy (2026-11-04, run 41925258814) — stopped safely before the swap
+- Failed at « Put the new proxy config in place »: the pre-swap `caddy validate` gave every hostname placeholder the
+  same dummy (`validate.invalid`), so `{$DOMAIN}` and `{$DEMO_DOMAIN}` collided — « ambiguous site definition ».
+- Production untouched: same image (`66ecc657`), snapshot before/after identical except the relay heartbeat.
+- Fix: one dummy per placeholder (`domain.validate.invalid`, `demo-domain.validate.invalid`); reproduced red with the
+  old values, green with the new (with and without the demo site); guard `The_Proxy_Validation_Gives_Each_Site_Its_Own_Address`.
+- Missed by the review and the local rehearsal because both used real, distinct host names.
