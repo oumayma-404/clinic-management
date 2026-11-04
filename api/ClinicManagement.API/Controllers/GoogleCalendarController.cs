@@ -345,6 +345,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// </summary>
     [AllowAnonymous]
     [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
+    [RefusedInDemo("Completes a Google connection, which writes tokens to the cabinet.")]
     [HttpGet("callback")]
     public async Task<IActionResult> Callback([FromQuery] string? code, [FromQuery] string? error, [FromQuery] string? state, CancellationToken cancellationToken = default)
     {

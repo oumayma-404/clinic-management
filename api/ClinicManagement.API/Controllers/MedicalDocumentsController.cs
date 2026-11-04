@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.RateLimiting;
+using ClinicManagement.API.Startup;
 using ClinicManagement.Application.Common.Files;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
@@ -303,6 +305,7 @@ public class MedicalDocumentsController : ApiControllerBase
     /// needs, and what was missing: the only renderer before this took the whole document in the body, so a
     /// caller had to re-compose it in the browser.
     /// </summary>
+    [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpGet("{id}/pdf")]
     public async Task<ActionResult> GetDocumentPdf(Guid id, CancellationToken cancellationToken = default)
     {
@@ -328,6 +331,8 @@ public class MedicalDocumentsController : ApiControllerBase
     /// it would offer a sheet that cannot be issued.
     /// </para>
     /// </summary>
+    [AllowedInDemo("The ordonnance aperçu: renders a PDF and persists nothing.")]
+    [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpPost("fiche-ordonnance-preview")]
     public async Task<ActionResult> PreviewFicheOrdonnance(
         [FromBody] PreviewFicheOrdonnanceQuery query,
@@ -342,6 +347,8 @@ public class MedicalDocumentsController : ApiControllerBase
         return File(result.Value.Pdf, "application/pdf", result.Value.FileName);
     }
 
+    [AllowedInDemo("Printing a document: renders the PDF from the body and persists nothing.")]
+    [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpPost("generate-pdf-download")]
     [AllowsWithoutSubscription(
         "AC-4.9 — a request that looks like a write but only renders: it takes the document in the BODY, loads "

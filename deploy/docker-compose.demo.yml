@@ -1,0 +1,124 @@
+# The public demo cabinet (demo.apexa.tn, `features/demo-cabinet/`) beside production, on the same server.
+#
+# Added to the deploy only when the server's `.env` carries `DEMO_DOMAIN` (`deploy-hosted.yml`), and always AFTER
+# `docker-compose.hosted.yml` + `docker-compose.registry.yml`:
+#
+#   docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml -f docker-compose.demo.yml up -d
+#
+# ⚠️ Name this file in EVERY compose command once the demo exists — the workflow's `--remove-orphans` would
+# otherwise delete `api-demo` / `web-demo` as orphans of the production stack.
+#
+# Same images as production (the tag the deploy just pulled), its own everything else: database + role, signing
+# key and issuer (a demo session is refused by production and the reverse — AC-7.2), key ring + certificate,
+# bucket + MinIO user (AC-7.3), and memory/CPU caps so a crowd of visitors cannot starve production (EC-3).
+# Deliberately NO SMTP / Meta / Google / Push / Reminders settings: nothing can leave the demo (AC-7.1).
+# One-time server steps (role, bucket, secrets, DNS): `deploy/demo/README.md`.
+
+services:
+  api-demo:
+    image: ${CLINIC_IMAGE_PREFIX:-ghcr.io/oumayma-404/clinic}-api:${CLINIC_IMAGE_TAG:-latest}
+    container_name: clinic-api-demo
+    restart: unless-stopped
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5000
+      Deployment__Profile: PublicDemo
+      Console__Port: "0"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${DEMO_POSTGRES_DB:-clinic_demo};Username=${DEMO_POSTGRES_USER:-clinic_demo};Password=${DEMO_POSTGRES_PASSWORD};SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt"
+      Auth__Local__SigningKey_FILE: /run/secrets/demo_auth_local_signing_key
+      Auth__Local__Issuer: apexa-demo
+      Auth__Local__Audience: apexa-demo-api
+      Security__TrustedProxies__0: ${INTERNAL_SUBNET:-172.20.0.0/16}
+      FrontendUrl: "https://${DEMO_DOMAIN}"
+      # « Créer mon cabinet gratuitement » opens the site's download section (the app is installed, then the cabinet created).
+      Demo__SignupUrl: "${DEMO_SIGNUP_URL:-https://apexa.tn/#telecharger}"
+      # true = build a fresh cabinet at this start (the runbook's « rebuild now »); leave it false otherwise.
+      Demo__RebuildOnStart: ${DEMO_REBUILD_ON_START:-false}
+      DataProtection__KeyRingPath: /keys
+      DataProtection__CertificatePath: /run/secrets/demo_keyring_certificate
+      DataProtection__CertificatePassword_FILE: /run/secrets/demo_keyring_certificate_password
+      DataProtection__GenerationMarkerPath: /keyring-marker/generation
+      MinIO__Endpoint: "minio:9000"
+      MinIO__AccessKey: ${DEMO_MINIO_ACCESS_KEY}
+      MinIO__SecretKey: ${DEMO_MINIO_SECRET_KEY}
+      MinIO__BucketName: ${DEMO_MINIO_BUCKET:-clinic-demo}
+      MinIO__UseSSL: "true"
+      MinIO__RootCertificate: /certs/ca.crt
+      Serilog__RetainedFileCountLimit: "7"
+      Security__EnforceCsp: "true"
+      Audit__ChainKey_FILE: /run/secrets/demo_audit_chain_key
+    volumes:
+      - demo_dataprotection_keys:/keys
+      - internal_certs:/certs:ro
+      - demo_keyring_marker:/keyring-marker
+      - demo_api_logs:/app/logs
+    secrets:
+      - demo_keyring_certificate
+      - demo_keyring_certificate_password
+      - demo_audit_chain_key
+      - demo_auth_local_signing_key
+    networks: [internal]
+    mem_limit: ${DEMO_API_MEMORY:-768m}
+    cpus: ${DEMO_API_CPUS:-1.0}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:5000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 30s
+
+  web-demo:
+    image: ${CLINIC_IMAGE_PREFIX:-ghcr.io/oumayma-404/clinic}-web:${CLINIC_IMAGE_TAG:-latest}
+    container_name: clinic-web-demo
+    restart: unless-stopped
+    depends_on:
+      - api-demo
+    environment:
+      NODE_ENV: production
+      AUTH_MODE: local
+      API_INTERNAL_URL: http://api-demo:5000/api
+      AUTH_COOKIE_SECURE: "true"
+    networks: [internal]
+    mem_limit: ${DEMO_WEB_MEMORY:-384m}
+    cpus: ${DEMO_WEB_CPUS:-0.5}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/demo').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    stop_grace_period: 30s
+
+  # The demo's site rides in its own file, mounted only here, so production's Caddy is unchanged without this overlay.
+  caddy:
+    environment:
+      DEMO_DOMAIN: ${DEMO_DOMAIN}
+    volumes:
+      - ./demo/Caddyfile.demo:/etc/caddy/sites/demo.caddy:ro
+
+secrets:
+  demo_keyring_certificate:
+    file: ${DEMO_KEYRING_CERTIFICATE_FILE:-./secrets/demo-keyring-certificate.pfx}
+  demo_keyring_certificate_password:
+    file: ${DEMO_KEYRING_CERTIFICATE_PASSWORD_FILE:-./secrets/demo-keyring-certificate-password}
+  demo_audit_chain_key:
+    file: ${DEMO_AUDIT_CHAIN_KEY_FILE:-./secrets/demo-audit-chain-key}
+  demo_auth_local_signing_key:
+    file: ${DEMO_AUTH_LOCAL_SIGNING_KEY_FILE:-./secrets/demo-auth-local-signing-key}
+
+volumes:
+  demo_dataprotection_keys:
+  demo_keyring_marker:
+  demo_api_logs:

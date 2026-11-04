@@ -14,6 +14,11 @@ import { authApi, type AuthModeDto } from "@/lib/api/auth"
  */
 let cached: Promise<AuthModeDto> | null = null
 
+/** The one cached `GET /api/auth/mode` read, for any capability a screen needs (the demo flag reads it too). */
+export function loadAuthMode(): Promise<AuthModeDto> {
+  return load()
+}
+
 function load(): Promise<AuthModeDto> {
   if (!cached) {
     cached = authApi.getMode().catch((error) => {

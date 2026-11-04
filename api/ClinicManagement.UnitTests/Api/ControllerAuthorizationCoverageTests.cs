@@ -89,6 +89,10 @@ public class ControllerAuthorizationCoverageTests
                                      // password AND code, checked by running the sign-in itself (its lockout, its
                                      // replay guard), whose session is ended before the answer leaves. Under
                                      // /api/auth so the sign-in's per-account rate limit applies.
+        "Auth.DemoSession",          // demo-cabinet US-1: « Entrer dans la démo » — a visitor of the PUBLIC DEMO has no
+                                     // account by design. It mints a session for the fictional demo dentist only,
+                                     // 404 before the mediator anywhere IssuesDemoSessions is false, rate-limited
+                                     // per address, on a deployment with its own database and signing key.
         "Auth.Logout",              // REVOKES the session server-side. Anonymous for `Auth.Refresh`'s reason and
                                      // one more: the credential in the body IS the authentication, and demanding
                                      // a valid access token would refuse exactly the case that most needs

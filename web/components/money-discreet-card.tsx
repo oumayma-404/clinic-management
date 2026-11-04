@@ -12,6 +12,7 @@ import { ApiError, ApiErrorCode } from "@/lib/api/client"
 import { clinicsApi, SHOW_MONEY_STEP_UP_ACTION } from "@/lib/api/clinics"
 import { securityApi } from "@/lib/api/security"
 import { showErrorToast } from "@/lib/errors"
+import { useDemo } from "@/lib/demo/demo-context"
 import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 
@@ -32,6 +33,7 @@ export function MoneyDiscreetCard() {
   const [totp, setTotp] = useState<TotpKnowledge>("unknown")
   const [busy, setBusy] = useState(false)
   const [stepUpOpen, setStepUpOpen] = useState(false)
+  const { isDemo } = useDemo()
 
   useEffect(() => {
     let cancelled = false
@@ -47,7 +49,8 @@ export function MoneyDiscreetCard() {
   }, [])
 
   const hidden = visibility === "hidden"
-  const noAuthenticator = totp === "absent"
+  // The demo dentist has no authenticator by design: the press is refused with the demo notice instead (FR-4).
+  const noAuthenticator = totp === "absent" && isDemo === false
 
   const refuseIfNotEnrolled = (err: unknown): boolean => {
     if (err instanceof ApiError && err.code === ApiErrorCode.TotpNotEnrolled) {

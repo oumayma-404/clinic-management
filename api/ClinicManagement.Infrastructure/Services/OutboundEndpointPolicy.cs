@@ -33,6 +33,8 @@ public class OutboundEndpointPolicy : IOutboundEndpointPolicy
         DeploymentKind.SelfHostedLan => true,
         // A PC de secours sends nothing outbound but to the cloud; it keeps the LAN server's rule.
         DeploymentKind.ClinicRelay => true,
+        // The demo sends nothing out at all, and its admin is every visitor.
+        DeploymentKind.PublicDemo => false,
         _ => false,
     };
 }

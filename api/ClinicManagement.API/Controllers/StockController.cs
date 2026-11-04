@@ -41,6 +41,7 @@ public class StockController : ApiControllerBase
     /// first-class case rather than as a huge page. That is what makes « honours the current filters, exports the
     /// whole filtered set, never the current page » true by construction rather than by discipline.</para>
     /// </summary>
+    [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("export")]
     public async Task<ActionResult> ExportStock(
         [FromQuery] bool lowStockOnly = false,

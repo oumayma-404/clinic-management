@@ -35,6 +35,8 @@ import { ZONES, zoneChipClass } from "@/lib/zones"
 import { toast } from "sonner"
 import { refusalFor } from "@/lib/api/upload-policy"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 import Image from "next/image"
 import { clinicsApi, type ClinicDto } from "@/lib/api/clinics"
 import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
@@ -57,6 +59,7 @@ import {
 } from "@/lib/working-hours"
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
 import { formatAmount, parseAmountInput } from "@/lib/format"
+import { showErrorToast } from "@/lib/errors"
 
 /**
  * The icon chip every section header on this page wears.
@@ -130,6 +133,7 @@ export default function ClinicSettings() {
   const { accessToken } = useAuthToken()
   const { mode, user } = useSession()
   const policy = useUploadPolicy("profile-image")
+  const { isDemo } = useDemo()
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -300,6 +304,7 @@ export default function ClinicSettings() {
     // same file fires no `change` event.
     e.target.value = ""
     if (!file) return
+    if (refuseInDemo(isDemo)) return
 
     // ⚠️ The served policy, not `image/*`. The server's door takes PNG and JPEG only and caps them well below the
     // patient drawer's ceiling, so a WebP or an oversized logo was accepted here and refused there — after the
@@ -450,7 +455,7 @@ export default function ClinicSettings() {
       toast.success("Informations du cabinet enregistrées.")
       setIsEditingClinicInfo(false)
     } catch (error: any) {
-      toast.error(error.message || "Échec de l'enregistrement des informations du cabinet. Veuillez réessayer.")
+      showErrorToast(error, "Échec de l'enregistrement des informations du cabinet. Veuillez réessayer.")
     } finally {
       setIsSaving(false)
     }
@@ -537,7 +542,7 @@ export default function ClinicSettings() {
       toast.success(successMessage)
       setIsEditingDoctors(false)
     } catch (error: any) {
-      toast.error(error.message || "Échec de l'enregistrement des informations des médecins. Veuillez réessayer.")
+      showErrorToast(error, "Échec de l'enregistrement des informations des médecins. Veuillez réessayer.")
     } finally {
       setIsSaving(false)
     }
@@ -577,7 +582,7 @@ export default function ClinicSettings() {
       toast.success("Paramètres de facturation enregistrés.")
       setIsEditingBilling(false)
     } catch (error: any) {
-      toast.error(error.message || "Échec de l'enregistrement des paramètres de facturation.")
+      showErrorToast(error, "Échec de l'enregistrement des paramètres de facturation.")
     } finally {
       setIsSaving(false)
     }
@@ -619,7 +624,7 @@ export default function ClinicSettings() {
       toast.success("Horaires enregistrés.")
       setIsEditingHours(false)
     } catch (error: any) {
-      toast.error(error.message || "Échec de l'enregistrement des horaires.")
+      showErrorToast(error, "Échec de l'enregistrement des horaires.")
     } finally {
       setIsSaving(false)
     }

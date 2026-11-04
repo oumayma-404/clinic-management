@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -37,11 +38,13 @@ public class ClinicHub : Hub
 
     private readonly IUserRepository _userRepository;
     private readonly StaffPresence _presence;
+    private readonly IDemoPolicy _demo;
 
-    public ClinicHub(IUserRepository userRepository, StaffPresence presence)
+    public ClinicHub(IUserRepository userRepository, StaffPresence presence, IDemoPolicy demo)
     {
         _userRepository = userRepository;
         _presence = presence;
+        _demo = demo;
     }
 
     public override async Task OnConnectedAsync()
@@ -51,6 +54,13 @@ public class ClinicHub : Hub
         {
             await Groups.AddToGroupAsync(Context.ConnectionId, ClinicGroups.Name(user.ClinicId));
             await Groups.AddToGroupAsync(Context.ConnectionId, ClinicGroups.User(user.ClinicId, user.Id));
+
+            // demo-cabinet EC-3: every visitor is the same account, so an arrival must not refresh another visitor.
+            if (_demo.RefusesWrites)
+            {
+                await base.OnConnectedAsync();
+                return;
+            }
 
             Context.Items[PresenceKey] = (user.ClinicId, user.Id);
             if (_presence.Connected(user.ClinicId, user.Id))

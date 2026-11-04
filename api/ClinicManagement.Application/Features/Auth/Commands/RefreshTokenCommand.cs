@@ -34,11 +34,15 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
     // expired token, a revoked one and a forged one must be indistinguishable.
     private const string InvalidSessionError = "Votre session n'est plus valide. Veuillez vous reconnecter.";
 
+    /// <summary>Why a demo visitor's family ended — read in « Mes appareils » and by an operator.</summary>
+    public const string DemoSessionEndedReason = "Session de démonstration terminée.";
+
     private readonly IUserRepository _userRepository;
     private readonly ILocalAuthService _localAuthService;
     private readonly ISessionFamilyRepository _sessionFamilies;
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notifications;
+    private readonly IDemoPolicy _demo;
     private readonly ILogger<RefreshTokenCommandHandler> _logger;
 
     public RefreshTokenCommandHandler(
@@ -47,6 +51,7 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
         ISessionFamilyRepository sessionFamilies,
         IUnitOfWork unitOfWork,
         INotificationGenerator notifications,
+        IDemoPolicy demo,
         ILogger<RefreshTokenCommandHandler> logger)
     {
         _userRepository = userRepository;
@@ -54,6 +59,7 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
         _sessionFamilies = sessionFamilies;
         _unitOfWork = unitOfWork;
         _notifications = notifications;
+        _demo = demo;
         _logger = logger;
     }
 
@@ -140,10 +146,32 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
                 }
             }
 
+            // demo-cabinet FR-3: a demo session ends at a fixed time from its first minute, however often it refreshes.
+            DateTime? demoSessionEnd = null;
+            if (_demo.IssuesDemoSessions)
+            {
+                if (family is null)
+                {
+                    return Result<LoginResultDto>.Failure(InvalidSessionError);
+                }
+
+                var end = family.CreatedAt + _demo.SessionLifetime;
+                if (DateTime.UtcNow >= end)
+                {
+                    family.End(DemoSessionEndedReason);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    return Result<LoginResultDto>.Failure(InvalidSessionError);
+                }
+
+                demoSessionEnd = end;
+            }
+
             // A pending forced password change is NOT a refusal: the change-password screen itself needs a
             // working access token to submit. The enforcement middleware already restricts such a token to
             // that one endpoint, so surfacing the flag is enough.
-            var accessToken = _localAuthService.GenerateToken(user, family?.Id);
+            var accessToken = demoSessionEnd is { } accessEnd
+                ? _localAuthService.GenerateToken(user, family!.Id, accessEnd)
+                : _localAuthService.GenerateToken(user, family?.Id);
 
             // The durable credential is re-minted too, and the BFF re-sets its cookie with it. Returning only an
             // access token left the cookie holding the token issued at login, so the session died 12 h after
@@ -157,8 +185,9 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, R
             //
             // A credential with no family — one minted before families existed — is untrusted, which is both the
             // safe answer and the true one.
-            var refreshToken = _localAuthService.GenerateRefreshToken(
-                user, family?.Id, family?.IsTrusted ?? false);
+            var refreshToken = demoSessionEnd is { } sessionEnd
+                ? _localAuthService.GenerateRefreshToken(user, family!.Id, family.IsTrusted, sessionEnd)
+                : _localAuthService.GenerateRefreshToken(user, family?.Id, family?.IsTrusted ?? false);
 
             if (family is not null)
             {

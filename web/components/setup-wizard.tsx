@@ -28,6 +28,8 @@ import { getErrorMessage } from "@/lib/errors"
 import { toast } from "sonner"
 import { refusalFor } from "@/lib/api/upload-policy"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 
 const tunisianGovernorates = TUNISIAN_GOVERNORATES
 
@@ -99,6 +101,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
    * decides whether the picker is rendered at all, so the fetch and its only consumer cannot drift apart.
    */
   const policy = useUploadPolicy(isSignup ? null : "profile-image")
+  const { isDemo } = useDemo()
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -188,6 +191,7 @@ export default function SetupWizard({ onComplete, flow = "setup" }: SetupWizardP
     // same file fires no `change` event.
     e.target.value = ""
     if (!file) return
+    if (refuseInDemo(isDemo)) return
 
     // ⚠️ The served policy, not `image/*`. The server's door takes PNG and JPEG only and caps them well below the
     // patient drawer's ceiling, so a WebP or an oversized logo was accepted here and refused there — after the

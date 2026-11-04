@@ -13,6 +13,8 @@ import { doctorsApi } from "@/lib/api/doctors"
 import { ApiError } from "@/lib/api/client"
 import { acceptHint, refusalFor } from "@/lib/api/upload-policy"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 
 export interface DoctorDocumentIdentityTarget {
   id: string
@@ -55,6 +57,7 @@ export function DoctorDocumentIdentityDialog({
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const policy = useUploadPolicy("profile-image")
+  const { isDemo } = useDemo()
 
   useEffect(() => {
     if (!doctor) return
@@ -67,6 +70,7 @@ export function DoctorDocumentIdentityDialog({
 
   const pickCachet = (file: File | undefined) => {
     if (!file) return
+    if (refuseInDemo(isDemo, setError)) return
     const refusal = policy ? refusalFor(policy, file) : null
     if (refusal) {
       setError(refusal)

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.RateLimiting;
+using ClinicManagement.API.Startup;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MediatR;
@@ -49,6 +51,7 @@ public class InvoicesController : ApiControllerBase
     /// <b>AdminOrDoctor</b>, like <c>invoices/revenue</c>: a CSV of every note d'honoraires is the clinic-wide
     /// money read in a file, and leaving it on the class policy would reopen spec I's hole from a different door.
     /// </remarks>
+    [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("export")]
     [HiddenWhenMoneyMasked]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
@@ -161,6 +164,7 @@ public class InvoicesController : ApiControllerBase
     }
 
     /// <summary>Download the note-d'honoraires PDF.</summary>
+    [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpGet("{id}/pdf")]
     public async Task<IActionResult> GetInvoicePdf(Guid id, CancellationToken cancellationToken = default)
     {
@@ -441,6 +445,7 @@ public class InvoicesController : ApiControllerBase
     }
 
     /// <summary>Download an avoir's PDF — the patient's proof of the refund.</summary>
+    [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpGet("avoirs/{creditNoteId}/pdf")]
     public async Task<IActionResult> GetCreditNotePdf(Guid creditNoteId, CancellationToken cancellationToken = default)
     {

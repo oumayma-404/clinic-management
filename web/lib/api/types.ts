@@ -168,6 +168,8 @@ export interface DashboardPeriodDto {
   toInclusive: string;
   previousFrom: string;
   previousToInclusive: string;
+  /** The last 7 / 30 days rather than the calendar week / month — the public demo only. */
+  rolling?: boolean;
 }
 
 export interface DashboardActivityDto {

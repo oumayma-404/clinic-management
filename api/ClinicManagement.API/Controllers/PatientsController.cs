@@ -76,6 +76,7 @@ public class PatientsController : ApiControllerBase
     /// The step-up token minted by <c>POST /api/auth/step-up</c> for <see cref="ExportStepUpAction"/>.
     /// ⚠️ <b>A header, never the query string</b> — this application's URLs are logged.
     /// </param>
+    [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("export")]
     [EnableRateLimiting(RateLimiting.ListExportPolicy)]
     public async Task<ActionResult> ExportPatients(
@@ -126,6 +127,7 @@ public class PatientsController : ApiControllerBase
     /// hands the archive over; making it admin-only would mean the person asked cannot answer. What makes that
     /// safe is that the export is confirmed, bounded and named in the journal.</para>
     /// </summary>
+    [RefusedInDemo("Hands a patient's whole dossier out of the demo, and records the export.")]
     [HttpGet("{id}/dossier")]
     [EnableRateLimiting(RateLimiting.ListExportPolicy)]
     public async Task<ActionResult> ExportDossier(

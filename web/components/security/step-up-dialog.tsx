@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
-import { FormErrorBanner } from '@/components/ui/form-error-banner'
+import { DemoRefusalNotice, FormErrorBanner } from '@/components/ui/form-error-banner'
 import { TotpCodeField } from '@/components/security/totp-code-field'
 import { securityApi } from '@/lib/api/security'
 import { getErrorMessage } from '@/lib/errors'
+import { useDemo } from '@/lib/demo/demo-context'
 
 interface StepUpDialogProps {
   open: boolean
@@ -50,6 +51,7 @@ export function StepUpDialog({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const fieldRef = useRef<HTMLInputElement>(null)
+  const { isDemo } = useDemo()
 
   useEffect(() => {
     if (!open) {
@@ -77,7 +79,19 @@ export function StepUpDialog({
     }
   }
 
-  const body = (
+  // The demo dentist has no password or authenticator: the action is refused before any prompt (demo-cabinet FR-4).
+  const demoBody = (
+    <div className="space-y-4">
+      <DemoRefusalNotice />
+      <div className="flex justify-end">
+        <Button type="button" variant="outline" className="min-h-11" onClick={() => onOpenChange(false)}>
+          Fermer
+        </Button>
+      </div>
+    </div>
+  )
+
+  const body = isDemo ? demoBody : (
     <form onSubmit={submit} className="space-y-4">
       <FormErrorBanner message={error} />
 

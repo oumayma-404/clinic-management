@@ -40,6 +40,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
 import { cn } from "@/lib/utils"
 import { PatientNameLink } from "@/components/patient-name-link"
+import { showErrorToast } from "@/lib/errors"
 
 const MONEY_CHIP = zoneChipClass(ZONES.money)
 
@@ -181,7 +182,7 @@ export function ChequesTable() {
     } catch (e) {
       // The dialog stays open with the row still named, per the UX floor: a refusal the user cannot re-read is
       // indistinguishable from nothing having happened.
-      toast.error(e instanceof ApiError ? e.message : "Échec de la mise à jour du chèque.")
+      showErrorToast(e, "Échec de la mise à jour du chèque.")
     } finally {
       setMarking(false)
     }

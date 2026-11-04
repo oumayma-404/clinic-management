@@ -1,4 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using ClinicManagement.API.Startup;
 using Microsoft.AspNetCore.Authorization;
 using ClinicManagement.Application.Common.Authorization;
 using MediatR;
@@ -66,6 +68,7 @@ public class BillingController : ApiControllerBase
     /// <b>AdminOrDoctor</b>, matching the two reads it exports. A CSV is strictly more portable than the screen,
     /// so it cannot be laxer than the screen.
     /// </remarks>
+    [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("billing/receivables/export")]
     [HiddenWhenMoneyMasked]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
@@ -90,6 +93,7 @@ public class BillingController : ApiControllerBase
     /// the running balance it had in that window. Exporting a text-filtered subset would produce a « Solde de la
     /// période » column that sums to nothing — the same reason the screen computes the balance before filtering.</para>
     /// </summary>
+    [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("billing/caisse/ledger/export")]
     [HiddenWhenMoneyMasked]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
@@ -277,6 +281,7 @@ public class BillingController : ApiControllerBase
     /// « Chèques à encaisser » as a CSV — the list an owner takes to the bank.
     /// <para>Honours the same filters as the screen, over the whole filtered set (`paging: null`), per L5.</para>
     /// </summary>
+    [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("billing/cheques/export")]
     [HiddenWhenMoneyMasked]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
@@ -302,6 +307,7 @@ public class BillingController : ApiControllerBase
     }
 
     /// <summary>Download the receipt (reçu) PDF for a single invoice payment. 404 if the payment is not found.</summary>
+    [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpGet("payments/{paymentId:guid}/receipt-pdf")]
     public async Task<IActionResult> GetPaymentReceiptPdf(Guid paymentId, CancellationToken cancellationToken = default)
     {

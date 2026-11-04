@@ -7,6 +7,8 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { FormErrorBanner } from '@/components/ui/form-error-banner'
 import { usePasswordMinLength } from '@/lib/hooks/use-password-policy'
+import { useDemo } from '@/lib/demo/demo-context'
+import { refuseInDemo } from '@/lib/demo/refuse-in-demo'
 
 interface ChangePasswordFormProps {
   /** True when the user was forced here by an admin password reset (AC-5.2). */
@@ -22,10 +24,12 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
   // null while unknown (or if the probe failed) — the server still refuses a short password with its own
   // sentence, so an unread floor costs a courtesy check rather than letting a weak password through.
   const minLength = usePasswordMinLength()
+  const { isDemo } = useDemo()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    if (refuseInDemo(isDemo, setError)) return
 
     if (minLength !== null && newPassword.length < minLength) {
       setError(`Le nouveau mot de passe doit contenir au moins ${minLength} caractères.`)

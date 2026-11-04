@@ -677,6 +677,8 @@ try
     builder.Services.AddSingleton<ClinicManagement.API.BackgroundJobs.PushDispatchWake>();
     builder.Services.AddSingleton<IPushDispatchWake>(sp => sp.GetRequiredService<ClinicManagement.API.BackgroundJobs.PushDispatchWake>());
     builder.Services.AddHostedService(sp => sp.GetRequiredService<ClinicManagement.API.BackgroundJobs.PushDispatchWake>());
+    // demo-cabinet: the agenda job leaves a cabinet alone while the demo rebuild is writing it.
+    builder.Services.AddSingleton<ClinicManagement.API.BackgroundJobs.DemoCabinetBuilds>();
 
     // A Windows service is killed by the SCM if it does not report "running" within its ~30s start timeout.
     // Applying the migrations synchronously on a fresh DB (see the migrate block below) exceeded that on first
@@ -1091,6 +1093,10 @@ try
         app.UseMiddleware<ClinicManagement.API.Middleware.LocalAuthEnforcementMiddleware>();
     }
 
+    // demo-cabinet FR-2: the public demo refuses writes (403 demo_read_only). After the token checks so a 401 still wins;
+    // before idempotency so a refused save claims no key. Inert off the PublicDemo kind.
+    app.UseMiddleware<ClinicManagement.API.Middleware.DemoReadOnlyMiddleware>();
+
     // clinic-pc-copy D17: a cabinet's save pressed again is answered again, never recorded twice. After the token checks
     // (a revoked token replays nothing), BEFORE the lease and subscription gates: a save that went through before the
     // cloud locked is still answered « fait » when re-pressed during the lock.
@@ -1273,6 +1279,30 @@ try
     else
     {
         RecurringJob.RemoveIfExists("start-running-appointments");
+    }
+
+    // demo-cabinet: the public demo builds its own cabinet on first boot (or when an operator asks with
+    // Demo:RebuildOnStart=true), inside this host because the scenario runs through the MediatR pipeline.
+    if (profile.IssuesDemoSessions)
+    {
+        if (string.Equals(builder.Configuration["Demo:RebuildOnStart"], "true", StringComparison.OrdinalIgnoreCase))
+        {
+            BackgroundJob.Enqueue<ClinicManagement.API.BackgroundJobs.DemoCabinetRebuilder>(job => job.Rebuild());
+        }
+        else
+        {
+            BackgroundJob.Enqueue<ClinicManagement.API.BackgroundJobs.DemoCabinetRebuilder>(job => job.EnsureCabinet());
+        }
+
+        // FR-7: a fresh cabinet dated to the new day, every night at 03:00 Tunis (Hangfire crons are UTC).
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.DemoCabinetRebuilder>(
+            ClinicManagement.API.BackgroundJobs.DemoCabinetRebuilder.RecurringJobId,
+            job => job.Rebuild(),
+            ClinicManagement.API.BackgroundJobs.DemoCabinetRebuilder.NightlyCron);
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists(ClinicManagement.API.BackgroundJobs.DemoCabinetRebuilder.RecurringJobId);
     }
 
     // Approaching-expiry stock alerts (AC-P4.6) — daily, deliberately NOT connectivity-gated: the alert is

@@ -3,7 +3,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
 import { usePathname } from "next/navigation"
 import { CloudOff, RefreshCw, ServerCog, WifiOff } from "lucide-react"
-import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 
@@ -12,6 +11,7 @@ import { relayApi, type RelayBannerDto } from "@/lib/api/relay"
 import { useSession } from "@/lib/auth/session"
 import { isChromeLessPath } from "@/lib/nav"
 import { cn } from "@/lib/utils"
+import { showErrorToast } from "@/lib/errors"
 
 /**
  * The cut's strip on every screen (`clinic-pc-copy` AC-3.4, AC-4.1, AC-5.2, EC-20, D20): on the PC de secours « Internet
@@ -86,7 +86,7 @@ function TakeOverButton() {
           await relayApi.takeOver()
           await refresh()
         } catch (error) {
-          toast.error(error instanceof ApiError ? error.message : "Le PC de secours n'a pas pu prendre le relais.")
+          showErrorToast(error, "Le PC de secours n'a pas pu prendre le relais.")
         } finally {
           setBusy(false)
         }

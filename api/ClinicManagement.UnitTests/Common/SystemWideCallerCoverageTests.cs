@@ -55,7 +55,9 @@ public class SystemWideCallerCoverageTests
                                       + "declaration here would throw",
         // The same shape: it opens a scope and calls PushDispatchJob.DispatchQueuedPushes, nothing else.
         ["PushDispatchWake.cs"] = "delegates wholly to PushDispatchJob, which declares UseSystemWide in the scope "
-                                  + "this opens for it; a second declaration there would throw"
+                                  + "this opens for it; a second declaration there would throw",
+        ["DemoCabinetBuilds.cs"] = "an in-memory set of clinic ids; no job, no scope and no DbContext",
+        ["DemoCabinetRebuild.cs"] = "orders a rebuild's steps; every step that reads declares its own scope in DemoCabinetRebuilder"
     };
 
     /// <summary>

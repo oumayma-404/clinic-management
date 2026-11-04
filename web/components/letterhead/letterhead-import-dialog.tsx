@@ -23,6 +23,8 @@ import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 import { clinicsApi, type ClinicLetterheadDto, type LetterheadBands } from "@/lib/api/clinics"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 import { getErrorMessage } from "@/lib/errors"
 import { downloadBlob } from "@/lib/download"
 import { ACCEPTED_SOURCES, SHARP_SOURCE_WIDTH_PX, loadPageImage } from "@/lib/letterhead/page-image"
@@ -56,6 +58,7 @@ interface LetterheadImportDialogProps {
 export function LetterheadImportDialog({ open, onOpenChange, version, onSaved }: LetterheadImportDialogProps) {
   const policy = useUploadPolicy("letterhead-band")
   const conflict = useConflict()
+  const { isDemo } = useDemo()
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -105,6 +108,7 @@ export function LetterheadImportDialog({ open, onOpenChange, version, onSaved }:
 
   const pickFile = useCallback(async (file: File | undefined) => {
     if (!file) return
+    if (refuseInDemo(isDemo, conflict.setError)) return
     conflict.setError(null)
     setBusy("reading")
     try {
@@ -126,7 +130,7 @@ export function LetterheadImportDialog({ open, onOpenChange, version, onSaved }:
       setBusy(null)
       if (inputRef.current) inputRef.current.value = ""
     }
-  }, [conflict])
+  }, [conflict, isDemo])
 
   const showPreview = useCallback(async () => {
     if (!page) return

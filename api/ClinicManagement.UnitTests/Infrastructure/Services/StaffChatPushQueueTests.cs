@@ -53,7 +53,12 @@ public class StaffChatPushQueueTests
 
             Queue = new StaffChatPushQueue(
                 deviceRepo.Object, deliveries.Object, unitOfWork.Object, availability.Object,
-                new ConfigurationBuilder().Build(), wake.Object, NullLogger<StaffChatPushQueue>.Instance);
+                // Quiet hours off (start == end): they hold a push until morning, so this class failed every evening.
+                new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Reminders:QuietHoursStartLocal"] = "0",
+                    ["Reminders:QuietHoursEndLocal"] = "0",
+                }).Build(), wake.Object, NullLogger<StaffChatPushQueue>.Instance);
         }
     }
 

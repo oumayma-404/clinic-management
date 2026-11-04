@@ -54,6 +54,7 @@ import {
   invoiceStatusLabel, invoiceStatusBadgeClass,
   paymentMethodLabel, PAYMENT_METHODS,
 } from "./invoice-labels"
+import { showErrorToast } from "@/lib/errors"
 
 /** « Factures » is the Finances zone — an empty state here wears the hue the rail and the eyebrow already do. */
 const MONEY_CHIP = zoneChipClass(ZONES.money)
@@ -253,7 +254,7 @@ export function InvoicesTable({
       )
       afterMutation()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'émission.")
+      showErrorToast(err, "Échec de l'émission.")
     } finally {
       setBusyId(null)
     }
@@ -275,7 +276,7 @@ export function InvoicesTable({
       // pre-issue snapshot here would ask the dentist to collect the full amount a second time.
       setPaymentTarget(issued)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'émission.")
+      showErrorToast(err, "Échec de l'émission.")
     } finally {
       setBusyId(null)
     }

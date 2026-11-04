@@ -60,6 +60,7 @@ import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { showErrorToast } from "@/lib/errors"
 
 /** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code du cabinet ». */
 const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
@@ -240,8 +241,7 @@ export function UserManagement() {
       }
       setPending(null)
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "L'action a échoué. Veuillez réessayer."
-      toast.error(message)
+      showErrorToast(err, "L'action a échoué. Veuillez réessayer.")
     } finally {
       setWorking(false)
     }

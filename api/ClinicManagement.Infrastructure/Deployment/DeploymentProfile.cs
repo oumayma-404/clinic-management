@@ -17,7 +17,10 @@ public enum DeploymentKind
     HostedMultiTenant,
 
     /// <summary>« PC de secours »: a cabinet PC holding a live copy of ONE hosted clinic, taking over during a cut (<c>clinic-pc-copy</c>).</summary>
-    ClinicRelay
+    ClinicRelay,
+
+    /// <summary>demo.apexa.tn: a fictional cabinet anonymous visitors walk read-only, on its own database and keys (<c>demo-cabinet</c>).</summary>
+    PublicDemo
 
     // ⚠️ There was a third kind, `CloudBrowser` — one hosted backend reached by a browser with Auth0 as the
     // identity provider — and it is **retired**, not merely unused. The product ships on its own accounts in both
@@ -80,7 +83,10 @@ public sealed class DeploymentProfile
         bool mirrorsCloudClinic,
         bool runsClinicJobs,
         bool dispatchesOutboxes,
-        bool runsCutJobs)
+        bool runsCutJobs,
+        bool protectsKeyRingWithCertificate,
+        bool refusesWrites,
+        bool issuesDemoSessions)
     {
         Kind = kind;
         UsesLocalAccounts = usesLocalAccounts;
@@ -108,6 +114,9 @@ public sealed class DeploymentProfile
         RunsClinicJobs = runsClinicJobs;
         DispatchesOutboxes = dispatchesOutboxes;
         RunsCutJobs = runsCutJobs;
+        ProtectsKeyRingWithCertificate = protectsKeyRingWithCertificate;
+        RefusesWrites = refusesWrites;
+        IssuesDemoSessions = issuesDemoSessions;
     }
 
     /// <summary>Which topology this install is.</summary>
@@ -335,6 +344,15 @@ public sealed class DeploymentProfile
     /// </summary>
     public bool RunsCutJobs { get; }
 
+    /// <summary>The Data Protection key ring lives in a directory and must be encrypted with a configured certificate (FR-3.1).</summary>
+    public bool ProtectsKeyRingWithCertificate { get; }
+
+    /// <summary>The public demo: every request that would change stored data is refused with <c>demo_read_only</c>.</summary>
+    public bool RefusesWrites { get; }
+
+    /// <summary>The public demo: an anonymous visitor may open a short session as the demo dentist (<c>POST /api/auth/demo-session</c>).</summary>
+    public bool IssuesDemoSessions { get; }
+
     /// <summary>
     /// May this topology deliver OS push to <paramref name="platform"/> at all? (spec FR-10, AC-51/AC-52.)
     ///
@@ -358,6 +376,8 @@ public sealed class DeploymentProfile
         DeploymentKind.HostedMultiTenant => true,
         // The cloud pushes to the cabinet's phones; a second sender would notify every event twice.
         DeploymentKind.ClinicRelay => false,
+        // Nothing leaves a demo, and no visitor's phone is registered to it.
+        DeploymentKind.PublicDemo => false,
         _ => throw new ArgumentOutOfRangeException(nameof(platform), Kind, "Unhandled deployment kind.")
     };
 
@@ -460,7 +480,11 @@ public sealed class DeploymentProfile
             mirrorsCloudClinic: false,
             runsClinicJobs: true,
             dispatchesOutboxes: true,
-            runsCutJobs: false),
+            runsCutJobs: false,
+            // Machine-scoped DPAPI protects the ring on the clinic's own Windows box.
+            protectsKeyRingWithCertificate: false,
+            refusesWrites: false,
+            issuesDemoSessions: false),
 
         DeploymentKind.HostedMultiTenant => new DeploymentProfile(
             kind,
@@ -505,7 +529,10 @@ public sealed class DeploymentProfile
             mirrorsCloudClinic: false,
             runsClinicJobs: true,
             dispatchesOutboxes: true,
-            runsCutJobs: false),
+            runsCutJobs: false,
+            protectsKeyRingWithCertificate: true,
+            refusesWrites: false,
+            issuesDemoSessions: false),
 
         // A cabinet PC built from the LAN server bundle, holding a copy of one cloud clinic (clinic-pc-copy).
         DeploymentKind.ClinicRelay => new DeploymentProfile(
@@ -539,7 +566,50 @@ public sealed class DeploymentProfile
             // The cloud runs them; the PC runs only the cut's two, and only while it holds the lease (below).
             runsClinicJobs: false,
             dispatchesOutboxes: false,
-            runsCutJobs: true),
+            runsCutJobs: true,
+            // A Windows service like the LAN server: DPAPI, no certificate.
+            protectsKeyRingWithCertificate: false,
+            refusesWrites: false,
+            issuesDemoSessions: false),
+
+        // demo.apexa.tn: the hosted images, a fictional cabinet, anonymous visitors, nothing saved (demo-cabinet).
+        DeploymentKind.PublicDemo => new DeploymentProfile(
+            kind,
+            usesLocalAccounts: true,
+            failClosedAuthz: true,
+            enforcesTokenState: true,
+            // Hosted storage, in a bucket of its own.
+            usesDiskStorage: false,
+            selfHostsFrontDoor: false,
+            selfSignsCertificate: false,
+            runsAsWindowsService: false,
+            // Deferred startup takes a pg_dump before migrating; the demo is rebuilt every night instead.
+            defersMigrations: false,
+            runsStartupBackfills: true,
+            exposesTrustEndpoints: false,
+            hasLocalDbTooling: false,
+            exposesMetaOnboarding: false,
+            allowsSelfRegistration: false,
+            // Visitors create their own cabinet on app.apexa.tn, never here.
+            allowsPublicClinicSignup: false,
+            allowsPasswordResetByEmail: false,
+            servesPlatformConsole: false,
+            requiresSubscription: false,
+            // Nothing in it is worth keeping: the cabinet is rebuilt every night.
+            backsUpItsOwnData: false,
+            sellsVendorMessaging: false,
+            // Every visitor is the demo dentist, and nobody holds an authenticator for her.
+            requiresAdminSecondFactor: false,
+            publishesChangeFeed: false,
+            mirrorsCloudClinic: false,
+            // The agenda must move with the clock (« En cours », « Séance passée ») or « today » looks frozen.
+            runsClinicJobs: true,
+            // No SMS, WhatsApp, e-mail or push ever leaves a demo.
+            dispatchesOutboxes: false,
+            runsCutJobs: false,
+            protectsKeyRingWithCertificate: true,
+            refusesWrites: true,
+            issuesDemoSessions: true),
 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled deployment kind.")
     };

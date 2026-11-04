@@ -242,6 +242,7 @@ public class BackupController : ApiControllerBase
     /// empty <c>fichiers/</c> folder and nothing anywhere naming a limit. It belongs on the ordinary API limiter,
     /// which is what a paged listing is.</para>
     /// </summary>
+    [RefusedInDemo("The archive copy's file listing: backups are not offered in the demo.")]
     [HttpGet("file-manifest")]
     // The file mirror's first call. Named alongside the archive because it is the same unattended flow on the
     // same grant, and it hands back only a list of names and sizes.
@@ -383,6 +384,7 @@ public class BackupController : ApiControllerBase
     }
 
     [OnlineOnly("FR-5 — the clinic archive is downloaded or restored from the cloud only.")]
+    [RefusedInDemo("Hands the whole cabinet out of the demo as an archive.")]
     [HttpGet("archive")]
     [EnableRateLimiting(RateLimiting.ArchivePolicy)]
     // ⚠️ The ONE action a token from ExchangeArchiveGrant can reach. Without this line an authorised

@@ -56,13 +56,16 @@ public class GetMySessionsQueryHandler
 {
     private readonly IClinicContext _clinicContext;
     private readonly ISessionFamilyRepository _sessionFamilies;
+    private readonly IDemoPolicy _demo;
 
     public GetMySessionsQueryHandler(
         IClinicContext clinicContext,
-        ISessionFamilyRepository sessionFamilies)
+        ISessionFamilyRepository sessionFamilies,
+        IDemoPolicy demo)
     {
         _clinicContext = clinicContext;
         _sessionFamilies = sessionFamilies;
+        _demo = demo;
     }
 
     public async Task<Result<IReadOnlyList<SessionDeviceDto>>> Handle(
@@ -88,6 +91,8 @@ public class GetMySessionsQueryHandler
             var currentFamilyId = _clinicContext.GetSessionFamilyId();
 
             var devices = families
+                // demo-cabinet FR-4: every visitor is the same account, so a visitor sees their own session only.
+                .Where(f => !_demo.RefusesWrites || (currentFamilyId is not null && f.Id == currentFamilyId))
                 .Select(f => new SessionDeviceDto(
                     Id: f.Id,
                     DeviceLabel: f.DeviceLabel,

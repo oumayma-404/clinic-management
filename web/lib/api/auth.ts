@@ -109,6 +109,10 @@ export interface AuthModeDto {
   relayFeedEnabled?: boolean;
   /** clinic-pc-copy: this server IS a PC de secours (`=== true`). */
   isClinicRelay?: boolean;
+  /** demo-cabinet: this is the public demo — nothing is saved, and a band says so on every screen (`=== true`). */
+  isDemo?: boolean;
+  /** demo-cabinet: where a demo visitor creates a real cabinet; set only on the demo. */
+  demoSignupUrl?: string | null;
 }
 
 /** What `POST /api/auth/signup` requests. Mirrors the backend `ClinicSignUpRequest`. */

@@ -9,6 +9,12 @@ rendering, local JWT auth (every deployment — Auth0 management is retired with
 self-generated HTTPS trust material, and per-clinic reference-catalog seeding. All wiring lives in
 `Extensions.cs` (`AddInfrastructure`).
 
+> **A fourth kind, `PublicDemo` (`demo-cabinet`)** — demo.apexa.tn: the hosted images on their own database and keys,
+> anonymous visitors, nothing saved. Two capabilities only it holds — **`RefusesWrites`** and **`IssuesDemoSessions`**
+> (reached from Application through `IDemoPolicy`) — and **`ProtectsKeyRingWithCertificate`**, which replaced the two
+> `Kind == HostedMultiTenant` tests in `LocalDataProtection` (true for both hosted kinds). `PermitsOsPush` has an explicit
+> arm: a missing one throws at startup. See `features/demo-cabinet/`.
+>
 > **18 capabilities now** — the newest is **`SellsVendorMessaging`** (`HostedMultiTenant` only): does the *vendor*
 > buy this deployment's WhatsApp messages and meter them per cabinet? Where false the whole
 > `vendor-whatsapp-messaging-quota` feature is **absent** rather than present-and-refusing — no `/rappels` section,
@@ -205,7 +211,7 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
   is null and every global clinic filter is inactive — no `IgnoreQueryFilters()` needed. `SchemaVerificationReader`
   is the only class here that queries **PostgreSQL's own catalog** (`pg_extension`, `pg_constraint`, `pg_index`,
   `information_schema.columns`) over raw ADO, because those views are not in the EF model at all; it also projects
-  the **model's** declared indexes/FKs/precisions so the service can diff the two sides. Note it excludes owned-type
+  the **model's** declared indexes/FKs/precisions so the service can diff the two sides. ⚠️ « admins without a factor holding a live session » is read only where `RequiresAdminSecondFactor` (hosted, PC de secours): on the LAN install and the demo it is the allowed state, and on the demo every visitor is that admin. Note it excludes owned-type
   and table-splitting identity "foreign keys" (`Patients(Id) -> Patients`) — PostgreSQL has no such constraint and
   reporting them produced 7 false positives on the first run.
 - **`UnitOfWork.cs`** — `IUnitOfWork`: wraps `SaveChangesAsync` + `BeginTransaction/Commit/Rollback`.
@@ -834,6 +840,7 @@ no consent flag and no audit of which patient was sent.
   between them behind the text, the only part ever stretched); with no letterhead the page
   is byte-for-byte the old A4 + 2 cm. The four money documents share `ClinicIdentityHeader`. A page that sets its
   own margins ignores the letterhead — `LetterheadRenderTests` fails on it. See `features/document-letterhead/notes.md`.
+- **`SpecimenPdfGenerationService`** + **`SpecimenStamp`** (`demo-cabinet` AC-5.5) — on the demo only (`For(IDemoPolicy, inner)` in `Extensions.cs`), every PDF leaving `IPdfGenerationService` gets a light diagonal « SPÉCIMEN — DÉMONSTRATION », a footer line and `/Keywords`, stamped with PdfSharp on the finished bytes. ⚠️ Not in `DocumentPage`: the P 061 and BS1 overlays never reach it. `SpecimenPdfTests` invokes every interface method through the wrap.
 - **`CnamBs1BulletinRenderer`** (internal) — stamps `bulletin-cnam` data onto the genuine CNAM **BS1** form
   (`Assets/BS1.pdf`) at calibrated coordinates (2-page A4-landscape) using **PdfSharp**; fills only the
   dentist-relevant regions (IDU comb, régime/lien ticks, assuré/malade identity, the 6-row dental acts table incl.

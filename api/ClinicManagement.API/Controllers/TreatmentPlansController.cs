@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.RateLimiting;
+using ClinicManagement.API.Startup;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -44,6 +46,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// cannot see a page to accidentally export.</para>
     /// </summary>
     /// <remarks><b>AdminOrDoctor</b>: a devis carries what a patient owes, and the class policy admits reception.</remarks>
+    [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("export")]
     [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
     public async Task<ActionResult> ExportPlans(
@@ -452,6 +455,7 @@ public class TreatmentPlansController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result) : NoContent();
     }
 
+    [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpGet("{id:guid}/devis-pdf")]
     public async Task<IActionResult> GetDevisPdf(Guid id)
     {
@@ -468,6 +472,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// can hold several payments, and the receipt used to print the cumulative total instead of the money
     /// actually handed over. A voided payment still renders, over-stamped « REÇU ANNULÉ ».
     /// </summary>
+    [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpGet("{id:guid}/installments/{installmentId:guid}/payments/{paymentId:guid}/receipt-pdf")]
     public async Task<IActionResult> GetInstallmentReceiptPdf(Guid id, Guid installmentId, Guid paymentId)
     {

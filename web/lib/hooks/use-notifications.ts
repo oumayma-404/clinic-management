@@ -7,6 +7,7 @@ import { showErrorToast } from "@/lib/errors"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useSession } from "@/lib/auth/session"
+import { useDemo } from "@/lib/demo/demo-context"
 import { queryKeys, realtimeMeta } from "@/lib/query/keys"
 
 /**
@@ -86,7 +87,11 @@ export function useNotifications(isOpen: boolean) {
     if (isOpenRef.current) void refetchList()
   })
 
+  const { isDemo } = useDemo()
+
+  // On the demo a read marker is refused quietly: no request, the row stays as stored (demo-cabinet FR-4).
   const markRead = useCallback(async (id: string) => {
+    if (isDemo) return
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)))
     try {
       await notificationsApi.markRead(id)
@@ -95,9 +100,10 @@ export function useNotifications(isOpen: boolean) {
     } finally {
       void refetchCount()
     }
-  }, [refetchCount])
+  }, [refetchCount, isDemo])
 
   const markAllRead = useCallback(async () => {
+    if (isDemo) return
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })))
     setUnreadCount(0)
     try {
@@ -107,7 +113,7 @@ export function useNotifications(isOpen: boolean) {
     } finally {
       void refetchCount()
     }
-  }, [refetchCount, setUnreadCount])
+  }, [refetchCount, setUnreadCount, isDemo])
 
   /**
    * Clears one row from this user's bell.

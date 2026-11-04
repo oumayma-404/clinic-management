@@ -34,10 +34,11 @@ public class RefreshTokenCommandHandlerTests
     private readonly Mock<ISessionFamilyRepository> _sessionFamilies = new();
     private readonly Mock<IUnitOfWork> _uow = new();
     private readonly Mock<INotificationGenerator> _notifications = new();
+    private readonly Mock<IDemoPolicy> _demo = new();
 
     private RefreshTokenCommandHandler Handler() => new(
         _users.Object, _auth.Object, _sessionFamilies.Object, _uow.Object, _notifications.Object,
-        NullLogger<RefreshTokenCommandHandler>.Instance);
+        _demo.Object, NullLogger<RefreshTokenCommandHandler>.Instance);
 
     private static RefreshTokenCommand Command() => new() { RefreshToken = Credential };
 
@@ -256,6 +257,69 @@ public class RefreshTokenCommandHandlerTests
         Assert.Equal("Un identifiant de session déjà remplacé a été présenté.", family.EndedReason);
     }
 
+    // ---- demo-cabinet FR-3: a demo session ends at a fixed time ------------------------------------
+
+    private SessionFamily ArrangeDemoFamily(User user, TimeSpan lifetime)
+    {
+        var family = new SessionFamily(user.Id, SessionCredential.Hash(Credential), RefreshExpiry);
+        _auth.Setup(a => a.ValidateRefreshToken(Credential))
+            .Returns(new RefreshTokenPrincipal(user.Id, user.TokenVersion, family.Id));
+        _users.Setup(r => r.GetByAuth0SubAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _sessionFamilies.Setup(r => r.GetByIdAsync(family.Id, It.IsAny<CancellationToken>())).ReturnsAsync(family);
+        _auth.Setup(a => a.GenerateToken(user, It.IsAny<Guid?>(), It.IsAny<DateTime>()))
+            .Returns((User _, Guid? _, DateTime end) => new LocalAuthToken("access-jwt", end));
+        _demo.SetupGet(d => d.IssuesDemoSessions).Returns(true);
+        _demo.SetupGet(d => d.SessionLifetime).Returns(lifetime);
+        return family;
+    }
+
+    [Fact] // [FR-3] the renewed credential expires with the session, not 12 h later
+    public async Task A_Demo_Session_Refreshes_Up_To_Its_Fixed_End()
+    {
+        var user = LocalUser();
+        var family = ArrangeDemoFamily(user, TimeSpan.FromHours(2));
+        var end = family.CreatedAt + TimeSpan.FromHours(2);
+        _auth.Setup(a => a.GenerateRefreshToken(user, family.Id, false, end))
+            .Returns(new LocalAuthToken("refresh-demo", end));
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(end, result.Value!.RefreshExpiresAt);
+        _auth.Verify(a => a.GenerateToken(user, family.Id, end), Times.Once);
+        _auth.Verify(a => a.GenerateToken(It.IsAny<User>(), It.IsAny<Guid?>()), Times.Never);
+        _auth.Verify(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact] // [FR-3] past its end the session is over, and says why
+    public async Task A_Demo_Session_Past_Its_End_Is_Refused_And_Ended()
+    {
+        var user = LocalUser();
+        var family = ArrangeDemoFamily(user, TimeSpan.Zero);
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.False(family.IsLive);
+        Assert.Equal(RefreshTokenCommandHandler.DemoSessionEndedReason, family.EndedReason);
+        AssertNothingWasIssued();
+        _notifications.VerifyNoOtherCalls();
+    }
+
+    [Fact] // a demo credential always belongs to a family; one without cannot be capped, so it is refused
+    public async Task A_Credential_With_No_Family_Is_Refused_On_A_Demo()
+    {
+        var user = LocalUser();
+        Arrange(user);
+        _demo.SetupGet(d => d.IssuesDemoSessions).Returns(true);
+        _demo.SetupGet(d => d.SessionLifetime).Returns(TimeSpan.FromHours(2));
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        AssertNothingWasIssued();
+    }
+
     /// <summary>
     /// Runs one refusal on its own mocks and returns the message. A <c>null</c> <paramref name="principal"/> is a
     /// credential that does not validate at all; a <c>null</c> <paramref name="account"/> is one whose subject
@@ -276,6 +340,7 @@ public class RefreshTokenCommandHandlerTests
                 new Mock<ISessionFamilyRepository>().Object,
                 new Mock<IUnitOfWork>().Object,
                 new Mock<INotificationGenerator>().Object,
+                new Mock<IDemoPolicy>().Object,
                 NullLogger<RefreshTokenCommandHandler>.Instance)
             .Handle(Command(), CancellationToken.None);
 
@@ -287,5 +352,7 @@ public class RefreshTokenCommandHandlerTests
     {
         _auth.Verify(a => a.GenerateToken(It.IsAny<User>(), It.IsAny<Guid?>()), Times.Never);
         _auth.Verify(a => a.GenerateRefreshToken(It.IsAny<User>(), It.IsAny<Guid?>(), It.IsAny<bool>()), Times.Never);
+        _auth.Verify(a => a.GenerateRefreshToken(
+            It.IsAny<User>(), It.IsAny<Guid?>(), It.IsAny<bool>(), It.IsAny<DateTime>()), Times.Never);
     }
 }

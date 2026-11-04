@@ -9,6 +9,7 @@ import { RelayBanner } from "@/components/relay/relay-banner"
 import { RelayDeviceWatch } from "@/components/relay/relay-device-watch"
 import { RelaySwitchWatch } from "@/components/relay/relay-switch-watch"
 import { CarriedDraftResume } from "@/components/relay/carried-draft-resume"
+import { DemoBand } from "@/components/demo/demo-band"
 
 /**
  * The app's one page shell: rail + header + `<main>`.
@@ -104,6 +105,8 @@ export function AppShell({
           it. Mounting it here also makes « absent on /login and /signup » structural, since those six routes are
           precisely the ones that render no shell.
         */}
+        {/* `demo-cabinet` US-4 — the public demo's band, first on every screen; null on every other deployment. */}
+        <DemoBand />
         {/* `clinic-pc-copy` AC-3.4 / AC-4.1 / D20 — the cut's strip, above the subscription's (AC-4.3). */}
         <RelayBanner />
         <SubscriptionBanner />

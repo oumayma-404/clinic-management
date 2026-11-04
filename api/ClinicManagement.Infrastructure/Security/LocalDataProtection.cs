@@ -47,12 +47,11 @@ public static class LocalDataProtection
     public const string KeyRingPathKey = "DataProtection:KeyRingPath";
 
     /// <summary>
-    /// Whether this deployment must supply a certificate to encrypt the key ring with (FR-3.1). True on
-    /// <see cref="DeploymentKind.HostedMultiTenant"/> and false on <see cref="DeploymentKind.SelfHostedLan"/>,
-    /// which protects the same ring with machine-scoped DPAPI on the clinic's own Windows box.
+    /// Whether this deployment must supply a certificate to encrypt the key ring with (FR-3.1) — the hosted kinds,
+    /// where the ring sits in a directory; the Windows-service kinds protect it with machine-scoped DPAPI.
     /// </summary>
     public static bool RequiresProtectingCertificate(DeploymentProfile profile) =>
-        profile.Kind == DeploymentKind.HostedMultiTenant;
+        profile.ProtectsKeyRingWithCertificate;
 
     /// <summary>
     /// Whether the key ring is encrypted with machine-scoped DPAPI — a Windows service. One answer for the
@@ -139,10 +138,10 @@ public static class LocalDataProtection
             return null;
         }
 
-        if (string.IsNullOrWhiteSpace(configured) && profile.Kind == DeploymentKind.HostedMultiTenant)
+        if (string.IsNullOrWhiteSpace(configured) && profile.ProtectsKeyRingWithCertificate)
         {
             throw new InvalidOperationException(
-                $"{KeyRingPathKey} is required in the {nameof(DeploymentKind.HostedMultiTenant)} deployment "
+                $"{KeyRingPathKey} is required in the {profile.Kind} deployment "
                 + "profile. Without it the Data Protection key ring is per-instance and ephemeral, so every "
                 + "clinic's encrypted reminder credentials become unreadable after a redeploy "
                 + "and each channel silently reports « non configuré » — and every administrator's second factor "

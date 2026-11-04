@@ -42,6 +42,7 @@ import { stockApi, type StockMovementDto } from "@/lib/api/stock"
 import { formatDate, formatDateTime, quoteFr } from "@/lib/format"
 import { ApiError } from "@/lib/api/client"
 import type { StockItemDto } from "@/lib/api/types"
+import { showErrorToast } from "@/lib/errors"
 
 /** Column widths the loading skeleton mirrors, in the table's own order. Kept beside the table so the two cannot
  *  drift into different shapes (same device as `patients-table.tsx`). */
@@ -238,7 +239,7 @@ export function StockTable({
       setItemToDelete(null)
       await loadItems()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression de l'article")
+      showErrorToast(err, "Échec de la suppression de l'article")
     } finally {
       setDeleting(false)
     }
@@ -251,7 +252,7 @@ export function StockTable({
     try {
       setMovements(await stockApi.movements(item.id))
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec du chargement de l'historique")
+      showErrorToast(err, "Échec du chargement de l'historique")
     } finally {
       setMovementsLoading(false)
     }
@@ -290,7 +291,7 @@ export function StockTable({
       setAdjustTarget(null)
       await loadItems()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec du mouvement de stock")
+      showErrorToast(err, "Échec du mouvement de stock")
     } finally {
       setAdjusting(false)
     }

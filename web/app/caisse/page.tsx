@@ -58,6 +58,7 @@ import { DEFAULT_PAGE_SIZE, emptyPage, type PagedResponse } from "@/lib/api/pagi
 import { ApiError } from "@/lib/api/client"
 import { formatDT, quoteFr, toLocalIso, todayLocalIso } from "@/lib/format"
 import type { CaisseLedgerDto, CaisseSummaryDto, ExpenseDto, RecurringExpenseDto } from "@/lib/api/types"
+import { showErrorToast } from "@/lib/errors"
 
 // --- Helpers --------------------------------------------------------------------------------------
 
@@ -409,7 +410,7 @@ function CaisseContent() {
       setExpenseToDelete(null)
       await loadData()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression de la dépense")
+      showErrorToast(err, "Échec de la suppression de la dépense")
     } finally {
       setDeleting(false)
     }

@@ -74,6 +74,9 @@ public class LocalAuthService : ILocalAuthService
     public LocalAuthToken GenerateToken(User user, Guid? sessionFamilyId) =>
         GenerateToken(user, scope: null, sessionFamilyId);
 
+    public LocalAuthToken GenerateToken(User user, Guid? sessionFamilyId, DateTime notAfterUtc) =>
+        GenerateToken(user, scope: null, sessionFamilyId, notAfterUtc);
+
     // A scoped archive token belongs to a device grant, not to a sign-in, so it has no chain to name.
     public LocalAuthToken GenerateScopedToken(User user, string scope) =>
         GenerateToken(user, scope, sessionFamilyId: null);
@@ -100,10 +103,14 @@ public class LocalAuthService : ILocalAuthService
         return new LocalAuthToken(new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
     }
 
-    private LocalAuthToken GenerateToken(User user, string? scope, Guid? sessionFamilyId)
+    private LocalAuthToken GenerateToken(User user, string? scope, Guid? sessionFamilyId, DateTime? notAfterUtc = null)
     {
         // The browser-held credential: short-lived on purpose, renewed silently from the cookie (AC-5.3).
         var expiresAt = DateTime.UtcNow.AddMinutes(LocalAuthConfig.AccessTokenLifetimeMinutes(_configuration));
+        if (notAfterUtc is { } cap && cap < expiresAt)
+        {
+            expiresAt = cap;
+        }
 
         // Emit the same claim types ClinicContext + RoleAuthorizationHandler read in Cloud mode.
         var claims = new List<Claim>
@@ -161,7 +168,13 @@ public class LocalAuthService : ILocalAuthService
         return new LocalAuthToken(accessToken, expiresAt);
     }
 
-    public LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId, bool trusted)
+    public LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId, bool trusted) =>
+        GenerateRefreshToken(user, sessionFamilyId, trusted, notAfterUtc: null);
+
+    public LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId, bool trusted, DateTime notAfterUtc) =>
+        GenerateRefreshToken(user, sessionFamilyId, trusted, (DateTime?)notAfterUtc);
+
+    private LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId, bool trusted, DateTime? notAfterUtc)
     {
         // ⚠️ The lifetime is decided HERE, from the caller's assertion about the device, and never from a claim
         // on the credential being replaced. A rotation reads `SessionFamily.IsTrusted` — a row only this server
@@ -171,6 +184,10 @@ public class LocalAuthService : ILocalAuthService
             : LocalAuthConfig.TokenLifetimeMinutes(_configuration);
 
         var expiresAt = DateTime.UtcNow.AddMinutes(lifetimeMinutes);
+        if (notAfterUtc is { } cap && cap < expiresAt)
+        {
+            expiresAt = cap;
+        }
 
         // The identity claims are included because the BFF decodes this token to render the header user
         // without a server round trip (AC-5.12). clinic_id is deliberately omitted: this token must never be

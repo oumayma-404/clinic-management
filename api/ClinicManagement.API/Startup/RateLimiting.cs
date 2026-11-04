@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Threading.RateLimiting;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Infrastructure;
+using ClinicManagement.Infrastructure.Auth;
+using ClinicManagement.Infrastructure.Deployment;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicManagement.API.Startup;
@@ -141,6 +143,19 @@ public static class RateLimiting
     private const int DefaultCspReportPermitLimit = 60;
     private const int DefaultCspReportWindowSeconds = 60;
 
+    /// <summary>The demo's PDFs, per visit (<c>demo-cabinet</c> AC-5.6); no limiter on any other deployment.</summary>
+    public const string DemoPdfPolicy = "demo-pdf";
+
+    /// <summary>The code on the demo's PDF refusal, so the browser never has to read the sentence.</summary>
+    public const string DemoPdfLimitedCode = "demo_pdf_limited";
+
+    // A visitor opening, downloading and printing every document of the cabinet stays well under it; a script does not.
+    private const int DefaultDemoPdfPermitLimit = 30;
+    private const int DefaultDemoPdfWindowSeconds = 600;
+
+    // On the demo the visit key is read unvalidated, so a forged token is a fresh bucket; this per-address ceiling bounds that.
+    private const int DefaultDemoAddressPermitLimit = 3000;
+
     private const int SegmentsPerWindow = 6;
 
     /// <summary>
@@ -211,6 +226,14 @@ public static class RateLimiting
         // below is one bucket for the whole deployment (review finding 1).
         var trustedProxies = TrustedProxies.FromConfiguration(configuration);
 
+        // Every demo visitor signs in as the same dentist, so on the demo a « user » bucket is one visit (its family).
+        var isDemo = DeploymentProfile.Resolve(configuration).IssuesDemoSessions;
+        var demoPdfPermitLimit = Read(configuration, "RateLimiting:DemoPdf:PermitLimit", DefaultDemoPdfPermitLimit);
+        var demoPdfWindow = TimeSpan.FromSeconds(
+            Read(configuration, "RateLimiting:DemoPdf:WindowSeconds", DefaultDemoPdfWindowSeconds));
+        var demoAddressPermitLimit = Read(
+            configuration, "RateLimiting:Api:DemoAddressPermitLimit", DefaultDemoAddressPermitLimit);
+
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -228,10 +251,31 @@ public static class RateLimiting
                 response.StatusCode = StatusCodes.Status429TooManyRequests;
                 response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
 
+                if (IsDemoPdfRequest(context.HttpContext))
+                {
+                    await response.WriteAsJsonAsync(
+                        new { error = DemoPdfLimitedMessage(seconds), code = DemoPdfLimitedCode },
+                        cancellationToken);
+                    return;
+                }
+
                 await response.WriteAsJsonAsync(
                     new { error = TooManyRequestsMessage(seconds) },
                     cancellationToken);
             };
+
+            options.AddPolicy(DemoPdfPolicy, httpContext =>
+                isDemo
+                    ? RateLimitPartition.GetSlidingWindowLimiter(
+                        $"demo-pdf:{DemoSessionPartitionKey(httpContext, trustedProxies)}",
+                        _ => new SlidingWindowRateLimiterOptions
+                        {
+                            PermitLimit = demoPdfPermitLimit,
+                            Window = demoPdfWindow,
+                            SegmentsPerWindow = SegmentsPerWindow,
+                            QueueLimit = 0
+                        })
+                    : RateLimitPartition.GetNoLimiter("not-demo"));
 
             options.AddPolicy(AnonymousAuthPolicy, httpContext =>
                 RateLimitPartition.GetSlidingWindowLimiter(
@@ -315,7 +359,7 @@ public static class RateLimiting
                         QueueLimit = 0
                     }));
 
-            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+            var perCaller = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
             {
                 if (IsExempt(httpContext))
                 {
@@ -340,7 +384,7 @@ public static class RateLimiting
                 }
 
                 return RateLimitPartition.GetSlidingWindowLimiter(
-                    PartitionKey(httpContext, trustedProxies),
+                    isDemo ? DemoSessionPartitionKey(httpContext, trustedProxies) : PartitionKey(httpContext, trustedProxies),
                     _ => new SlidingWindowRateLimiterOptions
                     {
                         PermitLimit = apiPermitLimit,
@@ -349,22 +393,93 @@ public static class RateLimiting
                         QueueLimit = 0
                     });
             });
+
+            options.GlobalLimiter = isDemo
+                ? PartitionedRateLimiter.CreateChained(perCaller, PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+                    IsExempt(httpContext) || IsAnonymousAuthAttempt(httpContext)
+                        ? RateLimitPartition.GetNoLimiter("exempt")
+                        : RateLimitPartition.GetSlidingWindowLimiter(
+                            DemoAddressKey(httpContext, trustedProxies),
+                            _ => new SlidingWindowRateLimiterOptions
+                            {
+                                PermitLimit = demoAddressPermitLimit,
+                                Window = apiWindow,
+                                SegmentsPerWindow = SegmentsPerWindow,
+                                QueueLimit = 0
+                            })))
+                : perCaller;
         });
     }
 
     /// <summary>The French 429 body. Rounded to minutes once past a minute so it reads naturally.</summary>
-    public static string TooManyRequestsMessage(int retryAfterSeconds)
+    public static string TooManyRequestsMessage(int retryAfterSeconds) =>
+        $"Trop de tentatives. Veuillez réessayer dans {Wait(retryAfterSeconds)}.";
+
+    /// <summary>The demo's PDF refusal: the visitor did nothing wrong, the demo just is not a free printer.</summary>
+    public static string DemoPdfLimitedMessage(int retryAfterSeconds) =>
+        $"La démo limite le nombre de documents ouverts. Réessayez dans {Wait(retryAfterSeconds)}.";
+
+    private static string Wait(int seconds)
     {
-        if (retryAfterSeconds < 60)
+        if (seconds < 60)
         {
-            return $"Trop de tentatives. Veuillez réessayer dans {retryAfterSeconds} secondes.";
+            return $"{seconds} secondes";
         }
 
-        var minutes = (int)Math.Ceiling(retryAfterSeconds / 60.0);
-        return minutes == 1
-            ? "Trop de tentatives. Veuillez réessayer dans 1 minute."
-            : $"Trop de tentatives. Veuillez réessayer dans {minutes} minutes.";
+        var minutes = (int)Math.Ceiling(seconds / 60.0);
+        return minutes == 1 ? "1 minute" : $"{minutes} minutes";
     }
+
+    /// <summary>
+    /// Who a demo request is charged to: the visit (its session family), since every visitor is the same dentist;
+    /// the address when no visit is named.
+    /// </summary>
+    public static string DemoSessionPartitionKey(HttpContext httpContext, TrustedProxies trustedProxies)
+    {
+        var family = httpContext.User?.FindFirst(LocalAuthClaims.SessionFamily)?.Value ?? FamilyFromBearer(httpContext);
+        return string.IsNullOrWhiteSpace(family)
+            ? $"ip:{ClientIp.Resolve(httpContext, trustedProxies)}"
+            : $"visit:{family}";
+    }
+
+    // The limiter runs before authentication, so the visit is read off the bearer unvalidated; a forged one still fails authentication right after.
+    private static string? FamilyFromBearer(HttpContext httpContext)
+    {
+        var header = httpContext.Request.Headers.Authorization.ToString();
+        if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var parts = header["Bearer ".Length..].Trim().Split('.');
+        if (parts.Length != 3)
+        {
+            return null;
+        }
+
+        try
+        {
+            var payload = parts[1].Replace('-', '+').Replace('_', '/');
+            payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
+            using var claims = System.Text.Json.JsonDocument.Parse(Convert.FromBase64String(payload));
+            return claims.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && claims.RootElement.TryGetProperty(LocalAuthClaims.SessionFamily, out var family)
+                && family.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? family.GetString()
+                    : null;
+        }
+        catch (Exception ex) when (ex is FormatException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The demo's ceiling over every visit from one line (see <c>DefaultDemoAddressPermitLimit</c>).</summary>
+    public static string DemoAddressKey(HttpContext httpContext, TrustedProxies trustedProxies) =>
+        $"demoip:{ClientIp.Resolve(httpContext, trustedProxies)}";
+
+    private static bool IsDemoPdfRequest(HttpContext httpContext) =>
+        httpContext.GetEndpoint()?.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName == DemoPdfPolicy;
 
     /// <summary>
     /// True for requests the global limiter must not touch: the connectivity poll, the OAuth callback, the

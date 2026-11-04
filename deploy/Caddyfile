@@ -230,3 +230,6 @@ https://console.localhost:9443, https://127.0.0.1:9443 {
 		}
 	}
 }
+
+# Extra sites an overlay mounts into /etc/caddy/sites (docker-compose.demo.yml adds demo.apexa.tn); none by default.
+import /etc/caddy/sites/*.caddy

@@ -1729,6 +1729,114 @@ check(
 );
 
 check(
+  "demo-refusal-one-owner",
+  "P1",
+  "Only the refusal primitives recognise the demo's « rien n'est enregistré »",
+  "On the public demo every save is refused with 403 `demo_read_only`. `lib/api/client.ts` replaces the message " +
+    "with one constant, and exactly two surfaces turn it into a neutral notice with « Créer mon cabinet »: " +
+    "`FormErrorBanner` inside a dialog and `showErrorToast` outside one. A screen testing for it itself is a " +
+    "second answer that drifts — and a primitive that stops testing for it puts a red error in front of every " +
+    "visitor, with no error anywhere. Both directions are held.",
+  () => {
+    const OWNERS = {
+      "lib/demo/demo-refusal.ts": /DEMO_READ_ONLY_MESSAGE\s*=/,
+      "lib/api/client.ts": /errorCode === ApiErrorCode\.DemoReadOnly[\s\S]{0,80}DEMO_READ_ONLY_MESSAGE/,
+      "lib/errors.ts": /isDemoRefusal\(message\)/,
+      "components/ui/form-error-banner.tsx": /isDemoRefusal\(text\)/,
+      "lib/demo/refuse-in-demo.ts": /showInForm\(DEMO_READ_ONLY_MESSAGE\)/,
+    };
+    const findings = [];
+    for (const file of tsx()) {
+      const name = rel(file);
+      const src = read(file);
+      const hit = src.search(/isDemoRefusal\(|DEMO_READ_ONLY_MESSAGE|["']demo_read_only["']|ApiErrorCode\.DemoReadOnly/);
+      if (hit >= 0 && !(name in OWNERS)) {
+        findings.push({ file: name, line: lineAt(src, hit), text: "recognises the demo refusal outside its primitives", full: "route it through FormErrorBanner or showErrorToast instead" });
+      }
+    }
+    for (const [name, pattern] of Object.entries(OWNERS)) {
+      const file = ALL_FILES.find((f) => rel(f) === name);
+      if (!file || !pattern.test(read(file))) {
+        findings.push({ file: name, text: "no longer recognises the demo refusal", full: `expected ${pattern}` });
+      }
+    }
+    return findings;
+  }
+);
+
+check(
+  "server-error-toast-has-one-owner",
+  "P1",
+  "A refused request's sentence reaches a toast through `showErrorToast`, never a hand-rolled `toast.error`",
+  "`showErrorToast` is where a refusal is recognised: the public demo's « rien n'est enregistré » becomes a " +
+    "neutral notice there, a network failure gains « Réessayer » there, and the 8-second duration lives there. " +
+    "`toast.error(err instanceof ApiError ? err.message : …)` bypasses all three — on the demo it paints the " +
+    "visitor's first save as a red error, with no error anywhere in the build.",
+  () => {
+    const HAND_ROLLED = /toast\.error\(\s*(?:\w+\s+instanceof\s+ApiError\s*\?\s*\w+\.message|\w+\.message\s*\|\||getErrorMessage\()/;
+    const findings = [];
+    for (const file of tsx()) {
+      if (rel(file) === "lib/errors.ts") continue;
+      const src = read(file);
+      const at = src.search(HAND_ROLLED);
+      if (at >= 0) {
+        findings.push({ file: rel(file), line: lineAt(src, at), text: "hand-rolled error toast of a server message", full: "use showErrorToast(err, fallback)" });
+      }
+    }
+    return findings;
+  }
+);
+
+check(
+  "demo-upload-guard",
+  "P1",
+  "Every file picker and drop zone refuses on the demo before reading the file (`refuseInDemo`)",
+  "The public demo saves nothing, so an upload must be refused the moment a file is picked or dropped (spec " +
+    "FR-4) — before a byte is read or a part sent. A picker that skips it reads a patient's radiograph into " +
+    "memory, uploads it in parts and only then meets the server's refusal. Derived: every source declaring a " +
+    "`type=\"file\"` input or reading `dataTransfer.files` must call `refuseInDemo(`.",
+  () => {
+    const findings = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      const at = src.search(/type="file"|dataTransfer\.files/);
+      if (at >= 0 && !src.includes("refuseInDemo(")) {
+        findings.push({ file: rel(file), line: lineAt(src, at), text: "file input or drop zone with no demo guard", full: "call refuseInDemo(isDemo[, setError]) first in its handler" });
+      }
+    }
+    return findings;
+  }
+);
+
+check(
+  "demo-guard-reads-live-flag",
+  "P1",
+  "A memoized handler that refuses on the demo lists `isDemo` in its dependencies",
+  "`useDemo()` answers null until `GET /api/auth/mode` returns, and `refuseInDemo(null)` lets the action through. A " +
+    "`useCallback` that calls it without `isDemo` in its dependency array keeps that first null for good, so on the " +
+    "demo the file is read and the request sent — with every gate green. Derived: every `useCallback` / `useMemo` " +
+    "whose body calls `refuseInDemo(` or tests `isDemo` must name `isDemo` in its dependencies.",
+  () => {
+    const findings = [];
+    for (const file of tsx()) {
+      const src = read(file);
+      if (!src.includes("isDemo")) continue;
+      for (const m of src.matchAll(/use(?:Callback|Memo)\(/g)) {
+        const rest = src.slice(m.index);
+        const end = rest.search(/\n\s*\}?\s*,\s*\[[^\]]*\]\s*,?\s*\)/);
+        if (end < 0) continue;
+        const body = rest.slice(0, end);
+        const deps = rest.slice(end).match(/\[([^\]]*)\]/)?.[1] ?? "";
+        if (/refuseInDemo\(|\bisDemo\b/.test(body) && !/\bisDemo\b/.test(deps)) {
+          findings.push({ file: rel(file), line: lineAt(src, m.index), text: "memoized demo guard without isDemo in its dependencies", full: "add isDemo to the dependency array" });
+        }
+      }
+    }
+    return findings;
+  }
+);
+
+check(
   "webgl-context-is-given-back",
   "P1",
   "Every WebGL renderer this build creates is destroyed with `forceContextLoss`",

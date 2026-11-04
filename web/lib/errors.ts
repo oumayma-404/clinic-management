@@ -1,5 +1,6 @@
 import { toast } from "sonner"
 import { ApiError, ApiErrorCode } from "@/lib/api/client"
+import { DEMO_READ_ONLY_MESSAGE, DEMO_SIGNUP_LABEL, demoSignupUrl, isDemoRefusal } from "@/lib/demo/demo-refusal"
 
 // Single French-first fallback used across the app when a thrown value carries no usable message.
 export const DEFAULT_ERROR_MESSAGE = "Une erreur inattendue s'est produite."
@@ -72,6 +73,27 @@ export interface ErrorToastOptions {
   title?: string
 }
 
+/** One id, so repeated refusals replace each other instead of stacking (demo-cabinet AC-3.3d). */
+const DEMO_REFUSAL_TOAST_ID = "demo-read-only"
+
+/** The demo refusal as a neutral notice with « Créer mon cabinet », for a refusal no dialog shows (AC-3.3b). */
+function showDemoRefusalToast() {
+  // After React has committed: a dialog that also shows the notice in its banner gets no second copy (AC-3.3d).
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (document.querySelector("[data-demo-refusal]")) return
+      toast(DEMO_READ_ONLY_MESSAGE, {
+        id: DEMO_REFUSAL_TOAST_ID,
+        duration: ERROR_TOAST_DURATION_MS,
+        action: {
+          label: DEMO_SIGNUP_LABEL,
+          onClick: () => window.open(demoSignupUrl(), "_blank", "noopener,noreferrer"),
+        },
+      })
+    }),
+  )
+}
+
 /**
  * Show a single, non-blocking error toast for any thrown value (replaces `alert()` / silent swallows).
  *
@@ -112,6 +134,11 @@ export function showErrorToast(
     typeof fallbackOrOptions === "string" ? { fallback: fallbackOrOptions } : (fallbackOrOptions ?? {})
 
   const message = getErrorMessage(err, options.fallback ?? DEFAULT_ERROR_MESSAGE)
+  // The demo saves nothing: a notice with « Créer mon cabinet », never a red error (demo-cabinet AC-3.3).
+  if (isDemoRefusal(message)) {
+    showDemoRefusalToast()
+    return
+  }
   const retry = options.onRetry ?? onRetry
   const action = retry && isNetworkError(err) ? { label: "Réessayer", onClick: retry } : undefined
 

@@ -47,6 +47,9 @@ public interface ILocalAuthService
     /// </param>
     LocalAuthToken GenerateToken(User user, Guid? sessionFamilyId);
 
+    /// <summary>The same token, expiring no later than <paramref name="notAfterUtc"/> — the public demo's fixed session end.</summary>
+    LocalAuthToken GenerateToken(User user, Guid? sessionFamilyId, DateTime notAfterUtc);
+
     /// <summary>
     /// Issues a token <b>narrowed to one purpose</b>: identical to <see cref="GenerateToken"/> except that it
     /// carries a scope claim, and the API then refuses it on every endpoint that has not named that scope as
@@ -89,6 +92,12 @@ public interface ILocalAuthService
     /// repository's `fixes-dont-propagate` shape. Three call sites exist and each states its answer.</para>
     /// </param>
     LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId, bool trusted);
+
+    /// <summary>
+    /// The same credential, expiring no later than <paramref name="notAfterUtc"/> — the public demo's fixed session
+    /// end (<c>demo-cabinet</c> FR-3), so the cookie dies with the session instead of outliving it.
+    /// </summary>
+    LocalAuthToken GenerateRefreshToken(User user, Guid? sessionFamilyId, bool trusted, DateTime notAfterUtc);
 
     /// <summary>
     /// Validates a refresh token's signature, issuer, refresh audience and lifetime, returning the subject and
