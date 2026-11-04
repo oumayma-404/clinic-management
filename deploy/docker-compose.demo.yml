@@ -31,7 +31,9 @@ services:
       ASPNETCORE_URLS: http://+:5000
       Deployment__Profile: PublicDemo
       Console__Port: "0"
-      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${DEMO_POSTGRES_DB:-clinic_demo};Username=${DEMO_POSTGRES_USER:-clinic_demo};Password=${DEMO_POSTGRES_PASSWORD};SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt"
+      # The database server is production's: a capped pool (and the role's CONNECTION LIMIT, runbook § 2) keeps a
+      # crowd of visitors from taking the connections production needs (max_connections is 100).
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${DEMO_POSTGRES_DB:-clinic_demo};Username=${DEMO_POSTGRES_USER:-clinic_demo};Password=${DEMO_POSTGRES_PASSWORD};SSL Mode=VerifyFull;Root Certificate=/certs/ca.crt;Maximum Pool Size=${DEMO_DB_POOL:-20}"
       Auth__Local__SigningKey_FILE: /run/secrets/demo_auth_local_signing_key
       Auth__Local__Issuer: apexa-demo
       Auth__Local__Audience: apexa-demo-api

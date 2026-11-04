@@ -33,7 +33,10 @@ answers nothing until it lands. Production is not affected either way.
 set -a; . ./.env; set +a
 DEMO_PW=$(openssl rand -base64 32 | tr -d '/+=')          # goes into .env below as DEMO_POSTGRES_PASSWORD
 docker exec -i clinic-postgres-prod psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres <<SQL
-CREATE ROLE clinic_demo LOGIN PASSWORD '$DEMO_PW' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+CREATE ROLE clinic_demo LOGIN PASSWORD '$DEMO_PW' NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 25;
+-- production shares this server: no demo query may run for minutes
+ALTER ROLE clinic_demo SET statement_timeout = '60s';
+ALTER ROLE clinic_demo SET idle_in_transaction_session_timeout = '60s';
 CREATE DATABASE clinic_demo OWNER clinic_demo;
 REVOKE CONNECT ON DATABASE clinic_demo FROM PUBLIC;
 -- production's database: only its own role may connect from now on
@@ -45,6 +48,11 @@ SQL
 - [ ] The demo role cannot open production's database (expect `permission denied for database`):
   `docker exec -e PGPASSWORD="$DEMO_PW" clinic-postgres-prod psql -h localhost -U clinic_demo -d "$POSTGRES_DB" -c 'select 1'`
 - [ ] It can open its own: same command with `-d clinic_demo` → `1`.
+- [ ] Its limits hold: `docker exec clinic-postgres-prod psql -U "$POSTGRES_USER" -d postgres -Atc "select rolconnlimit, rolconfig from pg_roles where rolname='clinic_demo'"` → `25|{statement_timeout=60s,idle_in_transaction_session_timeout=60s}`.
+
+⚠️ **Why the limits.** The demo shares production's database server (`max_connections` 100, 3 reserved for the
+admin role; production uses ~15). The overlay caps the demo's pool at 20 and the role at 25, so even a crowd on the
+demo leaves production 70+ connections; the timeouts stop one slow demo query from holding locks or CPU for minutes.
 
 The demo's migrations run as `clinic_demo` at its first start, including `CREATE EXTENSION btree_gist / unaccent`
 (both are trusted extensions, so the database owner may create them — no superuser needed).

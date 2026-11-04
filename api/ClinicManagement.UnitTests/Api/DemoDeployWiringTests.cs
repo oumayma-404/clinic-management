@@ -63,6 +63,15 @@ public class DemoDeployWiringTests
         }
     }
 
+    [Fact] // [EC-3] the demo shares production's database server: its pool and its role are both capped
+    public void The_Demo_Cannot_Take_Productions_Database_Connections()
+    {
+        Assert.Matches(@"ConnectionStrings__DefaultConnection: ""[^""]*;Maximum Pool Size=\$\{DEMO_DB_POOL:-\d+\}""", Overlay);
+        var runbook = Repo("deploy", "demo", "README.md");
+        Assert.Matches(@"CREATE ROLE clinic_demo [^;]*CONNECTION LIMIT \d+;", runbook);
+        Assert.Contains("ALTER ROLE clinic_demo SET statement_timeout", runbook, StringComparison.Ordinal);
+    }
+
     [Fact] // [AC-7.4] every production deploy runs the demo on production's own api and web images
     public void The_Demo_Runs_Production_Images()
     {
