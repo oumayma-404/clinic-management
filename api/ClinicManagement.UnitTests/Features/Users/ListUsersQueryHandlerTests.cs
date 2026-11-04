@@ -50,6 +50,26 @@ public class ListUsersQueryHandlerTests
         Assert.True(result.Value!.Items.Single(u => u.Role == "admin").IsActive);
     }
 
+    // The row says whether the account holds a second factor — what decides if « Réinitialiser le second facteur » is offered.
+    [Fact]
+    public async Task Handle_Reports_Whether_Each_Account_Holds_A_Second_Factor()
+    {
+        var admin = Local("admin");
+        var doctor = Local("doctor");
+        doctor.IssueTotpSecret("protected-secret");
+        doctor.CompleteTotpEnrolment(new[] { "code-hash" });
+        _context.Setup(c => c.GetUserId()).Returns(admin.Id);
+        _users.Setup(r => r.GetByAuth0SubAsync(admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(admin);
+        _users.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { admin, doctor }).AsPage());
+
+        var result = await Handler().Handle(new ListUsersQuery(), CancellationToken.None);
+
+        Assert.True(result.Value!.Items.Single(u => u.Role == "doctor").HasSecondFactor);
+        Assert.False(result.Value!.Items.Single(u => u.Role == "admin").HasSecondFactor);
+    }
+
     // [AC-5.4] A non-admin cannot list users.
     [Fact]
     public async Task Handle_Should_Reject_Non_Admin()

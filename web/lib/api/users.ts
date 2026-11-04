@@ -32,6 +32,8 @@ export interface ClinicUserDto {
   mustChangePassword: boolean;
   /** guided-first-days C: an e-mailed invitation is waiting to be used — « Invitation envoyée » on the row. */
   invitationPending?: boolean;
+  /** Holds a second factor — what offers « Réinitialiser le second facteur ». Optional, read `=== true` (rolling deploy). */
+  hasSecondFactor?: boolean;
   lastLoginAt?: string;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the role / activation actions. */
   version: number;

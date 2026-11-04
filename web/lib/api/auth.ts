@@ -114,6 +114,16 @@ export interface AuthModeDto {
    * one-time link — instead of being handed a temporary password. Online version only; read `=== true`.
    */
   invitesStaffByLink?: boolean;
+  /**
+   * Whether the vendor's console can clear a lost second factor here — the way back for a sole administrator
+   * whose authenticator and recovery codes are both gone. `false` means the server PC's `reset-user-totp` verb is.
+   *
+   * ⚠️ **Three-valued on the client**: absent (an older API) must show only the sentence true everywhere, never
+   * the LAN one, which would send a hosted dentist to a command on a PC they do not have.
+   */
+  vendorResetsSecondFactor?: boolean;
+  /** The vendor's support number, served only where `vendorResetsSecondFactor` is true. */
+  supportPhone?: string | null;
 }
 
 /** What the invitation page greets with (`POST /api/auth/invitation/preview`). */
