@@ -84,6 +84,17 @@ public class DemoDeployWiringTests
         }
     }
 
+    [Fact] // the pre-swap `caddy validate` gives each hostname placeholder its own dummy, or two sites collide (deploy 41925258814)
+    public void The_Proxy_Validation_Gives_Each_Site_Its_Own_Address()
+    {
+        Assert.DoesNotMatch(@"-e \$name=validate\.invalid", Workflow);
+        Assert.Contains("-e $name=$(printf '%s' \"$name\" | tr 'A-Z_' 'a-z-').validate.invalid", Workflow, StringComparison.Ordinal);
+        var hosts = Regex.Matches(Repo("deploy", "Caddyfile") + Repo("deploy", "demo", "Caddyfile.demo"), @"^\{\$([A-Z_]+)\}", RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value).ToList();
+        Assert.Contains("DOMAIN", hosts);
+        Assert.Contains("DEMO_DOMAIN", hosts);
+    }
+
     [Fact] // a demo that never turns healthy cannot fail a production deploy: `--wait` covers production's services only
     public void The_Deploy_Never_Waits_On_The_Demo()
     {

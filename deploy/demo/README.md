@@ -30,7 +30,9 @@ answers nothing until it lands. Production is not affected either way.
 ## 2. Database — its own role and database, and no door into production's
 
 ```bash
-set -a; . ./.env; set +a
+# Read keys one by one — never `. ./.env`: a value with spaces (payment instructions…) would run as a command.
+getenv() { grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\r"'; }
+POSTGRES_USER=$(getenv POSTGRES_USER); POSTGRES_DB=$(getenv POSTGRES_DB)
 DEMO_PW=$(openssl rand -base64 32 | tr -d '/+=')          # goes into .env below as DEMO_POSTGRES_PASSWORD
 docker exec -i clinic-postgres-prod psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres <<SQL
 CREATE ROLE clinic_demo LOGIN PASSWORD '$DEMO_PW' NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 25;
@@ -69,7 +71,8 @@ DEMO_KEY=clinic-demo
 DEMO_SECRET=$(openssl rand -base64 32 | tr -d '/+=')     # goes into .env below as DEMO_MINIO_SECRET_KEY
 docker exec -i clinic-minio-prod sh -s <<SH
 set -e
-mc --insecure alias set local https://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+# \$ = the MinIO container's own root credentials, so they never pass through this shell
+mc --insecure alias set local https://localhost:9000 "\$MINIO_ROOT_USER" "\$MINIO_ROOT_PASSWORD" >/dev/null
 mc --insecure mb --ignore-existing local/clinic-demo
 cat > /tmp/clinic-demo-policy.json <<'JSON'
 { "Version": "2012-10-17", "Statement": [
@@ -79,6 +82,7 @@ mc --insecure admin policy create local clinic-demo-only /tmp/clinic-demo-policy
 mc --insecure admin user add local "$DEMO_KEY" "$DEMO_SECRET"
 mc --insecure admin policy attach local clinic-demo-only --user "$DEMO_KEY"
 rm /tmp/clinic-demo-policy.json
+mc alias rm local >/dev/null
 SH
 ```
 

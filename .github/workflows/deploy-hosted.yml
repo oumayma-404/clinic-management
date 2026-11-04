@@ -373,7 +373,9 @@ jobs:
           for name in $placeholders; do
             case "$name" in
               *EMAIL*) env_args="$env_args -e $name=validate@invalid" ;;
-              *)       env_args="$env_args -e $name=validate.invalid" ;;
+              # One hostname PER placeholder: the demo site beside the app site would otherwise share one dummy
+              # address and Caddy refuses « ambiguous site definition » (deploy 41925258814, 2026-11-04).
+              *)       env_args="$env_args -e $name=$(printf '%s' "$name" | tr 'A-Z_' 'a-z-').validate.invalid" ;;
             esac
           done
 
