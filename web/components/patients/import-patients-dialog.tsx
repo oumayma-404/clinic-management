@@ -15,6 +15,8 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 import {
   Dialog,
   DialogBody,
@@ -89,6 +91,7 @@ export function ImportPatientsDialog({ open, onOpenChange, onImported }: ImportP
   const [result, setResult] = useState<PatientImportResult | null>(null)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { isDemo } = useDemo()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const reset = () => {
@@ -129,6 +132,7 @@ export function ImportPatientsDialog({ open, onOpenChange, onImported }: ImportP
 
   const handleFileChosen = (chosen: File | null) => {
     if (!chosen) return
+    if (refuseInDemo(isDemo, setError)) return
     setFile(chosen)
     setCreateAnyway(new Set())
     // No mapping on the first pass — the server detects it from the headers, which for this product's own export

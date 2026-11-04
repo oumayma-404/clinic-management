@@ -30,6 +30,8 @@ export const PUBLIC_ROUTES = [
   '/reinitialiser-mot-de-passe',
   // clinic-pc-copy AC-1.5: « Installer le PC de secours ici… » — an admin's own proof, whoever is signed in, or nobody.
   '/pc-de-secours',
+  // demo-cabinet: the public demo's entry screen — a visitor has no account, by design.
+  '/demo',
 ] as const;
 
 /**

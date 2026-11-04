@@ -32,10 +32,11 @@ public class DashboardTenantIsolationTests
     private readonly Mock<IDashboardProcedureMixReader> _procedureMix = new();
     private readonly Mock<IDashboardAppointmentTrendReader> _appointmentTrend = new();
     private readonly Mock<ICurrentClinicResolver> _clinicResolver = new();
+    private readonly Mock<IDemoPolicy> _demo = new();
 
     private GetDashboardQueryHandler Handler() => new(
         _activity.Object, _money.Object, _alerts.Object, _trend.Object, _procedureMix.Object,
-        _appointmentTrend.Object, _clinicResolver.Object, Mock.Of<IClinicRepository>(),
+        _appointmentTrend.Object, _clinicResolver.Object, Mock.Of<IClinicRepository>(), _demo.Object,
         NullLogger<GetDashboardQueryHandler>.Instance);
 
     private void WireResolved(Guid clinicId)
@@ -80,6 +81,26 @@ public class DashboardTenantIsolationTests
         _alerts.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         _trend.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         _appointmentTrend.Verify(r => r.ReadAsync(OtherClinicId, It.IsAny<DashboardPeriod>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // The public demo reads the last 30 days and says so; every other deployment reads the calendar month.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task The_Demo_Reads_Rolling_Windows(bool demo)
+    {
+        WireResolved(ClinicId);
+        _demo.SetupGet(d => d.RollsDashboardPeriods).Returns(demo);
+        DashboardPeriod? read = null;
+        _activity.Setup(r => r.ReadAsync(It.IsAny<Guid>(), It.IsAny<DashboardPeriod>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, DashboardPeriod, CancellationToken>((_, p, _) => read = p)
+            .ReturnsAsync(new DashboardActivityDto());
+
+        var result = await Handler().Handle(new GetDashboardQuery(), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(demo, result.Value!.Period.Rolling);
+        Assert.Equal(demo, read!.Rolling);
     }
 
     // [AC-1] An unresolvable clinic reads nothing at all — no section is attempted, so there is no path on which a

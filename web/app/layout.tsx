@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { LocalSessionProvider } from "@/lib/auth/session"
+import { DemoProvider } from "@/lib/demo/demo-context"
 import { ConnectivityProvider } from "@/lib/connectivity/connectivity"
 import { SubscriptionProvider } from "@/lib/subscription/subscription-context"
 import { MoneyVisibilityProvider } from "@/lib/money-visibility/money-visibility-context"
@@ -117,6 +118,8 @@ export default function RootLayout({
         {/* Outermost inside <body> (AC-38) so the theme class is settled before anything reads a colour —
             including the toaster, which follows `resolvedTheme`. */}
         <ThemeProvider>
+          {/* demo-cabinet: above the session, since the demo's entry screen is read before anyone is signed in. */}
+          <DemoProvider>
           <SessionProvider>
             {/* The tab's query cache, emptied when the user changes — above the connection, which invalidates it. */}
             <QueryProvider>
@@ -140,6 +143,7 @@ export default function RootLayout({
               </ClinicRealtimeProvider>
             </QueryProvider>
           </SessionProvider>
+          </DemoProvider>
           {/* Anchors bottom-centre and caps at 3 on a coarse pointer, clearing the bottom bar (AC-9). The
               rationale, and the toast duration, live in the component. */}
           <AppToaster />

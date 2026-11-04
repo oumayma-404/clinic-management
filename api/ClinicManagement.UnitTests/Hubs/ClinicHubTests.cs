@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using ClinicManagement.API.Hubs;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using Microsoft.AspNetCore.Authorization;
@@ -50,7 +51,7 @@ public class ClinicHubTests
     {
         var users = new Mock<IUserRepository>();
         var groups = new Mock<IGroupManager>();
-        var hub = new ClinicHub(users.Object, new StaffPresence())
+        var hub = new ClinicHub(users.Object, new StaffPresence(), Demo(refusesWrites: false))
         {
             Context = BuildContext("conn-2", userId: null),
             Groups = groups.Object
@@ -99,13 +100,35 @@ public class ClinicHubTests
         VerifyPresenceSignal(firstProxy, Times.Exactly(2));
     }
 
+    // demo-cabinet EC-3: on the demo every visitor is the same account, so arriving or leaving refreshes nobody.
+    [Fact]
+    public async Task On_The_Demo_A_Visitor_Arriving_Or_Leaving_Signals_Nobody()
+    {
+        var presence = new StaffPresence();
+        var (hub, groups, proxy, user) = Build("visitor-1", presence, demo: true);
+
+        await hub.OnConnectedAsync();
+        await hub.OnDisconnectedAsync(null);
+
+        VerifyPresenceSignal(proxy, Times.Never());
+        Assert.False(presence.IsOnline(ClinicId, user.Id));
+        groups.Verify(g => g.AddToGroupAsync("visitor-1", $"clinic-{ClinicId}", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private static IDemoPolicy Demo(bool refusesWrites)
+    {
+        var demo = new Mock<IDemoPolicy>();
+        demo.SetupGet(d => d.RefusesWrites).Returns(refusesWrites);
+        return demo.Object;
+    }
+
     private static void VerifyPresenceSignal(Mock<IClientProxy> proxy, Times times) =>
         proxy.Verify(
             p => p.SendCoreAsync(ClinicHub.StaffChatChanged, It.Is<object?[]>(a => a.Length == 0), It.IsAny<CancellationToken>()),
             times);
 
     private static (ClinicHub Hub, Mock<IGroupManager> Groups, Mock<IClientProxy> Proxy, User User) Build(
-        string connectionId, StaffPresence presence, User? existing = null)
+        string connectionId, StaffPresence presence, User? existing = null, bool demo = false)
     {
         var user = existing ?? User.CreateLocalUser(ClinicId, "secretary", "sec@clinic.com", "HASH", "Sec");
         var users = new Mock<IUserRepository>();
@@ -116,7 +139,7 @@ public class ClinicHubTests
         var clients = new Mock<IHubCallerClients>();
         clients.Setup(c => c.Group(It.IsAny<string>())).Returns(proxy.Object);
 
-        var hub = new ClinicHub(users.Object, presence)
+        var hub = new ClinicHub(users.Object, presence, Demo(demo))
         {
             Context = BuildContext(connectionId, user.Id),
             Groups = groups.Object,

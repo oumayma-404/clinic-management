@@ -10,6 +10,8 @@ import { PatientLinkChips } from "./patient-link-chip"
 import type { PickedLink } from "./patient-link-picker"
 import { readDraft, writeDraft } from "@/lib/staff-chat/drafts"
 import { cn } from "@/lib/utils"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 
 interface MessageComposerProps {
   conversation: string
@@ -51,8 +53,12 @@ export function MessageComposer({
   const tooLong = length > STAFF_MESSAGE_MAX_LENGTH
   const canSend = length > 0 && !tooLong
 
+  const { isDemo } = useDemo()
+
   const submit = () => {
     if (!canSend) return
+    // Refused before the bubble exists, the typed message kept (demo-cabinet FR-4).
+    if (refuseInDemo(isDemo)) return
     onSend({
       body: text.trim(),
       quickMessage: null,

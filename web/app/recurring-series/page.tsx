@@ -54,6 +54,7 @@ import { useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { ApiError } from "@/lib/api/client"
 import type { PatientDto, ProcedureTypeDto, RecurringAppointmentDto } from "@/lib/api/types"
 import { PatientNameLink } from "@/components/patient-name-link"
+import { showErrorToast } from "@/lib/errors"
 
 // ---- Helpers ---------------------------------------------------------------------------------------
 
@@ -246,7 +247,7 @@ function NewSeriesDialog({ open, onOpenChange, patients, procedureTypes, onCreat
         outsideWorkingHours: result.outsideWorkingHours ?? [],
       })
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la création de la série")
+      showErrorToast(err, "Échec de la création de la série")
     } finally {
       setSaving(false)
     }
@@ -639,7 +640,7 @@ function RecurringSeriesScreen() {
         setPatients(patientsData)
       } catch (err) {
         if (!active) return
-        toast.error(err instanceof ApiError ? err.message : "Échec du chargement des données du formulaire")
+        showErrorToast(err, "Échec du chargement des données du formulaire")
       }
     })()
     return () => {
@@ -689,7 +690,7 @@ function RecurringSeriesScreen() {
       setCancelTarget(null)
       await loadSeries()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'annulation de la série")
+      showErrorToast(err, "Échec de l'annulation de la série")
     } finally {
       setCancelling(false)
     }

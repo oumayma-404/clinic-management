@@ -4,6 +4,7 @@ import type React from "react"
 import { toast } from "sonner"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { clinicsApi } from "@/lib/api/clinics"
+import { forgetDemoVisit, useDemo } from "@/lib/demo/demo-context"
 import {
   clearCachedAccessToken,
   onMustChangePassword,
@@ -88,6 +89,10 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
   const [user, setUser] = useState<SessionUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [trusted, setTrusted] = useState(false)
+  // demo-cabinet: a demo visitor has no login screen to return to — a session that ends lands on the entry page.
+  const { isDemo } = useDemo()
+  const isDemoRef = useRef(isDemo)
+  isDemoRef.current = isDemo
 
   const logout = useCallback((options?: { returnTo?: string; reason?: "inactivity" }) => {
     // AC-3.6: logout returns to the login screen; the configured server address
@@ -102,9 +107,12 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
      * open, is the part of a timeout that actually costs work. A user who *chose* « Se déconnecter » is
      * finished with the screen, so passing no `returnTo` is the right default.
      */
-    const target = options?.returnTo
-      ? `/login?returnTo=${encodeURIComponent(options.returnTo)}`
-      : "/login"
+    if (isDemoRef.current && !options?.returnTo) forgetDemoVisit()
+    const target = isDemoRef.current
+      ? options?.returnTo ? "/demo?expired=1" : "/demo"
+      : options?.returnTo
+        ? `/login?returnTo=${encodeURIComponent(options.returnTo)}`
+        : "/login"
     /*
      * The reason is sent so the session table can tell a chosen sign-out from a timeout — until now both were
      * stamped identically, and the practice's own records could not answer how often the limit was firing.
@@ -216,6 +224,8 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     return onSessionExpired(() => {
       if (isPublicRoute(window.location.pathname)) return
+      // The demo's entry page says it itself, and there is nothing to « reconnect » with.
+      if (isDemoRef.current) return logout({ returnTo: window.location.pathname })
       toast.error("Session expirée", {
         description: "Votre session a expiré. Reconnectez-vous pour continuer.",
         duration: 6000,

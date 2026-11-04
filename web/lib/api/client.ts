@@ -1,3 +1,5 @@
+import { DEMO_READ_ONLY_MESSAGE } from '@/lib/demo/demo-refusal';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 export class ApiError extends Error {
@@ -164,6 +166,12 @@ export const ApiErrorCode = {
   IdempotencyInProgress: 'idempotency_in_progress',
   /** 422 (D17): a replay key reused on another request — a client fault; the server records nothing. */
   IdempotencyKeyReused: 'idempotency_key_reused',
+  /**
+   * 403 (demo-cabinet FR-2): the public demo saves nothing. The message is replaced by the client constant so the
+   * banner and the toast recognise it by identity and render a notice, never an error. Emitted by
+   * `DemoReadOnlyMiddleware`; no other deployment sends it.
+   */
+  DemoReadOnly: 'demo_read_only',
 } as const;
 
 /** The three 402 codes, as one set — see {@link onSubscriptionRequired}. */
@@ -629,6 +637,11 @@ async function throwIfNotOk(response: Response): Promise<void> {
     // A screen still open when the cabinet was hidden from another PC: re-read, and the page swaps for its card.
     if (errorCode === ApiErrorCode.MoneyHidden) {
       moneyHiddenListeners.forEach((listener) => listener());
+    }
+
+    // The demo's refusal: one sentence the banner and the toast recognise, whatever the server worded.
+    if (errorCode === ApiErrorCode.DemoReadOnly) {
+      errorMessage = DEMO_READ_ONLY_MESSAGE;
     }
 
     // The one refusal every screen can act on, in exactly one way: go and change the password.

@@ -33,6 +33,7 @@ import { ActiveFilterChip } from "@/components/ui/list-toolbar"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { cn } from "@/lib/utils"
 import { replaceUrl } from "@/lib/history"
+import { showErrorToast } from "@/lib/errors"
 
 /**
  * The next 5-minute boundary strictly after <paramref name="from"/> — the agenda's own booking granularity.
@@ -482,7 +483,7 @@ export default function AppointmentsPage() {
       if (error instanceof ApiError && error.status === 0) {
         toast.error("Connexion perdue. Veuillez réessayer.")
       } else {
-        toast.error(error instanceof ApiError ? error.message : "Échec de la déconnexion de Google Calendar.")
+        showErrorToast(error, "Échec de la déconnexion de Google Calendar.")
       }
     } finally {
       setIsDisconnecting(false)

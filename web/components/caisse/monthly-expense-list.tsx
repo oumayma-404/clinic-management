@@ -26,13 +26,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ApiError } from "@/lib/api/client"
 import { expensesApi } from "@/lib/api/expenses"
 import type { RecurringExpenseDto } from "@/lib/api/types"
 import { formatDT, quoteFr } from "@/lib/format"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 import { methodLabel } from "./expense-fields"
 import { MonthlyExpenseDialog } from "./monthly-expense-dialog"
+import { showErrorToast } from "@/lib/errors"
 
 /** « octobre 2026 » from an `AAAA-MM` key. The server sends the key; the month's name is a presentation choice. */
 const monthLabel = (monthKey: string): string => {
@@ -94,7 +94,7 @@ export function MonthlyExpenseList({
       setStopping(null)
       await onChanged()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'arrêt de la dépense mensuelle")
+      showErrorToast(err, "Échec de l'arrêt de la dépense mensuelle")
     } finally {
       setSaving(false)
     }

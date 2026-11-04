@@ -348,9 +348,19 @@ jobs:
           set -euo pipefail
           cd "$DEPLOY_DIR"
           COMPOSE="docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml"
+          # The public demo rides along only where the server's .env names it; naming it here keeps --remove-orphans off it.
+          if grep -qE '^DEMO_DOMAIN=.+' .env; then COMPOSE="$COMPOSE -f docker-compose.demo.yml"; fi
 
-          # Every `{$NAME}` the file interpolates, read out of the file itself.
-          placeholders=$(grep -oE '\{\$[A-Za-z_][A-Za-z0-9_]*\}' Caddyfile | tr -d '{$}' | sort -u)
+          # The demo's site file is validated with the Caddyfile whenever the overlay will mount it.
+          caddy_files=(Caddyfile)
+          caddy_mounts=(-v "$DEPLOY_DIR/Caddyfile:/etc/caddy/Caddyfile:ro")
+          if grep -qE '^DEMO_DOMAIN=.+' .env; then
+            caddy_files+=(demo/Caddyfile.demo)
+            caddy_mounts+=(-v "$DEPLOY_DIR/demo/Caddyfile.demo:/etc/caddy/sites/demo.caddy:ro")
+          fi
+
+          # Every `{$NAME}` the files interpolate, read out of the files themselves.
+          placeholders=$(grep -ohE '\{\$[A-Za-z_][A-Za-z0-9_]*\}' "${caddy_files[@]}" | tr -d '{$}' | sort -u)
           if [ -z "$placeholders" ]; then
             echo "::error::Found no {\$VAR} placeholders in Caddyfile — the derivation broke, and a validation" \
                  "that silently checks nothing is worse than none. Fix the grep above."
@@ -368,7 +378,7 @@ jobs:
           done
 
           # $env_args unquoted on purpose — it is a list of separate arguments, as `$stale` is below.
-          docker run --rm -v "$DEPLOY_DIR/Caddyfile:/etc/caddy/Caddyfile:ro" $env_args \
+          docker run --rm "${caddy_mounts[@]}" $env_args \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
 
           stale=$(bash config-freshness.sh --services)
@@ -399,6 +409,8 @@ jobs:
           set -euo pipefail
           cd "$DEPLOY_DIR"
           COMPOSE="docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml"
+          # The public demo rides along only where the server's .env names it; naming it here keeps --remove-orphans off it.
+          if grep -qE '^DEMO_DOMAIN=.+' .env; then COMPOSE="$COMPOSE -f docker-compose.demo.yml"; fi
 
           $COMPOSE pull api web console
 
@@ -424,7 +436,18 @@ jobs:
           #
           # ⚠️ `certs` is a one-shot (`restart: "no"`, exits 0) and --wait handles it: Compose treats a
           # service that has run to completion as satisfied rather than waiting for it to be "running".
-          $COMPOSE up -d --no-build --remove-orphans --wait --wait-timeout 180
+          #
+          # ⚠️ The demo is NOT waited for: production's own services are listed (read from the files without the
+          # overlay), so a demo that never turns healthy cannot fail a production deploy. It starts right after; the
+          # « Demo cabinet » step below checks it and warns.
+          if grep -qE '^DEMO_DOMAIN=.+' .env; then
+            prod_services=$(docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml config --services | tr '\n' ' ')
+            $COMPOSE up -d --no-build --remove-orphans --wait --wait-timeout 180 $prod_services
+            $COMPOSE up -d --no-build --no-deps api-demo web-demo \
+              || echo "::warning title=Demo not started::api-demo / web-demo did not start. Production is unaffected."
+          else
+            $COMPOSE up -d --no-build --remove-orphans --wait --wait-timeout 180
+          fi
 
           echo "--- containers ---"
           $COMPOSE ps
@@ -452,6 +475,8 @@ jobs:
           set -euo pipefail
           cd "$DEPLOY_DIR"
           COMPOSE="docker compose -f docker-compose.hosted.yml -f docker-compose.registry.yml"
+          # The public demo rides along only where the server's .env names it; naming it here keeps --remove-orphans off it.
+          if grep -qE '^DEMO_DOMAIN=.+' .env; then COMPOSE="$COMPOSE -f docker-compose.demo.yml"; fi
 
           stale=$(bash config-freshness.sh --services)
 
@@ -504,6 +529,58 @@ jobs:
             2) echo "::error::verify-schema found DRIFT between the live schema and the model. The deploy is live — investigate before the next migration batch."; exit 1 ;;
             *) echo "::error::verify-schema could not run (exit $code)."; exit 1 ;;
           esac
+
+      # The public demo (demo.apexa.tn, features/demo-cabinet/), only where the server's .env names it. Warnings,
+      # never a gate: the demo must not fail a production deploy, but a demo that is down, drifting or no longer
+      # rebuilding must be seen — a stale `demoBuiltOn` is how a failed nightly rebuild shows (AC-7.6).
+      - name: Demo cabinet
+        run: |
+          demo=$(ssh vps "grep -oP '(?<=^DEMO_DOMAIN=).*' '${{ vars.VPS_DEPLOY_DIR }}/.env' | tr -d '\r\"'" || true)
+          if [ -z "$demo" ]; then
+            echo "No demo on this server (no DEMO_DOMAIN in .env)."
+            exit 0
+          fi
+
+          healthy=no
+          for attempt in $(seq 1 18); do
+            if curl -fsS --max-time 10 -o /dev/null "https://$demo/health"; then healthy=yes; break; fi
+            echo "attempt $attempt: demo not answering yet"
+            sleep 10
+          done
+          if [ "$healthy" != yes ]; then
+            echo "::warning title=Demo down::https://$demo/health did not answer 200 within 3 minutes. Production is unaffected; read clinic-api-demo's log."
+            exit 0
+          fi
+
+          set +e
+          ssh vps "docker exec clinic-api-demo dotnet ClinicManagement.API.dll verify-schema"
+          code=$?
+          set -e
+          [ "$code" = 0 ] || echo "::warning title=Demo schema::verify-schema on clinic-api-demo exited $code (2 = drift)."
+
+          # The demo re-reads its cabinet's day a few seconds after a restart, so give it a minute.
+          built=""
+          for attempt in $(seq 1 12); do
+            built=$(curl -fsS --max-time 10 "https://$demo/api/auth/mode" | jq -r '.demoBuiltOn // empty' 2>/dev/null || true)
+            [ -n "$built" ] && break
+            sleep 5
+          done
+          yesterday=$(TZ=Africa/Tunis date -d yesterday +%F)
+          if [ -z "$built" ]; then
+            echo "::warning title=Demo has no cabinet::https://$demo/api/auth/mode reports no demoBuiltOn — no cabinet has opened yet."
+          elif [[ "$built" < "$yesterday" ]]; then
+            echo "::warning title=Demo rebuild failing::the demo cabinet was last built on $built; the nightly rebuild has not succeeded since. Read clinic-api-demo's log."
+          else
+            echo "Demo cabinet built on $built."
+          fi
+          {
+            echo "### Demo"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Domain | https://$demo |"
+            echo "| Cabinet built on | ${built:-none yet} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # ── The hot-path smoke, against the deployment that just went live ──────────────────────────────────
       #

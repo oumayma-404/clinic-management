@@ -20,6 +20,8 @@ import { DoctorWorkingHoursCard } from "@/components/doctor-working-hours-card"
 import { DoctorLeavesCard } from "@/components/doctor-leaves/doctor-leaves-card"
 import { acceptHint, refusalFor } from "@/lib/api/upload-policy"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 
 /**
  * The icon chip both section headings on this page wear.
@@ -41,6 +43,7 @@ export function MonProfilContent() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const policy = useUploadPolicy("profile-image")
+  const { isDemo } = useDemo()
 
   const [ordreNumber, setOrdreNumber] = useState("")
   const [cachetFile, setCachetFile] = useState<File | null>(null)
@@ -105,6 +108,7 @@ export function MonProfilContent() {
     // holds it and choosing the same one fires no `change` event at all.
     e.target.value = ""
     if (!file) return
+    if (refuseInDemo(isDemo)) return
 
     // ⚠️ The served policy, not `image/*`. This field accepted every image type the OS knows while the server's
     // door takes PNG and JPEG only, so a WebP or a HEIC cachet was picked here, uploaded, and refused there.

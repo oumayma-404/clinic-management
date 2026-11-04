@@ -64,7 +64,32 @@ public class AppointmentProgressJobTests
             AuditActor.Object,
             TenantScope,
             Fence,
+            DemoBuilds,
             NullLogger<AppointmentProgressJob>.Instance);
+
+        public DemoCabinetBuilds DemoBuilds { get; } = new();
+    }
+
+    // [demo-cabinet FR-6] A demo cabinet being built is left alone — its past visits are the seed's to close, and a
+    // tick racing it fails the fiche's own completion. The others go on, and the cabinet is reached once it is built.
+    [Fact]
+    public async Task A_Demo_Cabinet_Being_Built_Is_Skipped_Until_It_Is_Built()
+    {
+        var building = RunningNow(ClinicA);
+        var other = RunningNow(ClinicB);
+        var harness = new Harness(building, other);
+
+        using (harness.DemoBuilds.Begin(ClinicA))
+        {
+            await harness.Job().StartRunningAppointments(Now);
+        }
+
+        Assert.Equal(AppointmentStatus.Scheduled, building.Status);
+        Assert.Equal(AppointmentStatus.InProgress, other.Status);
+        Assert.False(harness.DemoBuilds.IsBuilding(ClinicA));
+
+        await harness.Job().StartRunningAppointments(Now);
+        Assert.Equal(AppointmentStatus.InProgress, building.Status);
     }
 
     // [clinic-pc-copy D15] A cabinet whose saves belong to its PC de secours is skipped before anything is touched —

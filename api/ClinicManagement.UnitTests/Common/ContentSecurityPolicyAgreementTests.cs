@@ -64,6 +64,15 @@ public class ContentSecurityPolicyAgreementTests
         Assert.All(policies, policy => Assert.Equal(MiddlewarePolicy, policy));
     }
 
+    [Fact] // demo-cabinet: the demo's site rides in its own file (mounted by docker-compose.demo.yml) and serves the same policy
+    public void The_Demo_Caddy_Site_Serves_The_Middlewares_Policy_Byte_For_Byte()
+    {
+        var policies = ExtractCaddyPolicies(File.ReadAllText(RepoFile(Path.Combine("deploy", "demo", "Caddyfile.demo"))));
+
+        Assert.Single(policies);
+        Assert.Equal(MiddlewarePolicy, policies[0]);
+    }
+
     [Fact]
     public void The_Console_Next_Config_Serves_The_Middlewares_Policy_Byte_For_Byte()
     {

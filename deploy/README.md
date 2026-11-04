@@ -6,6 +6,7 @@
 |---|---|
 | `docker-compose.hosted.yml` | **`HostedMultiTenant`** — the deployment. The product's **own** accounts; many clinics, one backend, each clinic running the Windows desktop client and reaching it over the internet. **This is the file you bring up.** |
 | `docker-compose.prod.yml` | The shared **infrastructure base**: certs, postgres, minio, caddy, backup, pitr. Not runnable on its own. |
+| `docker-compose.demo.yml` | **Optional overlay** — the public demo cabinet (demo.apexa.tn) beside production, own database/keys/bucket, capped. Off unless the server's `.env` has `DEMO_DOMAIN`. Runbook: [`demo/README.md`](demo/README.md). |
 
 ⚠️ `docker-compose.prod.yml` used to be a deployment in its own right — `CloudBrowser`, logging in through Auth0.
 That kind is **retired** with Auth0, and its `api`/`web` services are gone from the file. What remains is the

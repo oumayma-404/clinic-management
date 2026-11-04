@@ -83,6 +83,7 @@ import type { LabWorkOrderDto, PatientDto } from "@/lib/api/types"
 import { isFdiTooth } from "@/components/tooth-multiselect"
 import { formatAmount, formatDT, parseAmountInput, todayLocalIso } from "@/lib/format"
 import { PatientNameLink } from "@/components/patient-name-link"
+import { showErrorToast } from "@/lib/errors"
 
 // The four lifecycle stages a lab work order moves through (mirrors the backend enum).
 type LabOrderStatus = "Sent" | "InProgress" | "Received" | "Fitted"
@@ -681,7 +682,7 @@ export default function LabOrdersPage() {
       const data = await patientsApi.list()
       setPatients(data)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec du chargement des patients")
+      showErrorToast(err, "Échec du chargement des patients")
     }
   }, [])
 
@@ -733,7 +734,7 @@ export default function LabOrdersPage() {
       }
       await loadOrders()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la mise à jour du statut")
+      showErrorToast(err, "Échec de la mise à jour du statut")
     } finally {
       setStatusUpdatingId(null)
     }
@@ -793,7 +794,7 @@ export default function LabOrdersPage() {
       setOrderToDelete(null)
       await loadOrders()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du bon")
+      showErrorToast(err, "Échec de la suppression du bon")
     } finally {
       setDeleting(false)
     }

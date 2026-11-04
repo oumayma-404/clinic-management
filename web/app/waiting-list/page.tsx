@@ -275,7 +275,7 @@ export default function WaitingListPage() {
       const data = await patientsApi.list()
       setPatients(data)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec du chargement des patients")
+      showErrorToast(err, "Échec du chargement des patients")
     }
   }, [])
 
@@ -387,7 +387,7 @@ export default function WaitingListPage() {
       await loadEntries()
     } catch (err) {
       // The appointment was already created; only the promotion link failed.
-      toast.error(err instanceof ApiError ? err.message : "Rendez-vous créé, mais la promotion a échoué")
+      showErrorToast(err, "Rendez-vous créé, mais la promotion a échoué")
     } finally {
       setPromotingId(null)
     }
@@ -458,7 +458,7 @@ export default function WaitingListPage() {
       setEntryToDelete(null)
       await loadEntries()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec du retrait")
+      showErrorToast(err, "Échec du retrait")
     } finally {
       setDeleting(false)
     }

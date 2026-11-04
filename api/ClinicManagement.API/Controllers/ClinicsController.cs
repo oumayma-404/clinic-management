@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.RateLimiting;
+using ClinicManagement.API.Startup;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Interfaces;
@@ -635,6 +637,7 @@ public class ClinicsController : ApiControllerBase
     /// <summary>A sample ordonnance on bands that are not saved yet. Persists nothing.</summary>
     [RequestSizeLimit(LetterheadRequestBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = LetterheadRequestBytes)]
+    [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpPost("letterhead/preview")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     public async Task<IActionResult> PreviewLetterhead(

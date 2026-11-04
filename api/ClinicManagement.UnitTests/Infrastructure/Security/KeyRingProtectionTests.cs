@@ -346,7 +346,9 @@ public class KeyRingProtectionTests
     [Theory]
     [InlineData("HostedMultiTenant", true)]
     [InlineData("SelfHostedLan", false)]
-    public void Only_The_Hosted_Multi_Tenant_Kind_Requires_A_Certificate(string profileName, bool required) // [FR-3.1]
+    [InlineData("ClinicRelay", false)]
+    [InlineData("PublicDemo", true)]
+    public void Only_The_Hosted_Kinds_Require_A_Certificate(string profileName, bool required) // [FR-3.1]
     {
         var profile = ClinicManagement.Infrastructure.Deployment.DeploymentProfile.Resolve(
             Config(("Deployment:Profile", profileName)));

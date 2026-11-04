@@ -4,6 +4,8 @@ import type React from "react"
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 import {
   ChevronRight,
   Download,
@@ -223,6 +225,7 @@ export function PatientFilesManager({
   // fires exactly once: not on the initial render (when `loading` is still true), and not again if the user
   // later deletes every folder.
   const defaultsInitializedFor = useRef<string | null>(null)
+  const { isDemo } = useDemo()
   useEffect(() => {
     const initializeDefaults = async () => {
       try {
@@ -232,13 +235,15 @@ export function PatientFilesManager({
         // Folders may already exist; nothing here is worth a toast.
       }
     }
+    // The demo saves nothing, so it shows the patient as is rather than asking to create folders (FR-4).
+    if (isDemo !== false) return
     if (patientId && !loading && !loadFailed && defaultsInitializedFor.current !== patientId) {
       defaultsInitializedFor.current = patientId
       if (folders.length === 0) {
         void initializeDefaults()
       }
     }
-  }, [patientId, loading, loadFailed, folders.length, loadData])
+  }, [patientId, loading, loadFailed, folders.length, loadData, isDemo])
 
   const uploads = useUploadQueue({
     patientId,
@@ -254,6 +259,7 @@ export function PatientFilesManager({
    * copy taken first, or a retry would upload nothing.
    */
   const handleFileUpload = (filesToUpload: File[]) => {
+    if (refuseInDemo(isDemo)) return
     void uploads.enqueue(filesToUpload)
   }
 

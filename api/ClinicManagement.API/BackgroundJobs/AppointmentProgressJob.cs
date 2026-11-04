@@ -58,6 +58,7 @@ public class AppointmentProgressJob
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly IClinicWriteFence _fence;
+    private readonly DemoCabinetBuilds _demoBuilds;
     private readonly ILogger<AppointmentProgressJob> _logger;
 
     public AppointmentProgressJob(
@@ -67,9 +68,11 @@ public class AppointmentProgressJob
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
         IClinicWriteFence fence,
+        DemoCabinetBuilds demoBuilds,
         ILogger<AppointmentProgressJob> logger)
     {
         _fence = fence;
+        _demoBuilds = demoBuilds;
         _appointmentRepository = appointmentRepository;
         _unitOfWork = unitOfWork;
         _realtime = realtime;
@@ -169,6 +172,12 @@ public class AppointmentProgressJob
     /// </summary>
     private async Task<bool> SkipsAsync(Guid clinicId)
     {
+        // demo-cabinet: the scenario closes its own past visits; the next tick after the build reaches any left open.
+        if (_demoBuilds.IsBuilding(clinicId))
+        {
+            return true;
+        }
+
         if (!await _fence.RefusesAsync(clinicId))
         {
             return false;

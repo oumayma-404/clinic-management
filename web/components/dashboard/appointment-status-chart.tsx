@@ -57,6 +57,8 @@ interface AppointmentStatusChartProps {
   customFrom?: string
   customTo?: string
   onRetry?: () => void
+  /** A fall is drawn grey, never red (the public demo). */
+  quietFalls?: boolean
 }
 
 /**
@@ -90,6 +92,7 @@ export function AppointmentStatusChart({
   customFrom,
   customTo,
   onRetry,
+  quietFalls = false,
 }: AppointmentStatusChartProps) {
   const [showTable, setShowTable] = useState(false)
 
@@ -286,7 +289,11 @@ export function AppointmentStatusChart({
                 <span
                   className={cn(
                     "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
-                    delta >= 0 ? "bg-success-wash text-success" : "bg-destructive-wash text-destructive",
+                    delta >= 0
+                      ? "bg-success-wash text-success"
+                      : quietFalls
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-destructive-wash text-destructive",
                   )}
                   // The comparison names DAYS, never « le mois dernier »: the server compares the same number of
                   // days immediately before, which for a calendar month is not the previous calendar month.

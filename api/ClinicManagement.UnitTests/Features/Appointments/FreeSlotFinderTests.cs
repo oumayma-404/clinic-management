@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Services;
@@ -264,9 +265,23 @@ public class FreeSlotFinderTests
 
     // ── the query ─────────────────────────────────────────────────────────────────────────────────────────────
 
+    // The query reads the real clock and never offers a past start, so its Monday must still be to come.
+    private static readonly DateOnly QueryMonday = NextMonday(DateOnly.FromDateTime(ClinicClock.ClinicToday()));
+
+    private static DateOnly NextMonday(DateOnly today)
+    {
+        var day = today.AddDays(1);
+        while (day.DayOfWeek != DayOfWeek.Monday)
+        {
+            day = day.AddDays(1);
+        }
+
+        return day;
+    }
+
     private static (GetFreeSlotsQueryHandler Handler, Appointment Visit) Query(Guid visitClinic)
     {
-        var visit = new Appointment(Guid.NewGuid(), visitClinic, Guid.NewGuid(), Salma, At(Monday, "10:00"), TimeSpan.FromMinutes(60));
+        var visit = new Appointment(Guid.NewGuid(), visitClinic, Guid.NewGuid(), Salma, At(QueryMonday, "10:00"), TimeSpan.FromMinutes(60));
         var clinic = new Clinic(ClinicId, "Cabinet Test", code: "CODE01");
         clinic.SetWorkingHours(ClinicHours);
 
@@ -293,7 +308,7 @@ public class FreeSlotFinderTests
     {
         var (handler, visit) = Query(OtherClinicId);
 
-        var result = await handler.Handle(new GetFreeSlotsQuery { AppointmentId = visit.Id, From = Monday, Days = 1 }, default);
+        var result = await handler.Handle(new GetFreeSlotsQuery { AppointmentId = visit.Id, From = QueryMonday, Days = 1 }, default);
 
         Assert.True(result.IsFailure);
         Assert.Equal("Rendez-vous introuvable.", result.Error);
@@ -304,11 +319,11 @@ public class FreeSlotFinderTests
     {
         var (handler, visit) = Query(ClinicId);
 
-        var result = await handler.Handle(new GetFreeSlotsQuery { AppointmentId = visit.Id, From = Monday, Days = 1 }, default);
+        var result = await handler.Handle(new GetFreeSlotsQuery { AppointmentId = visit.Id, From = QueryMonday, Days = 1 }, default);
 
         Assert.True(result.IsSuccess, result.Error);
         var day = Assert.Single(result.Value!.Days);
-        Assert.Equal("2026-11-02", day.Date);
+        Assert.Equal(QueryMonday.ToString("yyyy-MM-dd"), day.Date);
         Assert.Equal("Open", day.State);
         Assert.Contains("10:00", day.Starts);      // its own slot does not block it
         Assert.Contains("16:00", day.Starts);      // 60 min: 16:00–17:00 fits

@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { staffChatApi, type StaffMessageDto } from "@/lib/api/staff-chat"
 import { getErrorMessage } from "@/lib/errors"
 import { useSession } from "@/lib/auth/session"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 import { queryKeys, realtimeMeta } from "@/lib/query/keys"
 import { STAFF_CHAT_KEY } from "@/lib/realtime/clinic-hub"
 import { useClinicRealtimeSubscribe } from "@/lib/realtime/clinic-realtime-provider"
@@ -70,6 +72,7 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  const { isDemo } = useDemo()
   const subscribe = useClinicRealtimeSubscribe()
   const current = useRef(conversation)
   current.current = conversation
@@ -169,6 +172,7 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
     (outgoing: OutgoingMessage) => {
       const key = current.current
       if (!key || !viewer) return
+      if (refuseInDemo(isDemo)) return
       const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
       setMessages((previous) => [
         ...previous,
@@ -189,7 +193,7 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
       ])
       void deliver(key, localId, outgoing)
     },
-    [viewer, deliver],
+    [viewer, deliver, isDemo],
   )
 
   const retry = useCallback(
@@ -231,9 +235,11 @@ export function useStaffChatThread(conversation: string | null, viewer: { userId
 export function useMarkThreadRead(conversation: string | null, messages: ThreadMessage[], viewerId: string | undefined) {
   const queryClient = useQueryClient()
   const marked = useRef<string | null>(null)
+  const { isDemo } = useDemo()
 
   const markIfSeen = useCallback(() => {
-    if (!conversation || !viewerId) return
+    // The demo records nothing, and a refused read marker would retry on every focus (demo-cabinet FR-4).
+    if (!conversation || !viewerId || isDemo !== false) return
     if (typeof document === "undefined" || document.visibilityState !== "visible" || !document.hasFocus()) return
     const newest = [...messages].reverse().find((m) => !m.localId && m.sender.userId !== viewerId)
     if (!newest || marked.current === `${conversation}:${newest.id}`) return
@@ -248,7 +254,7 @@ export function useMarkThreadRead(conversation: string | null, messages: ThreadM
       .catch(() => {
         marked.current = null
       })
-  }, [conversation, messages, viewerId, queryClient])
+  }, [conversation, messages, viewerId, queryClient, isDemo])
 
   useEffect(() => {
     markIfSeen()

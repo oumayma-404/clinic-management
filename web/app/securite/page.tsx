@@ -17,6 +17,8 @@ import { MyDevicesCard } from '@/components/security/my-devices-card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { LOW_RECOVERY_CODES, securityApi, type TotpState } from '@/lib/api/security'
 import { showErrorToast } from '@/lib/errors'
+import { useDemo } from '@/lib/demo/demo-context'
+import { refuseInDemo } from '@/lib/demo/refuse-in-demo'
 import { formatDate } from '@/lib/format'
 import { ShieldCheck, ShieldAlert, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
@@ -50,6 +52,11 @@ export default function SecuritePage() {
 }
 
 function SecurityContent() {
+  const { isDemo } = useDemo()
+  // The demo dentist has no authenticator: these leave for the login screen, so they are refused here (FR-4).
+  const refuseLeaving = (e: React.MouseEvent) => {
+    if (refuseInDemo(isDemo)) e.preventDefault()
+  }
   const [state, setState] = useState<TotpState | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
@@ -193,7 +200,7 @@ function SecurityContent() {
                        beside it and not to this one, so « Activer le second facteur » navigated away and returned
                        home having done nothing. It is why no praticien could enrol voluntarily by any route. */
                     <Button asChild className="min-h-11">
-                      <a href="/login?enrol=1">Activer maintenant</a>
+                      <a href="/login?enrol=1" onClick={refuseLeaving}>Activer maintenant</a>
                     </Button>
                   }
                 />
@@ -222,7 +229,7 @@ function SecurityContent() {
                   >
                     Vous vous êtes connecté avec un code de récupération. Pendant quelques minutes, vous pouvez
                     lier votre second facteur à un nouveau téléphone sans code de vérification.{' '}
-                    <a href="/login?replace=1" className="font-medium underline underline-offset-4">
+                    <a href="/login?replace=1" onClick={refuseLeaving} className="font-medium underline underline-offset-4">
                       Remplacer maintenant
                     </a>
                     .

@@ -12,6 +12,7 @@ using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Auth.Queries;
 using ClinicManagement.Application.Features.Clinics.Commands;
 using ClinicManagement.Application.Features.Relay.Commands;
+using ClinicManagement.API.BackgroundJobs;
 using ClinicManagement.API.Models;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
@@ -43,17 +44,20 @@ public class AuthController : ApiControllerBase
 
     private readonly DeploymentProfile _deployment;
     private readonly ISubscriptionPolicy _subscriptionPolicy;
+    private readonly DemoCabinetBuilds _demoBuilds;
 
     public AuthController(
         IMediator mediator,
         IConfiguration configuration,
         DeploymentProfile deployment,
-        ISubscriptionPolicy subscriptionPolicy)
+        ISubscriptionPolicy subscriptionPolicy,
+        DemoCabinetBuilds demoBuilds)
     {
         _mediator = mediator;
         _configuration = configuration;
         _deployment = deployment;
         _subscriptionPolicy = subscriptionPolicy;
+        _demoBuilds = demoBuilds;
     }
 
     // Injected, not re-resolved per request: AddInfrastructure already registers the resolved profile as a
@@ -118,7 +122,41 @@ public class AuthController : ApiControllerBase
             // clinic-pc-copy: whether this server can have a PC de secours, and whether it IS one.
             relayFeedEnabled = deployment.PublishesChangeFeed,
             isClinicRelay = deployment.MirrorsCloudClinic,
+            // demo-cabinet: the web shows the band, the refusal notice and the entry page from this one flag.
+            isDemo = deployment.RefusesWrites,
+            demoSignupUrl = deployment.RefusesWrites ? DemoSignupUrl : null,
+            // The day the cabinet visitors enter was built for; a stale one means the nightly rebuild failed (AC-7.6).
+            demoBuiltOn = deployment.IssuesDemoSessions ? _demoBuilds.CurrentBuiltOn?.ToString("yyyy-MM-dd") : null,
         });
+    }
+
+    /// <summary>Where a demo visitor goes to create a real cabinet; <c>Demo:SignupUrl</c>, else the site's download section.</summary>
+    private string DemoSignupUrl =>
+        string.IsNullOrWhiteSpace(_configuration["Demo:SignupUrl"])
+            ? "https://apexa.tn/#telecharger"
+            : _configuration["Demo:SignupUrl"]!;
+
+    /// <summary>
+    /// « Entrer dans la démo » (<c>demo-cabinet</c> US-1): a session of the visitor's own as the demo dentist — no
+    /// password, no code. 404 anywhere but the public demo, before the mediator; under <c>/api/auth</c> so the
+    /// anonymous window and the per-address ceiling both apply. 503 when no complete cabinet exists yet.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
+    [OnlineOnly("A demo session belongs to the public demo deployment, never to a copy.")]
+    [AllowedInDemo("Entering the demo: mints the visitor's own session and writes nothing else.")]
+    [HttpPost("demo-session")]
+    public async Task<IActionResult> DemoSession()
+    {
+        if (!Deployment.IssuesDemoSessions)
+        {
+            return NotFound();
+        }
+
+        var result = await _mediator.Send(new StartDemoSessionCommand());
+        return result.IsSuccess
+            ? Ok(result)
+            : HandleFailure(result, StatusCodes.Status503ServiceUnavailable);
     }
 
     /// <summary>
@@ -551,6 +589,7 @@ public class AuthController : ApiControllerBase
     [AllowAnonymous]
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [AllowedOnStandbyRelay("Keeping a session on the PC alive; sessions are each install's own and never copied.")]
+    [AllowedInDemo("Keeping the session alive: rotates the visitor's own session, capped at its fixed end.")]
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
     {
@@ -587,6 +626,7 @@ public class AuthController : ApiControllerBase
     [EnableRateLimiting(RateLimiting.AnonymousAuthPolicy)]
     [AllowsWithoutSubscription("Signing out is not recording clinic work, and a cabinet must always be able to.")]
     [AllowedOnStandbyRelay("Signing out of a shared PC must always work, and sessions are never copied.")]
+    [AllowedInDemo("Leaving the demo: ends the visitor's own session.")]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
     {

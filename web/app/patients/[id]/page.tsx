@@ -1626,11 +1626,7 @@ export default function PatientDetailsPage() {
         if (!cancelled) setDeletionPreview(preview)
       } catch (err) {
         if (!cancelled) {
-          toast.error(
-            err instanceof ApiError
-              ? err.message
-              : "Impossible de vérifier ce que cette suppression annulerait.",
-          )
+          showErrorToast(err, "Impossible de vérifier ce que cette suppression annulerait.")
         }
       }
     })()
@@ -1650,7 +1646,7 @@ export default function PatientDetailsPage() {
       // the invoices, the plans and the « Facturé » badges all have to be re-read, not just the fiche list.
       setRefreshKey((k) => k + 1)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression de la fiche de soins.")
+      showErrorToast(err, "Échec de la suppression de la fiche de soins.")
     } finally {
       setDeleting(false)
     }
@@ -1665,7 +1661,7 @@ export default function PatientDetailsPage() {
       setDocumentToDelete(null)
       setRefreshKey((k) => k + 1)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du document.")
+      showErrorToast(err, "Échec de la suppression du document.")
     } finally {
       setDeleting(false)
     }

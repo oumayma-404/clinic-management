@@ -45,6 +45,7 @@ public class ExpensesController : ApiControllerBase
     /// whole filtered set, never the current page » true by construction instead of by discipline — the export
     /// cannot see a page to accidentally export.</para>
     /// </summary>
+    [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("export")]
     [HiddenWhenMoneyMasked]
     public async Task<ActionResult> ExportExpenses(

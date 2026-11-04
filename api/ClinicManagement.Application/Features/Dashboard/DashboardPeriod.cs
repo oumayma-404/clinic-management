@@ -60,6 +60,26 @@ public sealed record DashboardPeriod(
         };
     }
 
+    /// <summary>
+    /// The public demo's windows: the last 7 / 30 days ending today against the 7 / 30 before them. A cabinet rebuilt
+    /// every night has no money yet on the 1st of a month, so a calendar month there reads « 0 DT » and a fall.
+    /// </summary>
+    public static DashboardPeriod ResolveRolling(DashboardPeriodKey key, DateTime nowUtc)
+    {
+        var today = ClinicClock.ClinicToday(nowUtc);
+        var days = key switch
+        {
+            DashboardPeriodKey.Today => 1,
+            DashboardPeriodKey.Week => 7,
+            _ => 30,
+        };
+        var from = today.AddDays(-(days - 1));
+        return ForDays(key, from, today, from.AddDays(-days), from.AddDays(-1)) with { Rolling = true };
+    }
+
+    /// <summary>True when the windows end today and run back a fixed number of days (<see cref="ResolveRolling"/>).</summary>
+    public bool Rolling { get; init; }
+
     private static DashboardPeriod ResolveWeek(DashboardPeriodKey key, DateTime clinicToday)
     {
         // Monday-based, matching the agenda's date-fns `weekStartsOn: 1`. DayOfWeek.Sunday is 0, so the shift maps

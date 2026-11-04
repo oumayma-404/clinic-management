@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { DashboardPeriodKey } from "@/lib/api/types"
-import { PERIOD_LABELS, PERIOD_LABELS_SHORT } from "./dashboard-labels"
+import { PERIOD_LABELS, PERIOD_LABELS_SHORT, ROLLING_PERIOD_LABELS, ROLLING_PERIOD_LABELS_SHORT } from "./dashboard-labels"
 
 const PERIODS: DashboardPeriodKey[] = ["Today", "Week", "Month"]
 
@@ -11,6 +11,8 @@ interface PeriodSelectorProps {
   value: DashboardPeriodKey
   onChange: (period: DashboardPeriodKey) => void
   disabled?: boolean
+  /** The windows are the last 7 / 30 days (the public demo), not the calendar week / month. */
+  rolling?: boolean
 }
 
 /**
@@ -27,7 +29,9 @@ interface PeriodSelectorProps {
  * as one control with three positions, which is what this is. It also stops the two unselected periods carrying a
  * border each — six edges for one decision was a meaningful share of the "boxy" feel.</p>
  */
-export function PeriodSelector({ value, onChange, disabled = false }: PeriodSelectorProps) {
+export function PeriodSelector({ value, onChange, disabled = false, rolling = false }: PeriodSelectorProps) {
+  const labels = rolling ? ROLLING_PERIOD_LABELS : PERIOD_LABELS
+  const shortLabels = rolling ? ROLLING_PERIOD_LABELS_SHORT : PERIOD_LABELS_SHORT
   return (
     <div
       role="group"
@@ -51,7 +55,7 @@ export function PeriodSelector({ value, onChange, disabled = false }: PeriodSele
             aria-pressed={selected}
             // The full label is the accessible name at every width, so the short form is a *visual* abbreviation
             // and « Jour » is never what a screen reader announces.
-            aria-label={PERIOD_LABELS[period]}
+            aria-label={labels[period]}
             disabled={disabled}
             onClick={() => onChange(period)}
             className={cn(
@@ -69,10 +73,10 @@ export function PeriodSelector({ value, onChange, disabled = false }: PeriodSele
             )}
           >
             <span aria-hidden="true" className="sm:hidden">
-              {PERIOD_LABELS_SHORT[period]}
+              {shortLabels[period]}
             </span>
             <span aria-hidden="true" className="hidden sm:inline">
-              {PERIOD_LABELS[period]}
+              {labels[period]}
             </span>
           </button>
         )

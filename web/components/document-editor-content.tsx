@@ -57,7 +57,7 @@ import type { BillableActLine } from "@/lib/api/dental-records"
 import { useMedications, useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import type { PatientDto, MedicationDto } from "@/lib/api/types"
 import { ApiError } from "@/lib/api/client"
-import { getErrorMessage } from "@/lib/errors"
+import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { specialtyLabel } from "@/lib/specialties"
 import { format, parseISO } from "date-fns"
@@ -1439,11 +1439,7 @@ export function DocumentEditorContent() {
     } catch (error) {
       console.error('Error saving PDF to files:', error);
       toast.dismiss(loadingToast);
-      const errorMessage = error instanceof ApiError ? error.message : "Une erreur est survenue";
-      toast.error("L'enregistrement du PDF a échoué", {
-        description: errorMessage,
-        duration: 4000,
-      });
+      showErrorToast(error, { title: "L'enregistrement du PDF a échoué", fallback: "Une erreur est survenue" });
     }
   };
 
@@ -1697,11 +1693,7 @@ export function DocumentEditorContent() {
 
     } catch (error) {
       console.error("Failed to save document:", error)
-      const errorMessage = error instanceof ApiError ? error.message : "Une erreur est survenue"
-      toast.error("L'enregistrement a échoué", {
-        description: errorMessage,
-        duration: 4000,
-      })
+      showErrorToast(error, { title: "L'enregistrement a échoué", fallback: "Une erreur est survenue" })
     } finally {
       setSaving(false)
     }
