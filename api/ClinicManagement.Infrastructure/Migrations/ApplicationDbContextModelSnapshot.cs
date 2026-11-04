@@ -3626,6 +3626,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
 
+                    b.Property<string>("HardOther")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<int?>("HelpRating")
                         .HasColumnType("integer");
 
@@ -3637,6 +3641,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("LikedAreasCsv")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)");
+
+                    b.Property<string>("LikedOther")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<bool>("MayContact")
                         .HasColumnType("boolean");
@@ -4999,6 +5007,12 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("HiddenKpisCsv")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("TickedStepsCsv")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");

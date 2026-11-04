@@ -12,6 +12,9 @@ export interface SubmitFeedbackBody {
   easeRating?: number | null;
   likedAreas?: FeedbackArea[];
   hardAreas?: FeedbackArea[];
+  /** « Autre : … » under each area group. */
+  likedOther?: string | null;
+  hardOther?: string | null;
   message?: string | null;
   fromScreen?: string | null;
   mayContact?: boolean;

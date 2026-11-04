@@ -29,6 +29,8 @@ public class ProductFeedbackConfiguration : IEntityTypeConfiguration<ProductFeed
         builder.Property(f => f.Source).IsRequired().HasMaxLength(20);
         builder.Property(f => f.LikedAreasCsv).HasMaxLength(400);
         builder.Property(f => f.HardAreasCsv).HasMaxLength(400);
+        builder.Property(f => f.LikedOther).HasMaxLength(ProductFeedback.MaxOtherLength);
+        builder.Property(f => f.HardOther).HasMaxLength(ProductFeedback.MaxOtherLength);
         builder.Property(f => f.Message).HasMaxLength(ProductFeedback.MaxMessageLength);
         builder.Property(f => f.FromScreen).HasMaxLength(ProductFeedback.MaxScreenLength);
         builder.Property(f => f.CreatedAt).IsRequired();

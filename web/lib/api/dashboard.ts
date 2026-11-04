@@ -1,4 +1,4 @@
-import { apiGet, apiPut } from './client';
+import { apiDelete, apiGet, apiPut } from './client';
 import type {
   AppointmentStatusMixDto,
   DashboardDto,
@@ -38,6 +38,19 @@ export const dashboardApi = {
   /** « Premiers pas » — the new cabinet's setup steps. Administrators only (`AdminOnly` on the endpoint). */
   getGettingStarted: async (): Promise<GettingStartedDto> => {
     return apiGet<GettingStartedDto>('/dashboard/getting-started');
+  },
+
+  /**
+   * Ticks a « Premiers pas » step by hand (« fait, ou au moins compris ») — its circle, « Terminé » on the phone
+   * window, the end of the fiche tour. Every step but the security code (`getting_started_step_not_tickable`).
+   */
+  tickStep: async (step: string): Promise<void> => {
+    await apiPut<void>(`/dashboard/getting-started/${encodeURIComponent(step)}/tick`, {});
+  },
+
+  /** Unticks a step ticked by hand; one its own data says is done stays done. */
+  untickStep: async (step: string): Promise<void> => {
+    await apiDelete<void>(`/dashboard/getting-started/${encodeURIComponent(step)}/tick`);
   },
 
   /**

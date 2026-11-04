@@ -13,6 +13,8 @@ import type { Guide } from "@/lib/guides"
 const MISSING_TIMEOUT_MS = 10_000
 /** A dialog briefly gone (its exit animation, a re-render) is not a dialog closed. */
 const SCOPE_GONE_MS = 400
+/** A list still loading renders no rows for a moment — only after this long is it read as empty. */
+const EMPTY_SETTLE_MS = 1500
 const GAP = 12
 const PAD = 6
 
@@ -29,6 +31,22 @@ function drawn(mark: string): Element[] {
     const r = el.getBoundingClientRect()
     return r.width > 0 && r.height > 0
   })
+}
+
+/**
+ * Whether the element is entirely on screen — inside the window AND inside every scrolling box around it (a dialog's
+ * body). A ring drawn on a control clipped by its dialog is a ring the person cannot see (owner, 2026-11-04).
+ */
+function fullyVisible(el: Element): boolean {
+  const r = el.getBoundingClientRect()
+  if (r.top < 0 || r.left < 0 || r.bottom > window.innerHeight || r.right > window.innerWidth) return false
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const style = getComputedStyle(p)
+    if (!/(auto|scroll|hidden)/.test(style.overflowY + style.overflowX)) continue
+    const c = p.getBoundingClientRect()
+    if (r.top < c.top - 1 || r.bottom > c.bottom + 1 || r.left < c.left - 1 || r.right > c.right + 1) return false
+  }
+  return true
 }
 
 function unionOf(elements: Element[]): Box | null {
@@ -69,11 +87,14 @@ export function GuideOverlay({
   index,
   onAdvance,
   onEnd,
+  onFinish,
 }: {
   guide: Guide
   index: number
   onAdvance: () => void
   onEnd: (message?: string) => void
+  /** The tour watched to its end early (an empty list: nothing further to show). */
+  onFinish: () => void
 }) {
   const step = guide.steps[index]
   const coarse = useMediaQuery("(pointer: coarse)")
@@ -87,6 +108,10 @@ export function GuideOverlay({
   const scopeBoxRef = useRef<Box | null>(null)
   const footerBoxRef = useRef<Box | null>(null)
   const [hidden, setHidden] = useState(false)
+  // The step's own mark is absent and its `emptyMark` is lit instead (an empty list).
+  const [empty, setEmpty] = useState(false)
+  const emptyRef = useRef(false)
+  const absentSince = useRef<number | null>(null)
   const readViewport = () =>
     typeof window === "undefined" ? { w: 0, h: 0 } : { w: window.innerWidth, h: window.innerHeight }
   const [viewport, setViewport] = useState(readViewport)
@@ -152,7 +177,21 @@ export function GuideOverlay({
       if ("visible" in next && drawn(next.visible).length > 0) return finish(onAdvance)
       if ("route" in next && next.route.test(window.location.pathname)) return finish(onAdvance)
 
-      const targets = drawn(step.mark)
+      let targets = drawn(step.mark)
+      if (step.emptyMark) {
+        const fallback = targets.length === 0 ? drawn(step.emptyMark) : []
+        if (targets.length === 0 && fallback.length > 0) {
+          absentSince.current ??= now
+          if (now - absentSince.current > EMPTY_SETTLE_MS) targets = fallback
+        } else {
+          absentSince.current = null
+        }
+        const nowEmpty = targets.length > 0 && targets === fallback
+        if (nowEmpty !== emptyRef.current) {
+          emptyRef.current = nowEmpty
+          setEmpty(nowEmpty)
+        }
+      }
       if (step.scope) {
         if (drawn(step.scope).length === 0) {
           if ("savedAndClosed" in next && pressed.current) return finish(onAdvance)
@@ -177,8 +216,9 @@ export function GuideOverlay({
       const nextBox = unionOf(targets)
       if (nextBox && !broughtIntoView.current) {
         broughtIntoView.current = true
-        if (nextBox.top < 0 || nextBox.top + nextBox.height > window.innerHeight) {
-          targets[0].scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" })
+        // Inside a dialog's scrolling body too, not only the window: `scrollIntoView` scrolls every box around it.
+        if (!fullyVisible(targets[0])) {
+          targets[0].scrollIntoView({ block: "center", inline: "nearest", behavior: reduceMotion ? "auto" : "smooth" })
         }
       }
       if (!same(nextBox, boxRef.current)) {
@@ -218,7 +258,25 @@ export function GuideOverlay({
   if (typeof document === "undefined") return null
 
   const manual = "manual" in step.next
-  const text = coarse && step.touchText ? step.touchText : step.text
+  const last = index === guide.steps.length - 1
+  const text = empty && step.emptyText ? step.emptyText : coarse && step.touchText ? step.touchText : step.text
+
+  /** « Suivant »: open what the next step shows (`press`), then move on. An empty list ends the tour instead. */
+  const next = () => {
+    if (empty) return onFinish()
+    if (step.press) {
+      const lit = drawn(step.mark)[0]
+      const target =
+        step.press === true
+          ? lit
+          : (Array.from(lit?.querySelectorAll(step.press) ?? []).find((el) => {
+              const r = el.getBoundingClientRect()
+              return r.width > 0 && r.height > 0
+            }) as Element | undefined)
+      if (target instanceof HTMLElement) target.click()
+    }
+    onAdvance()
+  }
 
   const bubbleStyle = placeBubble({ box, scopeBox, footerBox, viewport, bubbleH, docked })
 
@@ -233,9 +291,8 @@ export function GuideOverlay({
             left: box.left - PAD,
             width: box.width + 2 * PAD,
             height: box.height + 2 * PAD,
-            // The dim is for « cliquez ici »; while typing (a `manual` step) the whole form stays readable and only
-            // the ring says where.
-            boxShadow: manual ? undefined : "0 0 0 200vmax rgb(15 23 42 / 0.45)",
+            // A tour: the screen dims around what is being shown — nothing is typed, so nothing needs to stay readable.
+            boxShadow: "0 0 0 200vmax rgb(15 23 42 / 0.45)",
           }}
         />
       )}
@@ -252,6 +309,7 @@ export function GuideOverlay({
             done, ringed for this one — and the label counts what is DONE. */}
         <div className="flex items-center justify-between gap-3">
           <p className="min-w-0 text-xs font-semibold text-primary">{guide.title}</p>
+          {guide.steps.length > 1 && (
           <span
             role="img"
             aria-label={`${index} ${index > 1 ? "étapes faites" : "étape faite"} sur ${guide.steps.length}`}
@@ -267,6 +325,7 @@ export function GuideOverlay({
               />
             ))}
           </span>
+          )}
         </div>
         <p className="mt-1 text-sm font-medium leading-snug">{text}</p>
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
@@ -277,11 +336,11 @@ export function GuideOverlay({
             className="min-h-9 coarse:min-h-11"
             onClick={() => onEnd()}
           >
-            Quitter le guide
+            {guide.quitLabel ?? "Quitter le guide"}
           </Button>
           {manual && (
-            <Button type="button" size="sm" className="min-h-9 coarse:min-h-11" onClick={onAdvance}>
-              Suivant
+            <Button type="button" size="sm" className="min-h-9 coarse:min-h-11" onClick={next}>
+              {last && guide.continueLabel ? guide.continueLabel : last || empty ? "Terminer" : "Suivant"}
             </Button>
           )}
         </div>

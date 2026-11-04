@@ -33,16 +33,27 @@ public sealed record GettingStartedFacts(
     bool HasPatient,
     bool HasAppointment,
     bool HasDentalRecord,
-    bool HasLetterhead);
+    bool HasLetterhead,
+    IReadOnlyCollection<string>? TickedSteps = null);
 
 /// <summary>
 /// When « Premiers pas » shows, and when each step is done. Every step ticks itself from data — nothing here is a
-/// box somebody ticks, so the card cannot claim a cabinet is set up when it is not.
+/// box somebody ticks, so the card cannot claim a cabinet is set up when it is not — with one deliberate exception
+/// (owner's call, 2026-11-04): the person may tick a step BY HAND (<see cref="TickableSteps"/>), « fait, ou au moins
+/// compris », because some cannot be done on a cabinet's first days (no séance yet, the paper not scanned). A step
+/// ticked by hand says so (<c>DoneByHand</c>), so the card can offer to untick it.
 /// </summary>
 public static class GettingStartedRules
 {
     /// <summary>The card belongs to a cabinet's first month; after it, it is never read again.</summary>
     public const int VisibleDays = 30;
+
+    /// <summary>
+    /// The steps a person may tick by hand — every one but the security code, which is not a matter of
+    /// understanding: where it is required, signing in is impossible without it.
+    /// </summary>
+    public static readonly IReadOnlySet<string> TickableSteps =
+        new HashSet<string>(GettingStartedKeys.All.Where(k => k != GettingStartedKeys.SecurityCode), StringComparer.Ordinal);
 
     public static bool IsWithinFirstDays(DateTime clinicCreatedAtUtc, DateTime nowUtc) =>
         nowUtc - clinicCreatedAtUtc < TimeSpan.FromDays(VisibleDays);
@@ -61,7 +72,9 @@ public static class GettingStartedRules
                 continue;
             }
 
-            steps.Add(new GettingStartedStepDto(key, IsDone(key, facts)));
+            var byData = IsDone(key, facts);
+            var byHand = !byData && TickableSteps.Contains(key) && facts.TickedSteps?.Contains(key) == true;
+            steps.Add(new GettingStartedStepDto(key, byData || byHand, byHand));
         }
 
         return steps;

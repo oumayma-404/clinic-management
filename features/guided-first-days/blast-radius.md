@@ -38,3 +38,13 @@ Line numbers are `origin/main` @ `66ecc657`.
 | 30 | `CreatedClinicUserDto.temporaryPassword` nullable (C) | create response | `user-management.tsx` (the only reader) | must change — branch on the response: temp password vs invitation link |
 | 31 | `/login` `?email=` prefill (C) | login effect | enrol (`?enrol=1&email=`), replace (`?replace=1&email=`), plain sign-in | must re-test — plain sign-in empty, prefill shown, `passwordChanged=1` banner |
 | 32 | « Réinitialiser » ↔ « Renvoyer l'e-mail » swap (C) | users row actions | both trees; reset after first sign-in | must re-test — reset still offered once she has signed in |
+| 33 | `dentalRecordGuide` → a tour (`tour: true`, manual steps 3–9) (2026-11-04 remarks) | one guide | overlay, provider, N54 marks | must re-test — every step lit, « Terminer » last, nothing saved |
+| 34 | Overlay « Terminer » on a LAST manual step | bubble button label | the four other guides end on `savedAndClosed`/`route`, never a manual last step | unaffected — label only differs on a manual last step |
+| 35 | Ticking a step by hand: `PUT`/`DELETE getting-started/{key}/tick` (the card's circle, « Terminé » on the phone window, the end of the tour) | new write | `GettingStartedRules.TickableSteps` (all but the security code) | must re-test — tick, untick, celebrated once, security code refused |
+| 36 | `GettingStartedFacts.TickedSteps` + `GettingStartedStepDto.DoneByHand` (both optional) | rule input / wire field | `GettingStartedRules.Steps`, the card | unaffected — absent = old answer |
+| 37 | `GetGettingStartedQueryHandler` reads `UserDashboardPreference` | one more read | the card | must re-test — card renders, steps tick |
+| 38 | `UserDashboardPreference.TickedStepsCsv` + migration `AddFeedbackOtherAndTickedSteps` | shared per-user row | `UpdateDashboardPreferencesCommand` (hidden KPIs) | must re-test — a PUT of hidden blocks keeps the ticked set |
+| 39 | `GET /meta/phone-app` → `{ url, qrPng }` | wire shape | `phone-app-dialog.tsx` (only reader) | must change — done |
+| 40 | `ProductFeedback.LikedOther/HardOther` + `SubmitFeedbackCommand` | new fields, empty-check widened | week-one card, « Aide » form, notice e-mail, console « Retours », `PlatformReadShape` | must re-test — stored, e-mailed, listed |
+| 41 | `FeedbackDialog` (tabs for « Aide », « Autre » fields) | shared form, two entries | week-one card (star kept on close), « Aide » | must re-test — both entries |
+| 42 | Fiche modal: `<div data-guide>` wrappers around « Notes de séance » / « Prescription » | layout | the fiche de soins | must re-test — both sections still open and close |

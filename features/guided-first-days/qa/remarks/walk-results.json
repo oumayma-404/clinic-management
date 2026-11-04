@@ -1,0 +1,380 @@
+{
+  "stamp": "mw2l0lh8",
+  "results": [
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "phone-app → apexa.tn/#telecharger + a data: PNG"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "the security code cannot be ticked by hand"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "« Me guider : Première fiche de soins » on the card"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "first visit: « Bienvenue ! On commence par « Votre secrétaire » … 14 % »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "QR shown"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "button → apexa.tn/#telecharger in a new tab"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "no « non proposée », no Android/iPhone split"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "« Terminé » → phone step done (ticked by hand)"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "and celebrated"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "a tick by hand moves the tour on (prompt, 29 %)"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "no tick on « Code de sécurité »"
+    },
+    {
+      "id": "A13",
+      "outcome": "pass",
+      "m": "circle → done, celebrated, stored"
+    },
+    {
+      "id": "A13",
+      "outcome": "pass",
+      "m": "untick → open again with « Me guider »"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "320: no body overflow, four tabs inside the sheet"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "320 phone dialog: QR withheld, button visible, no overflow"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "closing with ✕ ticks it too"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "320: the prompt and its row on screen"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "no patient: the sentence and « Terminer »"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "« Terminer » → dashboard, step ticked"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "the tour prompts the next step: « On attaque l'étape suivante : « Votre secrétaire » ! … 43 % »"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "untick → « Me guider » back"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "« Suivant » opened the patient window itself"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "last step: « Terminer »"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "→ dashboard, confetti over the app"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "« 🎉 Vous savez ajouter un patient. » + the joke"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "the next step prompted, with the percentage"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "no patient created; the step ticked"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "confetti removed afterwards"
+    },
+    {
+      "id": "E1",
+      "outcome": "pass",
+      "m": "secretary tour (started by « C'est parti ») → dashboard, ticked, no account created"
+    },
+    {
+      "id": "E1",
+      "outcome": "pass",
+      "m": "next: « Premier rendez-vous » prompted, 57 %"
+    },
+    {
+      "id": "E2",
+      "outcome": "pass",
+      "m": "appointment tour (chained) → dashboard, ticked, no visit booked"
+    },
+    {
+      "id": "E2",
+      "outcome": "pass",
+      "m": "next: « Première fiche de soins » prompted, 71 %"
+    },
+    {
+      "id": "E3",
+      "outcome": "pass",
+      "m": "letterhead tour → dashboard, ticked"
+    },
+    {
+      "id": "E3",
+      "outcome": "pass",
+      "m": "next: still « Première fiche de soins », 86 %"
+    },
+    {
+      "id": "E4",
+      "outcome": "pass",
+      "m": "« Masquer » → gone, « Aide » offers « Premiers pas · 6 sur 7 »"
+    },
+    {
+      "id": "E4",
+      "outcome": "pass",
+      "m": "→ the card is back and the tour resumes on « Première fiche de soins »"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "closing the fiche ends the tour, nothing ticked"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "the fiche is not open before « Suivant »"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "step « record-acts » lit, button « Suivant »"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "1536×730 « record-acts »: bubble on screen, lit control in view"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "step « record-add-act » lit, button « Suivant »"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "1536×730 « record-add-act »: bubble on screen, lit control in view"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "step « record-chart » lit, button « Suivant »"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "1536×730 « record-chart »: bubble on screen, lit control in view"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "step « record-notes » lit, button « Suivant »"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "1536×730 « record-notes »: bubble on screen, lit control in view"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "step « record-prescription » lit, button « Suivant »"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "1536×730 « record-prescription »: bubble on screen, lit control in view"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "step « record-payment » lit, button « Suivant »"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "1536×730 « record-payment »: bubble on screen, lit control in view"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "1536×730 « record-payment »: bubble inside, not over the lit control"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "step « record-submit » lit, button « Terminer »"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "1536×730 « record-submit »: bubble on screen, lit control in view"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "1536×730 « record-submit »: bubble inside, not over the lit control"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "« Terminer » → dashboard, bubble gone"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "no fiche saved; the step ticked"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "« Bienvenue dans votre nouveau cabinet ! » window + confetti, on screen"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "the card is gone, no prompt"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "« C'est parti ! » closes it"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "notes and prescription open; no bubble"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "hide + show a block, the ticked set stays"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "opens on « Avis », tabs Idée · Problème · Question"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "two star rows, two « Autre », « Un mot de plus ? »"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "« Envoyer » disabled on open"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "« Envoyer » enabled by the Question text alone"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "filled dot on « Question », text kept across tabs"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "toast « Merci… »"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "avis row: 4 stars, agenda, LikedOther"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "idée row with its message"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "week-one form: star kept, two « Autre », no tabs"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "toast « Merci… »"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "semaine-1 row: 3 stars, HardOther"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "dashboard: « 🎉 C'est fait : Premier rendez-vous » + joke"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "a reload celebrates nothing"
+    },
+    {
+      "id": "D5",
+      "outcome": "skip",
+      "m": "no console account on this database — the e-mail has no recipient; content held by FeedbackTests"
+    }
+  ]
+}

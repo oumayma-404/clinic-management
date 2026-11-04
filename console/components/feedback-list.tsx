@@ -110,13 +110,19 @@ export function FeedbackList({ page }: { page: PlatformFeedbackPage }) {
   );
 }
 
+/** « Aime : Agenda, la prise de RDV » — the areas picked, then the person's own « Autre », or nothing. */
+function liste(label: string, areas: string[], other: string | null): string | null {
+  const parts = other ? [...areas, other] : areas;
+  return parts.length > 0 ? `${label} : ${parts.join(", ")}` : null;
+}
+
 /** « aide 4/5 · facile 3/5 · Aime : Agenda · Difficile : Devis » — the week-one answers in one line, or nothing. */
 function notes(item: PlatformFeedback): string | null {
   const parts = [
     item.helpRating !== null ? `aide ${item.helpRating}/5` : null,
     item.easeRating !== null ? `facile ${item.easeRating}/5` : null,
-    item.likedAreas.length > 0 ? `Aime : ${item.likedAreas.join(", ")}` : null,
-    item.hardAreas.length > 0 ? `Difficile : ${item.hardAreas.join(", ")}` : null,
+    liste("Aime", item.likedAreas, item.likedOther),
+    liste("Difficile", item.hardAreas, item.hardOther),
   ].filter((part): part is string => part !== null);
   return parts.length > 0 ? parts.join(" · ") : null;
 }

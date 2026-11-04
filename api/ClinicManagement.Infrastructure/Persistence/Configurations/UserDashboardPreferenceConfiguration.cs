@@ -31,6 +31,11 @@ public class UserDashboardPreferenceConfiguration : IEntityTypeConfiguration<Use
             .HasColumnType("text")
             .IsRequired();
 
+        builder.Property(p => p.TickedStepsCsv)
+            .HasColumnType("text")
+            .IsRequired()
+            .HasDefaultValue(string.Empty);
+
         builder.Property(p => p.CreatedAt).IsRequired();
         builder.Property(p => p.UpdatedAt);
 

@@ -20,6 +20,9 @@ public class ProductFeedback : Entity<Guid>
     public const int MaxMessageLength = 2000;
     public const int MaxScreenLength = 120;
 
+    /// <summary>The « Autre : … » line under each area group — a few words, not a second message.</summary>
+    public const int MaxOtherLength = 200;
+
     public Guid ClinicId { get; private set; }
     public string UserId { get; private set; } = string.Empty;
     public string AuthorRole { get; private set; } = string.Empty;
@@ -29,6 +32,12 @@ public class ProductFeedback : Entity<Guid>
     public int? EaseRating { get; private set; }
     public string? LikedAreasCsv { get; private set; }
     public string? HardAreasCsv { get; private set; }
+
+    /// <summary>What the person liked that is not one of the areas offered, in their own words.</summary>
+    public string? LikedOther { get; private set; }
+
+    /// <summary>What was difficult that is not one of the areas offered, in their own words.</summary>
+    public string? HardOther { get; private set; }
     public string? Message { get; private set; }
     public string? FromScreen { get; private set; }
     public bool MayContact { get; private set; }
@@ -49,7 +58,9 @@ public class ProductFeedback : Entity<Guid>
         string? message,
         string? fromScreen,
         bool mayContact,
-        DateTime? nowUtc = null)
+        DateTime? nowUtc = null,
+        string? likedOther = null,
+        string? hardOther = null)
     {
         if (clinicId == Guid.Empty) throw new ArgumentException("Le cabinet est requis.", nameof(clinicId));
         if (string.IsNullOrWhiteSpace(userId)) throw new ArgumentException("L'auteur est requis.", nameof(userId));
@@ -61,7 +72,11 @@ public class ProductFeedback : Entity<Guid>
         var text = string.IsNullOrWhiteSpace(message) ? null : message.Trim();
         if (text is { Length: > MaxMessageLength }) text = text[..MaxMessageLength];
 
-        if (helpRating is null && easeRating is null && likedAreas.Count == 0 && hardAreas.Count == 0 && text is null)
+        var liked = Capped(likedOther, MaxOtherLength);
+        var hard = Capped(hardOther, MaxOtherLength);
+
+        if (helpRating is null && easeRating is null && likedAreas.Count == 0 && hardAreas.Count == 0 && text is null
+            && liked is null && hard is null)
         {
             throw new ArgumentException("Un avis vide n'est pas enregistré.");
         }
@@ -76,6 +91,8 @@ public class ProductFeedback : Entity<Guid>
         EaseRating = easeRating;
         LikedAreasCsv = likedAreas.Count == 0 ? null : string.Join(',', likedAreas);
         HardAreasCsv = hardAreas.Count == 0 ? null : string.Join(',', hardAreas);
+        LikedOther = liked;
+        HardOther = hard;
         Message = text;
         var screen = string.IsNullOrWhiteSpace(fromScreen) ? null : fromScreen.Trim();
         FromScreen = screen is { Length: > MaxScreenLength } ? screen[..MaxScreenLength] : screen;
@@ -89,6 +106,12 @@ public class ProductFeedback : Entity<Guid>
 
     private static IReadOnlyList<string> Split(string? csv) =>
         string.IsNullOrEmpty(csv) ? [] : csv.Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+    private static string? Capped(string? value, int max)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        return trimmed is { Length: var length } && length > max ? trimmed[..max] : trimmed;
+    }
 
     private static void ValidateRating(int? rating, string name)
     {

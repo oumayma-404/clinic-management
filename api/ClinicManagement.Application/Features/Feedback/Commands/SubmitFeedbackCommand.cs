@@ -25,6 +25,12 @@ public class SubmitFeedbackCommand : IRequest<Result<FeedbackReceiptDto>>
     public int? EaseRating { get; set; }
     public List<string>? LikedAreas { get; set; }
     public List<string>? HardAreas { get; set; }
+
+    /// <summary>« Autre : … » under « Ce que vous aimez le plus » — free text beside the offered areas.</summary>
+    public string? LikedOther { get; set; }
+
+    /// <summary>« Autre : … » under « Ce qui a été difficile ».</summary>
+    public string? HardOther { get; set; }
     public string? Message { get; set; }
 
     /// <summary>The screen the person was on, for context (« /appointments »). Free text, capped.</summary>
@@ -104,14 +110,16 @@ public class SubmitFeedbackCommandHandler : IRequestHandler<SubmitFeedbackComman
             }
 
             if (request.HelpRating is null && request.EaseRating is null && liked.Count == 0 && hard.Count == 0
-                && string.IsNullOrWhiteSpace(request.Message))
+                && string.IsNullOrWhiteSpace(request.Message)
+                && string.IsNullOrWhiteSpace(request.LikedOther) && string.IsNullOrWhiteSpace(request.HardOther))
             {
                 return Result<FeedbackReceiptDto>.Failure(FeedbackRefusals.Empty, FeedbackRefusals.EmptyCode);
             }
 
             feedback = new ProductFeedback(
                 user.ClinicId, user.Id, user.Role, kind, source, request.HelpRating, request.EaseRating,
-                liked, hard, request.Message, request.FromScreen, request.MayContact);
+                liked, hard, request.Message, request.FromScreen, request.MayContact,
+                likedOther: request.LikedOther, hardOther: request.HardOther);
             await _feedbackRepository.AddAsync(feedback, cancellationToken);
 
             // An answer to the week-one card closes that question for good.

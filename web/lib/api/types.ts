@@ -308,6 +308,8 @@ export interface ProcedureMixPointDto {
 export interface GettingStartedStepDto {
   key: string;
   done: boolean;
+  /** Done only because the person ticked it — the card offers to untick it. */
+  doneByHand?: boolean;
 }
 
 /** One account and its first sign-in from the phone app — « Déjà fait » in « Votre téléphone ». */

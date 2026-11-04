@@ -17,6 +17,8 @@ public sealed record PlatformFeedbackDto(
     int? EaseRating,
     IReadOnlyList<string> LikedAreas,
     IReadOnlyList<string> HardAreas,
+    string? LikedOther,
+    string? HardOther,
     string? Message,
     string? FromScreen,
     string? ContactEmail,

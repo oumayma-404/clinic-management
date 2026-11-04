@@ -1,12 +1,17 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Check, CircleHelp, Copy, Lightbulb, MessageCircle, PlayCircle } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { Check, CircleHelp, Copy, Lightbulb, ListChecks, MessageCircle, PlayCircle } from "lucide-react"
 
 import { FeedbackDialog } from "@/components/feedback/feedback-dialog"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { dashboardApi } from "@/lib/api/dashboard"
 import { feedbackApi } from "@/lib/api/feedback"
+import type { GettingStartedDto } from "@/lib/api/types"
+import { useSession } from "@/lib/auth/session"
+import { SHOW_PREMIERS_PAS_EVENT, requestShowPremiersPas } from "@/lib/getting-started-celebration"
 import { useUserStatus } from "@/lib/hooks/use-user-status"
 import { ONBOARDING_VIDEOS_PAGE } from "@/lib/onboarding-videos"
 import { useSubscription } from "@/lib/subscription/subscription-context"
@@ -58,11 +63,14 @@ export function HelpRows({
   phone,
   whatsapp,
   onFeedback,
+  premiersPas,
 }: {
   phone: string | null
   whatsapp: string | null
   /** « Donner mon avis ou une idée » — absent where feedback is not served. */
   onFeedback?: () => void
+  /** « Premiers pas · 3 sur 7 » — an administrator's setup steps while they apply, hidden or not. */
+  premiersPas?: { done: number; total: number; onOpen: () => void }
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -86,6 +94,15 @@ export function HelpRows({
           <MessageCircle aria-hidden className="size-4 shrink-0 text-success" />
           Écrire à APEXA sur WhatsApp
         </a>
+      )}
+      {premiersPas && (
+        <button type="button" onClick={premiersPas.onOpen} className={`${row} w-full text-start`}>
+          <ListChecks aria-hidden className="size-4 shrink-0 text-primary" />
+          <span className="min-w-0 flex-1">Premiers pas</span>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {premiersPas.done} sur {premiersPas.total}
+          </span>
+        </button>
       )}
       <a href={ONBOARDING_VIDEOS_PAGE} target="_blank" rel="noopener noreferrer" className={row}>
         <PlayCircle aria-hidden className="size-4 shrink-0 text-primary" />
@@ -126,7 +143,41 @@ export function HelpMenu() {
   const feedbackAvailable = useFeedbackAvailable()
   const [open, setOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const { user } = useSession()
+  const isAdmin = user?.role === "admin"
+  const router = useRouter()
+  const pathname = usePathname()
+  // Read when the menu opens, not on every screen: a fact that changes a few times in a cabinet's first month.
+  const [started, setStarted] = useState<GettingStartedDto | null>(null)
+  useEffect(() => {
+    if (!open || !isAdmin) return
+    let cancelled = false
+    dashboardApi
+      .getGettingStarted()
+      .then((value) => {
+        if (!cancelled) setStarted(value)
+      })
+      .catch(() => {
+        // No row rather than a wrong one: the card's own read reports its failures.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, isAdmin])
   if (!phone && !feedbackAvailable) return null
+
+  const openPremiersPas = () => {
+    setOpen(false)
+    if (pathname === "/") window.dispatchEvent(new Event(SHOW_PREMIERS_PAS_EVENT))
+    else {
+      requestShowPremiersPas()
+      router.push("/")
+    }
+  }
+  const premiersPas =
+    isAdmin && started?.visible
+      ? { done: started.steps.filter((step) => step.done).length, total: started.steps.length, onOpen: openPremiersPas }
+      : undefined
 
   const openFeedback = () => {
     setOpen(false)
@@ -150,7 +201,12 @@ export function HelpMenu() {
         </PopoverTrigger>
         <PopoverContent align="end" className="w-[min(18rem,calc(100vw-2rem))] p-2">
           <p className="px-2 pb-1.5 pt-1 text-sm font-semibold">Une question ?</p>
-          <HelpRows phone={phone} whatsapp={whatsapp} onFeedback={feedbackAvailable ? openFeedback : undefined} />
+          <HelpRows
+            phone={phone}
+            whatsapp={whatsapp}
+            onFeedback={feedbackAvailable ? openFeedback : undefined}
+            premiersPas={premiersPas}
+          />
         </PopoverContent>
       </Popover>
       <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} source="aide" />

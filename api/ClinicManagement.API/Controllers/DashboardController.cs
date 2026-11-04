@@ -114,6 +114,34 @@ public class DashboardController : ApiControllerBase
     }
 
     /// <summary>
+    /// The signed-in administrator ticks a « Premiers pas » step by hand (« fait, ou au moins compris ») — its circle,
+    /// « Terminé » on the phone window, the end of the fiche tour. Every step but the security code; any other key is
+    /// refused with <c>getting_started_step_not_tickable</c>.
+    /// </summary>
+    [HttpPut("getting-started/{step}/tick")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [AllowsWithoutSubscription("FR-3 — personal interface state, not clinic work: a step this user ticked.")]
+    public Task<IActionResult> TickStep(string step) => SendTick(step, ticked: true);
+
+    /// <summary>Unticks a step ticked by hand. A step its own data says is done stays done.</summary>
+    [HttpDelete("getting-started/{step}/tick")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [AllowsWithoutSubscription("FR-3 — personal interface state, not clinic work: a step this user unticked.")]
+    public Task<IActionResult> UntickStep(string step) => SendTick(step, ticked: false);
+
+    private async Task<IActionResult> SendTick(string step, bool ticked)
+    {
+        var result = await _mediator.Send(new SetGettingStartedStepTickCommand { Step = step, Ticked = ticked });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
     /// The signed-in user's dashboard layout choices, plus every block the dashboard can show.
     /// </summary>
     /// <remarks>

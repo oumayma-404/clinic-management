@@ -29,6 +29,7 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
     private readonly IPatientRepository _patientRepository;
     private readonly IAppointmentRepository _appointmentRepository;
     private readonly IDentalRecordRepository _dentalRecordRepository;
+    private readonly IUserDashboardPreferenceRepository _preferences;
     private readonly ISecondFactorPolicy _secondFactorPolicy;
     private readonly ILogger<GetGettingStartedQueryHandler> _logger;
 
@@ -39,6 +40,7 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
         IPatientRepository patientRepository,
         IAppointmentRepository appointmentRepository,
         IDentalRecordRepository dentalRecordRepository,
+        IUserDashboardPreferenceRepository preferences,
         ISecondFactorPolicy secondFactorPolicy,
         ILogger<GetGettingStartedQueryHandler> logger)
     {
@@ -48,6 +50,7 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
         _patientRepository = patientRepository;
         _appointmentRepository = appointmentRepository;
         _dentalRecordRepository = dentalRecordRepository;
+        _preferences = preferences;
         _secondFactorPolicy = secondFactorPolicy;
         _logger = logger;
     }
@@ -94,6 +97,7 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
             var appointments = await _appointmentRepository.CountByClinicIdAsync(
                 clinicId, cancellationToken: cancellationToken);
             var hasDentalRecord = await _dentalRecordRepository.AnyForClinicAsync(clinicId, cancellationToken);
+            var tickedSteps = (await _preferences.GetByUserIdAsync(userId, cancellationToken))?.TickedSteps() ?? [];
 
             var facts = new GettingStartedFacts(
                 SecurityCodeSet: user.IsTotpEnrolled,
@@ -102,7 +106,8 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
                 HasPatient: patients > 0,
                 HasAppointment: appointments > 0,
                 HasDentalRecord: hasDentalRecord,
-                HasLetterhead: !string.IsNullOrEmpty(clinic.LetterheadHeaderStorageKey));
+                HasLetterhead: !string.IsNullOrEmpty(clinic.LetterheadHeaderStorageKey),
+                TickedSteps: tickedSteps);
 
             var steps = GettingStartedRules.Steps(facts, _secondFactorPolicy.RequiresAdminSecondFactor);
             if (steps.All(step => step.Done))

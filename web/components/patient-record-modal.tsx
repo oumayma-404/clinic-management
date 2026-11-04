@@ -2429,6 +2429,7 @@ export function PatientRecordModal({
             className="w-full border-dashed coarse:min-h-11"
             onClick={() => dispatch({ type: "addAct" })}
             disabled={loading}
+            data-guide="record-add-act"
           >
             <Plus className="mr-1 h-4 w-4" /> Ajouter un autre acte
           </Button>
@@ -2484,7 +2485,7 @@ export function PatientRecordModal({
         )}
 
         {/* THE TEETH — full width, no longer competing with a form column for space. */}
-        <div className="space-y-2">
+        <div className="space-y-2" data-guide="record-chart">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             {/* A label, not an instruction (owner's rule): the drag and the tap need no sentence. */}
             <Label>Dents</Label>
@@ -2686,6 +2687,7 @@ export function PatientRecordModal({
 
         </div>
 
+        <div data-guide="record-notes">
         <RecordSection
           title="Notes de séance"
           anchorId={NOTES_SECTION_ANCHOR}
@@ -2776,12 +2778,14 @@ export function PatientRecordModal({
             </div>
           </div>
         </RecordSection>
+        </div>
 
         {/*
           « Prescription » — the second folding section, deliberately AFTER the notes and last in the body.
           A séance is recorded before it is prescribed for, and the money band in the sticky footer is the one
           block already documented as barely fitting 320 px, so nothing new goes there.
         */}
+        <div data-guide="record-prescription">
         <PrescriptionSection
           lines={prescriptionLines}
           armedIndex={armedPrescriptionIndex}
@@ -2816,6 +2820,7 @@ export function PatientRecordModal({
           readFailed={prescriptionReadFailed}
           disabled={loading}
         />
+        </div>
 
         </DialogBody>
 
@@ -2846,7 +2851,10 @@ export function PatientRecordModal({
             whole phone screen and left the acts no room. The buttons stay outside.
           */}
           <div className="relative flex w-full flex-col gap-3 max-md:max-h-[38dvh] max-md:overflow-y-auto [@media(max-height:560px)]:max-h-[38dvh] [@media(max-height:560px)]:overflow-y-auto">
-          <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 p-3">
+          <div
+            className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 p-3"
+            data-guide="record-payment"
+          >
             {/*
               ⚠️ « Payé » settles THIS SÉANCE'S OWN ACTS and produces a note d'honoraires. It is withdrawn when
               every act belongs to the devis, because there is then nothing for it to settle: those acts are 0 by

@@ -259,6 +259,41 @@ public class FeedbackTests
         Assert.Equal(User.RoleSecretary, saved.AuthorRole);
     }
 
+    // « Autre : … » beside each area group: the person's own words, kept apart from the closed vocabulary and from the
+    // message, and enough on their own to make an answer.
+    [Fact]
+    public async Task The_Autre_Lines_Are_An_Answer_On_Their_Own_And_Reach_The_Notice()
+    {
+        var result = await Submit(new SubmitFeedbackCommand
+        {
+            Source = "aide",
+            Kind = "avis",
+            LikedOther = "  La prise de rendez-vous au téléphone  ",
+            HardOther = new string('x', ProductFeedback.MaxOtherLength + 50),
+        });
+
+        Assert.True(result.IsSuccess, result.Error);
+        var saved = Assert.Single(_added);
+        Assert.Equal("La prise de rendez-vous au téléphone", saved.LikedOther);
+        Assert.Equal(ProductFeedback.MaxOtherLength, saved.HardOther!.Length);
+        Assert.Empty(saved.LikedAreas());
+        Assert.Null(saved.Message);
+
+        var mail = EmailLayout.PlainText(ConsoleTeamFeedbackNotice.Compose(
+            new FeedbackNoticeFacts("Cabinet Dr Geller", "Amel", User.RoleSecretary, null, saved)));
+        Assert.Contains("La prise de rendez-vous au téléphone", mail);
+    }
+
+    [Fact]
+    public async Task Blank_Autre_Lines_Do_Not_Make_An_Answer()
+    {
+        var result = await Submit(new SubmitFeedbackCommand { Source = "aide", Kind = "avis", LikedOther = "   ", HardOther = "" });
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(FeedbackRefusals.EmptyCode, result.Code);
+        Assert.Empty(_added);
+    }
+
     [Fact]
     public async Task Answering_The_Week_One_Card_Closes_The_Question_For_Good()
     {

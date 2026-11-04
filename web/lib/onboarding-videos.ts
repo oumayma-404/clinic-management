@@ -31,6 +31,12 @@ export type OnboardingVideoKey = keyof typeof ONBOARDING_VIDEOS
 /** The site page listing all eight (apexa.tn « Tutoriels ») — « Aide » and the welcome e-mail point here. */
 export const ONBOARDING_VIDEOS_PAGE = "https://apexa.tn/tutoriels.html"
 
+/**
+ * Where a phone gets APEXA (apexa.tn « Installez APEXA »: Android and iPhone). The server's
+ * `ApexaPublicLinks.InstallPage` is the same address — the e-mails and the QR code carry that one.
+ */
+export const APEXA_INSTALL_PAGE = "https://apexa.tn/#telecharger"
+
 /** The watch URL, or null for a video not filmed yet. */
 export function onboardingVideoUrl(video: OnboardingVideo): string | null {
   return video.youtubeId ? `https://www.youtube.com/watch?v=${video.youtubeId}` : null

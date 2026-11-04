@@ -32,6 +32,8 @@ import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { DashboardSection } from "@/components/dashboard/dashboard-section"
 import { DashboardCustomizer } from "@/components/dashboard/dashboard-customizer"
 import { GettingStartedBlock } from "@/components/dashboard/getting-started-card"
+import { useGuide } from "@/components/guide/guide-provider"
+import { SHOW_PREMIERS_PAS_EVENT, takeShowPremiersPasRequest } from "@/lib/getting-started-celebration"
 import { useGettingStarted } from "@/lib/hooks/use-getting-started"
 import { PeriodSelector } from "@/components/dashboard/period-selector"
 import { CollectedTrendChart } from "@/components/dashboard/collected-trend-chart"
@@ -190,6 +192,19 @@ function DashboardContent() {
   const isAdmin = user?.role === "admin"
   const gettingStarted = useGettingStarted(isAdmin)
   const gettingStartedApplies = isAdmin && gettingStarted.data?.visible === true
+
+  // « Aide » → « Premiers pas »: the card comes back if it was hidden, and the guided tour resumes on its next step.
+  const { continueTour } = useGuide()
+  const showPremiersPas = useCallback(() => {
+    if (!isVisible("gettingStarted")) toggle("gettingStarted")
+    continueTour()
+  }, [isVisible, toggle, continueTour])
+  useEffect(() => {
+    if (!isAdmin || prefsLoading) return
+    if (takeShowPremiersPasRequest()) showPremiersPas()
+    window.addEventListener(SHOW_PREMIERS_PAS_EVENT, showPremiersPas)
+    return () => window.removeEventListener(SHOW_PREMIERS_PAS_EVENT, showPremiersPas)
+  }, [isAdmin, prefsLoading, showPremiersPas])
 
   /*
    * Today's appointments, fetched ONCE for the whole day board.

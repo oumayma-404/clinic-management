@@ -751,6 +751,9 @@ export interface PlatformFeedback {
   easeRating: number | null;
   likedAreas: string[];
   hardAreas: string[];
+  /** « Autre : … » under each area group, in the person's own words. */
+  likedOther: string | null;
+  hardOther: string | null;
   message: string | null;
   fromScreen: string | null;
   contactEmail: string | null;

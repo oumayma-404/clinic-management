@@ -65,6 +65,8 @@ public class GetPlatformFeedbackQueryHandler : IRequestHandler<GetPlatformFeedba
                     EaseRating: f.EaseRating,
                     LikedAreas: f.LikedAreas().Select(Label).ToList(),
                     HardAreas: f.HardAreas().Select(Label).ToList(),
+                    LikedOther: f.LikedOther,
+                    HardOther: f.HardOther,
                     Message: f.Message,
                     FromScreen: f.FromScreen,
                     // The address only when the person agreed to be contacted.

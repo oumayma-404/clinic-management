@@ -49,6 +49,14 @@ public class UserDashboardPreference : Entity<string>
     /// </summary>
     public string HiddenKpisCsv { get; private set; } = string.Empty;
 
+    /// <summary>
+    /// The « Premiers pas » steps this user ticked BY HAND (<c>guided-first-days</c>, owner's call 2026-11-04), as the
+    /// same canonical CSV: the circle of a step, « Terminé » on the phone window, the end of the fiche tour. A step
+    /// whose own data is not there yet (no séance on the first evening) can still be marked understood. Opaque here,
+    /// like the hidden keys: the Application decides which steps may be ticked.
+    /// </summary>
+    public string TickedStepsCsv { get; private set; } = string.Empty;
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -75,6 +83,23 @@ public class UserDashboardPreference : Entity<string>
     public void SetHiddenKpis(IEnumerable<string>? keys)
     {
         HiddenKpisCsv = Format(keys);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>The steps ticked by hand, parsed. Never null.</summary>
+    public IReadOnlyList<string> TickedSteps() => Parse(TickedStepsCsv);
+
+    /// <summary>Ticks one step. Idempotent: ticking it twice changes nothing.</summary>
+    public void TickStep(string stepKey) => SetTicked(Format(TickedSteps().Append(stepKey)));
+
+    /// <summary>Unticks one step. Idempotent: a step not ticked stays so.</summary>
+    public void UntickStep(string stepKey) =>
+        SetTicked(Format(TickedSteps().Where(k => !string.Equals(k, stepKey, StringComparison.OrdinalIgnoreCase))));
+
+    private void SetTicked(string csv)
+    {
+        if (csv == TickedStepsCsv) return;
+        TickedStepsCsv = csv;
         UpdatedAt = DateTime.UtcNow;
     }
 

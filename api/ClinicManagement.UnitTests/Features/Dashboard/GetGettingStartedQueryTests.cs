@@ -26,6 +26,7 @@ public class GetGettingStartedQueryTests
     private readonly Mock<IPatientRepository> _patients = new();
     private readonly Mock<IAppointmentRepository> _appointments = new();
     private readonly Mock<IDentalRecordRepository> _records = new();
+    private readonly Mock<IUserDashboardPreferenceRepository> _preferences = new();
     private readonly Mock<ISecondFactorPolicy> _policy = new();
 
     private readonly User _admin;
@@ -48,7 +49,7 @@ public class GetGettingStartedQueryTests
 
     private GetGettingStartedQueryHandler Handler() => new(
         _context.Object, _users.Object, _clinics.Object, _patients.Object, _appointments.Object,
-        _records.Object, _policy.Object, NullLogger<GetGettingStartedQueryHandler>.Instance);
+        _records.Object, _preferences.Object, _policy.Object, NullLogger<GetGettingStartedQueryHandler>.Instance);
 
     private async Task<GettingStartedDto> Read()
     {
@@ -211,6 +212,43 @@ public class GetGettingStartedQueryTests
         Assert.True(me.IsYou);
         // The step is the administrator's own: a colleague's phone does not tick it.
         Assert.False(Done(dto, GettingStartedKeys.PhoneApp));
+    }
+
+    // A step ticked by hand is done, and says so — « fait, ou au moins compris » (owner's call, 2026-11-04).
+    [Fact]
+    public async Task A_Step_Ticked_By_Hand_Is_Done_And_Says_So()
+    {
+        var ticked = new UserDashboardPreference(_admin.Id);
+        ticked.TickStep(GettingStartedKeys.DentalRecord);
+        ticked.TickStep(GettingStartedKeys.PhoneApp);
+        _preferences.Setup(r => r.GetByUserIdAsync(_admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(ticked);
+
+        var dto = await Read();
+
+        var fiche = dto.Steps.Single(s => s.Key == GettingStartedKeys.DentalRecord);
+        Assert.True(fiche.Done);
+        Assert.True(fiche.DoneByHand);
+        Assert.True(Done(dto, GettingStartedKeys.PhoneApp));
+        Assert.False(Done(dto, GettingStartedKeys.Patients));
+    }
+
+    // Done by its data, a step is not « by hand » even when also ticked — there is nothing to untick.
+    [Fact]
+    public void Data_Outranks_A_Tick_And_The_Security_Code_Cannot_Be_Ticked()
+    {
+        var facts = new GettingStartedFacts(
+            SecurityCodeSet: false, ActiveAccounts: 1, PhoneAppUsed: false, HasPatient: true, HasAppointment: false,
+            HasDentalRecord: false, HasLetterhead: false,
+            TickedSteps: [GettingStartedKeys.Patients, GettingStartedKeys.SecurityCode]);
+
+        var steps = GettingStartedRules.Steps(facts, includeSecurityCode: true);
+
+        var patients = steps.Single(s => s.Key == GettingStartedKeys.Patients);
+        Assert.True(patients.Done);
+        Assert.False(patients.DoneByHand);
+        Assert.False(steps.Single(s => s.Key == GettingStartedKeys.SecurityCode).Done);
+        Assert.DoesNotContain(GettingStartedKeys.SecurityCode, GettingStartedRules.TickableSteps);
+        Assert.Equal(GettingStartedKeys.All.Count - 1, GettingStartedRules.TickableSteps.Count);
     }
 
     [Fact]

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Check, Loader2, Smartphone } from "lucide-react"
+import { Check, ExternalLink, Loader2, Smartphone } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -13,10 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { metaApi, type PhoneAppDownloadDto } from "@/lib/api/meta"
 import type { PhoneAppPersonDto } from "@/lib/api/types"
 import { formatDateFr } from "@/lib/format"
+import { APEXA_INSTALL_PAGE } from "@/lib/onboarding-videos"
 
 const PLATFORM_LABELS: Record<string, string> = {
   android: "Android",
@@ -27,12 +27,16 @@ const PLATFORM_LABELS: Record<string, string> = {
 /**
  * « L'application sur votre téléphone » — opened from « Votre téléphone » in « Premiers pas » (guided-first-days B).
  *
- * <p>Android: a QR of the APK this server ships — the one the app's own updater is sent to, never the website's old
- * file. iPhone: nothing to install, three steps in Safari. Then « Déjà fait », one line per account, read from each
- * person's first sign-in from a phone app.</p>
+ * <p>One way in, for Android and iPhone alike: the website's « Installez APEXA » section — a QR code to scan from
+ * the computer, and the same page as a button. Then « Déjà fait », one line per account, read from each person's
+ * first sign-in from a phone app.</p>
+ *
+ * <p>⚠️ It used to show this server's own APK as a QR and, on a server shipping none, « L'application Android n'est
+ * pas proposée par ce serveur » — read as « APEXA has no phone app » (owner's call, 2026-11-04: send them to the
+ * site, which is also what the welcome e-mail and the invitation link to).</p>
  *
  * <p>⚠️ The QR sits on a fixed white plate at a fixed size, the authenticator QR's rule: on a dark card it is
- * unscannable and nothing says so.</p>
+ * unscannable and nothing says so. It is withheld below `sm:` — on the phone itself the button is the way.</p>
  */
 export function PhoneAppDialog({
   open,
@@ -45,7 +49,6 @@ export function PhoneAppDialog({
 }) {
   const [download, setDownload] = useState<PhoneAppDownloadDto | null>(null)
   const [failed, setFailed] = useState(false)
-  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!open) return
@@ -57,77 +60,48 @@ export function PhoneAppDialog({
         if (!cancelled) setDownload(value)
       })
       .catch(() => {
+        // The button below needs no read; only the QR is lost, so nothing is said beyond its absence.
         if (!cancelled) setFailed(true)
       })
     return () => {
       cancelled = true
     }
-  }, [open, attempt])
-
-  // The address the iPhone opens: the one this page was reached on, which is the one known to work.
-  const host = typeof window === "undefined" ? "" : window.location.host
+  }, [open])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent mobile="sheet" className="md:max-w-xl">
+      <DialogContent mobile="sheet" className="md:max-w-lg">
         <DialogHeader>
           <DialogTitle>L&apos;application sur votre téléphone</DialogTitle>
-          <DialogDescription>Pour vous et pour votre secrétaire, sur chaque téléphone.</DialogDescription>
+          <DialogDescription>Android et iPhone, pour vous et pour votre secrétaire.</DialogDescription>
         </DialogHeader>
 
         <DialogBody className="space-y-5">
-          <section aria-labelledby="phone-android" className="space-y-3">
-            <h3 id="phone-android" className="text-sm font-semibold">
-              Android
-            </h3>
-            {failed ? (
-              <LoadFailureNotice
-                message="Le lien de l'application n'a pas pu être chargé."
-                onRetry={() => setAttempt((n) => n + 1)}
-              />
-            ) : !download ? (
-              <Loader2 className="size-5 animate-spin text-muted-foreground" aria-label="Chargement" />
-            ) : download.androidUrl ? (
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                {download.androidQrPng && (
-                  /* eslint-disable-next-line @next/next/no-img-element -- a data: URI, not a remote asset */
-                  <img
-                    src={download.androidQrPng}
-                    alt="QR code de l'application Android"
-                    className="mx-auto block size-40 shrink-0 rounded-lg bg-white p-2 sm:mx-0"
-                  />
-                )}
-                <div className="min-w-0 space-y-2 text-sm">
-                  <p>
-                    Scannez avec l&apos;appareil photo, puis ouvrez le fichier. La première fois, Android demande
-                    d&apos;autoriser l&apos;installation : acceptez.
-                  </p>
-                  <p className="text-muted-foreground">
-                    Ou, depuis le téléphone :{" "}
-                    <a href={download.androidUrl} className="font-medium text-primary underline">
-                      télécharger l&apos;application
-                    </a>
-                  </p>
+          <section aria-label="Télécharger l'application" className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
+            <div className="hidden shrink-0 sm:block">
+              {download ? (
+                /* eslint-disable-next-line @next/next/no-img-element -- a data: URI, not a remote asset */
+                <img
+                  src={download.qrPng}
+                  alt="QR code de la page de téléchargement d'APEXA"
+                  className="block size-40 rounded-lg bg-white p-2"
+                />
+              ) : failed ? null : (
+                <div className="grid size-40 place-items-center rounded-lg border">
+                  <Loader2 className="size-5 animate-spin text-muted-foreground" aria-label="Chargement" />
                 </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                L&apos;application Android n&apos;est pas proposée par ce serveur.
-              </p>
-            )}
-          </section>
-
-          <section aria-labelledby="phone-iphone" className="space-y-3">
-            <h3 id="phone-iphone" className="text-sm font-semibold">
-              iPhone
-            </h3>
-            <ol className="list-inside list-decimal space-y-1.5 text-sm">
-              <li>
-                Ouvrez <span className="font-medium break-all">{host}</span> dans Safari.
-              </li>
-              <li>Touchez « Partager ».</li>
-              <li>Choisissez « Sur l&apos;écran d&apos;accueil ».</li>
-            </ol>
+              )}
+            </div>
+            <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto">
+              <p className="hidden text-sm sm:block">Scannez ce code avec l&apos;appareil photo du téléphone.</p>
+              <Button asChild className="min-h-11 w-full sm:w-auto">
+                <a href={APEXA_INSTALL_PAGE} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink aria-hidden />
+                  Ouvrir la page de téléchargement
+                  <span className="sr-only"> (apexa.tn, s&apos;ouvre dans un nouvel onglet)</span>
+                </a>
+              </Button>
+            </div>
           </section>
 
           {people.length > 0 && (
@@ -163,7 +137,7 @@ export function PhoneAppDialog({
         </DialogBody>
 
         <DialogFooter>
-          <Button type="button" className="min-h-11" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => onOpenChange(false)}>
             Terminé
           </Button>
         </DialogFooter>

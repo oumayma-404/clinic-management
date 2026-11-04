@@ -6,13 +6,21 @@ import { toast } from "sonner"
 import { Check, PlayCircle } from "lucide-react"
 
 import { PhoneAppDialog } from "@/components/dashboard/phone-app-dialog"
-import { useGuide } from "@/components/guide/guide-provider"
+import { celebrateReady, celebrateStep } from "@/components/onboarding/step-celebration"
+import { OPEN_PHONE_STEP_EVENT, useGuide } from "@/components/guide/guide-provider"
 import { Button } from "@/components/ui/button"
 import type { GettingStartedDto } from "@/lib/api/types"
+import { dashboardApi } from "@/lib/api/dashboard"
+import { useSession } from "@/lib/auth/session"
+import { showErrorToast } from "@/lib/errors"
 import { GETTING_STARTED_STEPS, type GettingStartedKey } from "@/lib/getting-started"
+import { hasSeenCard, markReadyCelebrated, takeNewlyDone } from "@/lib/getting-started-celebration"
 import { ONBOARDING_VIDEOS, onboardingVideoUrl } from "@/lib/onboarding-videos"
 import { useSubscription } from "@/lib/subscription/subscription-context"
 import { cn } from "@/lib/utils"
+
+/** The one step a person may not tick by hand — mirrors the server's `GettingStartedRules.TickableSteps`. */
+const UNTICKABLE_STEP: GettingStartedKey = "securityCode"
 
 /**
  * The page's half of « Premiers pas »: renders the card when it applies and is not hidden, and owns its two
@@ -36,29 +44,42 @@ export function GettingStartedBlock({
   onReload: () => void
 }) {
   const wasVisible = useRef(false)
+  const { user } = useSession()
+  const owner = user?.email ?? ""
+  const { continueTour } = useGuide()
 
   useEffect(() => {
     if (!data) return
+    // A new cabinet's very first look at the card starts the guided tour on its first open step.
+    if (data.visible && shown && owner && !hasSeenCard(owner)) continueTour({ first: true, started: data })
     // The server hides the card once every step is done, so « was on screen, now hidden » is the moment it got
     // there. (The 30th day turning over mid-session would read the same; that is an hour a month, not a lie.)
     if (wasVisible.current && !data.visible && shown) {
-      toast.success("Votre cabinet est prêt.", { description: "Les premiers pas sont faits." })
+      if (!owner || markReadyCelebrated(owner)) celebrateReady()
+    } else if (data.visible && shown && owner) {
+      // A step ticked by ordinary work (a patient created from the list, the first sign-in on a phone) is celebrated
+      // the next time the card is read — once; the first read for an account only remembers.
+      const done = data.steps.filter((step) => step.done).map((step) => step.key as GettingStartedKey)
+      const fresh = takeNewlyDone(owner, done)
+      if (fresh.length > 0) {
+        celebrateStep(fresh[fresh.length - 1], { title: null })
+      }
     }
     wasVisible.current = data.visible
-  }, [data, shown])
+  }, [data, shown, owner, continueTour])
 
   if (!data?.visible || !shown) return null
 
   const hide = () => {
     onToggle()
     toast("Premiers pas masqués.", {
-      description: "« Personnaliser » les remet.",
+      description: "Ils restent dans « Aide », en haut de l'écran.",
       duration: 5000,
       action: { label: "Annuler", onClick: onToggle },
     })
   }
 
-  return <GettingStartedCard data={data} onHide={hide} onPhoneDialogClosed={onReload} />
+  return <GettingStartedCard data={data} onHide={hide} onChanged={onReload} />
 }
 
 /**
@@ -77,19 +98,47 @@ export function GettingStartedBlock({
 export function GettingStartedCard({
   data,
   onHide,
-  onPhoneDialogClosed,
+  onChanged,
 }: {
   data: GettingStartedDto
   onHide: () => void
-  /** The phone sign-in broadcasts nothing, so closing the window is the moment to re-read. */
-  onPhoneDialogClosed: () => void
+  /** A tick by hand broadcasts nothing (per-user state), so the card re-reads itself after one. */
+  onChanged: () => void
 }) {
   const [phoneOpen, setPhoneOpen] = useState(false)
-  const { subscription } = useSubscription()
-  const { start: startGuide } = useGuide()
+  const [ticking, setTicking] = useState<GettingStartedKey | null>(null)
+  const { start: startGuide, continueTour } = useGuide()
 
-  const steps = data.steps.filter((step): step is { key: GettingStartedKey; done: boolean } =>
-    step.key in GETTING_STARTED_STEPS,
+  // « C'est parti » on the tour's prompt, when the next step is « Votre téléphone »: its window is here.
+  useEffect(() => {
+    const open = () => setPhoneOpen(true)
+    window.addEventListener(OPEN_PHONE_STEP_EVENT, open)
+    return () => window.removeEventListener(OPEN_PHONE_STEP_EVENT, open)
+  }, [])
+
+  /**
+   * « Fait, ou au moins compris » (owner's call, 2026-11-04): the circle of a step ticks it by hand, and unticks one
+   * ticked by hand. The card re-reads, and a step newly done is celebrated by `GettingStartedBlock` like any other.
+   */
+  const setTicked = async (key: GettingStartedKey, ticked: boolean) => {
+    if (ticking) return
+    setTicking(key)
+    try {
+      if (ticked) await dashboardApi.tickStep(key)
+      else await dashboardApi.untickStep(key)
+      onChanged()
+      // A step ticked by hand moves the tour on, like a tour finished.
+      if (ticked) continueTour()
+    } catch (err) {
+      showErrorToast(err)
+    } finally {
+      setTicking(null)
+    }
+  }
+  const { subscription } = useSubscription()
+
+  const steps = data.steps.filter(
+    (step): step is { key: GettingStartedKey; done: boolean; doneByHand?: boolean } => step.key in GETTING_STARTED_STEPS,
   )
   const doneCount = steps.filter((step) => step.done).length
   const nextKey = steps.find((step) => !step.done)?.key
@@ -131,27 +180,53 @@ export function GettingStartedCard({
       </div>
 
       <ol className="mt-4 divide-y">
-        {steps.map((step, index) => {
+        {steps.map((step) => {
           const meta = GETTING_STARTED_STEPS[step.key]
           const video = ONBOARDING_VIDEOS[meta.video]
           const videoUrl = onboardingVideoUrl(video)
           const isNext = step.key === nextKey
+          // Done by its data → a plain mark; undone (or ticked by hand) → the tick itself. The security code is never
+          // ticked by hand (the server's `GettingStartedRules.TickableSteps` refuses it too).
+          const tickable = step.key !== UNTICKABLE_STEP && (!step.done || step.doneByHand === true)
 
           return (
-            <li key={step.key} className="flex min-h-12 items-center gap-3 py-2 coarse:min-h-14">
-              <span
-                aria-hidden
-                className={cn(
-                  "inline-flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
-                  step.done
-                    ? "bg-success-wash text-success"
-                    : isNext
-                      ? "bg-primary text-primary-foreground"
-                      : "border text-muted-foreground",
-                )}
-              >
-                {step.done ? <Check className="size-4" /> : index + 1}
-              </span>
+            <li
+              key={step.key}
+              // The tour's prompt lights the next open step through this mark (`lib/guides/next-step.ts`).
+              data-guide={isNext ? "premiers-pas-next" : undefined}
+              className="flex min-h-12 items-center gap-3 py-2 coarse:min-h-14"
+            >
+              {tickable ? (
+                <button
+                  type="button"
+                  aria-label={step.done ? `Remettre à faire : ${meta.title}` : `Marquer comme fait : ${meta.title}`}
+                  disabled={ticking !== null}
+                  onClick={() => void setTicked(step.key, !step.done)}
+                  className={cn(
+                    "group touch-target inline-flex size-7 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60",
+                    step.done
+                      ? "bg-success-wash text-success hover:bg-success-wash/70"
+                      : isNext
+                        ? "border-2 border-primary text-primary hover:bg-primary/10"
+                        : "border-2 border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary",
+                  )}
+                >
+                  <Check
+                    aria-hidden
+                    className={cn("size-4", !step.done && "opacity-0 group-hover:opacity-60 group-focus-visible:opacity-60")}
+                  />
+                </button>
+              ) : (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "inline-flex size-7 shrink-0 items-center justify-center rounded-full",
+                    step.done ? "bg-success-wash text-success" : "border-2 border-muted-foreground/40",
+                  )}
+                >
+                  {step.done && <Check className="size-4" />}
+                </span>
+              )}
 
               <span className={cn("min-w-0 flex-1 text-sm", step.done ? "text-muted-foreground" : "font-medium")}>
                 {meta.title}
@@ -232,7 +307,13 @@ export function GettingStartedCard({
         open={phoneOpen}
         onOpenChange={(open) => {
           setPhoneOpen(open)
-          if (!open) onPhoneDialogClosed()
+          // Closing the window any way — « Terminé », ✕, Escape — is « vu » (owner's call, 2026-11-04): it ticks the
+          // step by hand unless the first phone sign-in already did, then re-reads.
+          if (!open) {
+            const phone = steps.find((s) => s.key === "phoneApp")
+            if (phone && !phone.done) void setTicked("phoneApp", true)
+            else onChanged()
+          }
         }}
         people={data.phoneApp}
       />

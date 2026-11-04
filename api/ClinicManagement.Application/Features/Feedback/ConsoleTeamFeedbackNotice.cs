@@ -79,7 +79,9 @@ public static class ConsoleTeamFeedbackNotice
         if (f.HelpRating is { } help) details.Add(new("APEXA m'aide", $"{help} / 5"));
         if (f.EaseRating is { } ease) details.Add(new("Facile à utiliser", $"{ease} / 5"));
         if (f.LikedAreas().Count > 0) details.Add(new("Aimé", Labels(f.LikedAreas())));
+        if (f.LikedOther is { } likedOther) details.Add(new("Aimé (autre)", likedOther));
         if (f.HardAreas().Count > 0) details.Add(new("Difficile", Labels(f.HardAreas())));
+        if (f.HardOther is { } hardOther) details.Add(new("Difficile (autre)", hardOther));
         if (f.Message is { } message) details.Add(new("Message", message));
         if (f.FromScreen is { } screen) details.Add(new("Écran", screen));
         details.Add(new("Recontacter", f.MayContact && facts.AuthorEmail is { } email ? email : "non"));

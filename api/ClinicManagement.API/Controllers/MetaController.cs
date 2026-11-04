@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
@@ -266,34 +267,25 @@ public class MetaController : ApiControllerBase
         $"{Request.Scheme}://{Request.Host}{ClientDownloadPath}/{AndroidDownloadSegment}";
 
     /// <summary>
-    /// Where a phone downloads the Android app, and the same link as a QR code — « Votre téléphone » in
-    /// « Premiers pas » (<c>guided-first-days</c> B). Signed-in only; the download itself stays anonymous.
+    /// Where a phone gets APEXA — « Votre téléphone » in « Premiers pas » (<c>guided-first-days</c> B): the website's
+    /// download section, and the same link as a QR code to scan from the computer. Signed-in only.
     /// </summary>
     /// <remarks>
-    /// ⚠️ The URL is the one the in-app updater is sent to (<c>android.downloadUrl</c>, else the store URL), built by
-    /// the same <see cref="WithAndroidPackage"/> as <c>client-requirements</c> — so the QR can never point at an
-    /// older APK than the one the app itself would update to. Both fields are null when this server ships no APK
-    /// and none is configured: the screen then says so rather than showing a dead code.
+    /// ⚠️ Always <see cref="ApexaPublicLinks.InstallPage"/>, never this server's own APK (owner's call, 2026-11-04): the
+    /// page already explains Android AND iPhone, it is the link the welcome e-mail and the invitation carry, and a
+    /// server that ships no APK used to answer « l'application Android n'est pas proposée par ce serveur », which read
+    /// as « APEXA has no phone app ».
     /// </remarks>
     [HttpGet("phone-app")]
     public IActionResult PhoneApp([FromServices] IQrCodeGenerator qrCodeGenerator)
     {
-        var requirements = WithAndroidPackage(Models.ClientRequirements.Read(_configuration));
-        var url = !string.IsNullOrWhiteSpace(requirements.Android.DownloadUrl)
-            ? requirements.Android.DownloadUrl
-            : requirements.StoreUrls.Android;
-
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            return Ok(new PhoneAppDownload(null, null));
-        }
-
+        var url = ApexaPublicLinks.InstallPage;
         var qr = "data:image/png;base64," + Convert.ToBase64String(qrCodeGenerator.GeneratePng(url));
         return Ok(new PhoneAppDownload(url, qr));
     }
 
-    /// <summary>The Android app's download link and its QR code (a <c>data:</c> PNG); both null when there is none.</summary>
-    public sealed record PhoneAppDownload(string? AndroidUrl, string? AndroidQrPng);
+    /// <summary>The download page and its QR code (a <c>data:</c> PNG).</summary>
+    public sealed record PhoneAppDownload(string Url, string QrPng);
 
     /// <summary>
     /// What an upload door accepts, projected from the catalog (AC-5.1). Deliberately <b>not</b> exempt

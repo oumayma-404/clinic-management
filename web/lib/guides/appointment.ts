@@ -1,8 +1,8 @@
 import type { Guide } from "./types"
 
 /**
- * « Premier rendez-vous ». ⚠️ Starts on the agenda, never `?newAppointment=1`: that deep link keeps the page's
- * opening minute as the start time, so a slow first booking meets « …dans le passé ? ».
+ * « Premier rendez-vous » — a tour of the booking window. Nothing is saved. ⚠️ Starts on the agenda, never
+ * `?newAppointment=1`: that deep link keeps the page's opening minute as the start time.
  */
 export const appointmentGuide: Guide = {
   key: "appointment",
@@ -12,14 +12,14 @@ export const appointmentGuide: Guide = {
   steps: [
     {
       mark: "agenda-new",
-      text: "Pour un nouveau rendez-vous, cliquez ici.",
-      touchText: "Pour un nouveau rendez-vous, touchez ici.",
-      next: { visible: "booking-dialog" },
+      text: "Ici, vous créez un rendez-vous.",
+      press: true,
+      next: { manual: true },
     },
     {
       mark: "booking-patient",
       scope: "booking-dialog",
-      text: "Choisissez le patient, ou « Nouveau patient » et son nom.",
+      text: "Le patient : un patient existant, ou « Nouveau patient » et son nom.",
       next: { manual: true },
     },
     {
@@ -31,16 +31,15 @@ export const appointmentGuide: Guide = {
     {
       mark: "booking-acts",
       scope: "booking-dialog",
-      text: "Ajoutez l'acte prévu : la durée suit.",
+      text: "L'acte prévu : la durée suit.",
       next: { manual: true },
     },
     {
       mark: "booking-submit",
       scope: "booking-dialog",
-      text: "Cliquez sur « Créer le rendez-vous ».",
-      touchText: "Touchez « Créer le rendez-vous ».",
-      next: { savedAndClosed: true },
+      text: "Ce bouton crée le rendez-vous. Pendant la visite, rien n'est enregistré.",
+      next: { manual: true },
     },
   ],
-  doneText: "Votre premier rendez-vous est dans l'agenda.",
+  doneText: "Vous savez prendre un rendez-vous.",
 }

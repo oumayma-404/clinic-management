@@ -17,10 +17,10 @@ export interface ClientRequirementsDto {
   android?: { minimumVersion: string; currentVersion: string; downloadUrl: string; sha256: string };
 }
 
-/** Where a phone downloads the Android app, and the same link as a QR (`data:` PNG). Both null when there is none. */
+/** The website's download section (Android and iPhone), and the same link as a QR code (`data:` PNG). */
 export interface PhoneAppDownloadDto {
-  androidUrl: string | null;
-  androidQrPng: string | null;
+  url: string;
+  qrPng: string;
 }
 
 export const metaApi = {

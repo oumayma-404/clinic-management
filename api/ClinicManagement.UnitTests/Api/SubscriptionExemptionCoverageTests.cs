@@ -151,6 +151,8 @@ public class SubscriptionExemptionCoverageTests
         "PushDevices.Release",                           // Deregister for a Web Push endpoint, which is a URL
         "PatientFiles.InitializeDefaultFolders",         // fired on the first visit to the Files tab; a READ fails
         "Dashboard.UpdatePreferences",                   // personal interface state, not clinic work
+        "Dashboard.TickStep",                            // personal interface state: a « Premiers pas » step ticked
+        "Dashboard.UntickStep",                          // personal interface state: the same, unticked
         "Clinics.HideMoney",                             // « Mode discret » changes what is displayed, records no work
         "Clinics.ShowMoney",
 

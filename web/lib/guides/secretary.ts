@@ -1,6 +1,6 @@
 import type { Guide } from "./types"
 
-/** « Votre secrétaire » — her account, from « Utilisateurs ». Online the button says « Inviter », on a cabinet PC « Créer ». */
+/** « Votre secrétaire » — a tour of « Utilisateurs » and its invitation window. Nothing is sent. */
 export const secretaryGuide: Guide = {
   key: "secretary",
   title: "Votre secrétaire",
@@ -9,9 +9,9 @@ export const secretaryGuide: Guide = {
   steps: [
     {
       mark: "users-create",
-      text: "Pour ajouter votre secrétaire, cliquez ici.",
-      touchText: "Pour ajouter votre secrétaire, touchez ici.",
-      next: { visible: "user-dialog" },
+      text: "Ici, vous ajoutez votre secrétaire.",
+      press: true,
+      next: { manual: true },
     },
     {
       mark: "user-fields",
@@ -22,10 +22,9 @@ export const secretaryGuide: Guide = {
     {
       mark: "user-submit",
       scope: "user-dialog",
-      text: "Cliquez ici pour créer son compte.",
-      touchText: "Touchez ici pour créer son compte.",
-      next: { savedAndClosed: true },
+      text: "Ce bouton crée son compte. Pendant la visite, rien n'est envoyé.",
+      next: { manual: true },
     },
   ],
-  doneText: "Votre secrétaire a son compte.",
+  doneText: "Vous savez ajouter votre secrétaire.",
 }

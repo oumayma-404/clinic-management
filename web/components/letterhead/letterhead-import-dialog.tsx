@@ -317,7 +317,7 @@ export function LetterheadImportDialog({ open, onOpenChange, version, onSaved }:
               <Button variant="outline" onClick={() => setStep("file")} disabled={busy !== null}>
                 Changer de fichier
               </Button>
-              <Button onClick={() => void showPreview()} disabled={busy !== null} data-guide="letterhead-cut-next">
+              <Button onClick={() => void showPreview()} disabled={busy !== null}>
                 {busy === "preview" && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
                 Voir l'aperçu
               </Button>
@@ -328,7 +328,7 @@ export function LetterheadImportDialog({ open, onOpenChange, version, onSaved }:
               <Button variant="outline" onClick={() => setStep("cut")} disabled={busy !== null}>
                 Ajuster les lignes
               </Button>
-              <Button onClick={() => void save()} disabled={busy !== null} data-guide="letterhead-save">
+              <Button onClick={() => void save()} disabled={busy !== null}>
                 {busy === "saving" && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
                 Enregistrer
               </Button>

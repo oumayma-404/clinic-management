@@ -1,6 +1,6 @@
 import type { Guide } from "./types"
 
-/** « Vos patients » — the first patient. Saving opens the patient's page, which the guide expects. */
+/** « Vos patients » — a tour of the patient window. Nothing is saved. */
 export const patientsGuide: Guide = {
   key: "patients",
   title: "Vos patients",
@@ -9,9 +9,9 @@ export const patientsGuide: Guide = {
   steps: [
     {
       mark: "patients-add",
-      text: "Cliquez sur « Ajouter un patient ».",
-      touchText: "Touchez « Ajouter un patient ».",
-      next: { visible: "patient-dialog" },
+      text: "Ici, vous ajoutez un patient.",
+      press: true,
+      next: { manual: true },
     },
     {
       mark: "patient-names",
@@ -22,10 +22,9 @@ export const patientsGuide: Guide = {
     {
       mark: "patient-submit",
       scope: "patient-dialog",
-      text: "Cliquez sur « Créer le patient ».",
-      touchText: "Touchez « Créer le patient ».",
-      next: { savedAndClosed: true },
+      text: "Ce bouton crée son dossier. Pendant la visite, rien n'est enregistré.",
+      next: { manual: true },
     },
   ],
-  doneText: "Votre premier patient est enregistré.",
+  doneText: "Vous savez ajouter un patient.",
 }

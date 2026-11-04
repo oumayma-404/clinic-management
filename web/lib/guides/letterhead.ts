@@ -1,6 +1,6 @@
 import type { Guide } from "./types"
 
-/** « Papier à en-tête » — the file picker is the system's own window: the guide waits for « Découpe » to appear. */
+/** « Papier à en-tête » — a tour of the import window. No file is asked for, nothing is saved. */
 export const letterheadGuide: Guide = {
   key: "letterhead",
   title: "Papier à en-tête",
@@ -9,30 +9,16 @@ export const letterheadGuide: Guide = {
   steps: [
     {
       mark: "letterhead-import",
-      text: "Cliquez sur « Importer mon papier à en-tête ».",
-      touchText: "Touchez « Importer mon papier à en-tête ».",
-      next: { visible: "letterhead-file" },
+      text: "Ici, vous importez votre papier à en-tête : un PDF ou une photo.",
+      press: true,
+      next: { manual: true },
     },
     {
       mark: "letterhead-file",
       scope: "letterhead-dialog",
-      text: "Choisissez un PDF ou une photo de votre papier.",
-      next: { visible: "letterhead-cut-next" },
-    },
-    {
-      mark: "letterhead-cut-next",
-      scope: "letterhead-dialog",
-      text: "Placez les deux lignes sur l'image, puis cliquez ici.",
-      touchText: "Placez les deux lignes sur l'image, puis touchez ici.",
-      next: { visible: "letterhead-save" },
-    },
-    {
-      mark: "letterhead-save",
-      scope: "letterhead-dialog",
-      text: "Si l'aperçu vous convient, cliquez sur « Enregistrer ».",
-      touchText: "Si l'aperçu vous convient, touchez « Enregistrer ».",
-      next: { savedAndClosed: true },
+      text: "Le fichier choisi, APEXA découpe l'en-tête et le pied de page, et montre l'aperçu avant d'enregistrer.",
+      next: { manual: true },
     },
   ],
-  doneText: "Vos documents s'impriment sur votre papier.",
+  doneText: "Vous savez mettre votre papier à en-tête.",
 }

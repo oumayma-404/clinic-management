@@ -1,7 +1,8 @@
 namespace ClinicManagement.Application.DTOs;
 
 /// <summary>One « Premiers pas » step and whether the cabinet's own data says it is done.</summary>
-public sealed record GettingStartedStepDto(string Key, bool Done);
+/// <param name="DoneByHand">Done only because the person ticked it — the card offers to untick it.</param>
+public sealed record GettingStartedStepDto(string Key, bool Done, bool DoneByHand = false);
 
 /// <summary>
 /// One account of the cabinet and whether it has signed in from the phone app — the « Déjà fait » chips of
