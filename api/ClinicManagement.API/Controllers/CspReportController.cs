@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ClinicManagement.API.Startup;
+using ClinicManagement.Application.Common.Authorization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -55,6 +56,7 @@ public class CspReportController : ControllerBase
         _logger = logger;
     }
 
+    [AllowedInDemo("The browser's own security reports, which carry no clinic data.")]
     [HttpPost]
     [Consumes("application/csp-report", "application/reports+json", "application/json")]
     public async Task<IActionResult> Receive(CancellationToken cancellationToken)

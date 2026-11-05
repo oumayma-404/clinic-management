@@ -20,7 +20,7 @@ import {
   type CalendarImportRevertPreview,
   type CalendarImportRunDto,
 } from "@/lib/api/google-calendar"
-import { getErrorMessage } from "@/lib/errors"
+import { showErrorToast } from "@/lib/errors"
 import { toast } from "sonner"
 import { formatDateFr } from "@/lib/format"
 
@@ -84,7 +84,7 @@ export function CalendarImportUndoBanner({ onReverted }: { onReverted: () => voi
     try {
       setPreview(await googleCalendarApi.previewRevert(run.id))
     } catch (err) {
-      toast.error(getErrorMessage(err))
+      showErrorToast(err)
       setOpen(false)
     } finally {
       setLoadingPreview(false)
@@ -114,7 +114,7 @@ export function CalendarImportUndoBanner({ onReverted }: { onReverted: () => voi
       await load()
       onReverted()
     } catch (err) {
-      toast.error(getErrorMessage(err))
+      showErrorToast(err)
     } finally {
       setReverting(false)
     }

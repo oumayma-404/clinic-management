@@ -1,12 +1,16 @@
+using ClinicManagement.API.BackgroundJobs;
 using ClinicManagement.API.Controllers;
 using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Clinics.Commands;
+using ClinicManagement.Application.Features.Demo;
 using ClinicManagement.Infrastructure.Auth;
 using ClinicManagement.Infrastructure.Deployment;
 using ClinicManagement.Infrastructure.Services;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Moq;
@@ -45,7 +49,8 @@ public class SelfRegistrationGateTests
             configuration,
             profile,
             new SubscriptionPolicy(profile, configuration),
-            new SubscriptionPricing(configuration));
+            new SubscriptionPricing(configuration),
+            new DemoCabinetBuilds());
     }
 
     private static RegisterRequest AnyRegistration() => new()
@@ -204,6 +209,89 @@ public class SelfRegistrationGateTests
                 .GetMode()).Value!;
 
         Assert.Equal(expected, Read<string?>(payload, "supportPhone"));
+    }
+
+    // ---- demo-cabinet --------------------------------------------------------------------------------
+
+    [Theory] // [US-1] the anonymous door exists on the public demo alone, and 404s before the mediator elsewhere
+    [InlineData(DeploymentKind.SelfHostedLan)]
+    [InlineData(DeploymentKind.HostedMultiTenant)]
+    [InlineData(DeploymentKind.ClinicRelay)]
+    public async Task DemoSession_404s_anywhere_but_the_public_demo(DeploymentKind kind)
+    {
+        var mediator = new Mock<IMediator>();
+
+        var response = await Controller(mediator, kind).DemoSession();
+
+        Assert.IsType<NotFoundResult>(response);
+        Assert.Empty(mediator.Invocations);
+    }
+
+    [Fact] // [FR-7] no complete cabinet yet: 503 with the code, never a 400 the client reads as a bad request
+    public async Task DemoSession_answers_503_while_no_cabinet_exists()
+    {
+        var mediator = new Mock<IMediator>();
+        mediator.Setup(m => m.Send(It.IsAny<StartDemoSessionCommand>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<LoginResultDto>.Failure(DemoRefusals.RebuildingMessage, DemoRefusals.RebuildingCode));
+
+        var response = Assert.IsAssignableFrom<ObjectResult>(
+            await Controller(mediator, DeploymentKind.PublicDemo).DemoSession());
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
+        Assert.Equal(DemoRefusals.RebuildingCode, Read<string>(response.Value!, "code"));
+    }
+
+    [Theory] // [US-4] the web shows the band and the refusal notice from isDemo, so only the demo may say true
+    [InlineData(DeploymentKind.SelfHostedLan, false)]
+    [InlineData(DeploymentKind.HostedMultiTenant, false)]
+    [InlineData(DeploymentKind.ClinicRelay, false)]
+    [InlineData(DeploymentKind.PublicDemo, true)]
+    public void GetMode_reports_whether_this_is_the_public_demo(DeploymentKind kind, bool expected)
+    {
+        var payload = Assert.IsType<OkObjectResult>(Controller(new Mock<IMediator>(), kind).GetMode()).Value!;
+
+        Assert.Equal(expected, Read<bool>(payload, "isDemo"));
+        Assert.Equal(expected ? "https://apexa.tn/#telecharger" : null, Read<string?>(payload, "demoSignupUrl"));
+    }
+
+    [Fact]
+    public void The_demo_signup_url_follows_configuration()
+    {
+        var payload = Assert.IsType<OkObjectResult>(
+            Controller(new Mock<IMediator>(), DeploymentKind.PublicDemo, ("Demo:SignupUrl", "https://example.tn/signup"))
+                .GetMode()).Value!;
+
+        Assert.Equal("https://example.tn/signup", Read<string?>(payload, "demoSignupUrl"));
+    }
+
+    [Theory] // [AC-7.6] the operator reads a failed nightly rebuild as a stale demoBuiltOn; nothing else reports one
+    [InlineData(DeploymentKind.PublicDemo, "2026-11-03")]
+    [InlineData(DeploymentKind.HostedMultiTenant, null)]
+    public void GetMode_reports_the_day_the_demo_cabinet_was_built(DeploymentKind kind, string? expected)
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        var profile = DeploymentProfile.For(kind);
+        var builds = new DemoCabinetBuilds();
+        builds.Opened(new DateOnly(2026, 11, 3));
+        var controller = new AuthController(
+            new Mock<IMediator>().Object,
+            configuration,
+            profile,
+            new SubscriptionPolicy(profile, configuration),
+            new SubscriptionPricing(configuration),
+            builds);
+
+        var payload = Assert.IsType<OkObjectResult>(controller.GetMode()).Value!;
+
+        Assert.Equal(expected, Read<string?>(payload, "demoBuiltOn"));
+    }
+
+    [Fact] // a demo that has not opened a cabinet yet says so with no date, never a made-up one
+    public void GetMode_has_no_build_day_before_the_first_cabinet_opens()
+    {
+        var payload = Assert.IsType<OkObjectResult>(Controller(new Mock<IMediator>(), DeploymentKind.PublicDemo).GetMode()).Value!;
+
+        Assert.Null(Read<string?>(payload, "demoBuiltOn"));
     }
 
     // The action returns an anonymous type, so the wire names are only readable by reflection — which is the

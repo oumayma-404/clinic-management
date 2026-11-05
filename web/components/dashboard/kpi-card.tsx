@@ -44,6 +44,8 @@ interface KpiCardProps {
   loading?: boolean
   variant?: "default" | "urgent"
   emphasis?: KpiEmphasis
+  /** A fall is drawn grey, never red — the public demo, whose figures are staged and must not read as bad news. */
+  quietFalls?: boolean
 }
 
 /**
@@ -68,6 +70,7 @@ export function KpiCard({
   loading = false,
   variant = "default",
   emphasis = "default",
+  quietFalls = false,
 }: KpiCardProps) {
   const isCompact = emphasis === "compact"
   const isLead = emphasis === "lead"
@@ -164,7 +167,7 @@ export function KpiCard({
       </div>
 
       {comparison && !loading && (
-        <DeltaBadge comparison={comparison} sense={sense} previousPeriodLabel={previousPeriodLabel} />
+        <DeltaBadge comparison={comparison} sense={sense} previousPeriodLabel={previousPeriodLabel} quietFalls={quietFalls} />
       )}
     </Link>
   )
@@ -185,10 +188,12 @@ function DeltaBadge({
   comparison,
   sense,
   previousPeriodLabel,
+  quietFalls,
 }: {
   comparison: PeriodComparison
   sense: DeltaSense
   previousPeriodLabel?: string
+  quietFalls: boolean
 }) {
   const { deltaPercent } = comparison
   const baseline = previousPeriodLabel ? `vs. ${previousPeriodLabel}` : "vs. période précédente"
@@ -221,7 +226,7 @@ function DeltaBadge({
    * `green-700`, so both modes and any future accent follow automatically.
    */
   const tone =
-    flat || good === null
+    flat || good === null || (quietFalls && !good)
       ? "bg-muted text-muted-foreground"
       : good
         ? "bg-success-wash text-success"

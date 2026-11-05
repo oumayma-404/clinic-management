@@ -269,6 +269,8 @@ export const HIDDEN_PATHS = [
   // subscription banner reads the same answer, so « no banner on /signup » needs no second list.
   // ⚠️ One entry, not two: `isChromeLessPath` matches a prefix, so `/signup` already covers `/signup/verifier`.
   "/signup",
+  // demo-cabinet: the entry screen is the one page of the demo with no app around it.
+  "/demo",
 ]
 
 /** True on a route that deliberately renders without the app chrome. */

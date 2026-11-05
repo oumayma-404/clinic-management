@@ -38,6 +38,7 @@ import {
   type ReminderEffectiveStatus,
   type ReminderStatusDto,
 } from "@/lib/api/reminder-settings"
+import { showErrorToast } from "@/lib/errors"
 
 // Tri-state channel toggle: "inherit" (null = per-install default), "on" (true), "off" (false).
 type Toggle = "inherit" | "on" | "off"
@@ -308,8 +309,7 @@ export function ReminderSettings() {
       }
       toast.success("Paramètres de rappel enregistrés")
     } catch (err) {
-      const message = err instanceof Error ? err.message : "L'enregistrement a échoué."
-      toast.error("Échec de l'enregistrement", { description: message })
+      showErrorToast(err, { title: "Échec de l'enregistrement", fallback: "L'enregistrement a échoué." })
     } finally {
       if (mounted.current) setSaving(false)
     }

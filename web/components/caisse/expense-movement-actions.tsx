@@ -20,12 +20,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Loader2, MoreHorizontal } from "lucide-react"
-import { ApiError } from "@/lib/api/client"
 import { expensesApi } from "@/lib/api/expenses"
 import { useSession } from "@/lib/auth/session"
 import type { CaisseMovementDto, ExpenseDto } from "@/lib/api/types"
 import { formatDT, localDayIso, quoteFr } from "@/lib/format"
 import { ExpenseFormDialog } from "./expense-form-dialog"
+import { showErrorToast } from "@/lib/errors"
 
 /**
  * « Modifier » and « Supprimer » for a **dépense line of l'extrait de caisse**.
@@ -87,7 +87,7 @@ export function ExpenseMovementActions({
       if (next === "edit") setEditOpen(true)
       else setDeleteOpen(true)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Impossible d'ouvrir cette dépense.")
+      showErrorToast(err, "Impossible d'ouvrir cette dépense.")
     } finally {
       setBusy(false)
     }
@@ -103,7 +103,7 @@ export function ExpenseMovementActions({
       setExpense(null)
       onChanged()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression de la dépense")
+      showErrorToast(err, "Échec de la suppression de la dépense")
     } finally {
       setDeleting(false)
     }

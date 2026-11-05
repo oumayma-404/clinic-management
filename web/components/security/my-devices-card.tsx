@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { securityApi, type SessionDevice } from '@/lib/api/security'
 import { showErrorToast } from '@/lib/errors'
+import { useDemo } from '@/lib/demo/demo-context'
 import { formatDateTime, quoteFr } from '@/lib/format'
 import { Laptop, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
@@ -39,6 +40,7 @@ export function MyDevicesCard() {
   const [failed, setFailed] = useState(false)
   const [confirming, setConfirming] = useState<SessionDevice | null>(null)
   const [endingId, setEndingId] = useState<string | null>(null)
+  const { isDemo } = useDemo()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -137,14 +139,17 @@ export function MyDevicesCard() {
                   </p>
                 </div>
 
-                <Button
-                  variant="outline"
-                  className="min-h-11 w-full shrink-0 sm:w-auto"
-                  onClick={() => setConfirming(device)}
-                  disabled={endingId !== null}
-                >
-                  Déconnecter
-                </Button>
+                {/* The demo lists the visitor's own session only; « Se déconnecter » in the menu ends it (FR-4). */}
+                {isDemo === false && (
+                  <Button
+                    variant="outline"
+                    className="min-h-11 w-full shrink-0 sm:w-auto"
+                    onClick={() => setConfirming(device)}
+                    disabled={endingId !== null}
+                  >
+                    Déconnecter
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

@@ -33,6 +33,12 @@ public class SecondFactorCoverageTests
             + "LocalAuthEnforcementMiddleware — so a session predating the rule still cannot outlive it — plus "
             + "TokenVersion, which a reset or a promotion bumps.",
 
+        ["StartDemoSessionCommand.cs"] =
+            "demo-cabinet US-1: opens a session as the FICTIONAL dentist of the public demo, a deployment with its own "
+            + "database and signing key that holds no patient and refuses every write. It runs only where "
+            + "IssuesDemoSessions is true, and that profile answers RequiresAdminSecondFactor = false by design — a "
+            + "visitor has no account, so there is nobody to hold an authenticator.",
+
         ["TradeRelayAssertionCommand.cs"] =
             "clinic-pc-copy D22: opens a session on the PC de secours from a ticket the cloud issued only to a session "
             + "that already passed the second factor there (GET /api/relay/devices/assertion is behind it), signed with "

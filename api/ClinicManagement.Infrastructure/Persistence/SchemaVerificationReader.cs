@@ -75,7 +75,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
 
         var model = ReadModelSide();
         var mappedDecimals = ReadMappedDecimals();
-        var dataMigrations = await ReadDataMigrationCountsAsync(connection, cancellationToken);
+        var dataMigrations = await ReadDataMigrationCountsAsync(
+            connection, ChecksAdminSecondFactor(TryResolveProfile()), cancellationToken);
         var auditLedger = await ReadAuditLedgerFactsAsync(connection, cancellationToken);
         var (subscriptionLedgers, coverKindPresent) =
             await ReadSubscriptionLedgersAsync(connection, cancellationToken);
@@ -288,6 +289,10 @@ public class SchemaVerificationReader : ISchemaVerificationReader
     /// The deployment profile, or null when it cannot be read — the report then keeps the strict reading
     /// (a certificate required), never the lenient one.
     /// </summary>
+    /// <summary>Whether « an admin works without a second factor » is drift here; an unreadable profile keeps the strict reading.</summary>
+    public static bool ChecksAdminSecondFactor(Deployment.DeploymentProfile? profile) =>
+        profile?.RequiresAdminSecondFactor ?? true;
+
     private Deployment.DeploymentProfile? TryResolveProfile()
     {
         if (_configuration is null)
@@ -661,7 +666,7 @@ public class SchemaVerificationReader : ISchemaVerificationReader
     /// "not applicable" rather than a misleading 0.
     /// </summary>
     private static async Task<DataMigrationCounts> ReadDataMigrationCountsAsync(
-        NpgsqlConnection connection, CancellationToken cancellationToken)
+        NpgsqlConnection connection, bool checksAdminSecondFactor, CancellationToken cancellationToken)
     {
         var typePrefix = await ScalarOrNullAsync(connection, cancellationToken,
             requiredTable: "Appointments",
@@ -808,7 +813,9 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                     FROM "TreatmentPlanItemSteps"
                     GROUP BY "TreatmentPlanItemId"
                 ) s ON s.iid = i."Id"
-                WHERE i."Status" <> CASE
+                -- 3 = Withdrawn: an act a stop parked keeps its steps undone on purpose (only Reopen restores it).
+                WHERE i."Status" <> 3
+                  AND i."Status" <> CASE
                         WHEN s.done = 0 THEN 0
                         WHEN s.done < s.total THEN 2
                         ELSE 1
@@ -1022,7 +1029,8 @@ public class SchemaVerificationReader : ISchemaVerificationReader
         // product allows (they are refused at the ladder and sent to enrol). What must never exist is one still
         // holding a LIVE session — which is what the per-request check in LocalAuthEnforcementMiddleware
         // prevents, and the only thing here able to notice if it stops.
-        var adminsWithoutFactorLive = await ScalarOrNullAsync(connection, cancellationToken,
+        // Only where an admin must hold a factor: elsewhere (the LAN install, every demo visitor) it is the allowed state.
+        var adminsWithoutFactorLive = !checksAdminSecondFactor ? null : await ScalarOrNullAsync(connection, cancellationToken,
             requiredTable: "SessionFamilies",
             requiredColumn: "CurrentCredentialHash",
             sql: """

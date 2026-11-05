@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { RotateCcw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { formatFileSize, quoteFr } from "@/lib/format"
 import {
@@ -52,6 +54,7 @@ export function ResumeUploadsNotice({
   const [mismatch, setMismatch] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   const awaiting = useRef<InterruptedUpload | null>(null)
+  const { isDemo } = useDemo()
 
   const reload = useCallback(() => {
     void interruptedUploadsFor(patientId).then(setRecords)
@@ -88,6 +91,7 @@ export function ResumeUploadsNotice({
           // re-picking the same one fires no `change` at all and a second attempt would silently do nothing.
           const chosen = event.target.files?.[0] ?? null
           event.target.value = ""
+          if (refuseInDemo(isDemo)) return
 
           const record = awaiting.current
           awaiting.current = null

@@ -87,14 +87,34 @@ export const PREVIOUS_PERIOD_LABELS: Record<DashboardPeriodKey, string> = {
  * contracted copy of the map — two maps drift — but one function that owns the phrase, so the words and the
  * grammar rule that binds them live together and a fourth period cannot reintroduce the defect.
  */
-export function comparedToLabel(period: DashboardPeriodKey): string {
-  const contracted: Record<DashboardPeriodKey, string> = {
-    Today: 'à hier',
-    Week: 'à la semaine dernière',
-    Month: 'au mois dernier',
-  };
+export function comparedToLabel(period: DashboardPeriodKey, rolling = false): string {
+  const contracted: Record<DashboardPeriodKey, string> = rolling
+    ? { Today: 'à hier', Week: 'aux 7 jours d’avant', Month: 'aux 30 jours d’avant' }
+    : { Today: 'à hier', Week: 'à la semaine dernière', Month: 'au mois dernier' };
   return `Comparé ${contracted[period]}`;
 }
+
+/**
+ * The public demo's windows (`DashboardPeriodDto.rolling`): the last 7 / 30 days ending today, so the three maps
+ * above name a calendar week and month that the demo does not read.
+ */
+export const ROLLING_PERIOD_LABELS: Record<DashboardPeriodKey, string> = {
+  Today: 'Aujourd’hui',
+  Week: '7 derniers jours',
+  Month: '30 derniers jours',
+};
+
+export const ROLLING_PERIOD_LABELS_SHORT: Record<DashboardPeriodKey, string> = {
+  Today: 'Jour',
+  Week: '7 jours',
+  Month: '30 jours',
+};
+
+export const ROLLING_PREVIOUS_PERIOD_LABELS: Record<DashboardPeriodKey, string> = {
+  Today: 'hier',
+  Week: 'les 7 jours d’avant',
+  Month: 'les 30 jours d’avant',
+};
 
 /**
  * The headings the page draws.

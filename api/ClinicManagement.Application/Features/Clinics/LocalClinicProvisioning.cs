@@ -33,7 +33,8 @@ public sealed record LocalClinicRequest(
     string? Phone = null,
     string? City = null,
     DoctorPersonalInfoDto? DoctorInfo = null,
-    string? WorkingHoursJson = null)
+    string? WorkingHoursJson = null,
+    bool AdminStartsInactive = false)
 {
     /// <summary>
     /// Replaces the compiler-generated printer so <see cref="PasswordHash"/> cannot reach a log through a
@@ -147,6 +148,12 @@ public static class LocalClinicProvisioning
             request.PasswordHash,
             request.FullName!,
             request.MustChangePassword);
+        // The demo builds its next cabinet with the dentist off, in this one save, so no empty cabinet is ever enterable.
+        if (request.AdminStartsInactive)
+        {
+            admin.Deactivate();
+        }
+
         await userRepository.AddAsync(admin, cancellationToken);
 
         // Single-dentist cabinet: when the first admin is also the practitioner, create + link a Doctor so their

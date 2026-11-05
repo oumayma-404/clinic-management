@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Archive, ArrowDownToLine, ArrowUpFromLine, Loader2, ShieldAlert, TriangleAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 import {
   Dialog,
   DialogContent,
@@ -55,6 +57,7 @@ const RESTORE_ACTION = "restore-clinic-archive"
  * their alignment.</p>
  */
 export function ClinicArchiveCard() {
+  const { isDemo } = useDemo()
   const [downloading, setDownloading] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const [pending, setPending] = useState<File | null>(null)
@@ -174,6 +177,7 @@ export function ClinicArchiveCard() {
     // The value is cleared BEFORE anything else runs: the element still holds the file otherwise, so re-picking
     // the same one after a failed restore fires no `change` event at all and the retry silently does nothing.
     event.target.value = ""
+    if (refuseInDemo(isDemo)) return
 
     if (picked) {
       setReport(null)

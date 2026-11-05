@@ -261,7 +261,7 @@ public class ClinicMoneyMaskTests
 
         var handler = new GetDashboardQueryHandler(
             activity.Object, money.Object, alerts.Object, trend.Object, mix.Object, appointmentTrend.Object,
-            resolver.Object, _clinics.Object, NullLogger<GetDashboardQueryHandler>.Instance);
+            resolver.Object, _clinics.Object, new Mock<IDemoPolicy>().Object, NullLogger<GetDashboardQueryHandler>.Instance);
 
         var result = await handler.Handle(new GetDashboardQuery(), CancellationToken.None);
 

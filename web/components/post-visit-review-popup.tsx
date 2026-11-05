@@ -17,6 +17,7 @@ import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { FEEDBACK_CARD_OPEN_ATTR } from "@/lib/feedback"
 import { GUIDE_RUNNING_ATTR } from "@/lib/guides"
 import { useSession } from "@/lib/auth/session"
+import { useDemo } from "@/lib/demo/demo-context"
 import { notificationsApi } from "@/lib/api/notifications"
 import { appointmentsApi } from "@/lib/api/appointments"
 import type { AppointmentDto, PendingReviewDto } from "@/lib/api/types"
@@ -120,7 +121,13 @@ function saveSnooze(map: SnoozeMap): void {
  * (click → onOpenChange → snooze → setSnoozed → the `active` memo → `open`); if any step did not land, the ✕
  * did nothing and the prompt could not be closed at all. Dismissal is a UI fact and now has UI state.
  */
+/** Never on the public demo: its every action would be refused, and it would interrupt a visit (demo-cabinet FR-4). */
 export function PostVisitReviewPopup() {
+  const { isDemo } = useDemo()
+  return isDemo === false ? <PendingReviewPrompt /> : null
+}
+
+function PendingReviewPrompt() {
   const { user } = useSession()
   const router = useRouter()
 

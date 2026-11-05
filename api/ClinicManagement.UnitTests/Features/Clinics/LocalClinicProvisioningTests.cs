@@ -177,6 +177,21 @@ public class LocalClinicProvisioningTests
         harness.Users.Verify(r => r.AnyUserExistsAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // [demo-cabinet FR-7] the demo creates its next cabinet with the dentist off in the same save, so no empty cabinet is ever enterable
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task The_admin_starts_inactive_only_when_asked(bool startsInactive, bool expectedActive)
+    {
+        var harness = new Harness();
+
+        var result = await harness.Run(Request() with { AdminStartsInactive = startsInactive });
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(expectedActive, Assert.Single(harness.AddedUsers).IsActive);
+        Assert.Equal(1, harness.SaveCount);
+    }
+
     // [US-3] The caller mints the id so `provision-clinic` can declare UseClinic(id) BEFORE the writes it covers
     // — a tenant scope set afterwards would cover nothing.
     [Fact]

@@ -454,6 +454,8 @@ public static class Extensions
         // Application, which references Domain alone and so cannot name DeploymentProfile. Singletons for the same
         // reason as the profile: both are derived from startup configuration and immutable.
         services.AddSingleton<ISubscriptionPolicy, SubscriptionPolicy>();
+        // demo-cabinet: what the public demo refuses and grants; immutable like the profile it reads.
+        services.AddSingleton<IDemoPolicy, DemoPolicy>();
         // clinic-file-vault — where a file's bytes belong. Same seam and same lifetime reasoning: derived from
         // the profile's Kind alone, so no operator setting can route a cabinet's studies back into a hosted store
         // that is not sized for them.
@@ -568,7 +570,10 @@ public static class Extensions
         services.AddScoped<IGoogleCalendarSyncService, GoogleCalendarSyncService>();
 
         // PDF Generation Service
-        services.AddScoped<IPdfGenerationService, PdfGenerationService>();
+        services.AddScoped<PdfGenerationService>();
+        // The demo stamps « SPÉCIMEN » on every PDF; elsewhere this is the plain renderer.
+        services.AddScoped<IPdfGenerationService>(sp => SpecimenPdfGenerationService.For(
+            sp.GetRequiredService<IDemoPolicy>(), sp.GetRequiredService<PdfGenerationService>()));
 
         // The QR renderer's live caller is TrustController, which renders the LAN trust page's QR from it.
         services.AddSingleton<IQrCodeGenerator, QrCodeGenerator>();

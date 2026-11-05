@@ -33,9 +33,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { medicationsApi } from "@/lib/api/medications"
 import type { MedicationDto } from "@/lib/api/types"
-import { ApiError } from "@/lib/api/client"
 import { toast } from "sonner"
 import { quoteFr } from "@/lib/format"
+import { showErrorToast } from "@/lib/errors"
 
 interface MedicationCatalogTableProps {
   onEdit: (medication: MedicationDto) => void
@@ -81,7 +81,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
       setToDelete(null)
       onChanged() // parent bumps reloadToken → in-place refetch, no remount
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la désactivation.")
+      showErrorToast(err, "Échec de la désactivation.")
     } finally {
       setDeleting(false)
     }
@@ -101,7 +101,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
       toast.success(`Médicament ${quoteFr(name)} réactivé.`)
       onChanged()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la réactivation.")
+      showErrorToast(err, "Échec de la réactivation.")
     } finally {
       setDeleting(false)
     }
@@ -126,7 +126,7 @@ export function MedicationCatalogTable({ onEdit, onAdd, onChanged, reloadToken }
       setConfirmDataOpen(false)
       onChanged()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de la confirmation.")
+      showErrorToast(err, "Échec de la confirmation.")
     } finally {
       setConfirming(false)
     }

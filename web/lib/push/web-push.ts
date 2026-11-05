@@ -1,5 +1,6 @@
 import { pushDevicesApi } from "@/lib/api/push-devices"
 import { isAppleMobile, isStandalone } from "@/lib/shell"
+import { loadAuthMode } from "@/lib/hooks/use-password-policy"
 
 /**
  * Web Push (staff-chat Part 8): notifications for a browser, and above all for an iPhone home-screen app, which can
@@ -59,6 +60,7 @@ function sameKey(current: ArrayBuffer | null | undefined, expected: Uint8Array):
 /** Subscribes this browser (the permission already granted) and registers it to the signed-in account. */
 export async function subscribeWebPush(): Promise<boolean> {
   if (webPushCapability() !== "supported" || Notification.permission !== "granted") return false
+  if ((await loadAuthMode().catch(() => null))?.isDemo) return false
   const key = await webPushPublicKey()
   if (!key) return false
 

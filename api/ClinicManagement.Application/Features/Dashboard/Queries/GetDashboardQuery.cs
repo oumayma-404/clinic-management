@@ -49,6 +49,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
     private readonly IDashboardAppointmentTrendReader _appointmentTrendReader;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IClinicRepository _clinicRepository;
+    private readonly IDemoPolicy _demo;
     private readonly ILogger<GetDashboardQueryHandler> _logger;
 
     public GetDashboardQueryHandler(
@@ -60,6 +61,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
         IDashboardAppointmentTrendReader appointmentTrendReader,
         ICurrentClinicResolver clinicResolver,
         IClinicRepository clinicRepository,
+        IDemoPolicy demo,
         ILogger<GetDashboardQueryHandler> logger)
     {
         _activityReader = activityReader;
@@ -70,6 +72,7 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
         _appointmentTrendReader = appointmentTrendReader;
         _clinicResolver = clinicResolver;
         _clinicRepository = clinicRepository;
+        _demo = demo;
         _logger = logger;
     }
 
@@ -87,7 +90,9 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
             // One `now` for the whole response. Reading DateTime.UtcNow per reader would let a request that spans
             // midnight compute its activity against one day and its alerts against the next.
             var nowUtc = DateTime.UtcNow;
-            var period = DashboardPeriod.Resolve(request.Period, nowUtc);
+            var period = _demo.RollsDashboardPeriods
+                ? DashboardPeriod.ResolveRolling(request.Period, nowUtc)
+                : DashboardPeriod.Resolve(request.Period, nowUtc);
 
             // « Mode discret »: the money readers are not called at all, so nothing they compute can reach the wire.
             var moneyHidden = await _clinicRepository.IsMoneyHiddenAsync(clinicId, cancellationToken);
@@ -121,7 +126,8 @@ public class GetDashboardQueryHandler : IRequestHandler<GetDashboardQuery, Resul
                     From = period.From,
                     ToInclusive = period.ToInclusive,
                     PreviousFrom = period.PreviousFrom,
-                    PreviousToInclusive = period.PreviousToInclusive
+                    PreviousToInclusive = period.PreviousToInclusive,
+                    Rolling = period.Rolling
                 },
                 Activity = activity,
                 Money = money,

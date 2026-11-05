@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef } from "react"
 
 import { cn } from "@/lib/utils"
+import { useDemo } from "@/lib/demo/demo-context"
+import { DEMO_READ_ONLY_MESSAGE, DEMO_SIGNUP_LABEL, isDemoRefusal } from "@/lib/demo/demo-refusal"
 
 interface FormErrorBannerProps {
   /** Nothing renders when this is null/blank — callers can pass state straight through. */
@@ -34,6 +36,7 @@ interface FormErrorBannerProps {
 export function FormErrorBanner({ message, action, className }: FormErrorBannerProps) {
   const ref = useRef<HTMLDivElement>(null)
   const text = message?.trim()
+  const { signupUrl } = useDemo()
 
   const reveal = useCallback(() => {
     // `nearest`: no movement when it is already on screen, minimum scroll when it is not.
@@ -61,6 +64,28 @@ export function FormErrorBanner({ message, action, className }: FormErrorBannerP
   }, [text, reveal])
 
   if (!text) return null
+
+  // The demo saves nothing: a neutral notice with the way to a real cabinet, never a red error (demo-cabinet AC-3.3).
+  if (isDemoRefusal(text)) {
+    return (
+      <div
+        ref={ref}
+        role="status"
+        data-demo-refusal=""
+        className={cn("space-y-2 rounded-lg border border-border bg-muted p-3 text-sm text-foreground", className)}
+      >
+        <p>{text}</p>
+        <a
+          href={signupUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center font-medium text-primary underline underline-offset-2 hover:no-underline coarse:min-h-11"
+        >
+          {DEMO_SIGNUP_LABEL}
+        </a>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -100,4 +125,9 @@ export function FormErrorBanner({ message, action, className }: FormErrorBannerP
       )}
     </div>
   )
+}
+
+/** The demo notice in place of a form the demo can never submit (a security code, a password change). */
+export function DemoRefusalNotice({ className }: { className?: string }) {
+  return <FormErrorBanner message={DEMO_READ_ONLY_MESSAGE} className={className} />
 }

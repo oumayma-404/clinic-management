@@ -55,6 +55,8 @@ public class SubscriptionExemptionCoverageTests
         "Auth.RelayPairingCode",
         // D22: a prepared session on the PC de secours records no work of the cabinet's (AuthController, class-level).
         "Auth.RelaySession",
+        // demo-cabinet: entering the public demo records no work; the demo has no subscription (AuthController, class-level).
+        "Auth.DemoSession",
         // AC-1.11: giving back a code the installer never presented frees the clinic's place; nothing is recorded.
         "Relay.ReleasePairingCode",
         "RelayPeer.Token",

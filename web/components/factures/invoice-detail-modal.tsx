@@ -28,6 +28,7 @@ import {
   invoiceStatusBadgeClass, invoiceStatusLabel, paymentMethodLabel, VOIDED_PAYMENT_BADGE_CLASS,
 } from "./invoice-labels"
 import { PatientNameLink } from "@/components/patient-name-link"
+import { showErrorToast } from "@/lib/errors"
 
 interface InvoiceDetailModalProps {
   open: boolean
@@ -118,7 +119,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
       const blob = await invoicesApi.downloadAvoirPdf(creditNote.id)
       downloadBlob(blob, `avoir-${creditNote.number}.pdf`)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec du téléchargement de l'avoir.")
+      showErrorToast(err, "Échec du téléchargement de l'avoir.")
     }
   }
 
@@ -127,7 +128,7 @@ export function InvoiceDetailModal({ open, onOpenChange, invoiceId, onChanged }:
       const blob = await billingApi.downloadPaymentReceipt(payment.id)
       downloadBlob(blob, `recu-${invoice?.number ?? payment.id.slice(0, 8)}.pdf`)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec du téléchargement du reçu.")
+      showErrorToast(err, "Échec du téléchargement du reçu.")
     }
   }
 

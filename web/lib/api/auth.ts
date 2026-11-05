@@ -124,6 +124,10 @@ export interface AuthModeDto {
   vendorResetsSecondFactor?: boolean;
   /** The vendor's support number, served only where `vendorResetsSecondFactor` is true. */
   supportPhone?: string | null;
+  /** demo-cabinet: this is the public demo — nothing is saved, and a band says so on every screen (`=== true`). */
+  isDemo?: boolean;
+  /** demo-cabinet: where a demo visitor creates a real cabinet; set only on the demo. */
+  demoSignupUrl?: string | null;
 }
 
 /** What the invitation page greets with (`POST /api/auth/invitation/preview`). */

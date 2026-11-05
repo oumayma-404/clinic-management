@@ -31,68 +31,73 @@ public class DeploymentProfileTests
 
     /// <summary>
     /// The matrix, as data. Each entry is the capability's expected value per kind, in the order
-    /// <c>SelfHostedLan</c>, <c>HostedMultiTenant</c>, <c>ClinicRelay</c>.
+    /// <c>SelfHostedLan</c>, <c>HostedMultiTenant</c>, <c>ClinicRelay</c>, <c>PublicDemo</c>.
     /// </summary>
-    private static readonly Dictionary<string, (bool SelfHostedLan, bool HostedMultiTenant, bool ClinicRelay)>
+    private static readonly Dictionary<string, (bool SelfHostedLan, bool HostedMultiTenant, bool ClinicRelay, bool PublicDemo)>
         ExpectedMatrix = new()
         {
-            [nameof(DeploymentProfile.UsesLocalAccounts)] = (true, true, true),
-            [nameof(DeploymentProfile.FailClosedAuthz)] = (true, true, true),
-            [nameof(DeploymentProfile.EnforcesTokenState)] = (true, true, true),
-            [nameof(DeploymentProfile.UsesDiskStorage)] = (true, false, true),
-            [nameof(DeploymentProfile.SelfHostsFrontDoor)] = (true, false, true),
-            [nameof(DeploymentProfile.SelfSignsCertificate)] = (true, false, true),
-            [nameof(DeploymentProfile.RunsAsWindowsService)] = (true, false, true),
-            [nameof(DeploymentProfile.DefersMigrations)] = (true, false, true),
-            [nameof(DeploymentProfile.RunsStartupBackfills)] = (false, true, false),
-            [nameof(DeploymentProfile.ExposesTrustEndpoints)] = (true, false, true),
-            [nameof(DeploymentProfile.HasLocalDbTooling)] = (true, false, true),
-            [nameof(DeploymentProfile.ExposesMetaOnboarding)] = (false, true, false),
+            [nameof(DeploymentProfile.UsesLocalAccounts)] = (true, true, true, true),
+            [nameof(DeploymentProfile.FailClosedAuthz)] = (true, true, true, true),
+            [nameof(DeploymentProfile.EnforcesTokenState)] = (true, true, true, true),
+            [nameof(DeploymentProfile.UsesDiskStorage)] = (true, false, true, false),
+            [nameof(DeploymentProfile.SelfHostsFrontDoor)] = (true, false, true, false),
+            [nameof(DeploymentProfile.SelfSignsCertificate)] = (true, false, true, false),
+            [nameof(DeploymentProfile.RunsAsWindowsService)] = (true, false, true, false),
+            [nameof(DeploymentProfile.DefersMigrations)] = (true, false, true, false),
+            [nameof(DeploymentProfile.RunsStartupBackfills)] = (false, true, false, true),
+            [nameof(DeploymentProfile.ExposesTrustEndpoints)] = (true, false, true, false),
+            [nameof(DeploymentProfile.HasLocalDbTooling)] = (true, false, true, false),
+            [nameof(DeploymentProfile.ExposesMetaOnboarding)] = (false, true, false, false),
             // US-3. ⚠️ The one capability where HostedMultiTenant parts company with SelfHostedLan while sharing
             // its login provider — so it is also the one the old `UsesLocalAccounts` guard on `register` got
             // wrong. R-2 still holds: the two shipped kinds answer exactly as IsLocalMode did.
-            [nameof(DeploymentProfile.AllowsSelfRegistration)] = (true, false, false),
+            [nameof(DeploymentProfile.AllowsSelfRegistration)] = (true, false, false, false),
             // US-4, added by the multi-tenant-cloud author in parallel with Part 6. The row is here because
             // `DeploymentProfile.cs` could not be staged without their capability (their addition and Part 6's
             // `PermitsOsPush` land in one diff hunk), and a capability with no row fails the drift guard below.
             // The three values are read off `For(kind)` itself, not chosen here.
             // clinic-self-signup. The first capability true of HostedMultiTenant ALONE, which is what forced the
             // `hostedOnlyCapabilities` set in the R-2 test below — see the comment there.
-            [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true, false),
+            [nameof(DeploymentProfile.AllowsPublicClinicSignup)] = (false, true, false, false),
             // platform-console. The SECOND capability true of HostedMultiTenant alone, so it joins the
             // `hostedOnlyCapabilities` set below for the same reason AllowsPublicClinicSignup did.
-            [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true, false),
+            [nameof(DeploymentProfile.ServesPlatformConsole)] = (false, true, false, false),
             // Self-service password reset. Hosted-only: SelfHostedLan owns its accounts but is a surgery PC
             // with no SMTP credentials, so the capability would be present-and-broken. It joins
             // `hostedOnlyCapabilities` below for AllowsPublicClinicSignup's reason.
-            [nameof(DeploymentProfile.AllowsPasswordResetByEmail)] = (false, true, false),
+            [nameof(DeploymentProfile.AllowsPasswordResetByEmail)] = (false, true, false, false),
             // guided-first-days C: an e-mailed first-password link needs a mailbox and a public address — the
             // password reset's reason, so the same column.
-            [nameof(DeploymentProfile.InvitesStaffByLink)] = (false, true, false),
+            [nameof(DeploymentProfile.InvitesStaffByLink)] = (false, true, false, false),
             // clinic-subscription AC-7.1–7.3. The THIRD hosted-only capability: the two other kinds are ✗ for
             // their own reasons (the clinic's own disk; a topology that predates the arrangement), not by default.
-            [nameof(DeploymentProfile.RequiresSubscription)] = (false, true, true),
+            [nameof(DeploymentProfile.RequiresSubscription)] = (false, true, true, false),
             // Backup ownership. ⚠️ NOT a hosted-only capability and NOT inverted — it answers exactly as
             // `IsLocalMode` did, which is why it needs no entry in either set in the R-2 test below: the
             // application backs itself up on a clinic's own PC and nowhere else. Both ✗ are decisions with
             // reasons (an off-server sidecar already runs there, and one database holds every cabinet, so an
             // in-app `pg_dump` would be a cross-tenant read) — see the capability's own doc comment.
-            [nameof(DeploymentProfile.BacksUpItsOwnData)] = (true, false, false),
+            [nameof(DeploymentProfile.BacksUpItsOwnData)] = (true, false, false, false),
             // vendor-whatsapp-messaging-quota FR-9. The FOURTH hosted-only capability, so it joins the
             // `hostedOnlyCapabilities` set below for the same reason the three before it did.
-            [nameof(DeploymentProfile.SellsVendorMessaging)] = (false, true, false),
+            [nameof(DeploymentProfile.SellsVendorMessaging)] = (false, true, false, false),
             // hosted-security-hardening FR-1.1. The FIFTH hosted-only capability, so it joins the
             // `hostedOnlyCapabilities` set below. Both ✗ are decisions: a LAN admin locked out has nobody to
             // call (AC-7 is unsatisfiable there).
-            [nameof(DeploymentProfile.RequiresAdminSecondFactor)] = (false, true, true),
+            [nameof(DeploymentProfile.RequiresAdminSecondFactor)] = (false, true, true, false),
             // clinic-pc-copy: the hosted side publishes the change log, the PC de secours follows it.
-            [nameof(DeploymentProfile.PublishesChangeFeed)] = (false, true, false),
-            [nameof(DeploymentProfile.MirrorsCloudClinic)] = (false, false, true),
+            [nameof(DeploymentProfile.PublishesChangeFeed)] = (false, true, false, false),
+            [nameof(DeploymentProfile.MirrorsCloudClinic)] = (false, false, true, false),
             // A mirror runs neither the clinic jobs nor the outboxes: the cloud already does, once.
-            [nameof(DeploymentProfile.RunsClinicJobs)] = (true, true, false),
-            [nameof(DeploymentProfile.DispatchesOutboxes)] = (true, true, false),
+            [nameof(DeploymentProfile.RunsClinicJobs)] = (true, true, false, true),
+            [nameof(DeploymentProfile.DispatchesOutboxes)] = (true, true, false, false),
             // Deviation 88: the PC de secours runs the cut's two jobs, gated by the write fence.
-            [nameof(DeploymentProfile.RunsCutJobs)] = (false, false, true)
+            [nameof(DeploymentProfile.RunsCutJobs)] = (false, false, true, false),
+            // demo-cabinet: the hosted kinds keep their ring in a directory and encrypt it with a certificate.
+            [nameof(DeploymentProfile.ProtectsKeyRingWithCertificate)] = (false, true, false, true),
+            // demo-cabinet: the two capabilities the public demo alone holds.
+            [nameof(DeploymentProfile.RefusesWrites)] = (false, false, false, true),
+            [nameof(DeploymentProfile.IssuesDemoSessions)] = (false, false, false, true)
         };
 
     private static IEnumerable<PropertyInfo> Capabilities() =>
@@ -157,7 +162,11 @@ public class DeploymentProfileTests
             // clinic-pc-copy: false on the LAN server too — one is the hosted side's, the other the PC de secours's.
             nameof(DeploymentProfile.PublishesChangeFeed),
             nameof(DeploymentProfile.MirrorsCloudClinic),
-            nameof(DeploymentProfile.RunsCutJobs)
+            nameof(DeploymentProfile.RunsCutJobs),
+            // demo-cabinet: false on the LAN server — DPAPI protects its ring, and it is never the demo.
+            nameof(DeploymentProfile.ProtectsKeyRingWithCertificate),
+            nameof(DeploymentProfile.RefusesWrites),
+            nameof(DeploymentProfile.IssuesDemoSessions)
         };
 
         foreach (var capability in Capabilities())
@@ -209,6 +218,7 @@ public class DeploymentProfileTests
     [InlineData(DeploymentKind.SelfHostedLan)]
     [InlineData(DeploymentKind.HostedMultiTenant)]
     [InlineData(DeploymentKind.ClinicRelay)]
+    [InlineData(DeploymentKind.PublicDemo)]
     public void Each_kind_answers_every_capability_as_the_matrix_says(DeploymentKind kind)
     {
         var profile = DeploymentProfile.For(kind);
@@ -222,6 +232,7 @@ public class DeploymentProfileTests
                 DeploymentKind.SelfHostedLan => expected.SelfHostedLan,
                 DeploymentKind.HostedMultiTenant => expected.HostedMultiTenant,
                 DeploymentKind.ClinicRelay => expected.ClinicRelay,
+                DeploymentKind.PublicDemo => expected.PublicDemo,
                 _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
             };
 
@@ -273,6 +284,7 @@ public class DeploymentProfileTests
     [InlineData("hostedmultitenant", DeploymentKind.HostedMultiTenant)]
     [InlineData("  HostedMultiTenant  ", DeploymentKind.HostedMultiTenant)]
     [InlineData("ClinicRelay", DeploymentKind.ClinicRelay)]
+    [InlineData("PublicDemo", DeploymentKind.PublicDemo)]
     public void An_explicit_profile_key_wins(string configured, DeploymentKind expected)
     {
         // Auth:Mode says the opposite on purpose: the explicit key is the authority once it is present.
@@ -316,6 +328,8 @@ public class DeploymentProfileTests
     [InlineData(DeploymentKind.HostedMultiTenant, DevicePlatform.Ios, true)]
     [InlineData(DeploymentKind.ClinicRelay, DevicePlatform.Android, false)]
     [InlineData(DeploymentKind.ClinicRelay, DevicePlatform.Ios, false)]
+    [InlineData(DeploymentKind.PublicDemo, DevicePlatform.Android, false)]
+    [InlineData(DeploymentKind.PublicDemo, DevicePlatform.Ios, false)]
     public void Each_kind_answers_whether_it_permits_os_push_per_platform(
         DeploymentKind kind, DevicePlatform platform, bool expected)
     {
@@ -359,6 +373,7 @@ public class DeploymentProfileTests
     [Theory]
     [InlineData(nameof(DeploymentKind.SelfHostedLan))]
     [InlineData(nameof(DeploymentKind.ClinicRelay))]
+    [InlineData(nameof(DeploymentKind.PublicDemo))]
     public void A_deployment_that_does_not_sell_messaging_still_does_not_however_it_is_configured(string kind)
     {
         var profile = DeploymentProfile.Resolve(Configuration(

@@ -38,6 +38,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
+import { showErrorToast } from "@/lib/errors"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { useCarriedDraft } from "@/lib/hooks/use-carried-draft"
@@ -1298,10 +1299,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
          * edited it — the conflict branch deliberately does NOT resync, or a retry would overwrite a real one.
          */
         await resync()
-        toast.error(patient ? "La mise à jour a échoué" : "La création a échoué", {
-          description: conflict.error ?? fallback,
-          duration: 4000,
-        })
+        showErrorToast(err, { title: patient ? "La mise à jour a échoué" : "La création a échoué", fallback })
       }
     } finally {
       setLoading(false)

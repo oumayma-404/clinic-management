@@ -64,6 +64,7 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useUrlFilterSeed } from "@/lib/hooks/use-url-filters"
 import { replaceUrl } from "@/lib/history"
+import { showErrorToast } from "@/lib/errors"
 
 /** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code du cabinet ». */
 const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
@@ -248,7 +249,7 @@ export function UserManagement() {
       toast.success("Second facteur réinitialisé. Ses sessions ont été fermées.")
       await loadData()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "La réinitialisation a échoué. Veuillez réessayer.")
+      showErrorToast(err, "La réinitialisation a échoué. Veuillez réessayer.")
     } finally {
       setWorking(false)
     }
@@ -311,8 +312,7 @@ export function UserManagement() {
       }
       setPending(null)
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "L'action a échoué. Veuillez réessayer."
-      toast.error(message)
+      showErrorToast(err, "L'action a échoué. Veuillez réessayer.")
     } finally {
       setWorking(false)
     }

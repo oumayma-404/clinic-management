@@ -53,6 +53,9 @@ public class DashboardPeriodDto
     public DateTime ToInclusive { get; set; }
     public DateTime PreviousFrom { get; set; }
     public DateTime PreviousToInclusive { get; set; }
+
+    /// <summary>The last 7 / 30 days rather than the calendar week / month — the public demo only.</summary>
+    public bool Rolling { get; set; }
 }
 
 /// <summary>Clinical throughput over the period, each figure against the preceding equivalent period.</summary>

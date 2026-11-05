@@ -37,6 +37,8 @@ import { dentalRecordsApi } from "@/lib/api/dental-records"
 import { useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { patientsApi } from "@/lib/api/patients"
 import { showErrorToast } from "@/lib/errors"
+import { useDemo } from "@/lib/demo/demo-context"
+import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 import {
   DENTITION_VIEWS,
   DENTITION_VIEW_LABELS_FR,
@@ -180,6 +182,7 @@ export function Odontogram({
    */
   const [tab, setTab] = useState("diagnostics")
   const [chartView, setChartView] = useState<OdontogramChartView>("boxes")
+  const { isDemo } = useDemo()
   /**
    * « Plusieurs dents » — charting ONE diagnosis onto several teeth at once.
    *
@@ -257,11 +260,16 @@ export function Odontogram({
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(CHART_VIEW_STORAGE_KEY)
-      if (stored === "boxes" || stored === "symbols") setChartView(stored)
+      if (stored === "boxes" || stored === "symbols") {
+        setChartView(stored)
+        return
+      }
     } catch {
-      /* keep the default */
+      /* fall through to the deployment's default */
     }
-  }, [])
+    // The public demo opens on « Symboles » — the drawing that shows off the chart; a visitor's own choice still wins.
+    if (isDemo === true) setChartView("symbols")
+  }, [isDemo])
 
   const chooseChartView = (next: OdontogramChartView) => {
     setChartView(next)
@@ -1023,7 +1031,7 @@ function ToothCell({
       setOpen(false)
       onChanged()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Échec de l'enregistrement du diagnostic.")
+      showErrorToast(err, "Échec de l'enregistrement du diagnostic.")
     } finally {
       setSaving(false)
     }
@@ -1050,7 +1058,7 @@ function ToothCell({
     } catch (err) {
       // Leave the dialog open on failure so the refusal is read where the action was taken — the server's message
       // is the authority (e.g. a treatment-sourced entry cannot be removed here).
-      toast.error(err instanceof ApiError ? err.message : "Échec de la suppression du diagnostic.")
+      showErrorToast(err, "Échec de la suppression du diagnostic.")
     } finally {
       setRemoving(false)
     }
@@ -1603,6 +1611,7 @@ function MultiToothDiagnosisPanel({
    * never seeded — see `BridgeRolesStep` for why a positional guess is worse than none.</p>
    */
   const [ponticTeeth, setPonticTeeth] = useState<Set<number>>(new Set())
+  const { isDemo } = useDemo()
 
   const toggleSurface = (code: string) => {
     setSurfaces((prev) => {
@@ -1622,6 +1631,8 @@ function MultiToothDiagnosisPanel({
    * charting a second copy on the teeth that already have it — which is what a plain "réessayer" would do.</p>
    */
   const handleSave = async () => {
+    // One refusal before N requests, the teeth staying selected (demo-cabinet AC-3.3c).
+    if (refuseInDemo(isDemo)) return
     setSaving(true)
     const failed: number[] = []
     const bridge = isBridgeUnit(effectiveCondition)

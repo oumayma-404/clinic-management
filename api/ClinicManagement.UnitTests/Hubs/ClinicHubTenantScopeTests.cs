@@ -1,4 +1,5 @@
 using ClinicManagement.API.Hubs;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Domain.Repositories;
 using Xunit;
 
@@ -29,6 +30,8 @@ public class ClinicHubTenantScopeTests
         typeof(IUserRepository),
         // staff-chat presence: an in-memory connection count, no database read at all.
         typeof(StaffPresence),
+        // demo-cabinet: a deployment capability, read from configuration — no database read at all.
+        typeof(IDemoPolicy),
     };
 
     // [US-2] Derived from the constructor, not from a remembered list of what the hub currently does.

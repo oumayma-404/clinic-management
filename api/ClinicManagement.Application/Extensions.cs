@@ -6,6 +6,7 @@ using ClinicManagement.Application.Common.Behaviors;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
 using ClinicManagement.Application.Features.Dashboard.Readers;
+using ClinicManagement.Application.Features.Demo;
 
 namespace ClinicManagement.Application;
 
@@ -34,6 +35,10 @@ public static class Extensions
         services.AddScoped<IPlatformSessionContext, PlatformSessionContext>();
         // Best-effort writer for the in-app staff notification feed (generated inline from command handlers).
         services.AddScoped<INotificationGenerator, NotificationGenerator>();
+        // demo-cabinet: which demo cabinet a visitor enters (read by the session mint and GET auth/mode).
+        services.AddScoped<DemoCabinetLocator>();
+        services.AddScoped<DemoCabinetRetirement>();
+        services.AddScoped<DemoCabinetPurge>();
         // The net « Annuler cet import » puts under itself before a bulk delete. Implemented in this layer, like
         // its neighbours, because it needs only Domain repositories plus IFileStorage.
         services.AddScoped<IClinicRecoveryPointService, ClinicRecoveryPointService>();

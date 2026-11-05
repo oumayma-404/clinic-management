@@ -51,11 +51,13 @@ import {
   KPI_DESCRIPTIONS,
   KPI_LABELS,
   PREVIOUS_PERIOD_LABELS,
+  ROLLING_PREVIOUS_PERIOD_LABELS,
   comparedToLabel,
   periodWindowLabel,
   SECTION_LABELS,
 } from "@/components/dashboard/dashboard-labels"
 import { useDashboard } from "@/lib/hooks/use-dashboard"
+import { useDemo } from "@/lib/demo/demo-context"
 import { useDashboardPreferences } from "@/lib/hooks/use-dashboard-preferences"
 import { useAppointments } from "@/lib/hooks/use-appointments"
 import { useAppointmentStatusMix } from "@/lib/hooks/use-appointment-status-mix"
@@ -342,7 +344,10 @@ function DashboardContent() {
     return label.charAt(0).toUpperCase() + label.slice(1)
   }, [now])
 
-  const previousLabel = PREVIOUS_PERIOD_LABELS[period]
+  // The public demo reads the last 7 / 30 days; the server says so, and the demo flag covers the first load.
+  const { isDemo } = useDemo()
+  const rolling = data?.period?.rolling ?? isDemo === true
+  const previousLabel = (rolling ? ROLLING_PREVIOUS_PERIOD_LABELS : PREVIOUS_PERIOD_LABELS)[period]
   // The bounds the SERVER used. Links are built from these, never from a client-side recomputation — otherwise a
   // card could count one window and open another.
   const bounds = data?.period
@@ -371,6 +376,7 @@ function DashboardContent() {
         href={link(key)}
         loading={loading}
         previousPeriodLabel={previousLabel}
+        quietFalls={isDemo === true}
         {...extras}
       />
     ) : null
@@ -600,7 +606,7 @@ function DashboardContent() {
         <DashboardSection
           title={SECTION_LABELS.period}
           hint={bounds ? periodWindowLabel(bounds) : undefined}
-          control={<PeriodSelector value={period} onChange={changePeriod} disabled={loading} />}
+          control={<PeriodSelector value={period} onChange={changePeriod} disabled={loading} rolling={rolling} />}
           error={error}
           onRetry={refetch}
           // The one rule on the page: above it is today, below it is a period. `space-y-8` alone does not say that.
@@ -614,7 +620,7 @@ function DashboardContent() {
             isVisible("appointmentTrend")) && (
           <DashboardSection
             title={SECTION_LABELS.activity}
-            hint={comparedToLabel(period)}
+            hint={comparedToLabel(period, rolling)}
             refetching={refetching}
           >
             {/*
@@ -686,6 +692,7 @@ function DashboardContent() {
                     customFrom={customRange?.from}
                     customTo={customRange?.to}
                     onRetry={refetchStatusMix}
+                    quietFalls={isDemo === true}
                   />
                 )}
                 {isVisible("appointmentTrend") && (
@@ -701,7 +708,7 @@ function DashboardContent() {
         {!error && moneyShown && (hasVisible("money", "figure") || isVisible("trend")) && (
           <DashboardSection
             title={SECTION_LABELS.money}
-            hint={comparedToLabel(period)}
+            hint={comparedToLabel(period, rolling)}
             refetching={refetching}
             control={
               /*

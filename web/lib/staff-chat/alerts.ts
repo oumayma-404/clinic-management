@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { pushDevicesApi } from "@/lib/api/push-devices"
 import { subscribeWebPush, webPushCapability, webPushPublicKey, workerRegistration } from "@/lib/push/web-push"
+import { useDemo } from "@/lib/demo/demo-context"
 import { staffChatApi, type StaffChatUnreadDto, type StaffMessageDto, type StaffQuickMessageDto } from "@/lib/api/staff-chat"
 import { useClinicRealtimeSubscribe } from "@/lib/realtime/clinic-realtime-provider"
 import { formatChatTime } from "./format"
@@ -289,6 +290,7 @@ export function useAlertPreferences() {
   const [notifications, setNotifications] = useState<BrowserNotificationState>("unsupported")
   const [shell, setShell] = useState<ShellNotificationState>("none")
   const [phone, setPhone] = useState<PhoneNotificationState>("unavailable")
+  const { isDemo } = useDemo()
   useEffect(() => {
     setNotifications(browserNotificationState())
     setShell(shellNotificationState())
@@ -342,6 +344,7 @@ export function useAlertPreferences() {
 
   const askNotifications = useCallback(async () => {
     if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "default") return
+    if (isDemo !== false) return
     try {
       const answer = await Notification.requestPermission()
       setNotifications(answer)
@@ -350,7 +353,7 @@ export function useAlertPreferences() {
     } catch {
       setNotifications(browserNotificationState())
     }
-  }, [])
+  }, [isDemo])
 
   // Android asks once by itself; after that the only door is the app's own notification settings.
   const askPhoneNotifications = useCallback(() => {
@@ -362,7 +365,8 @@ export function useAlertPreferences() {
     setMuted,
     audioBlocked,
     enableAudio: resumeAudio,
-    notifications,
+    // The demo never asks for the browser permission (demo-cabinet FR-4).
+    notifications: isDemo === false ? notifications : ("unsupported" as const),
     askNotifications,
     shell,
     phone,

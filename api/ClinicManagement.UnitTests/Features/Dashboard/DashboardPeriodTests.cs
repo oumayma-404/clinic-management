@@ -178,4 +178,27 @@ public class DashboardPeriodTests
         Assert.Equal(DashboardPeriodKey.Month, period.Key);
         Assert.Equal(LocalMidnightUtc(2026, 6, 1), period.From);
     }
+
+    // The demo's rolling windows: on the 1st of a month « 30 jours » still covers the 29 days before it.
+    [Theory]
+    [InlineData(DashboardPeriodKey.Today, 1)]
+    [InlineData(DashboardPeriodKey.Week, 7)]
+    [InlineData(DashboardPeriodKey.Month, 30)]
+    public void Rolling_Windows_End_Today_And_Compare_Against_The_Same_Length_Before(DashboardPeriodKey key, int days)
+    {
+        // 1 November 2026, 09:00 local.
+        var period = DashboardPeriod.ResolveRolling(key, new DateTime(2026, 11, 1, 8, 0, 0, DateTimeKind.Utc));
+        var today = new DateTime(2026, 11, 1);
+        var from = today.AddDays(-(days - 1));
+
+        Assert.True(period.Rolling);
+        Assert.Equal(ClinicClock.StartOfLocalDayUtc(from), period.From);
+        Assert.Equal(LastTickOfLocalDayUtc(2026, 11, 1), period.ToInclusive);
+        Assert.Equal(ClinicClock.StartOfLocalDayUtc(from.AddDays(-days)), period.PreviousFrom);
+        Assert.Equal(ClinicClock.EndOfLocalDayUtc(from.AddDays(-1)).AddTicks(-1), period.PreviousToInclusive);
+    }
+
+    [Fact]
+    public void Calendar_Windows_Are_Not_Rolling() =>
+        Assert.False(DashboardPeriod.Resolve(DashboardPeriodKey.Month, new DateTime(2026, 11, 1, 8, 0, 0, DateTimeKind.Utc)).Rolling);
 }
