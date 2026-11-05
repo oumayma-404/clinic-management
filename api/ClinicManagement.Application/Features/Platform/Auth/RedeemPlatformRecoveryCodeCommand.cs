@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.SignIn;
 using ClinicManagement.Application.Features.Platform.Dtos;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Repositories;
@@ -22,7 +23,10 @@ namespace ClinicManagement.Application.Features.Platform.Auth;
 /// then everything else.</para>
 /// </summary>
 public record RedeemPlatformRecoveryCodeCommand(string Email, string Password, string RecoveryCode)
-    : IRequest<Result<PlatformSessionDto>>;
+    : IRequest<Result<PlatformSessionDto>>, ICredentialAttempt
+{
+    public SignInDoor Door => SignInDoor.ConsoleRecoveryCode;
+}
 
 public class RedeemPlatformRecoveryCodeCommandHandler
     : IRequestHandler<RedeemPlatformRecoveryCodeCommand, Result<PlatformSessionDto>>

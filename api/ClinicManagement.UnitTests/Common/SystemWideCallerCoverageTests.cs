@@ -44,6 +44,8 @@ public class SystemWideCallerCoverageTests
                                       + "is no DbContext and therefore no query filter to satisfy",
         ["AuditSaveChangesInterceptor.cs"] = "its child scope writes only AuditEntry, which carries no query "
                                             + "filter by design (nullable ClinicId)",
+        ["SignInRefusalRecorder.cs"] = "its child scope reads only PlatformAccount — a console account belongs to no "
+                                       + "clinic, so it carries no query filter — to address the vendor's alert e-mail",
         // ⚠️ The one exemption whose reason is « something else declares it », which is normally the excuse this
         // guard exists to reject. It holds here because the verb's entire body is one call to
         // ClinicActivityCounterJob.CountClinicActivity(), whose FIRST statement is UseSystemWide — and ITenantScope

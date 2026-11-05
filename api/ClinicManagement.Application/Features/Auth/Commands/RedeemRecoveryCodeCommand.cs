@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.SignIn;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -20,11 +21,12 @@ namespace ClinicManagement.Application.Features.Auth.Commands;
 /// reason would make a single-use credential replayable. <c>RedeemPlatformRecoveryCodeCommand</c> is the model,
 /// and its two tests pin both halves.</para>
 /// </summary>
-public class RedeemRecoveryCodeCommand : IRequest<Result<LoginResultDto>>
+public class RedeemRecoveryCodeCommand : IRequest<Result<LoginResultDto>>, ICredentialAttempt
 {
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string RecoveryCode { get; set; } = string.Empty;
+    public SignInDoor Door => SignInDoor.ClinicRecoveryCode;
 }
 
 public class RedeemRecoveryCodeCommandHandler

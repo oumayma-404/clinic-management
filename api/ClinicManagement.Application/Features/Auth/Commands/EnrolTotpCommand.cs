@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.SignIn;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using MediatR;
@@ -57,10 +58,11 @@ public record TotpEnrolmentDto(
 /// Narrowing it further means holding the new secret <i>pending</i> beside the old one until step two confirms,
 /// which would change <c>IssueTotpSecret</c>'s contract for the reset paths too, and is not attempted here.</para>
 /// </summary>
-public class EnrolTotpCommand : IRequest<Result<TotpEnrolmentDto>>
+public class EnrolTotpCommand : IRequest<Result<TotpEnrolmentDto>>, ICredentialAttempt
 {
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public SignInDoor Door => SignInDoor.ClinicSecondFactorSetup;
 
     /// <summary>Absent on step one (« give me a secret »), present on step two (« here is the proof »).</summary>
     public string? TotpCode { get; set; }

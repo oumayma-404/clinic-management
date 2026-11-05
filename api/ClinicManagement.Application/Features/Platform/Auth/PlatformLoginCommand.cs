@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.SignIn;
 using ClinicManagement.Application.Features.Platform.Dtos;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
@@ -29,7 +30,10 @@ namespace ClinicManagement.Application.Features.Platform.Auth;
 /// <c>RealtimeResourceResolverTests</c> — and would broadcast a console login into a clinic's group besides.</para>
 /// </summary>
 public record PlatformLoginCommand(string Email, string Password, string? TotpCode)
-    : IRequest<Result<PlatformSessionDto>>;
+    : IRequest<Result<PlatformSessionDto>>, ICredentialAttempt
+{
+    public SignInDoor Door => SignInDoor.ConsoleSignIn;
+}
 
 public class PlatformLoginCommandHandler
     : IRequestHandler<PlatformLoginCommand, Result<PlatformSessionDto>>

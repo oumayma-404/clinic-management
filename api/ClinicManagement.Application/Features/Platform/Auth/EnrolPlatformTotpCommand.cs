@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.SignIn;
 using ClinicManagement.Application.Features.Platform.Dtos;
 using ClinicManagement.Domain.Common;
 using ClinicManagement.Domain.Entities;
@@ -23,7 +24,10 @@ namespace ClinicManagement.Application.Features.Platform.Auth;
 /// the unhappy one.</para>
 /// </summary>
 public record EnrolPlatformTotpCommand(string Email, string Password, string TotpCode)
-    : IRequest<Result<PlatformEnrolmentDto>>;
+    : IRequest<Result<PlatformEnrolmentDto>>, ICredentialAttempt
+{
+    public SignInDoor Door => SignInDoor.ConsoleSecondFactorSetup;
+}
 
 public class EnrolPlatformTotpCommandHandler
     : IRequestHandler<EnrolPlatformTotpCommand, Result<PlatformEnrolmentDto>>
