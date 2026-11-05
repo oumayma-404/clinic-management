@@ -19,6 +19,7 @@ import { useSession } from "@/lib/auth/session"
 import { isAdminOrDoctor } from "@/lib/nav"
 import { formatDateFr } from "@/lib/format"
 import { replaceUrl } from "@/lib/history"
+import { ExampleFicheHost } from "@/components/guide/example-fiche-host"
 
 export default function PatientsPage() {
   const router = useRouter()
@@ -235,6 +236,8 @@ export default function PatientsPage() {
 
         {/* Mounted only for a role that may use it — the dialog's first action is an upload to an `AdminOrDoctor`
             endpoint, so keeping it mounted for a secretary would only make a 403 reachable. */}
+        <ExampleFicheHost />
+
         {canImport && (
           <ImportPatientsDialog
             open={importDialogOpen}

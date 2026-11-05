@@ -5,8 +5,11 @@ import type { Guide } from "./types"
  *
  * It opens the first patient's file and the fiche itself, then shows what the fiche holds — several acts, their
  * teeth, the notes, the ordonnance, the payment — one « Suivant » at a time; nothing is saved. With no patient yet
- * there is no fiche to open: one sentence, and « Terminer ».
+ * it opens an example fiche instead (`ExampleFicheHost`, on « Patients ») and shows the same steps there.
  */
+
+/** Asks « Patients » to open the example fiche — a cabinet with no patient still watches the whole tour. */
+export const EXAMPLE_FICHE_EVENT = "guide:example-fiche"
 export const dentalRecordGuide: Guide = {
   key: "dentalRecord",
   title: "Première fiche de soins",
@@ -18,7 +21,8 @@ export const dentalRecordGuide: Guide = {
       text: "La fiche de soins se remplit dans le dossier du patient. Ouvrons-en un.",
       press: 'tbody tr, li a[href^="/patients/"]',
       emptyMark: "patients-empty",
-      emptyText: "La fiche de soins se remplit dans le dossier du patient, après la séance : vous la verrez dès votre premier patient.",
+      emptyText: "Pas encore de patient : voici une fiche d'exemple. Rien ne s'y enregistre.",
+      emptyOpens: { event: EXAMPLE_FICHE_EVENT, thenIndex: 2 },
       next: { manual: true },
     },
     {

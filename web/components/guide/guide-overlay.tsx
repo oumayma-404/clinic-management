@@ -88,6 +88,7 @@ export function GuideOverlay({
   onAdvance,
   onEnd,
   onFinish,
+  onJump,
 }: {
   guide: Guide
   index: number
@@ -95,6 +96,8 @@ export function GuideOverlay({
   onEnd: (message?: string) => void
   /** The tour watched to its end early (an empty list: nothing further to show). */
   onFinish: () => void
+  /** Go on from another step — an empty list's example opened (`emptyOpens`). */
+  onJump: (index: number) => void
 }) {
   const step = guide.steps[index]
   const coarse = useMediaQuery("(pointer: coarse)")
@@ -127,6 +130,8 @@ export function GuideOverlay({
   const settled = useRef(false)
   const missingSince = useRef<number | null>(null)
   const scopeGoneSince = useRef<number | null>(null)
+  // A window that has not appeared yet has not « gone »: it may still be opening (the example fiche loads first).
+  const scopeSeen = useRef(false)
   const broughtIntoView = useRef(false)
   const boxRef = useRef<Box | null>(null)
   const hiddenRef = useRef(false)
@@ -198,9 +203,12 @@ export function GuideOverlay({
       if (step.scope) {
         if (drawn(step.scope).length === 0) {
           if ("savedAndClosed" in next && pressed.current) return finish(onAdvance)
-          scopeGoneSince.current ??= now
-          if (now - scopeGoneSince.current > SCOPE_GONE_MS) return finish(() => onEnd())
+          if (scopeSeen.current) {
+            scopeGoneSince.current ??= now
+            if (now - scopeGoneSince.current > SCOPE_GONE_MS) return finish(() => onEnd())
+          }
         } else {
+          scopeSeen.current = true
           scopeGoneSince.current = null
         }
       } else if ("savedAndClosed" in next && pressed.current && targets.length === 0) {
@@ -286,7 +294,11 @@ export function GuideOverlay({
 
   /** « Suivant »: open what the next step shows (`press`), then move on. An empty list ends the tour instead. */
   const next = () => {
-    if (empty) return onFinish()
+    if (empty) {
+      if (!step.emptyOpens) return onFinish()
+      window.dispatchEvent(new Event(step.emptyOpens.event))
+      return onJump(step.emptyOpens.thenIndex)
+    }
     if (step.press) {
       const lit = drawn(step.mark)[0]
       const target =
@@ -364,7 +376,11 @@ export function GuideOverlay({
           </Button>
           {manual && (
             <Button type="button" size="sm" className="min-h-9 coarse:min-h-11" onClick={next} aria-keyshortcuts="ArrowRight">
-              {last && guide.continueLabel ? guide.continueLabel : last || empty ? "Terminer" : "Suivant"}
+              {last && guide.continueLabel
+                ? guide.continueLabel
+                : last || (empty && !step.emptyOpens)
+                  ? "Terminer"
+                  : "Suivant"}
             </Button>
           )}
         </div>

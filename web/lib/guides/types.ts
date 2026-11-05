@@ -50,10 +50,16 @@ export interface GuideStep {
   press?: true | string
   /**
    * When `mark` is absent (an empty list), light this mark instead, say `emptyText`, and « Terminer » ends the
-   * tour — counted as watched. Waits a moment first, so a list still loading is not read as empty.
+   * tour — counted as watched — unless `emptyOpens` says what to show instead. Waits a moment first, so a list
+   * still loading is not read as empty.
    */
   emptyMark?: string
   emptyText?: string
+  /**
+   * In the empty case, « Suivant » opens an example (the `event`, answered by a host on the page) and the tour goes
+   * on from step `thenIndex` — so a cabinet with no patient still watches the whole fiche (owner's call, 2026-11-05).
+   */
+  emptyOpens?: { event: string; thenIndex: number }
 }
 
 export interface Guide {

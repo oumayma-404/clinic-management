@@ -1824,8 +1824,9 @@ export function PatientRecordModal({
     }
     // Pressing Enregistrer is the answer to « refaites votre modification ».
     setTakenOver([])
+    // Only the guide's example fiche opens with no patient (`ExampleFicheHost`).
     if (!patientId) {
-      toast.error("Identifiant du patient requis")
+      toast("Fiche d'exemple : rien n'est enregistré.")
       return
     }
 

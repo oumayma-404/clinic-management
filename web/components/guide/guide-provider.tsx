@@ -181,6 +181,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     void finish(run.guide)
   }, [run, finish])
 
+  /** An empty list's example opened: the tour goes on from the step that example shows. */
+  const jump = useCallback((index: number) => setRun((current) => (current ? { ...current, index } : current)), [])
+
   /** An empty list: nothing further to show, so the tour counts as watched. */
   const finishNow = useCallback(() => {
     if (run && !run.onDone) void finish(run.guide)
@@ -236,6 +239,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
           onAdvance={advance}
           onEnd={end}
           onFinish={finishNow}
+          onJump={jump}
         />
       )}
       <ReadyCelebrationHost />
