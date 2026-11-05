@@ -5,7 +5,9 @@ import { fr } from "date-fns/locale"
 import {
   AlertTriangle,
   BellOff,
+  CalendarCheck,
   CalendarClock,
+  CalendarOff,
   CalendarPlus,
   CalendarX,
   ClipboardPlus,
@@ -73,6 +75,11 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   PatientImportedNeedsReview: UserPlus,
   // clinic-pc-copy AC-2.2 — the PC de secours cannot take over right now. The card on « Paramètres » wears the same glyph.
   RelayAttention: Server,
+  // conges-secretaires — a request waiting for the admin, and the three answers a secretary can receive.
+  StaffLeaveRequested: CalendarClock,
+  StaffLeaveApproved: CalendarCheck,
+  StaffLeaveRejected: CalendarX,
+  StaffLeaveCancelled: CalendarOff,
 }
 
 /**
@@ -115,6 +122,11 @@ const CATEGORY_TONE: Record<string, string> = {
   // Something simply happened. Teal at lower weight; it is information, not a task.
   AppointmentCreated: "bg-primary/10 text-primary",
   AppointmentRescheduled: "bg-primary/10 text-primary",
+  // A request is a task for the admin; an answer is news for the secretary — a refusal reads red, like any undo.
+  StaffLeaveRequested: "bg-primary/10 text-primary",
+  StaffLeaveApproved: "bg-success-wash text-success",
+  StaffLeaveRejected: "bg-destructive-wash text-destructive",
+  StaffLeaveCancelled: "bg-muted text-muted-foreground",
 }
 
 function relativeTime(iso: string): string {

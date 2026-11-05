@@ -82,6 +82,7 @@ public class RegenerateClinicCodeCommandHandler : IRequestHandler<RegenerateClin
                 Email = clinic.Email,
                 Code = clinic.Code,
                 IsMoneyHidden = clinic.IsMoneyHidden,
+                LeaveRequestsEnabled = clinic.LeaveRequestsEnabled,
                 LogoUrl = clinic.LogoUrl,
                 CreatedAt = clinic.CreatedAt,
                 Version = clinic.Version,

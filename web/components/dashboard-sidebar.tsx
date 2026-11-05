@@ -11,6 +11,7 @@ import { zoneForSectionTitle, type Zone } from "@/lib/zones"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
+import { usePendingLeaveCount } from "@/lib/hooks/use-staff-leave"
 import { useSubscription } from "@/lib/subscription/subscription-context"
 import { PRODUCT_NAME } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
@@ -67,7 +68,11 @@ export function DashboardSidebar() {
   // The ROLE, not `isAdmin`: a secretary sees fewer destinations than a doctor (I1 — « Tableau de bord » and the
   // whole « Finances » group are `AdminOrDoctor` server-side), and an admin/not-admin boolean cannot say that.
   const { moneyHidden } = useMoneyVisibility()
-  const sections: NavSection[] = buildNavSections(user?.role, subscriptionEnforced, moneyHidden)
+  const leaveEnabled = status?.clinic?.leaveRequestsEnabled === true
+  const sections: NavSection[] = buildNavSections(user?.role, subscriptionEnforced, moneyHidden, leaveEnabled)
+  // Requests waiting for an admin, beside « Utilisateurs » (`conges-secretaires`).
+  const pendingLeave = usePendingLeaveCount(user?.role === "admin" && leaveEnabled)
+  const badgeFor = (href: string) => (href === "/users" ? pendingLeave : 0)
 
   // `collapsed` is passed rather than read from context: inside the mobile drawer the rail is always
   // expanded (there is room, and a phone has no hover for the collapsed tooltips), while the desktop rail
@@ -144,6 +149,19 @@ export function DashboardSidebar() {
         */}
         <item.icon className={cn("h-5 w-5 shrink-0 transition-colors", isActive && zone.text)} />
         {collapsed ? <span className="sr-only">{item.name}</span> : <span className="truncate">{item.name}</span>}
+        {badgeFor(item.href) > 0 && (
+          <span
+            className={cn(
+              "rounded-full bg-primary px-1.5 text-2xs font-semibold text-primary-foreground tabular-nums",
+              collapsed ? "absolute end-1 top-1" : "ms-auto",
+            )}
+          >
+            {badgeFor(item.href)}
+            <span className="sr-only">
+              {badgeFor(item.href) > 1 ? " demandes de congé en attente" : " demande de congé en attente"}
+            </span>
+          </span>
+        )}
       </Link>
     )
 

@@ -1,4 +1,3 @@
-using System.Globalization;
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
@@ -15,8 +14,6 @@ namespace ClinicManagement.Application.Features.DoctorLeaves;
 /// </summary>
 public static class DoctorLeaveRules
 {
-    private static readonly CultureInfo French = CultureInfo.GetCultureInfo("fr-FR");
-
     /// <summary>The practitioner or the congé is not this cabinet's, or does not exist — answered 404.</summary>
     public const string NotFoundCode = "doctor_leave_not_found";
 
@@ -26,13 +23,7 @@ public static class DoctorLeaveRules
     public const string NotOwnLeave = "Vous ne pouvez modifier que vos propres congés.";
 
     /// <summary>« du 12/08 au 20/08 », « le 12/08 »; the year appears only when the two ends differ in it.</summary>
-    public static string Period(DateOnly start, DateOnly end)
-    {
-        var format = start.Year == end.Year ? "dd/MM" : "dd/MM/yyyy";
-        return start == end
-            ? $"le {start.ToString(format, French)}"
-            : $"du {start.ToString(format, French)} au {end.ToString(format, French)}";
-    }
+    public static string Period(DateOnly start, DateOnly end) => FrenchDayPeriod.Format(start, end);
 
     public static string OnLeaveSentence(string practitioner, DoctorLeave leave) =>
         $"{practitioner} est en congé {Period(leave.StartDate, leave.EndDate)}.";

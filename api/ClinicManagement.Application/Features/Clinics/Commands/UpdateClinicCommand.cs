@@ -247,6 +247,7 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 Email = clinic.Email,
                 Code = clinic.Code,
                 IsMoneyHidden = clinic.IsMoneyHidden,
+                LeaveRequestsEnabled = clinic.LeaveRequestsEnabled,
                 LogoUrl = clinic.LogoUrl,
                 MatriculeFiscal = clinic.MatriculeFiscal,
                 VatApplicable = clinic.VatApplicable,

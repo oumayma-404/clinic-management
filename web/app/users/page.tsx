@@ -1,6 +1,14 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useGuide } from "@/components/guide/guide-provider"
+import { StaffLeaveAdminPanel } from "@/components/staff-leave/staff-leave-admin-panel"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { usePendingLeaveCount } from "@/lib/hooks/use-staff-leave"
+import { useUrlFilters, useUrlFilterSeed } from "@/lib/hooks/use-url-filters"
+import { useUserStatus } from "@/lib/hooks/use-user-status"
+import { USERS_LEAVE_TAB, USERS_LEAVE_TAB_EVENT } from "@/lib/staff-leave"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { UserManagement } from "@/components/user-management"
@@ -39,7 +47,7 @@ export default function UsersPage() {
               title="Utilisateurs"
               subtitle="Qui accède aux dossiers de ce cabinet, avec quel rôle — et le code d'invitation."
             />
-            <UserManagement />
+            <UsersTabs />
           </>
         ) : (
           // AC-5.4: the user-management screen is only reachable by an admin.
@@ -65,5 +73,55 @@ export default function UsersPage() {
         )}
       </AppShell>
     </ClinicGuard>
+  )
+}
+
+/** « Comptes · Congés » — the second tab only while the cabinet has congés switched on. */
+function UsersTabs() {
+  const { data: status } = useUserStatus()
+  const leaveEnabled = status?.clinic?.leaveRequestsEnabled === true
+  const pendingCount = usePendingLeaveCount(leaveEnabled)
+  const seed = useUrlFilterSeed()
+  const [tab, setTab] = useState(seed.get("onglet") === USERS_LEAVE_TAB ? USERS_LEAVE_TAB : "comptes")
+  const showingLeave = leaveEnabled && tab === USERS_LEAVE_TAB
+  useUrlFilters({ onglet: showingLeave ? USERS_LEAVE_TAB : null }, Boolean(status))
+
+  useEffect(() => {
+    const open = () => setTab(USERS_LEAVE_TAB)
+    window.addEventListener(USERS_LEAVE_TAB_EVENT, open)
+    return () => window.removeEventListener(USERS_LEAVE_TAB_EVENT, open)
+  }, [])
+
+  // « Votre secrétaire » tours « Comptes »: started from « Congés », its first control would be in a hidden tab.
+  const { running } = useGuide()
+  useEffect(() => {
+    if (running === "secretary") setTab("comptes")
+  }, [running])
+
+  if (!leaveEnabled) return <UserManagement />
+
+  return (
+    <Tabs value={showingLeave ? USERS_LEAVE_TAB : "comptes"} onValueChange={setTab}>
+      <TabsList className="coarse:h-auto">
+        <TabsTrigger value="comptes" className="coarse:min-h-11">
+          Comptes
+        </TabsTrigger>
+        <TabsTrigger value={USERS_LEAVE_TAB} className="gap-1.5 coarse:min-h-11">
+          Congés
+          {pendingCount > 0 && (
+            <span className="rounded-full bg-primary px-1.5 text-2xs font-semibold text-primary-foreground tabular-nums">
+              {pendingCount}
+              <span className="sr-only"> en attente</span>
+            </span>
+          )}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="comptes" className="mt-6">
+        <UserManagement />
+      </TabsContent>
+      <TabsContent value={USERS_LEAVE_TAB} className="mt-6">
+        <StaffLeaveAdminPanel />
+      </TabsContent>
+    </Tabs>
   )
 }

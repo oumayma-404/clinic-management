@@ -191,5 +191,15 @@ public enum NotificationCategory
     /// because the message itself is the record. Its push is queued for whoever the message rings
     /// (<c>StaffConversation.AlertsFor</c>) and sent only if they have not read it by then.
     /// </summary>
-    StaffChatMessage = 19
+    StaffChatMessage = 19,
+
+    /// <summary>A secretary asked for a congé — for the cabinet's admins (<c>TargetRole</c>).</summary>
+    StaffLeaveRequested = 20,
+
+    StaffLeaveApproved = 21,
+
+    StaffLeaveRejected = 22,
+
+    /// <summary>An accepted congé was withdrawn before it began — for the cabinet's admins.</summary>
+    StaffLeaveCancelled = 23
 }

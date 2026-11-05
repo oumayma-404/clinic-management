@@ -14,6 +14,9 @@ public class ClinicDto
     /// <summary>« Mode discret »: the clinic-wide money screens are hidden on every device of the cabinet.</summary>
     public bool IsMoneyHidden { get; set; }
 
+    /// <summary>Secretaries may ask for a congé (Paramètres → « Équipe »). Mapped at all seven build sites.</summary>
+    public bool LeaveRequestsEnabled { get; set; }
+
     // Billing / note-d'honoraires settings.
     public string? MatriculeFiscal { get; set; }
     public bool VatApplicable { get; set; }

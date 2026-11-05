@@ -334,4 +334,18 @@ public interface INotificationGenerator
     /// </summary>
     Task SyncRelayAlertsAsync(
         Guid clinicId, IReadOnlyList<Features.Relay.RelayAlertRow> wanted, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A secretary congé event (<c>conges-secretaires</c>): for <paramref name="targetUserId"/> alone, or — when null —
+    /// for the cabinet's admins (<c>TargetRole</c>). In-app only; the categories are classified <c>false</c> in
+    /// <see cref="Common.Services.StaffNotificationRules.ReachesALockedPhone"/>.
+    /// </summary>
+    Task StaffLeaveAsync(
+        Guid clinicId,
+        Domain.Enums.NotificationCategory category,
+        string title,
+        string message,
+        string actorUserId,
+        string? targetUserId,
+        CancellationToken cancellationToken = default);
 }

@@ -67,6 +67,11 @@ public static class StaffNotificationRules
         NotificationCategory.RelayAttention => false,
         // « La patiente est arrivée » is time-critical to the person it rings, and the push waits to see it unread first.
         NotificationCategory.StaffChatMessage => true,
+        // A congé request or answer waits for the next opening of the app; the decision also goes by e-mail.
+        NotificationCategory.StaffLeaveRequested => false,
+        NotificationCategory.StaffLeaveApproved => false,
+        NotificationCategory.StaffLeaveRejected => false,
+        NotificationCategory.StaffLeaveCancelled => false,
         // A new category does not silently start pushing. Deciding is the point — a default of `true` would put
         // an unreviewed message on a lock screen, and `false` would look like a decision nobody made.
         _ => throw new ArgumentOutOfRangeException(

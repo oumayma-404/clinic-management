@@ -173,6 +173,9 @@ public class Clinic : AggregateRoot<Guid>
     /// <summary>« Mode discret »: the clinic-wide money screens are hidden. Display only — no money row is touched.</summary>
     public bool IsMoneyHidden { get; private set; }
 
+    /// <summary>Secretaries may ask for a congé here. Off until an admin turns it on.</summary>
+    public bool LeaveRequestsEnabled { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -314,6 +317,13 @@ public class Clinic : AggregateRoot<Guid>
     public void ShowMoney()
     {
         IsMoneyHidden = false;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Turning it off deletes nothing: every request stays and comes back when it is turned on again.</summary>
+    public void SetLeaveRequestsEnabled(bool enabled)
+    {
+        LeaveRequestsEnabled = enabled;
         UpdatedAt = DateTime.UtcNow;
     }
 

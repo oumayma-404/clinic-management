@@ -44,6 +44,7 @@ import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { MoneyDiscreetCard } from "@/components/money-discreet-card"
+import { TeamModulesCard } from "@/components/team-modules-card"
 import { RelayCard } from "@/components/relay/relay-card"
 import { LetterheadCard } from "@/components/letterhead/letterhead-card"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
@@ -379,7 +380,10 @@ export default function ClinicSettings() {
   const [clinicVersion, setClinicVersion] = useState<number | undefined>(undefined)
   const [clinicNameError, setClinicNameError] = useState<string | null>(null)
 
+  // The « Équipe » switch writes this row too; its own broadcast is not a colleague's change.
+  const ownSwitchSavedAt = useRef(0)
   useClinicRealtime(RealtimeResource.Clinics, () => {
+    if (Date.now() - ownSwitchSavedAt.current < 5000) return
     if (!isEditingClinicInfo && !isEditingDoctors && !isEditingHours && !isEditingBilling) {
       loadClinicData()
       return
@@ -1558,6 +1562,15 @@ export default function ClinicSettings() {
             </div>
           </CardContent>
         </Card>
+
+        {isClinicAdmin && (
+          <TeamModulesCard
+            onSaved={(version) => {
+              ownSwitchSavedAt.current = Date.now()
+              setClinicVersion(version)
+            }}
+          />
+        )}
 
         {/* « Mode discret » — last on the page, on the owner's call. */}
         {isClinicAdmin && <MoneyDiscreetCard />}

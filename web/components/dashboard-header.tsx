@@ -30,6 +30,7 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import type { NotificationDto, PatientDto } from "@/lib/api/types"
 import { RELAY_CARD_ID } from "@/lib/api/relay"
+import { USERS_LEAVE_TAB, USERS_LEAVE_TAB_EVENT } from "@/lib/staff-leave"
 import { cn } from "@/lib/utils"
 import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Monitor, Sun, Moon, ArrowLeft } from "lucide-react"
 import { useTheme } from "next-themes"
@@ -244,6 +245,14 @@ export function DashboardHeader() {
     } else if (notification.targetKind === "RelaySettings") {
       // clinic-pc-copy AC-2.2 — admins only, like the card the row opens.
       if (isNavItemVisible("/settings", user?.role)) router.push(`/settings#${RELAY_CARD_ID}`)
+    } else if (notification.targetKind === "StaffLeaveRequest") {
+      // conges-secretaires — an admin decides on « Utilisateurs → Congés », a secretary reads her answer on « Congés ».
+      if (user?.role === "admin") {
+        router.push(`/users?onglet=${USERS_LEAVE_TAB}`)
+        window.dispatchEvent(new CustomEvent(USERS_LEAVE_TAB_EVENT))
+      } else {
+        router.push("/conges")
+      }
     } else if (notification.targetKind === "Subscription") {
       // clinic-subscription AC-3.4 — like the two above it carries no id; a secretary may not open « Abonnement ».
       if (isNavItemVisible("/abonnement", user?.role)) router.push("/abonnement")

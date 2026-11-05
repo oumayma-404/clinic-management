@@ -735,6 +735,26 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task StaffLeaveAsync(
+        Guid clinicId,
+        NotificationCategory category,
+        string title,
+        string message,
+        string actorUserId,
+        string? targetUserId,
+        CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            await _notifications.AddAsync(
+                StaffNotification.ForStaffLeave(
+                    Guid.NewGuid(), clinicId, category, title, message, actorUserId, targetUserId),
+                cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
     public async Task SecondFactorResetAsync(
         Guid clinicId,
         string targetUserId,

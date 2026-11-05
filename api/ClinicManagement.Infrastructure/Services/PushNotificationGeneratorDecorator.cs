@@ -234,6 +234,12 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         CancellationToken cancellationToken = default) =>
         _inner.SyncRelayAlertsAsync(clinicId, wanted, cancellationToken);
 
+    // Pass-through: a congé answer is read at the next opening, and the e-mail already reaches her phone.
+    public Task StaffLeaveAsync(
+        Guid clinicId, NotificationCategory category, string title, string message, string actorUserId,
+        string? targetUserId, CancellationToken cancellationToken = default) =>
+        _inner.StaffLeaveAsync(clinicId, category, title, message, actorUserId, targetUserId, cancellationToken);
+
     // Pass-through: the export has already completed by the time this is written, so there is nothing a banner
     // could let anybody intervene in.
     // Pass-through: ArchiveStale is in-app only (StaffNotificationRules.ReachesALockedPhone answers false), and

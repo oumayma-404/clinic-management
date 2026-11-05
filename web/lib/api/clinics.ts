@@ -47,6 +47,8 @@ export interface ClinicDto {
   logoUrl?: string;
   /** « Mode discret »: the clinic-wide money screens are hidden on every device. Read through `useMoneyVisibility`. */
   isMoneyHidden?: boolean;
+  /** Secretaries may ask for a congé (Paramètres → « Équipe »). */
+  leaveRequestsEnabled?: boolean;
   // Billing / note-d'honoraires settings.
   matriculeFiscal?: string | null;
   vatApplicable?: boolean;
@@ -65,6 +67,11 @@ export interface ClinicDto {
 
 export interface ClinicMoneyMaskDto {
   isMoneyHidden: boolean;
+}
+
+export interface TeamModulesDto {
+  leaveRequestsEnabled: boolean;
+  version: number;
 }
 
 /** The step-up action « Afficher l'argent » spends. Mirrors `ClinicMoneyMask.ShowStepUpAction`. */
@@ -205,6 +212,10 @@ export const clinicsApi = {
     }
     return result.value;
   },
+
+  /** Paramètres → « Équipe »: an omitted switch is left as it is. */
+  setTeamModules: async (body: { leaveRequests?: boolean }): Promise<TeamModulesDto> =>
+    apiPut<TeamModulesDto>('/clinics/team-modules', body),
 
   /** « Masquer l'argent » — one click. Refused with `totp_not_enrolled` to an admin with no authenticator. */
   hideMoney: async (): Promise<ClinicMoneyMaskDto> =>

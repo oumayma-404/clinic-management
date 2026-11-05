@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,6 +15,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { statusToneClass } from "@/components/ui/status-tone"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE, emptyPage } from "@/lib/api/paging"
+import { useUserStatus } from "@/lib/hooks/use-user-status"
 // The seven English storage keys + their French labels — the same list the setup and join wizards offer, so a
 // practitioner created here is filed under a value every other screen already renders.
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
@@ -35,7 +38,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal, Send, ShieldOff } from "lucide-react"
+import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal, Send, ShieldOff, CalendarOff } from "lucide-react"
 import { StepUpDialog } from "@/components/security/step-up-dialog"
 import { securityApi } from "@/lib/api/security"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -81,6 +84,9 @@ type PendingAction =
 
 export function UserManagement() {
   const { user: currentUser, mode } = useSession()
+  const { data: clinicStatus } = useUserStatus()
+  // A secretary's file holds her congés, so it is offered only while the cabinet has them switched on.
+  const leaveEnabled = clinicStatus?.clinic?.leaveRequestsEnabled === true
   /**
    * AC-P2.29: « Réinitialiser le mot de passe » only exists for password-backed accounts —
    * `ResetUserPasswordCommand` refuses anything else with « Ce compte n'utilise pas de mot de passe local. »
@@ -414,6 +420,14 @@ export function UserManagement() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {leaveEnabled && u.role === "secretary" && (
+            <DropdownMenuItem asChild>
+              <Link href={`/users/${encodeURIComponent(u.id)}`}>
+                <CalendarOff className="size-4" aria-hidden="true" />
+                Voir sa fiche et ses congés
+              </Link>
+            </DropdownMenuItem>
+          )}
           {canResendInvitation(u) ? (
             // An invited colleague has no password to reset yet — the e-mail is her way in.
             <DropdownMenuItem onSelect={() => setPending({ type: "resend", user: u })}>
@@ -750,7 +764,19 @@ export function UserManagement() {
                     ) : (
                       users.map((user) => (
                         <TableRow key={user.id}>
-                          <TableCell className="font-medium text-foreground">{user.fullName || "-"}</TableCell>
+                          <TableCell className="font-medium text-foreground">
+                            {leaveEnabled && user.role === "secretary" ? (
+                              <Link
+                                href={`/users/${encodeURIComponent(user.id)}`}
+                                aria-label={`Fiche et congés de ${user.fullName || user.email}`}
+                                className="underline-offset-2 hover:underline"
+                              >
+                                {user.fullName || user.email}
+                              </Link>
+                            ) : (
+                              user.fullName || "-"
+                            )}
+                          </TableCell>
                           <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
                           <TableCell>
                             {/* AC-P2.23 — no user's role could ever be changed, so a member onboarded with the

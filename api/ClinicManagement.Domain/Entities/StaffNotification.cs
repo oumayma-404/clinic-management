@@ -200,6 +200,22 @@ public class StaffNotification : AggregateRoot<Guid>
         return notification;
     }
 
+    /// <summary>A congé event: for one secretary (<paramref name="targetUserId"/>) or, when null, for every admin.</summary>
+    public static StaffNotification ForStaffLeave(
+        Guid id, Guid clinicId, NotificationCategory category, string title, string message,
+        string actorUserId, string? targetUserId)
+    {
+        if (category is not (NotificationCategory.StaffLeaveRequested or NotificationCategory.StaffLeaveApproved
+            or NotificationCategory.StaffLeaveRejected or NotificationCategory.StaffLeaveCancelled))
+            throw new ArgumentOutOfRangeException(nameof(category), category, "Not a congé category.");
+        var notification = new StaffNotification(
+            id, clinicId, category, title, message, DateTime.UtcNow, NotificationTargetKind.StaffLeaveRequest,
+            actorUserId: actorUserId, targetUserId: targetUserId);
+        if (targetUserId == null)
+            notification.TargetRole = User.RoleAdmin;
+        return notification;
+    }
+
     /// <summary>
     /// Repoints a pending reminder to a new due time (used when its appointment is rescheduled),
     /// refreshing the French title/message to reflect the new time.
