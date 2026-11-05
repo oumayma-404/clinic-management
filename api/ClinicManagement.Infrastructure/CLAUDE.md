@@ -853,6 +853,10 @@ no consent flag and no audit of which patient was sent.
 - **`Auth/LocalAuthService`** (`ILocalAuthService`, Local) — PBKDF2 hash/verify via `PasswordHasher<User>`; HS256
   JWT issuance (claims `sub`/`clinic_id`/`role`/`jti` + optional `email`/`name`, 12h default); CSPRNG
   temp-password (unambiguous 12-char alphabet).
+- **`Auth/SignInRefusalRecorder`** (`ISignInRefusalRecorder`, **Singleton**, `features/sign-in-alerts`) — one
+  `WRN` line per refused sign-in (the address typed, never text that is not one), counts per e-mail and per address over 15 min in
+  `IMemoryCache`, and the vendor's e-mail when `SignInRefusalRules.Due` says so (quiet period per case, ≤ 10 an
+  hour). The e-mail leaves from its own scope with the request's execution context suppressed.
 - **`Auth/LocalAuthConfig`** — resolves issuer/audience/lifetime and the per-install signing key: explicit
   `Auth:Local:SigningKey` (≥256-bit) else a generated 512-bit key persisted to `.local/signing-key`
   (`Auth:Local:SigningKeyPath` override); cached. `IsLocalMode(config)`. Same path used by issuer and the

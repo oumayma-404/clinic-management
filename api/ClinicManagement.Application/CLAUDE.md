@@ -13,6 +13,7 @@ AddApplication():
   AddTransient(IPipelineBehavior<,>, ValidationBehavior<,>)
   AddTransient(IPipelineBehavior<,>, LoggingBehavior<,>)
   AddTransient(IPipelineBehavior<,>, RealtimeBroadcastBehavior<,>)
+  AddTransient(IPipelineBehavior<,>, SignInRefusalBehavior<,>)
   AddScoped<IClinicContext, ClinicContext>()         // needs IHttpContextAccessor (from API/Program.cs)
   AddScoped<ICurrentClinicResolver, CurrentClinicResolver>()
   AddScoped<INotificationGenerator, NotificationGenerator>()
@@ -24,7 +25,9 @@ AddApplication():
 `ClinicContext`, `CurrentClinicResolver`, `CurrentClinicProvider`, `NotificationGenerator`, `CnamBillingCalculator`, `AppointmentGoogleSyncDispatcher` are all **implemented in this layer** (`Common/Services/`) — they need only Domain repos + `IUnitOfWork` (+ `IRealtimeNotifier`/`IServiceScopeFactory`), no external infra.
 
 ## MediatR pipeline (request → response)
-`Send(command/query)` → **ValidationBehavior** → **LoggingBehavior** → **RealtimeBroadcastBehavior** → **Handler** (registration order). Behaviors in `Common/Behaviors/`:
+`Send(command/query)` → **ValidationBehavior** → **LoggingBehavior** → **RealtimeBroadcastBehavior** → **SignInRefusalBehavior** → **Handler** (registration order). Behaviors in `Common/Behaviors/`:
+
+- **`SignInRefusalBehavior<,>`** (`features/sign-in-alerts/notes.md`) — a request carrying **`ICredentialAttempt`** (the six anonymous credential doors) whose `Result.Code` is a refusal is handed to `ISignInRefusalRecorder` (Infrastructure: a log line naming the address typed, in-memory counts, vendor e-mail through `VendorAlertRecipients`). Every other request passes straight through. ⚠️ A new request that checks a password with no session must carry the marker — `SignInRefusalCoverageTests` derives the doors from `VerifyPassword(` and fails otherwise. Rules and wording: `Common/SignIn/`.
 
 - **`ValidationBehavior<,>`** — resolves `IValidator<TRequest>`, throws `FluentValidation.ValidationException` on failure. **No validators exist**, so it is a no-op today; handlers validate inline and return `Result.Failure(...)`. (If one were added, `ExceptionMiddleware` maps the exception → 400.)
 - **`LoggingBehavior<,>`** — logs "Handling {RequestName}" and "Handled {RequestName} in {ElapsedMs} ms". The « Handling » line stays: with no « Handled » after it, it names the request in flight at a hang.

@@ -24,6 +24,9 @@ public static class Extensions
         // mutating command, so connected clients refetch. Registered after the handler runs (innermost),
         // i.e. after commit. The IRealtimeNotifier impl is registered in the API layer (Program.cs).
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(RealtimeBroadcastBehavior<,>));
+        // Writes down a refused sign-in at any of the six credential doors (a request carrying ICredentialAttempt)
+        // and may alert the vendor. Passes every other request straight through. The recorder is AddInfrastructure's.
+        services.AddTransient(typeof(IPipelineBehavior<,>), typeof(SignInRefusalBehavior<,>));
 
         // Register ClinicContext
         // Note: IHttpContextAccessor must be registered in the API layer (Program.cs)

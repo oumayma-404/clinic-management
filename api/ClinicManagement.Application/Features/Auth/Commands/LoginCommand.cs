@@ -1,6 +1,7 @@
 using MediatR;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Common.SignIn;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -11,10 +12,11 @@ namespace ClinicManagement.Application.Features.Auth.Commands;
 /// Local-mode login: authenticates an email + password against a local account
 /// and returns an app-signed JWT. No-op / not used in Cloud mode.
 /// </summary>
-public class LoginCommand : IRequest<Result<LoginResultDto>>
+public class LoginCommand : IRequest<Result<LoginResultDto>>, ICredentialAttempt
 {
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public SignInDoor Door => SignInDoor.ClinicSignIn;
 
     /// <summary>
     /// The one-time code, where the account holds a second factor

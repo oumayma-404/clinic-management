@@ -98,6 +98,10 @@ public class LogTemplateCoverageTests
     /// </summary>
     private static readonly Dictionary<string, string> AllowedByDesign = new(StringComparer.Ordinal)
     {
+        ["SignInRefusalRecorder.cs:Email"] =
+            "the address typed at a sign-in door — a staff, console or prospect account, never a patient — which the "
+            + "vendor asked to see (sign-in-alerts, 2026-11-05); text that is not an address is never written "
+            + "(SignInRefusalRules.ShownEmail)",
     };
 
     [Fact]

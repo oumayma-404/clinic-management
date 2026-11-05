@@ -277,6 +277,16 @@ public static class Extensions
         // shared IMemoryCache registered above, so lockout state is transient by design — see the class.
         services.AddScoped<ILoginAttemptTracker, LoginAttemptTracker>();
 
+        // A refused sign-in at any of the six credential doors is logged with the address typed, and may e-mail the
+        // vendor (SignInRefusalBehavior). Singleton: its counts must outlive the request, like the spent-code set below.
+        services.AddSingleton<ISignInRefusalRecorder>(provider => new SignInRefusalRecorder(
+            provider.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(),
+            provider.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>(),
+            provider.GetRequiredService<TrustedProxies>(),
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            configuration,
+            provider.GetRequiredService<ILogger<SignInRefusalRecorder>>()));
+
         // The vendor's console identity population (platform-console Part 1). Registered UNCONDITIONALLY, not
         // behind ServesPlatformConsole: `platform-account` is a console verb that builds its container from this
         // method alone, and an operator has to be able to bootstrap the first account on a deployment whose
