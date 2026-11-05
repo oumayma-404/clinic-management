@@ -99,6 +99,13 @@ public class StaffInvitationTests
     private Task<Application.Common.Models.Result<Application.DTOs.CreatedClinicUserDto>> Invite(string email = "amel@cabinet.tn") =>
         Create().Handle(new CreateClinicUserCommand { Email = email, FullName = "Amel Ben Salah", Role = "secretary" }, CancellationToken.None);
 
+    /// <summary>Moves the current link's issue time back, keeping its token.</summary>
+    private void AgeTheLink(TimeSpan by)
+    {
+        var row = _invitations.Rows.Single();
+        row.Rearm(row.TokenHash, row.InvitedByUserId, DateTime.UtcNow - by);
+    }
+
     private static string TokenOf(string url) => Uri.UnescapeDataString(url[(url.IndexOf("#t=", StringComparison.Ordinal) + 3)..]);
 
     private AcceptStaffInvitationCommandHandler Accept() => new(
@@ -250,6 +257,43 @@ public class StaffInvitationTests
         Assert.True(_invitations.Rows.Single().IsUsable(DateTime.UtcNow));
     }
 
+    [Fact]
+    public async Task An_Expired_Link_Is_Refused()
+    {
+        var token = TokenOf((await Invite()).Value!.InvitationUrl!);
+        AgeTheLink(StaffInvitation.Lifetime + TimeSpan.FromMinutes(1));
+
+        var accepted = await Accept().Handle(new AcceptStaffInvitationCommand { Token = token, Password = "Un-bon-mot-de-passe-2026" }, CancellationToken.None);
+        var preview = await Preview().Handle(new PreviewStaffInvitationQuery { Token = token }, CancellationToken.None);
+
+        Assert.Equal(StaffInvitations.InvalidCode, accepted.Code);
+        Assert.Equal(StaffInvitations.InvalidCode, preview.Code);
+        Assert.NotEqual("hash(Un-bon-mot-de-passe-2026)", _added.Single().PasswordHash);
+    }
+
+    [Fact]
+    public async Task A_Deactivated_Account_Cannot_Take_Its_Link()
+    {
+        var token = TokenOf((await Invite()).Value!.InvitationUrl!);
+        _added.Single().Deactivate();
+
+        var accepted = await Accept().Handle(new AcceptStaffInvitationCommand { Token = token, Password = "Un-bon-mot-de-passe-2026" }, CancellationToken.None);
+
+        Assert.Equal(StaffInvitations.InvalidCode, accepted.Code);
+    }
+
+    [Fact]
+    public async Task An_Account_That_Already_Signed_In_Cannot_Take_Its_Link()
+    {
+        var token = TokenOf((await Invite()).Value!.InvitationUrl!);
+        _added.Single().RecordSuccessfulLogin();
+
+        var accepted = await Accept().Handle(new AcceptStaffInvitationCommand { Token = token, Password = "Un-bon-mot-de-passe-2026" }, CancellationToken.None);
+
+        Assert.Equal(StaffInvitations.InvalidCode, accepted.Code);
+        Assert.NotEqual("hash(Un-bon-mot-de-passe-2026)", _added.Single().PasswordHash);
+    }
+
     // --- Resending ---------------------------------------------------------------------------------------------
 
     [Fact]
@@ -257,6 +301,7 @@ public class StaffInvitationTests
     {
         var oldToken = TokenOf((await Invite()).Value!.InvitationUrl!);
         var user = _added.Single();
+        AgeTheLink(StaffInvitation.ResendCooldown);
 
         var resent = await Resend().Handle(new ResendStaffInvitationCommand { UserId = user.Id }, CancellationToken.None);
         var withOld = await Accept().Handle(new AcceptStaffInvitationCommand { Token = oldToken, Password = "Un-bon-mot-de-passe-2026" }, CancellationToken.None);
@@ -267,6 +312,21 @@ public class StaffInvitationTests
         Assert.Equal(StaffInvitations.InvalidCode, withOld.Code);
         Assert.True(withNew.IsSuccess, withNew.Error);
         Assert.Single(_invitations.Rows);
+    }
+
+    [Fact]
+    public async Task Resending_Within_Two_Minutes_Is_Refused_And_The_Link_Survives()
+    {
+        var token = TokenOf((await Invite()).Value!.InvitationUrl!);
+        var user = _added.Single();
+        _sent.Clear();
+
+        var result = await Resend().Handle(new ResendStaffInvitationCommand { UserId = user.Id }, CancellationToken.None);
+        var accepted = await Accept().Handle(new AcceptStaffInvitationCommand { Token = token, Password = "Un-bon-mot-de-passe-2026" }, CancellationToken.None);
+
+        Assert.Equal(ResendStaffInvitationCommandHandler.TooSoonCode, result.Code);
+        Assert.Empty(_sent);
+        Assert.True(accepted.IsSuccess, accepted.Error);
     }
 
     [Fact]

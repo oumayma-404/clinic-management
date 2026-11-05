@@ -80,6 +80,31 @@ public class UserOnboardingSignInTests
         Assert.False(user.HasReusablePendingTotpSecret(Day));
     }
 
+    [Fact]
+    public void A_new_password_discards_a_pending_secret()
+    {
+        var user = LocalUser();
+        user.IssueTotpSecret("protected:A");
+
+        user.SetPassword("NEW-HASH");
+
+        Assert.Null(user.ProtectedTotpSecret);
+        Assert.Null(user.TotpEnrolmentStartedAt);
+    }
+
+    [Fact]
+    public void A_new_password_keeps_a_confirmed_factor()
+    {
+        var user = LocalUser();
+        user.IssueTotpSecret("protected:A");
+        user.CompleteTotpEnrolment(new[] { UserRecoveryCode.NewCode() });
+
+        user.SetPassword("NEW-HASH");
+
+        Assert.True(user.IsTotpEnrolled);
+        Assert.Equal("protected:A", user.ProtectedTotpSecret);
+    }
+
     // ── The phone app ───────────────────────────────────────────────────────────────────────────────────
 
     [Theory]

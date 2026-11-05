@@ -543,6 +543,19 @@ public class ClinicTotpAuthTests
         Assert.Equal("protected:NEWSECRET234567", user.ProtectedTotpSecret);
     }
 
+    // « Déclarer perdu » cleared the secret, but the phone still holds the old « APEXA » line: say so.
+    [Fact]
+    public async Task After_Declaring_A_Pc_Lost_The_New_Qr_Says_It_Replaces_The_Old_One()
+    {
+        var user = Enrolled(Account(User.RoleAdmin));
+        user.RequireNewCredentials();
+        _totp.Setup(t => t.GenerateSecret()).Returns("NEWSECRET234567");
+
+        var result = await EnrolHandler().Handle(Enrol(), CancellationToken.None);
+
+        Assert.Equal(TotpQrStatus.Replaced, result.Value!.QrStatus);
+    }
+
     // A pending secret the key ring can no longer open is replaced, never handed back blank.
     [Fact]
     public async Task An_Unreadable_Pending_Secret_Is_Replaced()

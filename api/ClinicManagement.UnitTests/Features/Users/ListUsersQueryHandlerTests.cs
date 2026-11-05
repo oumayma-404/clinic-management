@@ -70,6 +70,29 @@ public class ListUsersQueryHandlerTests
         Assert.False(result.Value!.Items.Single(u => u.Role == "admin").HasSecondFactor);
     }
 
+    // « Invitation envoyée » marks the row the invitation table names, and only that one — asked once for the page.
+    [Fact]
+    public async Task Handle_Marks_Only_The_Accounts_With_A_Pending_Invitation()
+    {
+        var admin = Local("admin");
+        var secretary = Local("secretary");
+        _context.Setup(c => c.GetUserId()).Returns(admin.Id);
+        _users.Setup(r => r.GetByAuth0SubAsync(admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(admin);
+        _users.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { admin, secretary }).AsPage());
+        _invitations.Setup(r => r.GetPendingUserIdsAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string> { secretary.Id });
+
+        var result = await Handler().Handle(new ListUsersQuery(), CancellationToken.None);
+
+        Assert.True(result.Value!.Items.Single(u => u.Role == "secretary").InvitationPending);
+        Assert.False(result.Value!.Items.Single(u => u.Role == "admin").InvitationPending);
+        _invitations.Verify(r => r.GetPendingUserIdsAsync(
+            It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     // [AC-5.4] A non-admin cannot list users.
     [Fact]
     public async Task Handle_Should_Reject_Non_Admin()

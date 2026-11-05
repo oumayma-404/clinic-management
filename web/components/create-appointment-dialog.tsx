@@ -81,7 +81,11 @@ import { toast } from "sonner"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
-import { useInlineNewPatient, type InlineNewPatientSnapshot } from "@/lib/hooks/use-inline-new-patient"
+import {
+  legacyBookingNewPatient,
+  useInlineNewPatient,
+  type InlineNewPatientSnapshot,
+} from "@/lib/hooks/use-inline-new-patient"
 import { NewPatientFields } from "@/components/patients/new-patient-fields"
 import { DuplicatePatientDialog } from "@/components/patients/duplicate-patient-dialog"
 import { specialtyLabel } from "@/lib/specialties"
@@ -1076,7 +1080,7 @@ export function CreateAppointmentDialog({
       setSelectedPatientId(s.selectedPatientId)
       // A patient already created before the switch is booked onto, never created a second time — and one created
       // on the other server just before the switch may not exist here (`restore` drops it on a 404).
-      newPatient.restore(s.newPatient, draft.origin !== window.location.origin)
+      newPatient.restore(s.newPatient ?? legacyBookingNewPatient(s), draft.origin !== window.location.origin)
       setSelectedActs(s.acts)
       setDurationTouched(s.durationTouched)
       if (s.day) setDate(new Date(s.day))

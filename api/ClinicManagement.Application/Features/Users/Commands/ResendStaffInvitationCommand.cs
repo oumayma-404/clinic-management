@@ -24,6 +24,8 @@ public class ResendStaffInvitationCommandHandler
 {
     public const string AlreadySignedInCode = "invitation_not_needed";
 
+    public const string TooSoonCode = "invitation_resend_too_soon";
+
     private readonly IClinicContext _clinicContext;
     private readonly IUserRepository _users;
     private readonly IClinicRepository _clinics;
@@ -89,11 +91,20 @@ public class ResendStaffInvitationCommandHandler
                     "L'invitation ne peut pas être envoyée depuis cette installation.");
             }
 
-            var token = await StaffInvitations.ArmAsync(_invitations, user.Id, admin.Id, DateTime.UtcNow, cancellationToken);
+            var nowUtc = DateTime.UtcNow;
+            var current = await _invitations.GetByUserIdAsync(user.Id, cancellationToken);
+            if (current is not null && current.WasSentWithinCooldown(nowUtc))
+            {
+                return Result<StaffInvitationResultDto>.Failure(
+                    "Un e-mail vient de partir. Patientez deux minutes avant de le renvoyer.", TooSoonCode);
+            }
+
+            // Read before the re-arm: once it is saved the old link is dead, so nothing after it may fail the request.
+            var clinic = await _clinics.GetByIdAsync(admin.ClinicId, cancellationToken);
+            var token = await StaffInvitations.ArmAsync(_invitations, user.Id, admin.Id, nowUtc, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             var url = StaffInvitations.LinkFor(_appUrl.BaseUrl, token);
-            var clinic = await _clinics.GetByIdAsync(admin.ClinicId, cancellationToken);
             var emailed = await StaffInvitations.SendAsync(
                 _emailSender,
                 user.Email,

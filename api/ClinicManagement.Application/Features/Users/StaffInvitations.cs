@@ -28,6 +28,9 @@ public static class StaffInvitations
 
     public const string InvalidCode = "invitation_invalid";
 
+    /// <summary>Well under the browser's 20 s request timeout, so a hung mail server still lets the admin copy the link.</summary>
+    public static readonly TimeSpan SendBudget = TimeSpan.FromSeconds(8);
+
     /// <summary>32 bytes from the OS CSPRNG, URL-safe — the password reset's token, for the same reason.</summary>
     public static string NewToken() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -76,13 +79,20 @@ public static class StaffInvitations
 
         try
         {
-            var sent = await emailSender.SendAsync(to, Subject(facts.AdminName), Compose(facts), cancellationToken);
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            budget.CancelAfter(SendBudget);
+            var sent = await emailSender.SendAsync(to, Subject(facts.AdminName), Compose(facts), budget.Token);
             if (sent.Outcome == TransactionalEmailOutcome.Sent)
             {
                 return true;
             }
 
             logger.LogWarning("Staff invitation e-mail not sent: {Outcome} {Reason}", sent.Outcome, sent.Error);
+            return false;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("Staff invitation e-mail not sent within {Budget}.", SendBudget);
             return false;
         }
         catch (Exception ex)

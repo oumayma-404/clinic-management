@@ -37,7 +37,7 @@ export const appointmentGuide: Guide = {
     {
       mark: "booking-submit",
       scope: "booking-dialog",
-      text: "Ce bouton crée le rendez-vous. Pendant la visite, rien n'est enregistré.",
+      text: "Ce bouton crée le rendez-vous, pour de vrai : la visite, elle, n'y touche pas.",
       next: { manual: true },
     },
   ],

@@ -4625,7 +4625,7 @@ check(
         hits.push({ file: rel(f), line: 0, text: "unparsable", full: "no `steps: [` — this check cannot read the guide" });
         continue;
       }
-      for (const m of src.matchAll(/\b(?:mark|scope|visible):\s*"([a-z0-9-]+)"/g)) named.set(m[1], rel(f));
+      for (const m of src.matchAll(/\b(?:mark|scope|visible|emptyMark):\s*"([a-z0-9-]+)"/g)) named.set(m[1], rel(f));
     }
 
     const onControls = new Map(); // mark → first file:line

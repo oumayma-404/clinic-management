@@ -38,6 +38,12 @@ export type FeedbackSource = "semaine-1" | "aide"
  */
 export const FEEDBACK_CARD_OPEN_ATTR = "data-feedback-open"
 
+/** « Séance terminée » has a visit to ask about and only the week-one card is in its way: the card steps aside. */
+export const VISIT_REVIEW_WAITING_EVENT = "visit-review:waiting"
+
+/** The card's height on `<body>` while it is up, so a phone's « + » and last rows can sit above it. */
+export const FEEDBACK_CARD_HEIGHT_VAR = "--feedback-card-h"
+
 /**
  * The screen a message was written from, in the menu's own words (« Traitements »), never the raw path — the
  * message reaches the vendor and « /treatment-plans/3f2… » says less than the name the person sees. Longest

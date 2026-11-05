@@ -171,6 +171,22 @@ public class FeedbackTests
     }
 
     [Fact]
+    public void A_Showing_Left_Unanswered_For_A_Day_Counts_As_Plus_Tard()
+    {
+        var now = new DateTime(2026, 11, 10, 9, 0, 0, DateTimeKind.Utc);
+        var prompt = new UserFeedbackPrompt("u1", now);
+        prompt.MarkShown(now);
+
+        Assert.True(prompt.MayShow(now.AddHours(20)));
+        Assert.False(prompt.MayShow(now.AddDays(2)));
+        Assert.True(prompt.MayShow(now.AddDays(8)));
+
+        prompt.MarkShown(now.AddDays(8));
+        Assert.Equal(UserFeedbackPrompt.MaxShows, prompt.TimesShown);
+        Assert.False(prompt.MayShow(now.AddDays(30)));
+    }
+
+    [Fact]
     public void Plus_Tard_On_The_Last_Showing_Closes_It_So_Later_Never_Means_Again()
     {
         var now = new DateTime(2026, 11, 10, 9, 0, 0, DateTimeKind.Utc);

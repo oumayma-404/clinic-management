@@ -63,8 +63,8 @@ const EMPTY_TEXTS: Record<TextKind, string> = { idee: "", probleme: "", question
  * rest.</p>
  *
  * <p>⚠️ On the week-one form a star is already an answer: closing it any way — « Fermer », the ✕, Escape — still
- * sends the star, so the card's one tap is never lost. Typed text asks before it is thrown away
- * (`useDirtyGuard`), the star never does.</p>
+ * sends what was chosen, so the card's one tap is never lost. Typed text asks before it is thrown away
+ * (`useDirtyGuard`); on « Aide » the stars and chips ask too.</p>
  */
 export function FeedbackDialog({
   open,
@@ -143,11 +143,11 @@ export function FeedbackDialog({
     mayContact: weekOne ? false : mayContact,
   })
 
-  /** Every way of closing lands here — the week-one star is sent rather than lost. */
+  /** Every way of closing lands here — on the week-one form, what was chosen (stars, chips) is sent rather than lost. */
   const close = (next: boolean) => {
-    if (!next && weekOne && !sending && helpRating !== null) {
+    if (!next && weekOne && !sending && avisFilled) {
       void feedbackApi
-        .submit({ kind: "avis", source, helpRating, fromScreen })
+        .submit(avisBody())
         .then(() => toast.success(THANKS))
         .catch(() => {
           // The star alone: a failure here is not worth an error over a window the person chose to close.
@@ -156,7 +156,8 @@ export function FeedbackDialog({
     onOpenChange(next)
   }
 
-  const guard = useDirtyGuard(open, close)
+  // On « Aide » the stars and chips are input too; on the week-one form they are sent on close, so they never ask.
+  const guard = useDirtyGuard(open, close, !weekOne && avisFilled)
 
   const send = async () => {
     if (!canSend || sending) return

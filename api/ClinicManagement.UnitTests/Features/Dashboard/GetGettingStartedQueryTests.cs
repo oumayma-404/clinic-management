@@ -28,6 +28,7 @@ public class GetGettingStartedQueryTests
     private readonly Mock<IDentalRecordRepository> _records = new();
     private readonly Mock<IUserDashboardPreferenceRepository> _preferences = new();
     private readonly Mock<ISecondFactorPolicy> _policy = new();
+    private readonly Mock<IDemoPolicy> _demo = new();
 
     private readonly User _admin;
     private readonly Clinic _clinic;
@@ -49,7 +50,7 @@ public class GetGettingStartedQueryTests
 
     private GetGettingStartedQueryHandler Handler() => new(
         _context.Object, _users.Object, _clinics.Object, _patients.Object, _appointments.Object,
-        _records.Object, _preferences.Object, _policy.Object, NullLogger<GetGettingStartedQueryHandler>.Instance);
+        _records.Object, _preferences.Object, _policy.Object, _demo.Object, NullLogger<GetGettingStartedQueryHandler>.Instance);
 
     private async Task<GettingStartedDto> Read()
     {
@@ -144,7 +145,20 @@ public class GetGettingStartedQueryTests
         var dto = await Read();
 
         Assert.False(dto.Visible);
+        Assert.True(dto.Completed);
         Assert.Empty(dto.Steps);
+    }
+
+    [Fact]
+    public async Task The_Public_Demo_Is_Shown_Nothing_And_Reads_Nothing()
+    {
+        _demo.SetupGet(d => d.RefusesWrites).Returns(true);
+
+        var dto = await Read();
+
+        Assert.False(dto.Visible);
+        Assert.False(dto.Completed);
+        _users.Verify(r => r.GetByAuth0SubAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // After its first month a cabinet never sees the card again — and pays for no count to learn that.
@@ -157,6 +171,7 @@ public class GetGettingStartedQueryTests
         var dto = await Read();
 
         Assert.False(dto.Visible);
+        Assert.False(dto.Completed);
         _patients.Verify(r => r.CountByClinicIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
         _appointments.Verify(r => r.CountByClinicIdAsync(
             It.IsAny<Guid>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<AppointmentStatus?>(),

@@ -330,6 +330,8 @@ export interface GettingStartedDto {
   visible: boolean;
   steps: GettingStartedStepDto[];
   phoneApp: PhoneAppPersonDto[];
+  /** Hidden because every step is done (not because the first 30 days are over). */
+  completed?: boolean;
 }
 
 export interface DashboardPreferencesDto {

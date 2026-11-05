@@ -22,7 +22,7 @@ export const patientsGuide: Guide = {
     {
       mark: "patient-submit",
       scope: "patient-dialog",
-      text: "Ce bouton crée son dossier. Pendant la visite, rien n'est enregistré.",
+      text: "Ce bouton crée son dossier, pour de vrai : la visite, elle, n'y touche pas.",
       next: { manual: true },
     },
   ],

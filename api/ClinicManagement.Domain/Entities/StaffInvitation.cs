@@ -18,6 +18,9 @@ public class StaffInvitation : AggregateRoot<Guid>
 {
     public static readonly TimeSpan Lifetime = TimeSpan.FromDays(7);
 
+    /// <summary>« Renvoyer l'e-mail » again within this is refused, so a loop cannot mail one address over and over.</summary>
+    public static readonly TimeSpan ResendCooldown = TimeSpan.FromMinutes(2);
+
     public string UserId { get; private set; } = string.Empty;
 
     /// <summary>The user id of the administrator who sent it — the e-mail's « {Admin} vous invite ».</summary>
@@ -73,6 +76,11 @@ public class StaffInvitation : AggregateRoot<Guid>
     }
 
     public bool IsUsable(DateTime nowUtc) => ConsumedAtUtc == null && ExpiresAtUtc > nowUtc;
+
+    /// <summary>When the current link was sent — every arm sets the expiry a full <see cref="Lifetime"/> ahead.</summary>
+    public DateTime LastIssuedAtUtc() => ExpiresAtUtc - Lifetime;
+
+    public bool WasSentWithinCooldown(DateTime nowUtc) => nowUtc - LastIssuedAtUtc() < ResendCooldown;
 
     public void Consume(DateTime nowUtc) => ConsumedAtUtc = nowUtc;
 

@@ -22,7 +22,7 @@ export const secretaryGuide: Guide = {
     {
       mark: "user-submit",
       scope: "user-dialog",
-      text: "Ce bouton crée son compte. Pendant la visite, rien n'est envoyé.",
+      text: "Ce bouton crée son compte et envoie l'e-mail, pour de vrai : la visite, elle, n'y touche pas.",
       next: { manual: true },
     },
   ],

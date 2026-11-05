@@ -57,8 +57,13 @@ const isTopGuard = (id: number) => openGuards[openGuards.length - 1] === id
 export function useDirtyGuard(
   open: boolean,
   onOpenChange: (open: boolean) => void,
+  /** Choices made with buttons (stars, chips) fire no `input` event: the caller says when there are some. */
+  alsoDirty = false,
 ): DirtyGuard {
   const dirty = useRef(false)
+  const alsoDirtyRef = useRef(alsoDirty)
+  alsoDirtyRef.current = alsoDirty
+  const isDirty = () => dirty.current || alsoDirtyRef.current
   // This open session's place in `openGuards` (0 = not open yet).
   const guardId = useRef(0)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -103,7 +108,7 @@ export function useDirtyGuard(
 
   const guardedOpenChange = useCallback(
     (next: boolean) => {
-      if (next || !dirty.current) {
+      if (next || !isDirty()) {
         onOpenChange(next)
         return
       }
@@ -142,7 +147,7 @@ export function useDirtyGuard(
       if (!isTopGuard(id)) return
       // Still on OUR marker ⇒ an entry above it was popped by its own teardown, not by the user.
       if (window.history.state?.dialogGuardId === id) return
-      if (dirty.current) {
+      if (isDirty()) {
         // Re-arm: the browser already consumed our entry, so without this a second back would leave the page.
         pushMarker(marker)
         setConfirmOpen(true)

@@ -1,12 +1,12 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { FeedbackDialog, StarRow } from "@/components/feedback/feedback-dialog"
 import { Button } from "@/components/ui/button"
 import { feedbackApi } from "@/lib/api/feedback"
 import { showErrorToast } from "@/lib/errors"
-import { FEEDBACK_CARD_OPEN_ATTR } from "@/lib/feedback"
+import { FEEDBACK_CARD_HEIGHT_VAR, FEEDBACK_CARD_OPEN_ATTR, VISIT_REVIEW_WAITING_EVENT } from "@/lib/feedback"
 import { GUIDE_RUNNING_ATTR } from "@/lib/guides"
 
 /** Not in the first minute of a page load — a person who has just signed in came to do something. */
@@ -27,6 +27,8 @@ const CHECK_MS = 5_000
 let firstMountAt: number | null = null
 let shownReported = false
 let latched = false
+/** After stepping aside for « Séance terminée », not before this — or the card would retake the screen first. */
+let stepAsideUntil = 0
 
 /** True while something else owns the screen or the keyboard: a dialog, a sheet, a guide, or a field being typed in. */
 function screenIsBusy(): boolean {
@@ -75,7 +77,7 @@ export function FeedbackPromptCard() {
     if (!eligible || visible) return
     const tryShow = () => {
       if (Date.now() - (firstMountAt ?? Date.now()) < SETTLE_MS) return
-      if (screenIsBusy()) return
+      if (Date.now() < stepAsideUntil || screenIsBusy()) return
       latched = true
       setVisible(true)
     }
@@ -105,6 +107,34 @@ export function FeedbackPromptCard() {
     return () => document.body.removeAttribute(FEEDBACK_CARD_OPEN_ATTR)
   }, [visible])
 
+  // Its height on <body>, read by globals.css below `md:` so the phone's « + » and the last rows of a list clear it.
+  const cardRef = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    const card = cardRef.current
+    if (!visible || !card) return
+    const body = document.body
+    const measure = () => body.style.setProperty(FEEDBACK_CARD_HEIGHT_VAR, `${card.offsetHeight}px`)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(card)
+    return () => {
+      observer.disconnect()
+      body.style.removeProperty(FEEDBACK_CARD_HEIGHT_VAR)
+    }
+  }, [visible])
+
+  // A visit to close out wins the screen: the card steps aside, unanswered, and comes back once the screen is free.
+  useEffect(() => {
+    if (!visible) return
+    const stepAside = () => {
+      latched = false
+      stepAsideUntil = Date.now() + CHECK_MS
+      setVisible(false)
+    }
+    window.addEventListener(VISIT_REVIEW_WAITING_EVENT, stepAside)
+    return () => window.removeEventListener(VISIT_REVIEW_WAITING_EVENT, stepAside)
+  }, [visible])
+
   const hide = () => {
     latched = false
     setVisible(false)
@@ -128,6 +158,7 @@ export function FeedbackPromptCard() {
     <>
       {visible && (
         <section
+          ref={cardRef}
           aria-labelledby="feedback-prompt-title"
           className="fixed inset-x-3 bottom-[calc(var(--bottom-inset)+0.75rem)] z-40 rounded-xl border bg-card p-4 shadow-lg print:hidden md:inset-x-auto md:bottom-4 md:end-4 md:w-80"
         >

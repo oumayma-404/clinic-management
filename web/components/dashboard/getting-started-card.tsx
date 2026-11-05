@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
 import { Check, PlayCircle } from "lucide-react"
@@ -8,6 +8,7 @@ import { Check, PlayCircle } from "lucide-react"
 import { PhoneAppDialog } from "@/components/dashboard/phone-app-dialog"
 import { celebrateReady, celebrateStep } from "@/components/onboarding/step-celebration"
 import { OPEN_PHONE_STEP_EVENT, useGuide } from "@/components/guide/guide-provider"
+import { useFeedbackAvailable, useHelpContact } from "@/components/help-menu"
 import { Button } from "@/components/ui/button"
 import type { GettingStartedDto } from "@/lib/api/types"
 import { dashboardApi } from "@/lib/api/dashboard"
@@ -19,13 +20,16 @@ import { ONBOARDING_VIDEOS, onboardingVideoUrl } from "@/lib/onboarding-videos"
 import { useSubscription } from "@/lib/subscription/subscription-context"
 import { cn } from "@/lib/utils"
 
+/** Two steps done at once (a booking with « Nouveau patient ») get their moments one after the other. */
+const CELEBRATION_GAP_MS = 1600
+
 /** The one step a person may not tick by hand — mirrors the server's `GettingStartedRules.TickableSteps`. */
 const UNTICKABLE_STEP: GettingStartedKey = "securityCode"
 
 /**
  * The page's half of « Premiers pas »: renders the card when it applies and is not hidden, and owns its two
- * toasts — « Votre cabinet est prêt » when the last step ticks during the session, and the five-second « Annuler »
- * after « Masquer ».
+ * moments — « Bienvenue dans votre nouveau cabinet ! » once the server says every step is done, and the five-second
+ * « Annuler » after « Masquer ».
  *
  * <p>The read itself stays on the page (`useGettingStarted`), because the page also needs to know whether the
  * card applies — to keep its switch out of « Personnaliser » when it does not.</p>
@@ -43,37 +47,42 @@ export function GettingStartedBlock({
   onToggle: () => void
   onReload: () => void
 }) {
-  const wasVisible = useRef(false)
   const { user } = useSession()
   const owner = user?.email ?? ""
-  const { continueTour } = useGuide()
+  const { continueTour, endPrompt } = useGuide()
+  const { phone } = useHelpContact()
+  const feedbackAvailable = useFeedbackAvailable()
 
   useEffect(() => {
-    if (!data) return
-    // A new cabinet's very first look at the card starts the guided tour on its first open step.
-    if (data.visible && shown && owner && !hasSeenCard(owner)) continueTour({ first: true, started: data })
-    // The server hides the card once every step is done, so « was on screen, now hidden » is the moment it got
-    // there. (The 30th day turning over mid-session would read the same; that is an hour a month, not a lie.)
-    if (wasVisible.current && !data.visible && shown) {
-      if (!owner || markReadyCelebrated(owner)) celebrateReady()
-    } else if (data.visible && shown && owner) {
-      // A step ticked by ordinary work (a patient created from the list, the first sign-in on a phone) is celebrated
-      // the next time the card is read — once; the first read for an account only remembers.
-      const done = data.steps.filter((step) => step.done).map((step) => step.key as GettingStartedKey)
-      const fresh = takeNewlyDone(owner, done)
-      if (fresh.length > 0) {
-        celebrateStep(fresh[fresh.length - 1], { title: null })
-      }
+    if (!data || !owner) return
+    // Every step done, on whichever page: « Bienvenue dans votre nouveau cabinet ! », once — and never for a cabinet
+    // that was already done before this browser first read the card.
+    if (data.completed) {
+      if (hasSeenCard(owner) && markReadyCelebrated(owner)) celebrateReady()
+      return
     }
-    wasVisible.current = data.visible
+    if (!data.visible || !shown) return
+    // A new cabinet's very first look at the card starts the guided tour on its first open step.
+    if (!hasSeenCard(owner)) continueTour({ first: true, started: data })
+    // A step ticked by ordinary work is celebrated the next time the card is read — once, each in turn; the first
+    // read for an account only remembers.
+    const done = data.steps.filter((step) => step.done).map((step) => step.key as GettingStartedKey)
+    takeNewlyDone(owner, done).forEach((key, i) =>
+      window.setTimeout(() => celebrateStep(key, { title: null }), i * CELEBRATION_GAP_MS),
+    )
   }, [data, shown, owner, continueTour])
 
   if (!data?.visible || !shown) return null
 
   const hide = () => {
+    endPrompt()
     onToggle()
     toast("Premiers pas masqués.", {
-      description: "Ils restent dans « Aide », en haut de l'écran.",
+      // A clinic's own PC has no « Aide » button (nobody to call, no « Retours »): point at « Personnaliser » there.
+      description:
+        phone || feedbackAvailable
+          ? "Ils restent dans « Aide », en haut de l'écran."
+          : "Réaffichez-les depuis « Personnaliser ».",
       duration: 5000,
       action: { label: "Annuler", onClick: onToggle },
     })
@@ -213,7 +222,11 @@ export function GettingStartedCard({
                 >
                   <Check
                     aria-hidden
-                    className={cn("size-4", !step.done && "opacity-0 group-hover:opacity-60 group-focus-visible:opacity-60")}
+                    className={cn(
+                      "size-4",
+                      // A finger has no hover: on touch the faint ✓ is the only sign this circle can be tapped.
+                      !step.done && "opacity-0 coarse:opacity-40 group-hover:opacity-60 group-focus-visible:opacity-60",
+                    )}
                   />
                 </button>
               ) : (
@@ -244,7 +257,7 @@ export function GettingStartedCard({
                       asChild
                       variant="ghost"
                       size="sm"
-                      className="size-9 px-0 coarse:size-11 sm:w-auto sm:px-2.5"
+                      className="size-9 px-0 coarse:h-11 coarse:min-w-11 sm:w-auto sm:px-2.5"
                     >
                       <a
                         href={videoUrl}

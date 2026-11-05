@@ -16,6 +16,25 @@ export interface InlineNewPatientSnapshot {
   createdId: string | null
 }
 
+/** A booking draft written before this hook existed kept these keys flat; read them so that draft still restores. */
+export function legacyBookingNewPatient(draft: object): InlineNewPatientSnapshot | undefined {
+  const flat = draft as {
+    newPatientFirstName?: string
+    newPatientLastName?: string
+    newPatientPhone?: string
+    newPatientPhoneCountry?: CountryCode
+    createdPatientId?: string | null
+  }
+  if (flat.newPatientFirstName === undefined && flat.createdPatientId === undefined) return undefined
+  return {
+    firstName: flat.newPatientFirstName ?? "",
+    lastName: flat.newPatientLastName ?? "",
+    phone: flat.newPatientPhone ?? "",
+    country: flat.newPatientPhoneCountry ?? DEFAULT_REGION,
+    createdId: flat.createdPatientId ?? null,
+  }
+}
+
 export type EnsureCreatedOutcome =
   | { kind: "created"; id: string }
   /** « Ce patient existe peut-être déjà » — the server's own sentence, a question for the user, never an error. */
@@ -114,7 +133,9 @@ export function useInlineNewPatient() {
    * A draft carried across a switch of server. A patient created on the OTHER server just before the switch may
    * not exist here, so the reuse is withdrawn on a 404 rather than failing every save.
    */
-  const restore = useCallback((s: InlineNewPatientSnapshot, fromAnotherServer: boolean) => {
+  const restore = useCallback((s: InlineNewPatientSnapshot | undefined, fromAnotherServer: boolean) => {
+    // A draft from an older build may carry none: nothing to put back here, and the rest of the draft still restores.
+    if (!s) return
     setFirstName(s.firstName)
     setLastName(s.lastName)
     setPhone(s.phone)

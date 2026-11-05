@@ -15,20 +15,25 @@ import type { GettingStartedKey } from "@/lib/getting-started"
  */
 const storageKey = (owner: string) => `premiers-pas.fetes.${owner.toLowerCase()}`
 
+/** The tab's own copy, so blocked storage still remembers within the tab — or « Bienvenue » would return on every read. */
+const memory = new Map<string, Set<string>>()
+
 function read(owner: string): Set<string> | null {
+  const remembered = memory.get(storageKey(owner)) ?? null
   try {
     const raw = window.localStorage.getItem(storageKey(owner))
-    return raw === null ? null : new Set(JSON.parse(raw) as string[])
+    return raw === null ? remembered : new Set(JSON.parse(raw) as string[])
   } catch {
-    return null
+    return remembered
   }
 }
 
 function write(owner: string, keys: Set<string>) {
+  memory.set(storageKey(owner), new Set(keys))
   try {
     window.localStorage.setItem(storageKey(owner), JSON.stringify([...keys]))
   } catch {
-    // Storage refused: the next read will seed again, silently — the worst case is one celebration missed.
+    // Storage refused: the tab's copy above still holds it until the page is reloaded.
   }
 }
 

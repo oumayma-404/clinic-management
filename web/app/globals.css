@@ -1076,3 +1076,14 @@
   }
 }
 
+
+/*
+ * The week-one card (feedback-prompt-card.tsx) docks above the bottom bar on a phone and publishes its height
+ * (`data-feedback-open` + `--feedback-card-h`, both named in lib/feedback.ts). While it is up, `<main>` gets that much
+ * more bottom gutter, so the last rows of a list and the agenda's « + » (which sits in a `h-full` box) stay above it.
+ */
+@media (width < 48rem) {
+  body[data-feedback-open] #contenu-principal {
+    padding-bottom: calc(var(--feedback-card-h, 0px) + 1.75rem);
+  }
+}

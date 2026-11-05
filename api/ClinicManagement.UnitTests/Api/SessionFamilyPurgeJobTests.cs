@@ -9,7 +9,7 @@ using Xunit;
 namespace ClinicManagement.UnitTests.Api;
 
 /// <summary>
-/// The daily purge also trims spent signups and password resets — they used to be trimmed only when somebody new
+/// The daily purge also trims spent signups, password resets and staff invitations — they used to be trimmed only when somebody new
 /// asked, so a quiet deployment kept consumed rows past retention and `verify-schema` reported them.
 /// </summary>
 public class SessionFamilyPurgeJobTests
@@ -25,7 +25,7 @@ public class SessionFamilyPurgeJobTests
         NullLogger<SessionFamilyPurgeJob>.Instance);
 
     [Fact]
-    public async Task Purges_Spent_Signups_And_Resets_With_Their_Own_Retention()
+    public async Task Purges_Spent_Signups_Resets_And_Invitations()
     {
         _signups.Setup(r => r.PurgeSpentAsync(It.IsAny<DateTime>(), It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
@@ -38,6 +38,8 @@ public class SessionFamilyPurgeJobTests
         _signups.Verify(r => r.PurgeSpentAsync(
             It.IsAny<DateTime>(), SignUpClinicCommandHandler.ConsumedRetention, It.IsAny<CancellationToken>()), Times.Once);
         _resets.Verify(r => r.PurgeSpentAsync(
+            It.IsAny<DateTime>(), RequestPasswordResetCommandHandler.ConsumedRetention, It.IsAny<CancellationToken>()), Times.Once);
+        _invitations.Verify(r => r.PurgeSpentAsync(
             It.IsAny<DateTime>(), RequestPasswordResetCommandHandler.ConsumedRetention, It.IsAny<CancellationToken>()), Times.Once);
     }
 

@@ -61,7 +61,8 @@ public class PreviewStaffInvitationQueryHandler
         catch (Exception ex) when (ex is not ConflictException)
         {
             _logger.LogError(ex, "Reading a staff invitation failed.");
-            return Result<StaffInvitationPreviewDto>.Failure(StaffInvitations.UnusableLink, StaffInvitations.InvalidCode);
+            // No code: a server fault must not read as « lien expiré », or she asks for a resend that kills a good link.
+            return Result<StaffInvitationPreviewDto>.Failure("L'invitation n'a pas pu être lue. Réessayez dans un instant — votre lien reste valable.");
         }
     }
 }

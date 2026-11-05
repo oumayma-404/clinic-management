@@ -24,11 +24,18 @@ interface GuideContextValue {
    * `started` saves a read the caller already has.
    */
   continueTour: (options?: { first?: boolean; started?: GettingStartedDto }) => void
+  /** Withdraws the hand-over prompt, if it is up — its mark lives on the card, which « Masquer » just removed. */
+  endPrompt: () => void
   /** The guide running now, if any. */
   running: Guide["key"] | null
 }
 
-const GuideContext = createContext<GuideContextValue>({ start: () => {}, continueTour: () => {}, running: null })
+const GuideContext = createContext<GuideContextValue>({
+  start: () => {},
+  continueTour: () => {},
+  endPrompt: () => {},
+  running: null,
+})
 
 /** « Me guider » — what « Premiers pas » calls. Outside the provider it does nothing. */
 export const useGuide = () => useContext(GuideContext)
@@ -132,11 +139,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
       let started: GettingStartedDto | null = null
       try {
         started = await dashboardApi.getGettingStarted()
-        if (!started.visible) {
-          // Every step done: the card is gone, so this is the moment the cabinet is ready — under its own mark.
+        if (started.completed) {
+          // Every step done: this is the moment the cabinet is ready — under its own mark.
           if (owner) markCelebrated(owner, stepKey)
           if (!owner || markReadyCelebrated(owner)) celebrate = celebrateReady
-        } else if (owner) {
+        } else if (started.visible && owner) {
           // Steps that ticked elsewhere since the card's last read are remembered, not celebrated here.
           takeNewlyDone(
             owner,
@@ -206,9 +213,16 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     return () => document.body.removeAttribute(GUIDE_RUNNING_ATTR)
   }, [running])
 
+  // Stable, so an effect that lists it in its deps does not re-run each time a guide starts or ends.
+  const continueTourVoid = useCallback(
+    (options?: { first?: boolean; started?: GettingStartedDto }) => void continueTour(options),
+    [continueTour],
+  )
+  const endPrompt = useCallback(() => setRun((current) => (current?.onDone ? null : current)), [])
+
   const value = useMemo(
-    () => ({ start, running, continueTour: (options?: { first?: boolean; started?: GettingStartedDto }) => void continueTour(options) }),
-    [start, running, continueTour],
+    () => ({ start, running, continueTour: continueTourVoid, endPrompt }),
+    [start, running, continueTourVoid, endPrompt],
   )
 
   return (

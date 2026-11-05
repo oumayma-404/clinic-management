@@ -115,6 +115,9 @@ export function GuideOverlay({
   const readViewport = () =>
     typeof window === "undefined" ? { w: 0, h: 0 } : { w: window.innerWidth, h: window.innerHeight }
   const [viewport, setViewport] = useState(readViewport)
+  // What the docked bubble really sits on: the bar plus a notched phone's home indicator, not the bar alone.
+  const [bottomInset, setBottomInset] = useState(BOTTOM_BAR_PX)
+  useEffect(() => setBottomInset(measureBottomInset()), [viewport])
   const viewportRef = useRef(viewport)
   const bubbleRef = useRef<HTMLDivElement>(null)
   const [bubbleH, setBubbleH] = useState(0)
@@ -255,6 +258,26 @@ export function GuideOverlay({
     return () => observer.disconnect()
   }, [])
 
+  // Inside a window the bubble sits outside the window's focus trap, so Tab never reaches « Suivant »: → does, and so
+  // does Enter on nothing in particular — never from a control that answers those keys itself.
+  const nextRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    if (!("manual" in step.next)) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      const target = event.target instanceof HTMLElement ? event.target : null
+      const typing = target?.closest(
+        'input, textarea, select, [contenteditable="true"], [role="radio"], [role="slider"], [role="tab"], [role="option"], [role="menuitem"]',
+      )
+      const interactive = target?.closest("button, a, [role='button']")
+      if (event.key === "ArrowRight" ? typing : event.key !== "Enter" || typing || interactive) return
+      event.preventDefault()
+      nextRef.current()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [step])
+
   if (typeof document === "undefined") return null
 
   const manual = "manual" in step.next
@@ -277,8 +300,9 @@ export function GuideOverlay({
     }
     onAdvance()
   }
+  nextRef.current = next
 
-  const bubbleStyle = placeBubble({ box, scopeBox, footerBox, viewport, bubbleH, docked })
+  const bubbleStyle = placeBubble({ box, scopeBox, footerBox, viewport, bubbleH, docked, bottomInset })
 
   return createPortal(
     <div className="pointer-events-none fixed inset-0 z-[60] print:hidden" aria-hidden={hidden || undefined}>
@@ -339,7 +363,7 @@ export function GuideOverlay({
             {guide.quitLabel ?? "Quitter le guide"}
           </Button>
           {manual && (
-            <Button type="button" size="sm" className="min-h-9 coarse:min-h-11" onClick={next}>
+            <Button type="button" size="sm" className="min-h-9 coarse:min-h-11" onClick={next} aria-keyshortcuts="ArrowRight">
               {last && guide.continueLabel ? guide.continueLabel : last || empty ? "Terminer" : "Suivant"}
             </Button>
           )}
@@ -351,8 +375,18 @@ export function GuideOverlay({
 }
 
 const BUBBLE_W = 340
-/** A phone's bottom bar, for the collision test only — the style itself reads `--bottom-inset`. */
+/** A phone's bottom bar alone — the fallback when `--bottom-inset` cannot be measured. */
 const BOTTOM_BAR_PX = 56
+
+/** `--bottom-inset` in pixels, read off a throwaway element — `env(safe-area-inset-bottom)` has no JS reader. */
+function measureBottomInset(): number {
+  const probe = document.createElement("div")
+  probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;height:var(--bottom-inset,56px)"
+  document.body.appendChild(probe)
+  const px = probe.getBoundingClientRect().height
+  probe.remove()
+  return px || BOTTOM_BAR_PX
+}
 
 function overlaps(a: Box, b: Box | null, margin = 0): boolean {
   if (!b) return false
@@ -376,6 +410,7 @@ function placeBubble({
   viewport,
   bubbleH,
   docked,
+  bottomInset,
 }: {
   box: Box | null
   scopeBox: Box | null
@@ -383,6 +418,7 @@ function placeBubble({
   viewport: { w: number; h: number }
   bubbleH: number
   docked: boolean
+  bottomInset: number
 }): React.CSSProperties {
   const h = bubbleH || 140
   const fits = (c: Box) =>
@@ -390,7 +426,7 @@ function placeBubble({
   const clear = (c: Box) => !(box && overlaps(c, box, PAD)) && !overlaps(c, footerBox)
 
   if (docked) {
-    const bottom: Box = { left: GAP, width: viewport.w - 2 * GAP, top: viewport.h - BOTTOM_BAR_PX - GAP - h, height: h }
+    const bottom: Box = { left: GAP, width: viewport.w - 2 * GAP, top: viewport.h - bottomInset - GAP - h, height: h }
     const top: Box = { left: GAP, width: viewport.w - 2 * GAP, top: GAP, height: h }
     const useTop = !clear(bottom) && !(box && overlaps(top, box, PAD))
     return useTop

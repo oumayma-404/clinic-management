@@ -181,8 +181,8 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
                 // a second « Se connecter », a reload, or the Windows app after the browser silently killed the QR
                 // already scanned, and every code from the phone was then refused — the screen two of twelve
                 // self-signed-up cabinets never got past. Nothing is saved on this path, so a repeat no longer
-                // bumps TokenVersion either. Exposure is unchanged: the password was verified above, and anyone
-                // holding it could already complete an enrolment of a pending account.
+                // bumps TokenVersion either. The password was verified above, and a new password discards the pending
+                // secret (User.SetPassword), so a copy read with an old password cannot be confirmed later.
                 string secret;
                 string qrStatus;
                 if (user.HasReusablePendingTotpSecret(PendingQrLifetime)
@@ -194,7 +194,8 @@ public class EnrolTotpCommandHandler : IRequestHandler<EnrolTotpCommand, Result<
                 }
                 else
                 {
-                    var hadSecret = !string.IsNullOrEmpty(user.ProtectedTotpSecret);
+                    // « Déclarer perdu » cleared the secret, but the phone still holds the dead « APEXA » line.
+                    var hadSecret = !string.IsNullOrEmpty(user.ProtectedTotpSecret) || user.TotpReenrolmentRequired;
                     secret = _totpService.GenerateSecret();
                     user.IssueTotpSecret(_secretProtector.Protect(secret));
                     _userRepository.Update(user);

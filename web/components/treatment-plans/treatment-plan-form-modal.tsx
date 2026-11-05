@@ -369,7 +369,8 @@ export function TreatmentPlanFormModal({
     restore: (s, draft) => {
       if (!editingPlan) {
         setPatientId(s.patientId)
-        setIsNewPatient(s.isNewPatient)
+        // A devis draft from before « Nouveau patient » existed here carries neither.
+        setIsNewPatient(s.isNewPatient ?? false)
         newPatient.restore(s.newPatient, draft.origin !== window.location.origin)
       }
       setTitle(s.title)

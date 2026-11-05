@@ -31,6 +31,7 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IUserDashboardPreferenceRepository _preferences;
     private readonly ISecondFactorPolicy _secondFactorPolicy;
+    private readonly IDemoPolicy _demo;
     private readonly ILogger<GetGettingStartedQueryHandler> _logger;
 
     public GetGettingStartedQueryHandler(
@@ -42,6 +43,7 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
         IDentalRecordRepository dentalRecordRepository,
         IUserDashboardPreferenceRepository preferences,
         ISecondFactorPolicy secondFactorPolicy,
+        IDemoPolicy demo,
         ILogger<GetGettingStartedQueryHandler> logger)
     {
         _clinicContext = clinicContext;
@@ -52,11 +54,18 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
         _dentalRecordRepository = dentalRecordRepository;
         _preferences = preferences;
         _secondFactorPolicy = secondFactorPolicy;
+        _demo = demo;
         _logger = logger;
     }
 
     public async Task<Result<GettingStartedDto>> Handle(GetGettingStartedQuery request, CancellationToken cancellationToken)
     {
+        // The public demo is rebuilt every night, so it always looks new, and it refuses every tick.
+        if (_demo.RefusesWrites)
+        {
+            return Result<GettingStartedDto>.Success(GettingStartedDto.Hidden);
+        }
+
         try
         {
             var userId = _clinicContext.GetUserId();
@@ -112,7 +121,7 @@ public class GetGettingStartedQueryHandler : IRequestHandler<GetGettingStartedQu
             var steps = GettingStartedRules.Steps(facts, _secondFactorPolicy.RequiresAdminSecondFactor);
             if (steps.All(step => step.Done))
             {
-                return Result<GettingStartedDto>.Success(GettingStartedDto.Hidden);
+                return Result<GettingStartedDto>.Success(GettingStartedDto.Finished);
             }
 
             var phoneApp = staff

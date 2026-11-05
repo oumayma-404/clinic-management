@@ -1,3 +1,4 @@
+using ClinicManagement.API.Startup;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Features.Feedback.Commands;
 using ClinicManagement.Application.Features.Feedback.Queries;
@@ -5,6 +6,7 @@ using ClinicManagement.Infrastructure.Deployment;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ClinicManagement.API.Controllers;
 
@@ -52,6 +54,7 @@ public class FeedbackController : ApiControllerBase
 
     /// <summary>One message to the vendor. E-mailed to the console team at once and kept in « Retours ».</summary>
     [HttpPost]
+    [EnableRateLimiting(RateLimiting.OutboundEmailPolicy)]
     [AllowsWithoutSubscription("A message to the vendor, not clinic work — an expired cabinet saying why it left is the answer most wanted.")]
     public async Task<ActionResult<FeedbackReceiptDto>> Submit(
         [FromBody] SubmitFeedbackCommand command, CancellationToken cancellationToken)

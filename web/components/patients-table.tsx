@@ -349,7 +349,8 @@ export function PatientsTable({
       */
       action={
         !isFiltered && onCreatePatient ? (
-          <Button onClick={onCreatePatient} className="gap-2">
+          // The « Première fiche » guide's sign of an empty cabinet: drawn only once the list has loaded empty.
+          <Button onClick={onCreatePatient} className="gap-2" data-guide="patients-empty">
             <Plus className="h-4 w-4" />
             Ajouter un patient
           </Button>

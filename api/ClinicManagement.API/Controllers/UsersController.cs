@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using ClinicManagement.API.Startup;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Users.Queries;
@@ -170,6 +172,7 @@ public class UsersController : ApiControllerBase
     /// </summary>
     [OnlineOnly("FR-5 — a password changes on the cloud only: it keeps signing people in during a cut (FR-11).")]
     [HttpPost("{id}/invitation")]
+    [EnableRateLimiting(RateLimiting.OutboundEmailPolicy)]
     [AllowsWithoutSubscription(
         "reset-password's reason — a colleague who never chose her password cannot reach the reads, exports and PDFs "
         + "an expired cabinet keeps by right, and a new invitation is the only way she gets one.")]

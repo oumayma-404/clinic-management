@@ -21,6 +21,8 @@ interface StepUpDialogProps {
   /** Whether this account holds a factor — decides which proof is offered first. */
   hasTotp: boolean
   onConfirmed: (confirmationToken: string) => void
+  /** For an action that deletes something: the confirm is red and says what it does (§ 13). */
+  destructiveLabel?: string
 }
 
 /**
@@ -45,6 +47,7 @@ export function StepUpDialog({
   purpose,
   hasTotp,
   onConfirmed,
+  destructiveLabel,
 }: StepUpDialogProps) {
   const [password, setPassword] = useState('')
   const [totpCode, setTotpCode] = useState('')
@@ -133,8 +136,13 @@ export function StepUpDialog({
         >
           Annuler
         </Button>
-        <Button type="submit" className="min-h-11" disabled={busy}>
-          {busy ? 'Vérification…' : 'Confirmer'}
+        <Button
+          type="submit"
+          variant={destructiveLabel ? 'destructive' : 'default'}
+          className="min-h-11"
+          disabled={busy}
+        >
+          {busy ? 'Vérification…' : (destructiveLabel ?? 'Confirmer')}
         </Button>
       </div>
     </form>

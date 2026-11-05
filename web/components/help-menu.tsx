@@ -191,7 +191,7 @@ export function HelpMenu() {
           <Button
             variant="ghost"
             aria-label="Aide"
-            className="size-9 gap-1.5 px-0 coarse:size-11 md:w-auto md:px-2.5"
+            className="size-9 gap-1.5 px-0 coarse:h-11 coarse:min-w-11 md:w-auto md:px-2.5"
           >
             <CircleHelp aria-hidden className="size-5" />
             <span aria-hidden className="hidden text-sm md:inline">

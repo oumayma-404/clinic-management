@@ -107,6 +107,12 @@ public static class RateLimiting
     /// </summary>
     public const string CspReportPolicy = "csp-report";
 
+    /// <summary>
+    /// Writes that send an APEXA e-mail to an address the caller typed or to the vendor — « Renvoyer l'e-mail » and
+    /// « Donner mon avis ». Per user: a self-signed-up cabinet must not be a free mailer.
+    /// </summary>
+    public const string OutboundEmailPolicy = "outbound-email";
+
     // The tight window, now per submitted ACCOUNT (US-6). 30 attempts in five minutes is far more than a person
     // mistyping their own password and far less than a guessing run.
     private const int DefaultAuthPermitLimit = 30;
@@ -141,6 +147,8 @@ public static class RateLimiting
     private const int DefaultRelayInstallerWindowSeconds = 600;
 
     private const int DefaultCspReportPermitLimit = 60;
+    private const int DefaultOutboundEmailPermitLimit = 20;
+    private const int DefaultOutboundEmailWindowSeconds = 3600;
     private const int DefaultCspReportWindowSeconds = 60;
 
     /// <summary>The demo's PDFs, per visit (<c>demo-cabinet</c> AC-5.6); no limiter on any other deployment.</summary>
@@ -221,6 +229,11 @@ public static class RateLimiting
             configuration, "RateLimiting:CspReport:PermitLimit", DefaultCspReportPermitLimit);
         var cspReportWindow = TimeSpan.FromSeconds(
             Read(configuration, "RateLimiting:CspReport:WindowSeconds", DefaultCspReportWindowSeconds));
+
+        var outboundEmailPermitLimit = Read(
+            configuration, "RateLimiting:OutboundEmail:PermitLimit", DefaultOutboundEmailPermitLimit);
+        var outboundEmailWindow = TimeSpan.FromSeconds(Read(
+            configuration, "RateLimiting:OutboundEmail:WindowSeconds", DefaultOutboundEmailWindowSeconds));
 
         // Resolved once: behind a reverse proxy every peer is the proxy container, so without this every partition
         // below is one bucket for the whole deployment (review finding 1).
@@ -309,6 +322,17 @@ public static class RateLimiting
                     {
                         PermitLimit = listExportPermitLimit,
                         Window = listExportWindow,
+                        SegmentsPerWindow = SegmentsPerWindow,
+                        QueueLimit = 0
+                    }));
+
+            options.AddPolicy(OutboundEmailPolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    $"outbound-email:{PartitionKey(httpContext, trustedProxies)}",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = outboundEmailPermitLimit,
+                        Window = outboundEmailWindow,
                         SegmentsPerWindow = SegmentsPerWindow,
                         QueueLimit = 0
                     }));

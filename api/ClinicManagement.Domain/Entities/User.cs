@@ -332,13 +332,10 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
             DisableTotp();
             TotpReenrolmentRequired = true;
         }
-        else if (!string.IsNullOrEmpty(ProtectedTotpSecret))
+        else
         {
-            // A secret issued but never confirmed is discarded too. The lost PC held a sealed copy of it, and since
-            // a pending secret is now shown again for 24 h rather than replaced, keeping it would hand that copy
-            // straight back to whoever enrols next.
-            ProtectedTotpSecret = null;
-            TotpEnrolmentStartedAt = null;
+            // The lost PC held a sealed copy of a pending secret too, and a pending secret is shown again for 24 h.
+            DiscardPendingTotpSecret();
         }
 
         MustChangePassword = true;
@@ -572,10 +569,21 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         MustChangePassword = mustChangePassword;
         FailedLoginAttempts = 0;
         LockoutEnd = null;
+        // Whoever held the old password could have read the pending QR; a new password must not confirm that copy.
+        DiscardPendingTotpSecret();
         // AC-5.2: every existing token for this account stops working now. This is the single choke point
         // all four password paths go through — voluntary change, admin reset, offline CLI recovery, first set.
         TokenVersion++;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>A secret issued but never confirmed goes; a confirmed factor is untouched.</summary>
+    private void DiscardPendingTotpSecret()
+    {
+        if (IsTotpEnrolled || string.IsNullOrEmpty(ProtectedTotpSecret)) return;
+
+        ProtectedTotpSecret = null;
+        TotpEnrolmentStartedAt = null;
     }
 
     /// <summary>

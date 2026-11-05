@@ -429,7 +429,11 @@ export function UserManagement() {
             )
           )}
           {u.hasSecondFactor === true && !isSelf && (
-            <DropdownMenuItem disabled={working} onSelect={() => setTotpResetFor(u)}>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={working}
+              onSelect={() => setTotpResetFor(u)}
+            >
               <ShieldOff className="size-4" aria-hidden="true" />
               Réinitialiser le second facteur
             </DropdownMenuItem>
@@ -905,6 +909,7 @@ export function UserManagement() {
           if (!open) setTotpResetFor(null)
         }}
         action={RESET_TOTP_ACTION}
+        destructiveLabel="Réinitialiser"
         purpose={
           totpResetFor
             ? `Le second facteur de ${totpResetFor.email || totpResetFor.fullName} et ses codes de récupération seront supprimés, et ses sessions fermées.`

@@ -15,6 +15,9 @@ public class UserFeedbackPrompt : Entity<string>
     public const int MaxShows = 2;
     public static readonly TimeSpan LaterDelay = TimeSpan.FromDays(7);
 
+    /// <summary>A first showing nobody answered within this counts as « Plus tard » — the card has no ✕ to say so.</summary>
+    public static readonly TimeSpan IgnoredAfter = TimeSpan.FromDays(1);
+
     public const string ClosedByAnswer = "answered";
     public const string ClosedByNever = "never";
 
@@ -41,8 +44,11 @@ public class UserFeedbackPrompt : Entity<string>
     public bool IsClosed => ClosedAt is not null;
 
     /// <summary>Whether the question may be put now — the prompt's half of the rule; the account's age and the cabinet's use are the query's.</summary>
-    public bool MayShow(DateTime nowUtc) =>
-        !IsClosed && TimesShown < MaxShows && (LaterUntil is null || LaterUntil <= nowUtc);
+    public bool MayShow(DateTime nowUtc)
+    {
+        var laterUntil = EffectiveLaterUntil(nowUtc);
+        return !IsClosed && TimesShown < MaxShows && (laterUntil is null || laterUntil <= nowUtc);
+    }
 
     /// <summary>
     /// The card appeared. Idempotent within a showing: the browser reports it on every page that mounts the card,
@@ -50,10 +56,15 @@ public class UserFeedbackPrompt : Entity<string>
     /// </summary>
     public void MarkShown(DateTime? nowUtc = null)
     {
-        var showing = LaterUntil is null ? 1 : MaxShows;
+        var now = nowUtc ?? DateTime.UtcNow;
+        var showing = EffectiveLaterUntil(now) is null ? 1 : MaxShows;
         if (TimesShown < showing) TimesShown = showing;
-        UpdatedAt = nowUtc ?? DateTime.UtcNow;
+        UpdatedAt = now;
     }
+
+    /// <summary>« Plus tard » as pressed, or as implied by a first showing left unanswered (the row is born with it).</summary>
+    private DateTime? EffectiveLaterUntil(DateTime nowUtc) =>
+        LaterUntil ?? (TimesShown >= 1 && nowUtc - CreatedAt >= IgnoredAfter ? CreatedAt + IgnoredAfter + LaterDelay : null);
 
     /// <summary>« Plus tard »: a week. Past the last showing it closes instead, so « later » can never mean « again ».</summary>
     public void Later(DateTime? nowUtc = null)

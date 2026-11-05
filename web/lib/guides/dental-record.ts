@@ -17,7 +17,7 @@ export const dentalRecordGuide: Guide = {
       mark: "patients-list",
       text: "La fiche de soins se remplit dans le dossier du patient. Ouvrons-en un.",
       press: 'tbody tr, li a[href^="/patients/"]',
-      emptyMark: "patients-add",
+      emptyMark: "patients-empty",
       emptyText: "La fiche de soins se remplit dans le dossier du patient, après la séance : vous la verrez dès votre premier patient.",
       next: { manual: true },
     },
@@ -67,7 +67,7 @@ export const dentalRecordGuide: Guide = {
     {
       mark: "record-submit",
       scope: "record-dialog",
-      text: "Après une vraie séance, enregistrez ici. Pendant la visite, rien n'est enregistré.",
+      text: "Après une vraie séance, enregistrez ici. La visite, elle, n'y touche pas.",
       next: { manual: true },
     },
   ],
