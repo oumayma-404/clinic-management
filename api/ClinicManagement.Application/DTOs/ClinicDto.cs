@@ -17,6 +17,9 @@ public class ClinicDto
     /// <summary>Secretaries may ask for a congé (Paramètres → « Équipe »). Mapped at all seven build sites.</summary>
     public bool LeaveRequestsEnabled { get; set; }
 
+    /// <summary>Secretaries clock in and out at the cabinet's borne (Paramètres → « Équipe »).</summary>
+    public bool AttendanceEnabled { get; set; }
+
     // Billing / note-d'honoraires settings.
     public string? MatriculeFiscal { get; set; }
     public bool VatApplicable { get; set; }

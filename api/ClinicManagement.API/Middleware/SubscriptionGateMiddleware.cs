@@ -77,17 +77,8 @@ public class SubscriptionGateMiddleware
             return;
         }
 
-        // Which refusal this is comes from the one classifier the outbox gate also reads; only the wording below is
-        // this surface's own.
-        var (error, code) = SubscriptionStateReader.ClassifyRefusal(status) switch
-        {
-            SubscriptionRefusalKind.Suspended =>
-                (SubscriptionRefusals.Suspended, SubscriptionRefusals.SuspendedCode),
-            SubscriptionRefusalKind.Expired =>
-                (SubscriptionRefusals.Required(status.EndsOn!.Value), SubscriptionRefusals.RequiredCode),
-            _ => (SubscriptionRefusals.Missing, SubscriptionRefusals.MissingCode),
-        };
-
+        // Which refusal this is comes from the one classifier the outbox gate also reads, worded once for the borne too.
+        var (error, code) = SubscriptionRefusals.For(status);
         await RefuseAsync(context, error, code);
     }
 

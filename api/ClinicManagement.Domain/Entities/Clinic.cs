@@ -176,6 +176,9 @@ public class Clinic : AggregateRoot<Guid>
     /// <summary>Secretaries may ask for a congé here. Off until an admin turns it on.</summary>
     public bool LeaveRequestsEnabled { get; private set; }
 
+    /// <summary>Secretaries clock in and out at the cabinet's borne. Off until an admin turns it on.</summary>
+    public bool AttendanceEnabled { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -324,6 +327,12 @@ public class Clinic : AggregateRoot<Guid>
     public void SetLeaveRequestsEnabled(bool enabled)
     {
         LeaveRequestsEnabled = enabled;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetAttendanceEnabled(bool enabled)
+    {
+        AttendanceEnabled = enabled;
         UpdatedAt = DateTime.UtcNow;
     }
 

@@ -8,12 +8,13 @@ using MediatR;
 namespace ClinicManagement.Application.Features.Clinics.Commands;
 
 /// <summary>
-/// Paramètres → « Équipe »: turns the secretary congés on or off. Here rather than under <c>Team</c> so it broadcasts
-/// <c>clinics</c>, which is what refreshes every open menu. Tri-state: an omitted switch is left as it is.
+/// Paramètres → « Équipe »: turns the secretary congés and the pointage on or off. Here rather than under <c>Team</c> so
+/// it broadcasts <c>clinics</c>, which is what refreshes every open menu. Tri-state: an omitted switch is left as it is.
 /// </summary>
 public class SetTeamModulesCommand : IRequest<Result<TeamModulesDto>>
 {
     public bool? LeaveRequests { get; set; }
+    public bool? Attendance { get; set; }
 
     /// <summary>The clinic version the client read; <c>0</c> means « not supplied ».</summary>
     public uint Version { get; set; }
@@ -53,9 +54,20 @@ public class SetTeamModulesCommandHandler : IRequestHandler<SetTeamModulesComman
             if (clinic == null)
                 return Result<TeamModulesDto>.Failure("Clinique introuvable.");
 
+            var changed = false;
             if (request.LeaveRequests is { } leave && leave != clinic.LeaveRequestsEnabled)
             {
                 clinic.SetLeaveRequestsEnabled(leave);
+                changed = true;
+            }
+            if (request.Attendance is { } attendance && attendance != clinic.AttendanceEnabled)
+            {
+                clinic.SetAttendanceEnabled(attendance);
+                changed = true;
+            }
+
+            if (changed)
+            {
                 _unitOfWork.SetExpectedVersion(clinic, request.Version);
                 await _clinics.UpdateAsync(clinic, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -64,6 +76,7 @@ public class SetTeamModulesCommandHandler : IRequestHandler<SetTeamModulesComman
             return Result<TeamModulesDto>.Success(new TeamModulesDto
             {
                 LeaveRequestsEnabled = clinic.LeaveRequestsEnabled,
+                AttendanceEnabled = clinic.AttendanceEnabled,
                 Version = clinic.Version,
             });
         }

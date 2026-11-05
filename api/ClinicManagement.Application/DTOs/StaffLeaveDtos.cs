@@ -120,5 +120,6 @@ public class PendingStaffLeaveCountDto
 public class TeamModulesDto
 {
     public bool LeaveRequestsEnabled { get; set; }
+    public bool AttendanceEnabled { get; set; }
     public uint Version { get; set; }
 }

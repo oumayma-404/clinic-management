@@ -85,8 +85,9 @@ type PendingAction =
 export function UserManagement() {
   const { user: currentUser, mode } = useSession()
   const { data: clinicStatus } = useUserStatus()
-  // A secretary's file holds her congés, so it is offered only while the cabinet has them switched on.
-  const leaveEnabled = clinicStatus?.clinic?.leaveRequestsEnabled === true
+  // The secretary's file holds her congés and her présences, so it opens while either module is on.
+  const leaveRequestsEnabled = clinicStatus?.clinic?.leaveRequestsEnabled === true
+  const staffFileEnabled = leaveRequestsEnabled || clinicStatus?.clinic?.attendanceEnabled === true
   /**
    * AC-P2.29: « Réinitialiser le mot de passe » only exists for password-backed accounts —
    * `ResetUserPasswordCommand` refuses anything else with « Ce compte n'utilise pas de mot de passe local. »
@@ -420,11 +421,11 @@ export function UserManagement() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {leaveEnabled && u.role === "secretary" && (
+          {staffFileEnabled && u.role === "secretary" && (
             <DropdownMenuItem asChild>
               <Link href={`/users/${encodeURIComponent(u.id)}`}>
                 <CalendarOff className="size-4" aria-hidden="true" />
-                Voir sa fiche et ses congés
+                {leaveRequestsEnabled ? "Voir sa fiche et ses congés" : "Voir sa fiche"}
               </Link>
             </DropdownMenuItem>
           )}
@@ -765,10 +766,10 @@ export function UserManagement() {
                       users.map((user) => (
                         <TableRow key={user.id}>
                           <TableCell className="font-medium text-foreground">
-                            {leaveEnabled && user.role === "secretary" ? (
+                            {staffFileEnabled && user.role === "secretary" ? (
                               <Link
                                 href={`/users/${encodeURIComponent(user.id)}`}
-                                aria-label={`Fiche et congés de ${user.fullName || user.email}`}
+                                aria-label={`${leaveRequestsEnabled ? "Fiche et congés" : "Fiche"} de ${user.fullName || user.email}`}
                                 className="underline-offset-2 hover:underline"
                               >
                                 {user.fullName || user.email}

@@ -62,4 +62,13 @@ public static class SubscriptionRefusals
     public static bool IsDomainRefusal(Exception exception) =>
         exception is ArgumentException or InvalidOperationException
         && exception is not (ArgumentNullException or ArgumentOutOfRangeException);
+
+    /// <summary>The sentence and code for an entitlement that does not allow writes — the gate's and the borne's.</summary>
+    public static (string Error, string Code) For(SubscriptionStatus status) =>
+        SubscriptionStateReader.ClassifyRefusal(status) switch
+        {
+            SubscriptionRefusalKind.Suspended => (Suspended, SuspendedCode),
+            SubscriptionRefusalKind.Expired => (Required(status.EndsOn!.Value), RequiredCode),
+            _ => (Missing, MissingCode),
+        };
 }

@@ -67,6 +67,15 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     /// <summary>Congé payé days a year, typed by an admin; null means none is tracked for this account.</summary>
     public decimal? AnnualLeaveAllowanceDays { get; private set; }
 
+    /// <summary>Her « schéma de pointage », hashed like a password; null until she draws one.</summary>
+    public string? AttendanceSchemaHash { get; private set; }
+
+    /// <summary>An admin's « pointe / ne pointe pas »; null follows the role, so a role change needs no write.</summary>
+    public bool? AttendanceTrackedOverride { get; private set; }
+
+    public int SchemaFailedAttempts { get; private set; }
+    public DateTime? SchemaLockedUntilUtc { get; private set; }
+
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;
 
@@ -664,6 +673,56 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
             throw new ArgumentException(refusal, nameof(days));
         AnnualLeaveAllowanceDays = days;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    public const int MaxSchemaFailures = 5;
+    public static readonly TimeSpan SchemaLockDuration = TimeSpan.FromMinutes(15);
+
+    /// <summary>Whether she clocks in at the borne: the admin's choice, else every secretary does.</summary>
+    public bool IsAttendanceTracked => AttendanceTrackedOverride ?? IsSecretary();
+
+    public bool HasAttendanceSchema => !string.IsNullOrEmpty(AttendanceSchemaHash);
+
+    public bool IsSchemaLocked(DateTime nowUtc) => SchemaLockedUntilUtc is { } until && until > nowUtc;
+
+    public void SetAttendanceSchema(string schemaHash)
+    {
+        if (string.IsNullOrWhiteSpace(schemaHash))
+            throw new ArgumentException("Schema hash is required.", nameof(schemaHash));
+        AttendanceSchemaHash = schemaHash;
+        ClearSchemaFailures();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>« Réinitialiser le schéma »: she draws a new one, and a lock from wrong attempts is lifted.</summary>
+    public void ResetAttendanceSchema()
+    {
+        AttendanceSchemaHash = null;
+        ClearSchemaFailures();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetAttendanceTracked(bool? tracked)
+    {
+        AttendanceTrackedOverride = tracked;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>One wrong schéma; the fifth locks the tile for 15 min. Returns true when this one locked it.</summary>
+    public bool RegisterSchemaFailure(DateTime nowUtc)
+    {
+        SchemaFailedAttempts++;
+        if (SchemaFailedAttempts < MaxSchemaFailures)
+            return false;
+        SchemaFailedAttempts = 0;
+        SchemaLockedUntilUtc = nowUtc + SchemaLockDuration;
+        return true;
+    }
+
+    public void ClearSchemaFailures()
+    {
+        SchemaFailedAttempts = 0;
+        SchemaLockedUntilUtc = null;
     }
 
     public bool IsDoctor() => Role.Equals(RoleDoctor, StringComparison.OrdinalIgnoreCase);

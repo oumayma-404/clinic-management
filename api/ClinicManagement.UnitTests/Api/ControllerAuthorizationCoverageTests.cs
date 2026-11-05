@@ -205,6 +205,13 @@ public class ControllerAuthorizationCoverageTests
         "Trust.CaCertificate",       // .local/ca.crt — public CA cert, what Android imports
         "Trust.AppleProfile",        // the same CA as an iOS .mobileconfig
         "Trust.QrCode",              // PNG QR of this page's own LAN address
+        // --- The borne (pointage-borne). A reception device nobody is signed in on. ---
+        "Pointage.Status",           // « is this device a borne? »: without the HttpOnly borne cookie an admin set
+                                     // behind step-up it answers { isBorne: false } and nothing else; with it, names,
+                                     // initials and today's state of that one cabinet's tracked staff.
+        "Pointage.Punch",            // an arrival or departure: the borne cookie (SHA-256 lookup) names the cabinet,
+                                     // the person's schéma (PBKDF2, 5 tries then a 15-min lock) proves who; per-address
+                                     // rate limit; the subscription is checked in the handler.
     };
 
     private static IReadOnlyCollection<string> AnonymousEndpoints()

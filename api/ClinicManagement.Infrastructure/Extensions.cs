@@ -168,6 +168,8 @@ public static class Extensions
         services.AddScoped<IDoctorRepository, DoctorRepository>();
         services.AddScoped<IDoctorLeaveRepository, DoctorLeaveRepository>();
         services.AddScoped<IStaffLeaveRequestRepository, StaffLeaveRequestRepository>();
+        services.AddScoped<IAttendanceTerminalRepository, AttendanceTerminalRepository>();
+        services.AddScoped<IAttendanceEntryRepository, AttendanceEntryRepository>();
         services.AddScoped<IStaffNotificationRepository, StaffNotificationRepository>();
         services.AddScoped<IStaffMessageRepository, StaffMessageRepository>();
         services.AddScoped<IStaffQuickMessageListRepository, StaffQuickMessageListRepository>();

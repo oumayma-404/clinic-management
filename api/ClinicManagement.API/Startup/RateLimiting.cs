@@ -113,6 +113,12 @@ public static class RateLimiting
     /// </summary>
     public const string OutboundEmailPolicy = "outbound-email";
 
+    /// <summary>
+    /// The borne's punch: anonymous, so bounded per address. A reception sees a few dozen punches a day; the schéma's
+    /// own five-try lock is the guess limit, this only stops a loop.
+    /// </summary>
+    public const string PointagePolicy = "pointage-punch";
+
     // The tight window, now per submitted ACCOUNT (US-6). 30 attempts in five minutes is far more than a person
     // mistyping their own password and far less than a guessing run.
     private const int DefaultAuthPermitLimit = 30;
@@ -150,6 +156,8 @@ public static class RateLimiting
     private const int DefaultOutboundEmailPermitLimit = 20;
     private const int DefaultOutboundEmailWindowSeconds = 3600;
     private const int DefaultCspReportWindowSeconds = 60;
+    private const int DefaultPointagePermitLimit = 30;
+    private const int DefaultPointageWindowSeconds = 60;
 
     /// <summary>The demo's PDFs, per visit (<c>demo-cabinet</c> AC-5.6); no limiter on any other deployment.</summary>
     public const string DemoPdfPolicy = "demo-pdf";
@@ -229,6 +237,11 @@ public static class RateLimiting
             configuration, "RateLimiting:CspReport:PermitLimit", DefaultCspReportPermitLimit);
         var cspReportWindow = TimeSpan.FromSeconds(
             Read(configuration, "RateLimiting:CspReport:WindowSeconds", DefaultCspReportWindowSeconds));
+
+        var pointagePermitLimit = Read(
+            configuration, "RateLimiting:Pointage:PermitLimit", DefaultPointagePermitLimit);
+        var pointageWindow = TimeSpan.FromSeconds(
+            Read(configuration, "RateLimiting:Pointage:WindowSeconds", DefaultPointageWindowSeconds));
 
         var outboundEmailPermitLimit = Read(
             configuration, "RateLimiting:OutboundEmail:PermitLimit", DefaultOutboundEmailPermitLimit);
@@ -368,6 +381,17 @@ public static class RateLimiting
                     {
                         PermitLimit = relayInstallerPermitLimit,
                         Window = relayInstallerWindow,
+                        SegmentsPerWindow = SegmentsPerWindow,
+                        QueueLimit = 0
+                    }));
+
+            options.AddPolicy(PointagePolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    $"pointage:{ClientIp.Resolve(httpContext, trustedProxies)}",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = pointagePermitLimit,
+                        Window = pointageWindow,
                         SegmentsPerWindow = SegmentsPerWindow,
                         QueueLimit = 0
                     }));

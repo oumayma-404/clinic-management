@@ -10,6 +10,8 @@ export const MAX_STAFF_LEAVE_REASON = 500
 
 /** The `/users` tab the bell and the request links open (`?onglet=conges`). */
 export const USERS_LEAVE_TAB = "conges"
+/** The `/users` tab « Équipe aujourd'hui » opens (`?onglet=presences`). */
+export const USERS_ATTENDANCE_TAB = "presences"
 /** Raised by the bell when it sends an admin to the congés while `/users` is already on screen. */
 export const USERS_LEAVE_TAB_EVENT = "clinic:users-leave-tab"
 

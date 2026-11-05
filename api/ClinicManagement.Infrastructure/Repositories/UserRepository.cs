@@ -23,6 +23,10 @@ public class UserRepository : IUserRepository
             .FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
     }
 
+    public Task LockForUpdateAsync(string id, CancellationToken cancellationToken = default) =>
+        _context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM \"Users\" WHERE \"Id\" = {id} FOR UPDATE", cancellationToken);
+
     public async Task<IEnumerable<User>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         return await _context.Users

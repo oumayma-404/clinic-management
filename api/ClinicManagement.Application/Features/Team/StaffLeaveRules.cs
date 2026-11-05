@@ -237,7 +237,7 @@ public static class StaffLeaveRules
         Version = request.Version,
     };
 
-    public static DateOnly ClinicToday() => DateOnly.FromDateTime(ClinicClock.ClinicToday());
+    public static DateOnly ClinicToday(DateTime? nowUtc = null) => DateOnly.FromDateTime(ClinicClock.ClinicToday(nowUtc));
 
     private static IReadOnlySet<DayOfWeek> OpenWeekdays(string? workingHoursJson)
     {

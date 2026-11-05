@@ -76,6 +76,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<Doctor> Doctors { get; set; }
     public DbSet<DoctorLeave> DoctorLeaves { get; set; }
     public DbSet<StaffLeaveRequest> StaffLeaveRequests { get; set; }
+    public DbSet<AttendanceTerminal> AttendanceTerminals { get; set; }
+    public DbSet<AttendanceEntry> AttendanceEntries { get; set; }
     public DbSet<Patient> Patients { get; set; }
     public DbSet<Appointment> Appointments { get; set; }
     public DbSet<Notification> Notifications { get; set; }
@@ -380,6 +382,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         modelBuilder.Entity<Doctor>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
         modelBuilder.Entity<DoctorLeave>().HasQueryFilter(l => IsSystemWide || l.ClinicId == ScopedClinicId);
         modelBuilder.Entity<StaffLeaveRequest>().HasQueryFilter(l => IsSystemWide || l.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<AttendanceTerminal>().HasQueryFilter(t => IsSystemWide || t.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<AttendanceEntry>().HasQueryFilter(e => IsSystemWide || e.ClinicId == ScopedClinicId);
         modelBuilder.Entity<StockItem>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
         modelBuilder.Entity<Supplier>().HasQueryFilter(s => IsSystemWide || s.ClinicId == ScopedClinicId);
         // StockBatch is a child of StockItem, reached only through its filtered parent → no filter of its own,

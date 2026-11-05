@@ -90,15 +90,17 @@ It is off by default, per cabinet. There is no fingerprint and no GPS.
 
 ## API Contract
 ### GET /api/pointage/status — anonymous; borne cookie optional
-Response 200: `{ isBorne, name?, people?: [{ userId, name, initials, state: "out"|"in"|"leave", since?, needsSchema, lockedUntil? }] }`
+Response 200: `{ isBorne, terminalId?, name?, people?: [{ userId, name, initials, state: "out"|"in"|"leave", since?, needsSchema, lockedUntil? }] }`
 
 ### POST /api/pointage/punch — borne
-Request: `{ userId, pattern: number[] }` → `{ action: "arrival"|"departure", at: "HH:mm", name }`
-Errors: `401 terminal_unknown` · `400 schema_wrong { attemptsLeft }` · `423 schema_locked { lockedUntil }` ·
-`409 schema_missing` · `403 team_module_off` · `402` subscription
+Request: `{ userId, pattern: number[], expected?: "arrival"|"departure" }` → `{ action: "arrival"|"departure", at: "HH:mm", name }`
+Errors: `401 terminal_unknown` · `400 schema_wrong { attemptsLeft }` · `400 schema_invalid` (not 4–9 distinct dots — no try
+spent) · `423 schema_locked { lockedUntil }` · `409 schema_missing` · `409 on_leave` · `409 punch_state_changed` (the
+borne announced the other action) · `403 team_module_off` · `402` subscription
 
 ### GET · POST /api/team/terminals · DELETE /api/team/terminals/{id} — AdminOnly
-The POST takes `{ name, stepUpToken }` and sets the `HttpOnly` borne cookie on the response.
+The POST takes `{ name, stepUpToken, replacingTerminalId? }` and sets the `HttpOnly` borne cookie on the response;
+`replacingTerminalId` (the device's own borne, from its status) is retired in the same save.
 
 ### PUT /api/team/me/schema — own account · DELETE /api/team/users/{id}/schema — AdminOnly
 

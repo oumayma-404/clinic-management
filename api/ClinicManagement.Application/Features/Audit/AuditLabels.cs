@@ -55,6 +55,8 @@ public static class AuditLabels
         nameof(Doctor) => "Praticien",
         nameof(DoctorLeave) => "Congé du praticien",
         nameof(StaffLeaveRequest) => "Demande de congé",
+        nameof(AttendanceEntry) => "Pointage",
+        nameof(AttendanceTerminal) => "Borne de pointage",
         nameof(Clinic) => "Cabinet",
         nameof(ClinicReminderSettings) => "Paramètres de rappel",
         nameof(CnamLetterValue) => "Valeur de la lettre clé",

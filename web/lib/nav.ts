@@ -283,6 +283,8 @@ export const HIDDEN_PATHS = [
   "/signup",
   // demo-cabinet: the entry screen is the one page of the demo with no app around it.
   "/demo",
+  // pointage-borne: a reception device nobody is meant to be signed in on — no chat, banner or bottom bar over it.
+  "/pointage",
 ]
 
 /** True on a route that deliberately renders without the app chrome. */

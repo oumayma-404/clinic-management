@@ -36,6 +36,7 @@ public class RelayRawWriteCoverageTests
         ["ClinicRelayRowStore.cs"] = "the relay's own applier and reader; it writes on the PC, where nothing is captured",
         ["RestoreBackupCommand.cs"] = "a whole-database restore, app stopped; the PC's continuity check (D12) then refuses the older cloud",
         ["SchemaVerificationReader.cs"] = "catalog reads only",
+        ["UserRepository.cs"] = "SELECT … FOR UPDATE, a row lock for the borne's punch, no write",
         ["PgDumpBackupService.cs"] = "pg_database_size, a read",
         ["NumberPromises.cs"] = "RelayNumberPromise only — the PC's own promised numbers, never carried (D16)",
         ["ClinicRelayRowStore.Handback.cs"] =

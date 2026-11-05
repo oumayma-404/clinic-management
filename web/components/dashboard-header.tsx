@@ -23,6 +23,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { NotificationPanel } from "@/components/notification-panel"
 import { StaffChatLauncher } from "@/components/staff-chat/staff-chat-launcher"
 import { HelpMenu } from "@/components/help-menu"
+import { BorneLink } from "@/components/team/borne-link"
 import { PostVisitReviewPopup } from "@/components/post-visit-review-popup"
 import { FeedbackPromptCard } from "@/components/feedback/feedback-prompt-card"
 import { useNotifications } from "@/lib/hooks/use-notifications"
@@ -35,10 +36,13 @@ import { cn } from "@/lib/utils"
 import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Monitor, Sun, Moon, ArrowLeft } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { useUserStatus } from "@/lib/hooks/use-user-status"
 
 export function DashboardHeader() {
   const { user, isLoading, mode, logout } = useSession()
   const router = useRouter()
+  // The borne probe is a request per page load; a cabinet without the pointage has no borne to find.
+  const attendanceEnabled = useUserStatus().data?.clinic?.attendanceEnabled === true
   // `theme` (the stored choice, including « système ») drives the radio; `resolvedTheme` would collapse
   // système into whichever concrete theme the OS currently reports and tick the wrong row.
   const { theme, setTheme } = useTheme()
@@ -427,6 +431,8 @@ export function DashboardHeader() {
 
       <div className="flex shrink-0 items-center gap-1 md:gap-4">
         <ConnectivityIndicator />
+
+        {attendanceEnabled && <BorneLink variant="header" />}
 
         <HelpMenu />
 

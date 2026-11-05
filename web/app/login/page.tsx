@@ -18,6 +18,7 @@ import { RecoveryCodesPanel } from '@/components/security/recovery-codes-panel'
 import { usePasswordResetEnabled, useSecondFactorRecovery } from '@/lib/hooks/use-password-policy'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { appSurface } from '@/lib/shell'
+import { BorneLink } from '@/components/team/borne-link'
 
 export default function LoginPage() {
   const { user, isLoading, mode } = useSession()
@@ -781,6 +782,8 @@ function LocalLoginForm() {
         </Button>
 
         <ForgotPasswordLine />
+
+        <BorneLink variant="login" />
 
         {/* /signup states « Inscription non disponible ici » itself where the capability is off, so this
             link needs no probe of its own — unlike the retired /join one, whose code path is closed. */}

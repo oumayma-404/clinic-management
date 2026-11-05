@@ -111,6 +111,9 @@ public static class DashboardKpiKeys
     /// </summary>
     public const string GettingStarted = "gettingStarted";
 
+    /// <summary>« Équipe aujourd'hui » (<c>pointage-borne</c>): who is here, who is on congé. Read from <c>GET /api/team/today</c>.</summary>
+    public const string TeamToday = "teamToday";
+
     /// <summary>Every hideable block, in the order the dashboard renders them.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -136,6 +139,7 @@ public static class DashboardKpiKeys
         Trend,
         AppointmentTrend,
         TodayAppointments,
+        TeamToday,
     };
 
     private static readonly HashSet<string> Known = new(All, StringComparer.OrdinalIgnoreCase);

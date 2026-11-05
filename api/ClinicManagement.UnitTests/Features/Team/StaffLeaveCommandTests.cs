@@ -735,4 +735,33 @@ public class StaffLeaveCommandTests
         Assert.True(_clinic.LeaveRequestsEnabled);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    [Fact]
+    public async Task The_Pointage_Is_Off_By_Default_And_Turns_On_Without_Touching_The_Congés()
+    {
+        Assert.False(new Clinic(OtherClinicId, "Neuf", code: "CODE02").AttendanceEnabled);
+        SignIn(_admin);
+
+        var result = await Modules().Handle(new SetTeamModulesCommand { Attendance = true, Version = 6 }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.True(_clinic.AttendanceEnabled);
+        Assert.True(result.Value!.AttendanceEnabled);
+        Assert.True(_clinic.LeaveRequestsEnabled);
+        _uow.Verify(u => u.SetExpectedVersion(_clinic, 6u), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Turning_The_Congés_Off_Leaves_The_Pointage_Switch_As_It_Was()
+    {
+        _clinic.SetAttendanceEnabled(true);
+        SignIn(_admin);
+
+        var result = await Modules().Handle(new SetTeamModulesCommand { LeaveRequests = false }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.False(_clinic.LeaveRequestsEnabled);
+        Assert.True(_clinic.AttendanceEnabled);
+    }
 }

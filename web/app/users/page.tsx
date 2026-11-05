@@ -4,11 +4,12 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useGuide } from "@/components/guide/guide-provider"
 import { StaffLeaveAdminPanel } from "@/components/staff-leave/staff-leave-admin-panel"
+import { AttendancePanel } from "@/components/team/attendance-panel"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { usePendingLeaveCount } from "@/lib/hooks/use-staff-leave"
 import { useUrlFilters, useUrlFilterSeed } from "@/lib/hooks/use-url-filters"
 import { useUserStatus } from "@/lib/hooks/use-user-status"
-import { USERS_LEAVE_TAB, USERS_LEAVE_TAB_EVENT } from "@/lib/staff-leave"
+import { USERS_ATTENDANCE_TAB, USERS_LEAVE_TAB, USERS_LEAVE_TAB_EVENT } from "@/lib/staff-leave"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { UserManagement } from "@/components/user-management"
@@ -76,15 +77,21 @@ export default function UsersPage() {
   )
 }
 
-/** « Comptes · Congés » — the second tab only while the cabinet has congés switched on. */
+
+/** « Comptes · Congés · Présences » — each extra tab only while the cabinet has its module switched on. */
 function UsersTabs() {
   const { data: status } = useUserStatus()
   const leaveEnabled = status?.clinic?.leaveRequestsEnabled === true
+  const attendanceEnabled = status?.clinic?.attendanceEnabled === true
   const pendingCount = usePendingLeaveCount(leaveEnabled)
   const seed = useUrlFilterSeed()
-  const [tab, setTab] = useState(seed.get("onglet") === USERS_LEAVE_TAB ? USERS_LEAVE_TAB : "comptes")
-  const showingLeave = leaveEnabled && tab === USERS_LEAVE_TAB
-  useUrlFilters({ onglet: showingLeave ? USERS_LEAVE_TAB : null }, Boolean(status))
+  const seeded = seed.get("onglet")
+  const [tab, setTab] = useState(
+    seeded === USERS_LEAVE_TAB || seeded === USERS_ATTENDANCE_TAB ? seeded : "comptes",
+  )
+  const active =
+    (tab === USERS_LEAVE_TAB && leaveEnabled) || (tab === USERS_ATTENDANCE_TAB && attendanceEnabled) ? tab : "comptes"
+  useUrlFilters({ onglet: active === "comptes" ? null : active }, Boolean(status))
 
   useEffect(() => {
     const open = () => setTab(USERS_LEAVE_TAB)
@@ -98,30 +105,44 @@ function UsersTabs() {
     if (running === "secretary") setTab("comptes")
   }, [running])
 
-  if (!leaveEnabled) return <UserManagement />
+  if (!leaveEnabled && !attendanceEnabled) return <UserManagement />
 
   return (
-    <Tabs value={showingLeave ? USERS_LEAVE_TAB : "comptes"} onValueChange={setTab}>
+    <Tabs value={active} onValueChange={setTab}>
       <TabsList className="coarse:h-auto">
         <TabsTrigger value="comptes" className="coarse:min-h-11">
           Comptes
         </TabsTrigger>
-        <TabsTrigger value={USERS_LEAVE_TAB} className="gap-1.5 coarse:min-h-11">
-          Congés
-          {pendingCount > 0 && (
-            <span className="rounded-full bg-primary px-1.5 text-2xs font-semibold text-primary-foreground tabular-nums">
-              {pendingCount}
-              <span className="sr-only"> en attente</span>
-            </span>
-          )}
-        </TabsTrigger>
+        {leaveEnabled && (
+          <TabsTrigger value={USERS_LEAVE_TAB} className="gap-1.5 coarse:min-h-11">
+            Congés
+            {pendingCount > 0 && (
+              <span className="rounded-full bg-primary px-1.5 text-2xs font-semibold text-primary-foreground tabular-nums">
+                {pendingCount}
+                <span className="sr-only"> en attente</span>
+              </span>
+            )}
+          </TabsTrigger>
+        )}
+        {attendanceEnabled && (
+          <TabsTrigger value={USERS_ATTENDANCE_TAB} className="coarse:min-h-11">
+            Présences
+          </TabsTrigger>
+        )}
       </TabsList>
       <TabsContent value="comptes" className="mt-6">
         <UserManagement />
       </TabsContent>
-      <TabsContent value={USERS_LEAVE_TAB} className="mt-6">
-        <StaffLeaveAdminPanel />
-      </TabsContent>
+      {leaveEnabled && (
+        <TabsContent value={USERS_LEAVE_TAB} className="mt-6">
+          <StaffLeaveAdminPanel />
+        </TabsContent>
+      )}
+      {attendanceEnabled && (
+        <TabsContent value={USERS_ATTENDANCE_TAB} className="mt-6">
+          <AttendancePanel scope={{ kind: "all" }} />
+        </TabsContent>
+      )}
     </Tabs>
   )
 }

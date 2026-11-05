@@ -108,11 +108,14 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
      * finished with the screen, so passing no `returnTo` is the right default.
      */
     if (isDemoRef.current && !options?.returnTo) forgetDemoVisit()
+    // A public page works signed out, so an inactivity logout there stays on it — a borne must not end on /login.
     const target = isDemoRef.current
       ? options?.returnTo ? "/demo?expired=1" : "/demo"
-      : options?.returnTo
-        ? `/login?returnTo=${encodeURIComponent(options.returnTo)}`
-        : "/login"
+      : options?.returnTo && isPublicRoute(options.returnTo.split("?")[0])
+        ? options.returnTo
+        : options?.returnTo
+          ? `/login?returnTo=${encodeURIComponent(options.returnTo)}`
+          : "/login"
     /*
      * The reason is sent so the session table can tell a chosen sign-out from a timeout — until now both were
      * stamped identically, and the practice's own records could not answer how often the limit was firing.
@@ -319,6 +322,11 @@ export function LocalSessionProvider({ children }: { children: React.ReactNode }
     const limitMs = idleLimitMinutes(trusted, canLock) * 60 * 1000
 
     const expireNow = () => {
+      // Nothing of the record is on a public page (the borne): the session ends there, with no cover over it.
+      if (isPublicRoute(window.location.pathname)) {
+        logout({ returnTo: window.location.pathname + window.location.search, reason: "inactivity" })
+        return
+      }
       /*
        * ⚠️ The ending is `idleExpiryEnding`'s to decide, never a local `if (canLock)`. A trusted device pauses
        * whatever the shell can do — on a machine with no Windows Hello credential the old branch fell through

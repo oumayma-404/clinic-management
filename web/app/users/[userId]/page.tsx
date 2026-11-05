@@ -13,6 +13,7 @@ import { StaffLeaveBalanceCard } from "@/components/staff-leave/staff-leave-bala
 import { StaffLeaveRequestDialog } from "@/components/staff-leave/staff-leave-request-dialog"
 import { StaffLeaveSectionTitle } from "@/components/staff-leave/staff-leave-bits"
 import { StaffLeaveHistory, useLeaveDialogs } from "@/components/staff-leave/staff-leave-request-list"
+import { AttendancePanel } from "@/components/team/attendance-panel"
 import { STATUS_TONE_CLASS } from "@/components/ui/status-tone"
 import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { AppLoader } from "@/components/ui/app-loader"
@@ -58,6 +59,8 @@ export default function StaffFilePage() {
   const { data: status } = useUserStatus()
   const isAdmin = user?.role === "admin"
   const leaveEnabled = status?.clinic?.leaveRequestsEnabled === true
+  const attendanceEnabled = status?.clinic?.attendanceEnabled === true
+  const [attendanceName, setAttendanceName] = useState<string | null>(null)
   const { data: file, loading, failed, refetch } = useStaffFile(isAdmin && leaveEnabled ? userId : null)
   const [absenceOpen, setAbsenceOpen] = useState(false)
   const { open, dialogs } = useLeaveDialogs(refetch, { showName: true })
@@ -74,13 +77,22 @@ export default function StaffFilePage() {
         />
       )
     }
+    const presences =
+      attendanceEnabled && userId ? (
+        <section aria-labelledby="staff-presences" className="space-y-3">
+          <StaffLeaveSectionTitle id="staff-presences">Présences</StaffLeaveSectionTitle>
+          <AttendancePanel scope={{ kind: "person", userId }} onPersonName={setAttendanceName} />
+        </section>
+      ) : null
     if (!leaveEnabled) {
       return (
-        <EmptyState
-          icon={CalendarOff}
-          title="Les demandes de congé ne sont pas activées"
-          description="Activez-les dans « Paramètres » pour retrouver le solde et l'historique de chacun."
-        />
+        presences ?? (
+          <EmptyState
+            icon={CalendarOff}
+            title="Les demandes de congé ne sont pas activées"
+            description="Activez-les dans « Paramètres » pour retrouver le solde et l'historique de chacun."
+          />
+        )
       )
     }
     if (loading && !file) return <AppLoader label="Chargement de la fiche…" />
@@ -131,6 +143,7 @@ export default function StaffFilePage() {
             />
           )}
         </section>
+        {presences}
       </>
     )
   }
@@ -147,7 +160,7 @@ export default function StaffFilePage() {
           </Link>
         </Button>
         <PageHeader
-          title={file?.fullName ?? "Fiche"}
+          title={file?.fullName ?? attendanceName ?? "Fiche"}
           titleBadge={
             file ? (
               <span

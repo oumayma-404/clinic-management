@@ -6,33 +6,45 @@ import { Users } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { AttendanceSettingsCard } from "@/components/team/attendance-settings-card"
 import { clinicsApi } from "@/lib/api/clinics"
 import { showErrorToast } from "@/lib/errors"
 import { useFetchUserStatus, useUserStatus } from "@/lib/hooks/use-user-status"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 
-/** Paramètres → « Équipe »: the secretary congés, off until an admin turns them on. Admins only (the caller gates). */
-/** `onSaved` hands back the clinic's new version — the switch writes the same row Paramètres' sections save. */
+type TeamModule = "leaveRequests" | "attendance"
+
+const SAVED: Record<TeamModule, [on: string, off: string]> = {
+  leaveRequests: ["Demandes de congé activées.", "Demandes de congé désactivées."],
+  attendance: ["Pointage activé.", "Pointage désactivé."],
+}
+
+/**
+ * Paramètres → « Équipe »: the secretary congés and the pointage, each off until an admin turns it on. Admins only
+ * (the caller gates). `onSaved` hands back the clinic's new version — the switch writes the same row Paramètres'
+ * sections save.
+ */
 export function TeamModulesCard({ onSaved }: { onSaved?: (version: number) => void } = {}) {
   const { data: status } = useUserStatus()
   const fetchUserStatus = useFetchUserStatus()
   const clinic = status?.clinic
-  const enabled = clinic?.leaveRequestsEnabled === true
-  const [saving, setSaving] = useState(false)
+  const leaveOn = clinic?.leaveRequestsEnabled === true
+  const attendanceOn = clinic?.attendanceEnabled === true
+  const [saving, setSaving] = useState<TeamModule | null>(null)
 
-  const toggle = async (next: boolean) => {
+  const toggle = async (module: TeamModule, next: boolean) => {
     if (!clinic || saving) return
-    setSaving(true)
+    setSaving(module)
     try {
       // No version: one idempotent switch, where the last press is the intent (« Mode discret »'s shape).
-      const saved = await clinicsApi.setTeamModules({ leaveRequests: next })
+      const saved = await clinicsApi.setTeamModules({ [module]: next })
       onSaved?.(saved.version)
-      toast.success(next ? "Demandes de congé activées." : "Demandes de congé désactivées.")
+      toast.success(SAVED[module][next ? 0 : 1])
     } catch (err) {
       showErrorToast(err, "Le réglage n'a pas pu être enregistré.")
     } finally {
       await fetchUserStatus().catch(() => undefined)
-      setSaving(false)
+      setSaving(null)
     }
   }
 
@@ -51,11 +63,27 @@ export function TeamModulesCard({ onSaved }: { onSaved?: (version: number) => vo
           </Label>
           <Switch
             id="team-leave-requests"
-            checked={enabled}
-            disabled={!clinic || saving}
-            onCheckedChange={(next) => void toggle(next)}
+            checked={leaveOn}
+            disabled={!clinic || saving !== null}
+            onCheckedChange={(next) => void toggle("leaveRequests", next)}
           />
         </div>
+        <div className="flex items-center justify-between gap-3 border-t pt-3">
+          <Label htmlFor="team-attendance" className="font-normal">
+            Pointage des arrivées et des départs
+          </Label>
+          <Switch
+            id="team-attendance"
+            checked={attendanceOn}
+            disabled={!clinic || saving !== null}
+            onCheckedChange={(next) => void toggle("attendance", next)}
+          />
+        </div>
+        {attendanceOn && (
+          <div className="border-t pt-4">
+            <AttendanceSettingsCard />
+          </div>
+        )}
       </CardContent>
     </Card>
   )

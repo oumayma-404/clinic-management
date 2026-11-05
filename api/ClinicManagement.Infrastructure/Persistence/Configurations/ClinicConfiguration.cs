@@ -75,6 +75,10 @@ public class ClinicConfiguration : IEntityTypeConfiguration<Clinic>
             .IsRequired()
             .HasDefaultValue(false);
 
+        builder.Property(c => c.AttendanceEnabled)
+            .IsRequired()
+            .HasDefaultValue(false);
+
         // Working hours JSON array (reliability-and-polish AC-7) — opaque, variable length.
         builder.Property(c => c.WorkingHoursJson)
             .HasColumnType("text");

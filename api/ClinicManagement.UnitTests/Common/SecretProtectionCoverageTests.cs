@@ -114,6 +114,10 @@ public class SecretProtectionCoverageTests
             [$"{nameof(SessionFamily)}.{nameof(SessionFamily.PreviousCredentialHash)}"] =
                 "The superseded generation of the hash above, kept for the same detection and on the same terms.",
 
+            [$"{nameof(AttendanceTerminal)}.{nameof(AttendanceTerminal.SecretHash)}"] =
+                "A SHA-256 of the borne's 256-bit cookie, which exists in plaintext only on that device. It is the "
+                + "lookup key of every anonymous punch, matched by equality, which ciphertext is not.",
+
             [$"{nameof(ClinicSignup)}.{nameof(ClinicSignup.TokenHash)}"] =
                 "A SHA-256 of the single-use verification token, which exists in plaintext only in the e-mail. "
                 + "Encrypting a hash would buy nothing — the row is already the non-reversible half — while "

@@ -155,6 +155,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
                 Code = clinic.Code,
                 IsMoneyHidden = clinic.IsMoneyHidden,
                 LeaveRequestsEnabled = clinic.LeaveRequestsEnabled,
+                AttendanceEnabled = clinic.AttendanceEnabled,
                 CreatedAt = clinic.CreatedAt,
                 Version = clinic.Version,
             };
@@ -253,6 +254,7 @@ public class JoinClinicCommandHandler : IRequestHandler<JoinClinicCommand, Resul
             Code = clinic.Code,
             IsMoneyHidden = clinic.IsMoneyHidden,
             LeaveRequestsEnabled = clinic.LeaveRequestsEnabled,
+            AttendanceEnabled = clinic.AttendanceEnabled,
             LogoUrl = clinic.LogoUrl,
             CreatedAt = clinic.CreatedAt,
             Version = clinic.Version,
