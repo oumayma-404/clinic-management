@@ -36,6 +36,8 @@ public class SubscriptionPricing : ISubscriptionPricing
 
     public string? ContactPhone => Trimmed(_configuration["Subscription:ContactPhone"]);
 
+    public string? WhatsAppPhone => Trimmed(_configuration["Subscription:WhatsAppPhone"]);
+
     /// <summary>
     /// ⚠️ Parsed by hand, and <b>invariant</b>. <c>GetValue&lt;decimal?&gt;</c> throws on a value it cannot convert,
     /// which would turn a typo in a price into a 500 on the one screen an expired cabinet needs — a price is

@@ -176,7 +176,8 @@ services:
       Subscription__Plans__SurMesure__PriceAnnualDt: ${SUBSCRIPTION_SURMESURE_ANNUAL_DT:-}
       Subscription__PaymentInstructions: ${SUBSCRIPTION_PAYMENT_INSTRUCTIONS:-}
       Subscription__ContactEmail: ${SUBSCRIPTION_CONTACT_EMAIL:-}
-      Subscription__ContactPhone: ${SUBSCRIPTION_CONTACT_PHONE:-}
+      Subscription__ContactPhone: ${SUBSCRIPTION_CONTACT_PHONE:-+216 53 218 664}
+      Subscription__WhatsAppPhone: ${SUBSCRIPTION_WHATSAPP_PHONE:-+216 51 230 456}
       # FR-4.4 / OQ-5 — 30 days of retention, one file a day. Stated here rather than left at appsettings'
       # default of 7, because the volume below is what makes retention mean anything at all.
       Serilog__RetainedFileCountLimit: "30"

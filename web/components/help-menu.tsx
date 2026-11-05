@@ -30,7 +30,9 @@ export function useHelpContact() {
   const { data: status } = useUserStatus()
   const phone = subscription?.contactPhone?.trim() || null
   const clinicName = status?.clinic?.name ?? status?.clinicName ?? null
-  const whatsapp = whatsAppUrl(phone, clinicName ? `Bonjour, ici ${clinicName}. ` : "Bonjour. ")
+  // WhatsApp may be a different number from the one to call.
+  const whatsappNumber = subscription?.whatsAppPhone?.trim() || phone
+  const whatsapp = whatsAppUrl(whatsappNumber, clinicName ? `Bonjour, ici ${clinicName}. ` : "Bonjour. ")
   return { phone, whatsapp }
 }
 

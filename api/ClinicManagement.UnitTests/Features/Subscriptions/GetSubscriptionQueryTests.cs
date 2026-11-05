@@ -56,6 +56,8 @@ public class GetSubscriptionQueryTests
         public string? ContactEmail => "facturation@example.tn";
 
         public string? ContactPhone => "+216 71 000 000";
+
+        public string? WhatsAppPhone => "+216 50 000 000";
     }
 
     private sealed class Harness
@@ -313,5 +315,6 @@ public class GetSubscriptionQueryTests
         Assert.Equal("Virement BIAT 08 xxx\nRéférence : le nom du cabinet.", dto.PaymentInstructions);
         Assert.Equal("facturation@example.tn", dto.ContactEmail);
         Assert.Equal("+216 71 000 000", dto.ContactPhone);
+        Assert.Equal("+216 50 000 000", dto.WhatsAppPhone);
     }
 }

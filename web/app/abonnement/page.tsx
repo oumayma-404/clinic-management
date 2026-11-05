@@ -318,7 +318,8 @@ function StateCard({ subscription }: { subscription: SubscriptionDto }) {
  * page. `null` is the honest answer for an unparseable number, which is why there is no fallback.</p>
  */
 function ContactCard({ subscription }: { subscription: SubscriptionDto }) {
-  const whatsapp = whatsAppUrl(subscription.contactPhone)
+  // WhatsApp may be a different number from the one « Appeler » dials.
+  const whatsapp = whatsAppUrl(subscription.whatsAppPhone?.trim() || subscription.contactPhone)
   const hasContact = Boolean(whatsapp || subscription.contactEmail || subscription.contactPhone)
 
   return (
