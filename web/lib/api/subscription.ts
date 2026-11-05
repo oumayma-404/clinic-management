@@ -43,6 +43,8 @@ export interface SubscriptionDto {
   paymentInstructions: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
+  /** The number « WhatsApp » opens; null = the same as `contactPhone`. Absent from an older server. */
+  whatsAppPhone?: string | null;
 }
 
 /** One forfait of the published tariff. A label and a price; it **gates nothing** (FR-10). */

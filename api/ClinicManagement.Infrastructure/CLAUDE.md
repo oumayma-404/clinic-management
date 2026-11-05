@@ -353,6 +353,17 @@ documents, nullable-patient appointments, and the multi-tenant clinic/user/docto
   so no backfill and nothing for the destructive-before-backfill hazard to bite on; EF emitted no `xmin` because
   an `AddColumn` creates no table. Verified against the live database: the drift set before and after is
   **identical** (4 pre-existing, none touching `Users`).
+- **`20261103115435_AddOnboardingSignInColumns`** (`guided-first-days` A/B) — three nullable `Users` columns:
+  `TotpEnrolmentStartedAt` (a pending authenticator QR is shown again for 24 h instead of re-minted), and
+  `PhoneAppFirstSignInAt` / `PhoneAppPlatform` (`varchar(32)`, first sign-in from the phone app). Hand-written
+  (migration + Designer derived from the snapshot). No default, no backfill. Verified on a throwaway database:
+  `verify-schema` identical before and after, no `xmin` column.
+- **`20261103154609_AddStaffInvitations`** (`guided-first-days` C) — one new `StaffInvitations` table: unique `UserId`
+  (re-armed in place) and unique `TokenHash`, a `(ConsumedAtUtc, ExpiresAtUtc)` purge index, and a **required FK to
+  `Users`, cascade** — so deleting an account or a cabinet takes its invitation by the model (`ClinicPurge` reaches it
+  through that FK). Scaffolded; the `xmin` column EF emitted was removed by hand. Excluded from the archive and the PC
+  de secours (`ClinicArchiveScope.Excluded`); swept by `SessionFamilyPurgeJob`. Verified on a throwaway database:
+  `verify-schema` diff = the 4 new items only.
 - **`20260815110947_AddSuppliers`** (`stock-fournisseurs`) — one new `Suppliers` table, `SupplierId` on
   `StockItems` **and** `LabWorkOrders`, four backfills, and the drop of the free-text `StockItems.Supplier`.
   ⚠️ **The statement order is the design, not the scaffolder's.** EF emitted `DropColumn("Supplier")` as the

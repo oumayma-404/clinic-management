@@ -15,8 +15,16 @@ public class ListUsersQueryHandlerTests
 
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IClinicContext> _context = new();
+    private readonly Mock<IStaffInvitationRepository> _invitations = new();
 
-    private ListUsersQueryHandler Handler() => new(_users.Object, _context.Object);
+    public ListUsersQueryHandlerTests()
+    {
+        _invitations.Setup(r => r.GetPendingUserIdsAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string>());
+    }
+
+    private ListUsersQueryHandler Handler() => new(_users.Object, _context.Object, _invitations.Object);
 
     private static User Local(string role) =>
         User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");
@@ -40,6 +48,49 @@ public class ListUsersQueryHandlerTests
         var deactivated = result.Value!.Items.Single(u => u.Role == "doctor");
         Assert.False(deactivated.IsActive);
         Assert.True(result.Value!.Items.Single(u => u.Role == "admin").IsActive);
+    }
+
+    // The row says whether the account holds a second factor — what decides if « Réinitialiser le second facteur » is offered.
+    [Fact]
+    public async Task Handle_Reports_Whether_Each_Account_Holds_A_Second_Factor()
+    {
+        var admin = Local("admin");
+        var doctor = Local("doctor");
+        doctor.IssueTotpSecret("protected-secret");
+        doctor.CompleteTotpEnrolment(new[] { "code-hash" });
+        _context.Setup(c => c.GetUserId()).Returns(admin.Id);
+        _users.Setup(r => r.GetByAuth0SubAsync(admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(admin);
+        _users.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { admin, doctor }).AsPage());
+
+        var result = await Handler().Handle(new ListUsersQuery(), CancellationToken.None);
+
+        Assert.True(result.Value!.Items.Single(u => u.Role == "doctor").HasSecondFactor);
+        Assert.False(result.Value!.Items.Single(u => u.Role == "admin").HasSecondFactor);
+    }
+
+    // « Invitation envoyée » marks the row the invitation table names, and only that one — asked once for the page.
+    [Fact]
+    public async Task Handle_Marks_Only_The_Accounts_With_A_Pending_Invitation()
+    {
+        var admin = Local("admin");
+        var secretary = Local("secretary");
+        _context.Setup(c => c.GetUserId()).Returns(admin.Id);
+        _users.Setup(r => r.GetByAuth0SubAsync(admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(admin);
+        _users.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<string?>(), It.IsAny<PageRequest?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new[] { admin, secretary }).AsPage());
+        _invitations.Setup(r => r.GetPendingUserIdsAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string> { secretary.Id });
+
+        var result = await Handler().Handle(new ListUsersQuery(), CancellationToken.None);
+
+        Assert.True(result.Value!.Items.Single(u => u.Role == "secretary").InvitationPending);
+        Assert.False(result.Value!.Items.Single(u => u.Role == "admin").InvitationPending);
+        _invitations.Verify(r => r.GetPendingUserIdsAsync(
+            It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // [AC-5.4] A non-admin cannot list users.

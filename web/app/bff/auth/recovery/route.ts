@@ -16,7 +16,7 @@ const API_INTERNAL_URL = process.env.API_INTERNAL_URL || 'http://localhost:5000/
  * and the forced-password-change flag cannot diverge from the login path's.
  */
 export async function POST(request: NextRequest) {
-  let body: { email?: string; password?: string; recoveryCode?: string };
+  let body: { email?: string; password?: string; recoveryCode?: string; clientSurface?: string };
   try {
     body = await request.json();
   } catch {
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
         email: body.email ?? '',
         password: body.password ?? '',
         recoveryCode: body.recoveryCode ?? '',
+        ...(typeof body.clientSurface === 'string' ? { clientSurface: body.clientSurface.slice(0, 32) } : {}),
       }),
     });
 

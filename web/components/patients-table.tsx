@@ -349,7 +349,8 @@ export function PatientsTable({
       */
       action={
         !isFiltered && onCreatePatient ? (
-          <Button onClick={onCreatePatient} className="gap-2">
+          // The « Première fiche » guide's sign of an empty cabinet: drawn only once the list has loaded empty.
+          <Button onClick={onCreatePatient} className="gap-2" data-guide="patients-empty">
             <Plus className="h-4 w-4" />
             Ajouter un patient
           </Button>
@@ -432,8 +433,9 @@ export function PatientsTable({
             carried over: AC-17 omits an absent field rather than printing a placeholder for it — on a phone a
             line that says "there is nothing here" costs the same space as one that says something.
           */}
+          {/* « Me guider » (« Première fiche de soins ») lights the list while it holds a patient. */}
+          <div className={CARDS_ONLY_LG} data-guide={patients.length > 0 ? "patients-list" : undefined}>
           <CardList
-            className={CARDS_ONLY_LG}
             ariaLabel="Patients"
             loading={loading}
             skeletonRows={6}
@@ -507,9 +509,11 @@ export function PatientsTable({
             )}
             empty={emptyState}
           />
+          </div>
           {!loading && (
             <>
-          <Table containerClassName={TABLE_ONLY_LG}>
+          <div className={TABLE_ONLY_LG} data-guide={patients.length > 0 ? "patients-list" : undefined}>
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Nom</TableHead>
@@ -655,6 +659,7 @@ export function PatientsTable({
               )}
             </TableBody>
           </Table>
+          </div>
           {!error && (
             <DataTablePagination
               page={pageInfo}

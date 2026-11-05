@@ -91,6 +91,57 @@ public class DashboardController : ApiControllerBase
     }
 
     /// <summary>
+    /// « Premiers pas » — the seven setup steps of a new cabinet and which are done, plus who has signed in from the
+    /// phone app (<c>guided-first-days</c> B). <c>visible: false</c> after the cabinet's first 30 days or once all
+    /// are done.
+    /// </summary>
+    /// <remarks>
+    /// Administrators only, one step tighter than the class: setting the cabinet up (a colleague's account, the
+    /// letterhead) is theirs to do, and the phone list names every account of the practice.
+    /// </remarks>
+    [HttpGet("getting-started")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<GettingStartedDto>> GetGettingStarted()
+    {
+        var result = await _mediator.Send(new GetGettingStartedQuery());
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
+    /// <summary>
+    /// The signed-in administrator ticks a « Premiers pas » step by hand (« fait, ou au moins compris ») — its circle,
+    /// « Terminé » on the phone window, the end of the fiche tour. Every step but the security code; any other key is
+    /// refused with <c>getting_started_step_not_tickable</c>.
+    /// </summary>
+    [HttpPut("getting-started/{step}/tick")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [AllowsWithoutSubscription("FR-3 — personal interface state, not clinic work: a step this user ticked.")]
+    public Task<IActionResult> TickStep(string step) => SendTick(step, ticked: true);
+
+    /// <summary>Unticks a step ticked by hand. A step its own data says is done stays done.</summary>
+    [HttpDelete("getting-started/{step}/tick")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [AllowsWithoutSubscription("FR-3 — personal interface state, not clinic work: a step this user unticked.")]
+    public Task<IActionResult> UntickStep(string step) => SendTick(step, ticked: false);
+
+    private async Task<IActionResult> SendTick(string step, bool ticked)
+    {
+        var result = await _mediator.Send(new SetGettingStartedStepTickCommand { Step = step, Ticked = ticked });
+
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
     /// The signed-in user's dashboard layout choices, plus every block the dashboard can show.
     /// </summary>
     /// <remarks>

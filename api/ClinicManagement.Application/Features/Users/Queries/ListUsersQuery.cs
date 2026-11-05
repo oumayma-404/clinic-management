@@ -27,13 +27,16 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<Clin
 {
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
+    private readonly IStaffInvitationRepository _invitations;
 
     public ListUsersQueryHandler(
         IUserRepository userRepository,
-        IClinicContext clinicContext)
+        IClinicContext clinicContext,
+        IStaffInvitationRepository invitations)
     {
         _userRepository = userRepository;
         _clinicContext = clinicContext;
+        _invitations = invitations;
     }
 
     public async Task<Result<ClinicUsersPageDto>> Handle(ListUsersQuery request, CancellationToken cancellationToken)
@@ -68,6 +71,14 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<Clin
 
             var dtos = page
                 .Map(u => u.ToClinicUserDto());
+
+            // « Invitation envoyée » — one read for the page, never one per row.
+            var pending = await _invitations.GetPendingUserIdsAsync(
+                dtos.Items.Select(u => u.Id).ToList(), DateTime.UtcNow, cancellationToken);
+            foreach (var dto in dtos.Items)
+            {
+                dto.InvitationPending = pending.Contains(dto.Id);
+            }
 
             // Counted over the whole clinic and outside the search term (I5). The figure exists to tell an admin
             // that someone cannot get in yet, so scoping it to the rows they happen to be looking at would hide

@@ -366,3 +366,13 @@ export const TABLE_ONLY = "hidden md:block"
  */
 export const CARDS_ONLY_LG = "lg:hidden"
 export const TABLE_ONLY_LG = "hidden lg:block"
+
+/**
+ * The same pair, hinged at `xl:` (1280 px) — for a table whose MIN-content cannot fit the `lg:` box at all.
+ *
+ * <p>Measured on `/users`: unbreakable e-mails and a fixed rôle `Select` put the table at ~730 px of min-content,
+ * against 670 px of box at 1024 — so its last column (the row's actions) sat outside the scrollport from 1024 to
+ * 1279 px. Pick this by measuring, never by column count.</p>
+ */
+export const CARDS_ONLY_XL = "xl:hidden"
+export const TABLE_ONLY_XL = "hidden xl:block"

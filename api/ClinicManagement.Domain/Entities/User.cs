@@ -235,6 +235,69 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     /// <summary>When the issued secret was confirmed by a code generated from it. Null until then.</summary>
     public DateTime? TotpEnrolledAt { get; private set; }
 
+    /// <summary>
+    /// When the secret now pending (issued, not yet confirmed) was issued — what lets a second « Se connecter »
+    /// show the <b>same</b> QR instead of silently killing the one already scanned (<c>guided-first-days</c> A).
+    /// Null whenever no secret is pending.
+    ///
+    /// <para>⚠️ Named without « Secret »/« Token »: the secret-column guard matches those words in any persisted
+    /// name, and this is a plain instant, not a credential.</para>
+    /// </summary>
+    public DateTime? TotpEnrolmentStartedAt { get; private set; }
+
+    /// <summary>
+    /// The first time this person signed in from the phone app (the Android shell or the iPhone home-screen app) —
+    /// the only phone signal the server records: push is not configured everywhere, and a session's device label is
+    /// sent only when « Rester connecté » is ticked. Written once and never overwritten.
+    /// </summary>
+    public DateTime? PhoneAppFirstSignInAt { get; private set; }
+
+    /// <summary>Which phone app that first sign-in came from (<see cref="PhoneAppSurfaces"/>). Null with it.</summary>
+    public string? PhoneAppPlatform { get; private set; }
+
+    /// <summary>
+    /// The surfaces that count as « the phone app » — the browser's <c>appSurface()</c> (<c>web/lib/shell.ts</c>)
+    /// names them. The Windows shell and a plain browser do not count.
+    /// </summary>
+    public static class PhoneAppSurfaces
+    {
+        public const string Android = "android";
+        public const string IosHomeScreen = "ios-home-screen";
+
+        /// <summary>The native iPhone shell — written, not yet shipped; counted so it needs nothing the day it is.</summary>
+        public const string Ios = "ios";
+
+        public static bool IsPhoneApp(string? surface) =>
+            surface is Android or IosHomeScreen or Ios;
+    }
+
+    /// <summary>
+    /// Records the first sign-in from a phone app. Any other surface, and every sign-in after the first, changes
+    /// nothing — « a déjà installé l'application » is a fact that does not un-happen.
+    /// </summary>
+    /// <returns>Whether this call recorded it.</returns>
+    public bool RecordPhoneAppSignIn(string? surface, DateTime? nowUtc = null)
+    {
+        if (!PhoneAppSurfaces.IsPhoneApp(surface) || PhoneAppFirstSignInAt is not null)
+        {
+            return false;
+        }
+
+        PhoneAppFirstSignInAt = nowUtc ?? DateTime.UtcNow;
+        PhoneAppPlatform = surface;
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the pending secret may be shown again rather than replaced: one is pending (issued, unconfirmed),
+    /// its issue time is known, and it was issued less than <paramref name="lifetime"/> ago.
+    /// </summary>
+    public bool HasReusablePendingTotpSecret(TimeSpan lifetime, DateTime? nowUtc = null) =>
+        !IsTotpEnrolled
+        && !string.IsNullOrEmpty(ProtectedTotpSecret)
+        && TotpEnrolmentStartedAt is { } started
+        && (nowUtc ?? DateTime.UtcNow) - started < lifetime;
+
     private readonly List<UserRecoveryCode> _recoveryCodes = new();
 
     public IReadOnlyCollection<UserRecoveryCode> RecoveryCodes => _recoveryCodes;
@@ -268,6 +331,11 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         {
             DisableTotp();
             TotpReenrolmentRequired = true;
+        }
+        else
+        {
+            // The lost PC held a sealed copy of a pending secret too, and a pending secret is shown again for 24 h.
+            DiscardPendingTotpSecret();
         }
 
         MustChangePassword = true;
@@ -339,7 +407,7 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     /// <see cref="TokenVersion"/>: a factor recovered this way (an admin reset, or the vendor's verb) must not
     /// leave the old authenticator working, old codes spendable, or a session minted before the reset alive.</para>
     /// </summary>
-    public void IssueTotpSecret(string protectedSecret)
+    public void IssueTotpSecret(string protectedSecret, DateTime? nowUtc = null)
     {
         if (string.IsNullOrWhiteSpace(protectedSecret))
         {
@@ -348,6 +416,7 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
 
         ProtectedTotpSecret = protectedSecret;
         TotpEnrolledAt = null;
+        TotpEnrolmentStartedAt = nowUtc ?? DateTime.UtcNow;
         _recoveryCodes.Clear();
         TokenVersion++;
         UpdatedAt = DateTime.UtcNow;
@@ -401,6 +470,7 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         }
 
         TotpEnrolledAt = DateTime.UtcNow;
+        TotpEnrolmentStartedAt = null;
         TotpReenrolmentRequired = false;
 
         // The grant is spent by the thing it existed to allow. Leaving it open would let the next caller holding
@@ -473,6 +543,7 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     {
         ProtectedTotpSecret = null;
         TotpEnrolledAt = null;
+        TotpEnrolmentStartedAt = null;
         _recoveryCodes.Clear();
 
         // An administrator or the vendor has settled this account's factor, so any window a redeemed code had
@@ -498,10 +569,21 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
         MustChangePassword = mustChangePassword;
         FailedLoginAttempts = 0;
         LockoutEnd = null;
+        // Whoever held the old password could have read the pending QR; a new password must not confirm that copy.
+        DiscardPendingTotpSecret();
         // AC-5.2: every existing token for this account stops working now. This is the single choke point
         // all four password paths go through — voluntary change, admin reset, offline CLI recovery, first set.
         TokenVersion++;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>A secret issued but never confirmed goes; a confirmed factor is untouched.</summary>
+    private void DiscardPendingTotpSecret()
+    {
+        if (IsTotpEnrolled || string.IsNullOrEmpty(ProtectedTotpSecret)) return;
+
+        ProtectedTotpSecret = null;
+        TotpEnrolmentStartedAt = null;
     }
 
     /// <summary>

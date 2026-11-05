@@ -57,6 +57,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .IsRequired()
             .HasDefaultValue(0);
         builder.Property(u => u.LockoutEnd);
+        builder.Property(u => u.PhoneAppPlatform).HasMaxLength(32);
 
         builder.HasIndex(u => u.ClinicId);
         builder.HasIndex(u => new { u.ClinicId, u.Role });

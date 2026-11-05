@@ -1,5 +1,7 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.API.Models;
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Features.Meta.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -263,6 +265,27 @@ public class MetaController : ApiControllerBase
 
     private string BuildAndroidDownloadUrl() =>
         $"{Request.Scheme}://{Request.Host}{ClientDownloadPath}/{AndroidDownloadSegment}";
+
+    /// <summary>
+    /// Where a phone gets APEXA — « Votre téléphone » in « Premiers pas » (<c>guided-first-days</c> B): the website's
+    /// download section, and the same link as a QR code to scan from the computer. Signed-in only.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ Always <see cref="ApexaPublicLinks.InstallPage"/>, never this server's own APK (owner's call, 2026-11-04): the
+    /// page already explains Android AND iPhone, it is the link the welcome e-mail and the invitation carry, and a
+    /// server that ships no APK used to answer « l'application Android n'est pas proposée par ce serveur », which read
+    /// as « APEXA has no phone app ».
+    /// </remarks>
+    [HttpGet("phone-app")]
+    public IActionResult PhoneApp([FromServices] IQrCodeGenerator qrCodeGenerator)
+    {
+        var url = ApexaPublicLinks.InstallPage;
+        var qr = "data:image/png;base64," + Convert.ToBase64String(qrCodeGenerator.GeneratePng(url));
+        return Ok(new PhoneAppDownload(url, qr));
+    }
+
+    /// <summary>The download page and its QR code (a <c>data:</c> PNG).</summary>
+    public sealed record PhoneAppDownload(string Url, string QrPng);
 
     /// <summary>
     /// What an upload door accepts, projected from the catalog (AC-5.1). Deliberately <b>not</b> exempt

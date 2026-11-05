@@ -1,0 +1,377 @@
+{
+  "stamp": "mw0toy4p",
+  "admin": "qa-r2-mw0toy4p@clinic.local",
+  "results": [
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "prompt: fresh false · 2 days false · 3 days true"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "« Aide » labelled at 1440"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "WhatsApp row: wa.me/21620123456 with « Bonjour, ici <cabinet>. », new tab"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "videos row → apexa.tn/tutoriels.html, new tab"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "« Donner mon avis ou une idée » row"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "number shown with « Copier le numéro »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "Paramètres shows the same help rows"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "« Rappels par SMS », example SMS names the cabinet"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "« Retour à l'agenda » is a link to /appointments"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "no price, no date of availability"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "rappels page: no horizontal scroll at 390"
+    },
+    {
+      "id": "D7",
+      "outcome": "pass",
+      "m": "header at 320: no horizontal scroll, « Aide » inside the screen"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "« Aide » popover inside the screen at 320"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "« Envoyer » disabled with no message"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "« Depuis : Tableau de bord » and the admin's address beside « recontacter »"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "« Idée » preselected"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "toast « Merci. Votre avis est arrivé chez APEXA. »"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "dialog closed after sending"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "row: probleme · aide · Tableau de bord · may contact · admin"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "console mail: cabinet, (Administrateur), Problème, message, écran, address"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "unticked « recontacter » → MayContact false"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "mail says « Recontacter : non » and carries no address"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "no card while the search has focus, the card after blur"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "« Ne plus demander » → card gone, ClosedReason never"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "no card 68 s after a reload"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "card full width above the bottom bar at 390, no horizontal scroll"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "week-one form is a full sheet at 390, « Envoyer » on screen"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "the tapped star (2) is kept in the form"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "« Fermer » still sends the star (toast)"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "one row: semaine-1, help 2, nothing else"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "prompt closed « answered »"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "no card while « Écrire à APEXA » is open; the card within ~6 s of closing it"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "card text, five stars, « Plus tard », « Ne plus demander »"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "card in the bottom-right corner"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "body carries data-feedback-open"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "TimesShown = 1"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "« Plus tard » → card gone, LaterUntil ≈ +7 days, prompt false"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "a week later the card comes back, TimesShown = 2"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "card up on /patients after a screen change, TimesShown still 2"
+    },
+    {
+      "id": "D6",
+      "outcome": "pass",
+      "m": "no « Séance terminée » question while the card is up"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "form opens with the 4th star kept"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "« Envoyer » visible at 1536×730"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "toast after Envoyer"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "row: semaine-1 · 4 · 3 · agenda · devis · message"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "prompt answered, show false"
+    },
+    {
+      "id": "D6",
+      "outcome": "pass",
+      "m": "« Séance terminée » opens once the card is answered"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "week-one row: notes in one line, no address"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "problem row carries the address (agreed)"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "newest first"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "« Problèmes » lists only problems"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "« Questions » → « Aucun retour pour ces critères. »"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "« Tous » lists every message again"
+    },
+    {
+      "id": "C7",
+      "outcome": "pass",
+      "m": "console /retours at 390: cards, no table, no horizontal scroll"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "toast « Devis … créé »"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "exactly one patient with that name"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "the devis belongs to that patient"
+    },
+    {
+      "id": "B9",
+      "outcome": "pass",
+      "m": "refused devis → message, no patient created"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "duplicate prompt names the person"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "back to « Patient existant », fields gone"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "no patient created"
+    },
+    {
+      "id": "B8",
+      "outcome": "pass",
+      "m": "devis created after « Créer quand même »"
+    },
+    {
+      "id": "B8",
+      "outcome": "pass",
+      "m": "that name +1 exactly (2)"
+    },
+    {
+      "id": "B10",
+      "outcome": "pass",
+      "m": "after the failure: « … est créé, pas le devis : réessayez », fields locked"
+    },
+    {
+      "id": "B10",
+      "outcome": "pass",
+      "m": "the retry creates the devis"
+    },
+    {
+      "id": "B10",
+      "outcome": "pass",
+      "m": "that name exists once"
+    },
+    {
+      "id": "C6",
+      "outcome": "pass",
+      "m": "devis new patient at 320: no horizontal scroll, fields inside"
+    },
+    {
+      "id": "D8",
+      "outcome": "pass",
+      "m": "from a patient page: no « Nouveau patient » switch, the patient named"
+    },
+    {
+      "id": "D9",
+      "outcome": "pass",
+      "m": "workspace « Tout modifier »: no patient switch"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "booking with a new patient saved, one patient"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "invalid phone refused before anything is created"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "cancel → « Patient existant », fields gone, no patient created"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "« Créer quand même » → saved, that name +1 exactly (2)"
+    },
+    {
+      "id": "D4",
+      "outcome": "pass",
+      "m": "taken slot → continue → saved, the new name exists once"
+    },
+    {
+      "id": "B11",
+      "outcome": "skip",
+      "m": "needs a second API in the SelfHostedLan profile (HTTPS front door, local accounts)"
+    }
+  ],
+  "findings": []
+}

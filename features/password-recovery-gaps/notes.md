@@ -147,3 +147,36 @@ timeout. It now sends the same notice with `PasswordResetBy.ClinicAdministrator`
 - Eye pass: 320 / 390 px on both new pages and the login line, both capability branches (probe intercepted to
   reach the gated one), document `scrollWidth == clientWidth == 320` on both. `/patients` still 307s to `/login`,
   which is the control proving the middleware fix did not widen the gate.
+
+## A lost authenticator with no recovery code has a way back on every screen (2026-10-04)
+
+The three ways back from a lost second factor (a recovery code, a colleague administrator, the vendor or the
+server verb) all existed server-side. Two of them could not be found.
+
+- **The colleague-administrator reset had no button.** `POST /users/{id}/totp/reset` and
+  `securityApi.resetUserTotp` shipped in `3b7b6c88` and nothing ever called the client function. « Utilisateurs »
+  now offers « Réinitialiser le second facteur » on any row that holds one (`ClinicUserDto.HasSecondFactor`, from
+  the one `ToClinicUserDto` mapper so the list and both write paths agree). ⚠️ **The step-up dialog IS the
+  confirmation** — its sentence names who loses what; a second alert before it would repeat it. ⚠️ Hidden on the
+  caller's own row: replacing your own factor is « Sécurité »'s job, and resetting it here would end your own session.
+- **The recovery-code screen was a dead end.** It asked for a code and said nothing to somebody who has none.
+  `NoRecoveryCodeLine` now names the colleague administrator, then the vendor's support number (hosted) or
+  « la personne qui a installé le logiciel » (LAN). ⚠️ **Three-valued**: `vendorResetsSecondFactor` absent (an
+  older API on a rolling deploy) shows the administrator sentence alone, never the LAN one — which would send a
+  hosted dentist to a server PC they do not have. `supportPhone` is `Subscription:ContactPhone`, the number
+  « Abonnement » already shows, served only where the vendor can act on the call.
+- **`reset-user-totp` was undocumented for the LAN install** — it was written for the hosted deployment and works
+  on both (gated on a connection string, not a capability). `packaging/README.md` now carries it, and the wrong
+  exe path beside `reset-admin-password` (missing `\api\`) is fixed.
+
+⚠️ **The table's row actions became one « ⋯ » menu, and the table hinges at `xl:`** (`CARDS_ONLY_XL`, new in
+`ui/card-list.tsx`). Measured before this change: 920 px of min-content in a 670 px box at 1024, so « Réinitialiser
+le mot de passe » and « Désactiver » were already off-screen from 1024 to 1279 px; a third visible button tipped
+1280 over as well (931 vs 926). Unbreakable e-mails and the fixed rôle `Select` keep the menu version at ~730 px,
+still too wide for 1024, hence `xl:`. The card and the table now render one `rowMenu`, so the two trees cannot
+drift — this change had to add its action to both.
+
+Verification: unit suite 4919 passed / 0 failed (new: `GetMode` vendor/phone per profile, `HasSecondFactor` on the
+list); `tsc`, `check:responsive` 72/72, `npm run build` clean; eye pass with the new fields injected by route
+intercept (the running API was a peer's older build): recovery line at 320, `/users` at 1024/1180 (cards),
+1280/1440 (table fits, every menu inside the box), 320, and the step-up dialog opened and cancelled — nothing reset.

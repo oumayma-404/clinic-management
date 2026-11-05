@@ -81,6 +81,10 @@ public class SubscriptionExemptionCoverageTests
         "RelayDevice.Report",
         // staff-chat: marking a thread read records what one person has seen; an expired cabinet still reads its messages.
         "StaffChat.MarkRead",
+        // guided-first-days E: a message TO the vendor, and one person closing the week-one question — neither is
+        // clinic work, and a lapsed cabinet saying why it stopped is the answer most wanted.
+        "Feedback.Submit",
+        "Feedback.SetPrompt",
         // AC-8.2: erasing a retired PC's copy, and the PC telling the cloud — offboarding, never new work.
         "RelayLocal.Erase",
         "RelayLocal.TakeOver",
@@ -114,6 +118,12 @@ public class SubscriptionExemptionCoverageTests
         // back on the entitlement would make that lockout self-sustaining.
         "Auth.RequestPasswordReset",
         "Auth.CompletePasswordReset",
+        // guided-first-days C, the same reason one step earlier: a colleague who has never chosen her password
+        // reaches none of the reads an expired cabinet keeps. AuthController is class-exempt; « Renvoyer l'e-mail »
+        // carries its own attribute for the reset-password reason.
+        "Auth.PreviewInvitation",
+        "Auth.AcceptInvitation",
+        "Users.ResendInvitation",
         // FR-1.10, and the same reason as the group above: an expired cabinet keeps every read, export and PDF
         // by right (AC-4.1/4.2), and it reaches none of them if its people cannot get in. « Sécurité » is where
         // a lost authenticator is re-secured and where a step-up is proved; refusing those on the entitlement
@@ -143,6 +153,8 @@ public class SubscriptionExemptionCoverageTests
         "PushDevices.Release",                           // Deregister for a Web Push endpoint, which is a URL
         "PatientFiles.InitializeDefaultFolders",         // fired on the first visit to the Files tab; a READ fails
         "Dashboard.UpdatePreferences",                   // personal interface state, not clinic work
+        "Dashboard.TickStep",                            // personal interface state: a « Premiers pas » step ticked
+        "Dashboard.UntickStep",                          // personal interface state: the same, unticked
         "Clinics.HideMoney",                             // « Mode discret » changes what is displayed, records no work
         "Clinics.ShowMoney",
 

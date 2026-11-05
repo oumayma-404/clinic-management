@@ -14,6 +14,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { FEEDBACK_CARD_OPEN_ATTR, VISIT_REVIEW_WAITING_EVENT } from "@/lib/feedback"
+import { GUIDE_RUNNING_ATTR } from "@/lib/guides"
 import { useSession } from "@/lib/auth/session"
 import { useDemo } from "@/lib/demo/demo-context"
 import { notificationsApi } from "@/lib/api/notifications"
@@ -209,7 +211,10 @@ function PendingReviewPrompt() {
   useEffect(() => {
     const bump = () => setBusyTick((n) => n + 1)
     const observer = new MutationObserver(bump)
-    observer.observe(document.body, { attributes: true, attributeFilter: ["data-sheet-open", "data-scroll-locked"] })
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["data-sheet-open", "data-scroll-locked", FEEDBACK_CARD_OPEN_ATTR, GUIDE_RUNNING_ATTR],
+    })
     return () => observer.disconnect()
   }, [])
 
@@ -489,9 +494,15 @@ function PendingReviewPrompt() {
       return
     }
     if (mayPrompt) return
-    const somethingElseIsOpen =
-      document.body.hasAttribute("data-sheet-open") || document.body.hasAttribute("data-scroll-locked")
-    if (!somethingElseIsOpen) setMayPrompt(true)
+    const busyElsewhere =
+      document.body.hasAttribute("data-sheet-open") ||
+      document.body.hasAttribute("data-scroll-locked") ||
+      // A « Me guider » walk is on: a question over it would break the click it is asking for.
+      document.body.hasAttribute(GUIDE_RUNNING_ATTR)
+    // The week-one card is up: two questions at once is one too many, so the visit — real work — asks it to step aside.
+    const feedbackCardUp = document.body.hasAttribute(FEEDBACK_CARD_OPEN_ATTR)
+    if (!busyElsewhere && feedbackCardUp) window.dispatchEvent(new Event(VISIT_REVIEW_WAITING_EVENT))
+    if (!busyElsewhere && !feedbackCardUp) setMayPrompt(true)
   }, [active, dismissed, mayPrompt, busyTick])
 
   /**

@@ -1,0 +1,286 @@
+{
+  "stamp": "mw0wc3lv",
+  "results": [
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "?invite=1 opens « Inviter un collègue » on Secrétaire"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "?invite removed from the address"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "header button « Inviter un collègue »"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "description says APEXA e-mails her"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "submit « Envoyer l'invitation »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "title « Invitation envoyée »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "names the address"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "link to /invitation#t=…"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "no temporary-password dialog"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "MustChangePassword false, never signed in"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "one invitation, ~7 days, not consumed"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "subject « <admin> vous invite sur APEXA »"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "action, identifiant, 7 days"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "mailed link = link shown"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "chip « Invitation envoyée »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "« Renvoyer l'e-mail » replaces « Réinitialiser »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "last sign-in « Jamais »"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "320×640: no overflow, button inside"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "390×844: no overflow, button inside"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "1536×730: no overflow, button inside"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "reading the page spent nothing"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "no fragment → « Lien incomplet »"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "garbage token → « Lien expiré » + the server sentence"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "greets « Bienvenue, Amel Ben Salah »"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "names the cabinet"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "identifiant = address, read-only"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "label states the served floor"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "token erased from the address bar"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "mismatch refused"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "too short refused, value kept"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "link not consumed by the refusals"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "login pre-filled with her address"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "signed in → /"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "invitation consumed"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "no chip, a last sign-in"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "« Réinitialiser » back"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "spent link → « Lien expiré » + « se connecter »"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "reset → « Mot de passe temporaire » with a password"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "the doctor has a practitioner record"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "card shows the chip at 390"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "menu offers « Renvoyer l'e-mail », not « Réinitialiser »"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "confirm names the address and the old link"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "a new link"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "390: link wraps, « Copier le lien » inside, no overflow"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "old link → « Lien expiré »"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "new link greets « Bienvenue, Dr Ross QA »"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "two invitation e-mails"
+    },
+    {
+      "id": "B9",
+      "outcome": "pass",
+      "m": "refused in the dialog, fields kept"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "title « L'e-mail n'est pas parti », the account exists, copy the link"
+    },
+    {
+      "id": "B8",
+      "outcome": "pass",
+      "m": "probe failed → « Créer un compte »"
+    },
+    {
+      "id": "B8",
+      "outcome": "pass",
+      "m": "the create still opened the invitation dialog"
+    },
+    {
+      "id": "B10",
+      "outcome": "skip",
+      "m": "needs a second API (LAN profile, or no FrontendUrl); held by StaffInvitationTests"
+    },
+    {
+      "id": "B11",
+      "outcome": "pass",
+      "m": "429 → the server sentence + « Réessayer »"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "plain /login: empty, no banner"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "?email= prefilled in password mode"
+    },
+    {
+      "id": "D4",
+      "outcome": "pass",
+      "m": "reset page stays public"
+    }
+  ],
+  "findings": []
+}

@@ -28,6 +28,8 @@ export const PUBLIC_ROUTES = [
   '/signup/verifier',
   '/mot-de-passe-oublie',
   '/reinitialiser-mot-de-passe',
+  // guided-first-days C: a colleague invited by e-mail chooses her first password — she has no session yet.
+  '/invitation',
   // clinic-pc-copy AC-1.5: « Installer le PC de secours ici… » — an admin's own proof, whoever is signed in, or nobody.
   '/pc-de-secours',
   // demo-cabinet: the public demo's entry screen — a visitor has no account, by design.

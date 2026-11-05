@@ -54,6 +54,11 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
     private readonly IClinicContext _clinicContext;
     private readonly ILocalAuthService _localAuthService;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IStaffInvitationPolicy _invitationPolicy;
+    private readonly IStaffInvitationRepository _invitations;
+    private readonly IClinicRepository _clinicRepository;
+    private readonly ITransactionalEmailSender _emailSender;
+    private readonly IPublicAppUrlProvider _appUrl;
     private readonly ILogger<CreateClinicUserCommandHandler> _logger;
 
     public CreateClinicUserCommandHandler(
@@ -62,6 +67,11 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
         IClinicContext clinicContext,
         ILocalAuthService localAuthService,
         IUnitOfWork unitOfWork,
+        IStaffInvitationPolicy invitationPolicy,
+        IStaffInvitationRepository invitations,
+        IClinicRepository clinicRepository,
+        ITransactionalEmailSender emailSender,
+        IPublicAppUrlProvider appUrl,
         ILogger<CreateClinicUserCommandHandler> logger)
     {
         _userRepository = userRepository;
@@ -69,6 +79,11 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
         _clinicContext = clinicContext;
         _localAuthService = localAuthService;
         _unitOfWork = unitOfWork;
+        _invitationPolicy = invitationPolicy;
+        _invitations = invitations;
+        _clinicRepository = clinicRepository;
+        _emailSender = emailSender;
+        _appUrl = appUrl;
         _logger = logger;
     }
 
@@ -135,14 +150,18 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
                         : "Cet email ne peut pas être utilisé pour un nouveau compte.");
             }
 
-            var temporaryPassword = _localAuthService.GenerateTemporaryPassword();
+            // guided-first-days C: online, the colleague chooses her own password through an e-mailed link and the
+            // account holds an unusable random one until then. Without a public address a link would point nowhere,
+            // so the temporary password stays — exactly as on a cabinet's own PC.
+            var byLink = _invitationPolicy.InvitesStaffByLink && _appUrl.IsConfigured;
+            var temporaryPassword = byLink ? null : _localAuthService.GenerateTemporaryPassword();
             var user = User.CreateLocalUser(
                 admin.ClinicId,
                 role,
                 email,
-                _localAuthService.HashPassword(temporaryPassword),
+                _localAuthService.HashPassword(temporaryPassword ?? StaffInvitations.NewToken()),
                 request.FullName.Trim(),
-                mustChangePassword: true);
+                mustChangePassword: !byLink);
 
             await _userRepository.AddAsync(user, cancellationToken);
 
@@ -160,18 +179,33 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
                 await _doctorRepository.AddAsync(doctor, cancellationToken);
             }
 
-            // One save for both rows: an account whose practitioner record failed to commit is precisely the
-            // half-created state this fix exists to remove.
+            var invitationToken = byLink
+                ? await StaffInvitations.ArmAsync(_invitations, user.Id, admin.Id, DateTime.UtcNow, cancellationToken)
+                : null;
+
+            // One save for every row: an account whose practitioner record (or invitation) failed to commit is
+            // precisely the half-created state this exists to remove.
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return Result<CreatedClinicUserDto>.Success(new CreatedClinicUserDto
+            var created = new CreatedClinicUserDto
             {
                 UserId = user.Id,
                 Email = user.Email,
                 FullName = user.FullName,
                 Role = user.Role,
                 TemporaryPassword = temporaryPassword
-            });
+            };
+
+            if (invitationToken is not null)
+            {
+                // After the commit, best-effort: the account exists whatever the mail server does, and the link is
+                // returned once so « Copier le lien » still gets the colleague in.
+                var url = StaffInvitations.LinkFor(_appUrl.BaseUrl, invitationToken);
+                created.InvitationUrl = url;
+                created.InvitationEmailed = await SendInvitationAsync(admin, user, url, cancellationToken);
+            }
+
+            return Result<CreatedClinicUserDto>.Success(created);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
@@ -185,6 +219,31 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
     /// The same three-field test <c>JoinClinicCommand</c> and <c>LocalClinicProvisioning</c> apply: a nameless or
     /// specialty-less practitioner is never persisted.
     /// </summary>
+    private async Task<bool> SendInvitationAsync(User admin, User user, string url, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var clinic = await _clinicRepository.GetByIdAsync(admin.ClinicId, cancellationToken);
+            return await StaffInvitations.SendAsync(
+                _emailSender,
+                user.Email!,
+                new StaffInvitationFacts(
+                    AdminName: admin.FullName ?? admin.Email ?? "Votre cabinet",
+                    ClinicName: clinic?.Name ?? "votre cabinet",
+                    FullName: user.FullName ?? string.Empty,
+                    Email: user.Email!,
+                    InvitationUrl: url,
+                    LoginUrl: $"{_appUrl.BaseUrl.TrimEnd('/')}/login"),
+                _logger,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "The staff invitation e-mail could not be prepared.");
+            return false;
+        }
+    }
+
     private static bool HasPractitioner(DoctorPersonalInfoDto? info) =>
         info != null
         && !string.IsNullOrWhiteSpace(info.FirstName)

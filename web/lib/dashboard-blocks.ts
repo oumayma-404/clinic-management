@@ -14,6 +14,7 @@ import type { DashboardKpiKey } from '@/lib/dashboard-links';
  */
 export type DashboardBlockKey =
   | DashboardKpiKey
+  | 'gettingStarted'
   | 'procedureMix'
   | 'appointmentStatusMix'
   | 'appointmentTrend'
@@ -44,10 +45,11 @@ export type DashboardSectionKey = (typeof DASHBOARD_SECTION_KEYS)[number];
  * rows reading « Séances à clôturer » with nothing to say they are the chips above is how the panel drifted from
  * the page in the first place.</p>
  */
-export type DashboardBlockForm = 'chip' | 'list' | 'figure' | 'chart';
+export type DashboardBlockForm = 'card' | 'chip' | 'list' | 'figure' | 'chart';
 
 /** What each form is called, in the panel. */
 export const DASHBOARD_FORM_LABELS: Record<DashboardBlockForm, string> = {
+  card: 'Carte, sous le bonjour',
   chip: 'Pastille, en haut de page',
   list: 'Liste, sous le ruban',
   figure: 'Chiffre',
@@ -88,6 +90,9 @@ interface DashboardBlockMeta {
  */
 export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   // ── La journée ────────────────────────────────────────────────────────────────────────────────────────────────
+  // « Premiers pas » (guided-first-days B): administrators, a new cabinet's first 30 days. The page passes it in
+  // `omitKeys` whenever the card does not apply, so nobody else is offered a switch that commands nothing.
+  gettingStarted: { section: 'journee', form: 'card', label: 'Premiers pas' },
   todayAppointments: { section: 'journee', form: 'list', label: 'Les rendez-vous du jour' },
   // First, and shown by default: it is the only entry here about work the practice has already DONE, so it is the
   // one whose neglect quietly costs the clinic money and leaves the record incomplete.

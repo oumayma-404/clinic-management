@@ -104,9 +104,17 @@ public static class DashboardKpiKeys
     /// <summary>« Rendez-vous du jour », the appointment list under the figures.</summary>
     public const string TodayAppointments = "todayAppointments";
 
+    /// <summary>
+    /// « Premiers pas » — the new cabinet's setup card (<c>guided-first-days</c> B). Hideable like any block: its own
+    /// « Masquer » writes this key, and « Personnaliser » is how it comes back. The figure is not in
+    /// <c>GetDashboardQuery</c>; the card reads <c>GET /api/dashboard/getting-started</c>.
+    /// </summary>
+    public const string GettingStarted = "gettingStarted";
+
     /// <summary>Every hideable block, in the order the dashboard renders them.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
+        GettingStarted,
         CompletedAppointments,
         NewPatients,
         AbsenceRate,

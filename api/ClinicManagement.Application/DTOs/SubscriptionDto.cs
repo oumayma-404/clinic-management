@@ -78,6 +78,9 @@ public class SubscriptionDto
     public string? ContactEmail { get; set; }
 
     public string? ContactPhone { get; set; }
+
+    /// <summary>The number « WhatsApp » opens; null = the same as <see cref="ContactPhone"/>.</summary>
+    public string? WhatsAppPhone { get; set; }
 }
 
 /// <summary>

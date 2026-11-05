@@ -1,0 +1,342 @@
+{
+  "stamp": "mw0pf6cq",
+  "admin": "qa-gfd-mw0pf6cq@clinic.local",
+  "results": [
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "next-step heading shown"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "two store links, new tab"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "« Voir la vidéo · 0:53 » → video 2 in a new tab"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "« Se connecter » still offered"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "verifier page: no horizontal scroll at 320"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "welcome e-mail carries the tutorials link"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "« Rester connecté » unticked in a browser"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "first QR with no same/replaced notice"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "QR image shown"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "« Même QR code » notice shown"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "same key as A3"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "after a reload: same key, same notice"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "pending secret, start time and TokenVersion unchanged A3→A5"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "« Nouveau QR code » notice shown"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "the notice names the authenticator line (the cabinet)"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "a different key"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "replaced notice: no horizontal scroll at 320"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "enrolment completed and the dashboard opened (D2)"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "first enrolment still completes and signs in"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "a browser sign-in recorded no phone"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "title and « 1 sur 7 faite »"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "trial chip"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "« Code de sécurité » done"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "the next step is the filled button, the others outlined"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "a named ▶ per undone step with a video (5)"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "« Votre téléphone » has no ▶ (not filmed)"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "Android QR on the dialog"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "iPhone steps name the host"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "« Déjà fait » → « Vous · pas encore »"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "« Terminé » reachable at 1536×730"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "phone dialog at 320: no overflow, « Terminé » on screen"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "PhoneAppPlatform = android after an Android sign-in"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "the read names « Vous · Android »"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "the card ticks « Votre téléphone » on return"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "« Créer un compte » opens by itself"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "invite param taken off the address bar"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "role preset to « Secrétaire »"
+    },
+    {
+      "id": "A13",
+      "outcome": "pass",
+      "m": "a second active account ticks « Votre secrétaire »"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "the new-patient dialog opens"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "« En-tête des documents » opens on #en-tete"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "and is brought into view"
+    },
+    {
+      "id": "D8",
+      "outcome": "pass",
+      "m": "« En-tête des documents » stays folded without the hash"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "card leaves, « Premiers pas masqués. » toast"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "« Annuler » brings the card back"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "« Premiers pas » listed, off, « Carte, sous le bonjour »"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "switching it on brings the card back"
+    },
+    {
+      "id": "D6",
+      "outcome": "pass",
+      "m": "the card stays through « Tout afficher » and « Par défaut »"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "card at 320px: no horizontal scroll, every control inside"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "card at 390px: no horizontal scroll, every control inside"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "card at 820px: no horizontal scroll, every control inside"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "card at 1180px: no horizontal scroll, every control inside"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "card at 1440px: no horizontal scroll, every control inside"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "the card starts above the fold at 1536×730"
+    },
+    {
+      "id": "D7",
+      "outcome": "pass",
+      "m": "greeting row and « Personnaliser » still render with the card"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "?enrol=1 alone: no « Plus tard »"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "from « Sécurité »: « Plus tard » offered"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "in the Windows app: ticked"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "a doctor sees no « Premiers pas » card"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "« Personnaliser » lists no « Premiers pas »"
+    },
+    {
+      "id": "D6",
+      "outcome": "pass",
+      "m": "the doctor's total is the admin's minus the omitted card"
+    },
+    {
+      "id": "D7",
+      "outcome": "pass",
+      "m": "the doctor's dashboard still renders"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "the card leaves and « Votre cabinet est prêt. » shows"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "replacement after a recovery code says « Nouveau QR code »"
+    },
+    {
+      "id": "B8",
+      "outcome": "skip",
+      "m": "the stack runs with an Android link configured; the no-link sentence is one JSX branch"
+    },
+    {
+      "id": "D3",
+      "outcome": "skip",
+      "m": "e2e/bootstrap.mjs not run here; it reads `secret`, which is unchanged"
+    },
+    {
+      "id": "D4",
+      "outcome": "pass",
+      "m": "verify-schema identical before/after the migration (2026-11-03, throwaway DB)"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "browser sign-in completed with the box unticked (A7) and the box ticks only in a shell (B4/B5)"
+    }
+  ],
+  "findings": []
+}

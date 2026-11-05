@@ -126,6 +126,11 @@ public class SecretProtectionCoverageTests
                 + "the row is already the non-reversible half — while putting the one recovery path a locked-out "
                 + "person can take alone behind the key ring, so a ring problem would turn a forgotten password "
                 + "into a support call.",
+
+            [$"{nameof(StaffInvitation)}.{nameof(StaffInvitation.TokenHash)}"] =
+                "guided-first-days C, the reset token's twin: a SHA-256 of the single-use invitation token, which "
+                + "exists in plaintext only in the e-mail and once on the inviting admin's screen. Encrypting a hash "
+                + "buys nothing, and would put a new colleague's first sign-in behind the key ring.",
         };
 
     /// <summary>Every persisted, non-shadow property whose name looks like a secret.</summary>

@@ -35,9 +35,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal } from "lucide-react"
+import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal, Send, ShieldOff } from "lucide-react"
+import { StepUpDialog } from "@/components/security/step-up-dialog"
+import { securityApi } from "@/lib/api/security"
 import { ZONES, zoneChipClass } from "@/lib/zones"
-import { CardList, CARDS_ONLY_LG, TABLE_ONLY_LG } from "@/components/ui/card-list"
+import { CardList, CARDS_ONLY_XL, TABLE_ONLY_XL } from "@/components/ui/card-list"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,21 +57,27 @@ import {
 import { clinicsApi } from "@/lib/api/clinics"
 import { useFetchUserStatus } from "@/lib/hooks/use-user-status"
 import { authApi } from "@/lib/api/auth"
-import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
+import { useInvitesStaffByLink, useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
 import { ApiError } from "@/lib/api/client"
 import { useSession } from "@/lib/auth/session"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { useUrlFilterSeed } from "@/lib/hooks/use-url-filters"
+import { replaceUrl } from "@/lib/history"
 import { showErrorToast } from "@/lib/errors"
 
 /** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code du cabinet ». */
 const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
+
+/** The step-up action the server's `UsersController.ResetTotpStepUpAction` expects. */
+const RESET_TOTP_ACTION = "reset-user-totp"
 
 type PendingAction =
   | { type: "reset"; user: ClinicUserDto }
   | { type: "status"; user: ClinicUserDto }
   | { type: "regenerate" }
   | { type: "role"; user: ClinicUserDto; role: UserRole }
+  | { type: "resend"; user: ClinicUserDto }
 
 export function UserManagement() {
   const { user: currentUser, mode } = useSession()
@@ -99,6 +107,14 @@ export function UserManagement() {
   // The shared capability read — see useSelfRegistrationEnabled. It was a private effect here, which is how
   // `clinic-settings.tsx`'s copy of the clinic code went ungated on the hosted deployment.
   const selfRegistrationEnabled = useSelfRegistrationEnabled()
+  /**
+   * guided-first-days C — online, a colleague is INVITED: APEXA e-mails her a one-time link and she chooses her own
+   * password. This flag only words the buttons; what a create actually did is read from its response
+   * (`temporaryPassword` vs `invitationUrl`), so a failed probe can never open the wrong dialog.
+   */
+  const invitesByLink = useInvitesStaffByLink()
+  /** « Renvoyer l'e-mail » replaces « Réinitialiser » for a colleague who has never signed in: she has no password to reset. */
+  const canResendInvitation = (u: ClinicUserDto) => invitesByLink && u.isActive && !u.lastLoginAt
   const [userPage, setUserPage] = useState<ClinicUsersPageDto>(() => ({
     ...emptyPage<ClinicUserDto>(),
     pendingActivationCount: 0,
@@ -126,6 +142,11 @@ export function UserManagement() {
   const [tempPassword, setTempPassword] = useState<{ email?: string; password: string } | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // The invitation link, shown once after « Envoyer l'invitation » or « Renvoyer l'e-mail » (only its hash is
+  // stored). `emailed: false` is the case it exists for: the account is there, the mail did not leave.
+  const [invitation, setInvitation] = useState<{ email?: string; url: string; emailed: boolean } | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
+
   // « Créer un compte » (US-3).
   const [createOpen, setCreateOpen] = useState(false)
   const [createEmail, setCreateEmail] = useState("")
@@ -138,6 +159,23 @@ export function UserManagement() {
   const [createSpecialty, setCreateSpecialty] = useState<string>(DOCTOR_SPECIALTIES[0])
   const [createError, setCreateError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+
+  /*
+   * `?invite=1` — « Votre secrétaire » in « Premiers pas » lands here with « Créer un compte » already open on the
+   * secretary role (guided-first-days B). Read once, then taken off the address bar so a reload does not re-open it.
+   */
+  const urlSeed = useUrlFilterSeed()
+  const [inviteRequested] = useState(() => urlSeed.get("invite") === "1")
+  useEffect(() => {
+    if (!inviteRequested) return
+    const url = new URL(window.location.href)
+    url.searchParams.delete("invite")
+    replaceUrl(url.pathname + url.search + url.hash)
+    if (!canCreateAccounts) return
+    setCreateRole("secretary")
+    setCreateError(null)
+    setCreateOpen(true)
+  }, [inviteRequested, canCreateAccounts])
 
   // Guards against setState after unmount (the admin can navigate away mid-load or mid-refresh).
   const mountedRef = useRef(true)
@@ -189,6 +227,34 @@ export function UserManagement() {
   // (reset password / activate / deactivate) or registers.
   useClinicRealtime(RealtimeResource.Users, loadData)
 
+  // « Réinitialiser le second facteur » — the way back for a colleague whose phone and recovery codes are gone.
+  const [totpResetFor, setTotpResetFor] = useState<ClinicUserDto | null>(null)
+  // Which proof the step-up offers first; unknown offers the code, as `clinic-archive-card.tsx` does.
+  const [ownHasTotp, setOwnHasTotp] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    securityApi
+      .getTotpState()
+      .then((state) => { if (!cancelled) setOwnHasTotp(state.enrolledAt !== null) })
+      .catch(() => { /* left unknown — the server re-checks whichever proof arrives */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const resetSecondFactor = async (user: ClinicUserDto, confirmationToken: string) => {
+    setWorking(true)
+    try {
+      await securityApi.resetUserTotp(user.id, confirmationToken)
+      // What happened only: whether a new factor is then ASKED depends on the person's rôle (admins only here), so « à sa prochaine connexion » was false for a doctor.
+      toast.success("Second facteur réinitialisé. Ses sessions ont été fermées.")
+      await loadData()
+    } catch (err) {
+      showErrorToast(err, "La réinitialisation a échoué. Veuillez réessayer.")
+    } finally {
+      setWorking(false)
+    }
+  }
+
   /**
    * Band B — the row's version as the server holds it *now*, for a per-row action. The rendered row is as old as
    * the last refetch, and two admins on this screen changing the same colleague's rôle would otherwise silently
@@ -232,6 +298,11 @@ export function UserManagement() {
         const clinic = await clinicsApi.regenerateCode()
         setClinicCode(clinic.code || "")
         toast.success("Code du cabinet régénéré. L'ancien code ne fonctionne plus.")
+      } else if (pending.type === "resend") {
+        // No toast: the dialog that opens says whether the e-mail left, and carries the link either way.
+        const result = await usersApi.resendInvitation(pending.user.id)
+        setInvitation({ email: pending.user.email, url: result.invitationUrl, emailed: result.invitationEmailed })
+        await loadData()
       } else if (pending.type === "role") {
         await usersApi.setRole(pending.user.id, pending.role, await currentVersion(pending.user))
         toast.success(
@@ -274,14 +345,33 @@ export function UserManagement() {
       setCreateFirstName("")
       setCreateLastName("")
       setCreateSpecialty(DOCTOR_SPECIALTIES[0])
-      setTempPassword({ email: created.email, password: created.temporaryPassword })
-      toast.success("Compte créé. Communiquez le mot de passe temporaire à la personne concernée.")
+      // The response says which door was used, not the mode probe: online without a public address the server
+      // still hands back a temporary password, because a link to nowhere is worse.
+      if (created.temporaryPassword) {
+        setTempPassword({ email: created.email, password: created.temporaryPassword })
+        toast.success("Compte créé. Communiquez le mot de passe temporaire à la personne concernée.")
+      } else if (created.invitationUrl) {
+        setInvitation({ email: created.email, url: created.invitationUrl, emailed: created.invitationEmailed === true })
+      } else {
+        toast.success("Compte créé.")
+      }
       await loadData()
     } catch (err) {
       // § 13: the dialog stays open with every field as typed — a duplicate email is corrected here, not retyped.
       setCreateError(err instanceof ApiError ? err.message : "La création du compte a échoué. Veuillez réessayer.")
     } finally {
       setCreating(false)
+    }
+  }
+
+  const copyInvitationLink = async () => {
+    if (!invitation) return
+    try {
+      await navigator.clipboard.writeText(invitation.url)
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 2000)
+    } catch {
+      // Clipboard unavailable — the link is still shown for manual copy.
     }
   }
 
@@ -307,6 +397,67 @@ export function UserManagement() {
   }
   const formatDate = (value?: string) =>
     value ? new Date(value).toLocaleString("fr-FR") : "Jamais"
+
+  /**
+   * A row's actions, as ONE menu shared by the card and the table. The table carried them as visible buttons,
+   * which put its min-content at ~920 px — the Actions column sat off-screen from 1024 to 1279 px — and gave the
+   * two trees two lists to keep in step.
+   */
+  const rowMenu = (u: ClinicUserDto) => {
+    // The server forbids self-deactivation (an unrecoverable lockout), and « Sécurité » is where you replace your own factor.
+    const isSelf = !!u.email && u.email === currentUser?.email
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label={`Actions pour ${u.fullName || u.email}`}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {canResendInvitation(u) ? (
+            // An invited colleague has no password to reset yet — the e-mail is her way in.
+            <DropdownMenuItem onSelect={() => setPending({ type: "resend", user: u })}>
+              <Send className="size-4" aria-hidden="true" />
+              Renvoyer l&apos;e-mail
+            </DropdownMenuItem>
+          ) : (
+            canResetPasswords && (
+              <DropdownMenuItem onSelect={() => setPending({ type: "reset", user: u })}>
+                <KeyRound className="size-4" aria-hidden="true" />
+                Réinitialiser le mot de passe
+              </DropdownMenuItem>
+            )
+          )}
+          {u.hasSecondFactor === true && !isSelf && (
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={working}
+              onSelect={() => setTotpResetFor(u)}
+            >
+              <ShieldOff className="size-4" aria-hidden="true" />
+              Réinitialiser le second facteur
+            </DropdownMenuItem>
+          )}
+          {u.isActive ? (
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={isSelf}
+              onSelect={() => setPending({ type: "status", user: u })}
+            >
+              <UserX className="size-4" aria-hidden="true" />
+              Désactiver
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={() => setPending({ type: "status", user: u })}>
+              <UserCheck className="size-4" aria-hidden="true" />
+              {/* « Réactiver » is wrong for an account that was never active. */}
+              {u.isPendingActivation ? "Activer le compte" : "Réactiver"}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
 
   // `min-h-full`, not `min-h-screen` — see the note in `clinic-settings.tsx`: inside `<main>` a full-viewport
   // minimum is always taller than the container, so it guaranteed an unnecessary scroll and trailing dead space.
@@ -435,13 +586,14 @@ export function UserManagement() {
                 <Button
                   size="sm"
                   className="w-full gap-2 sm:w-auto"
+                  data-guide="users-create"
                   onClick={() => {
                     setCreateError(null)
                     setCreateOpen(true)
                   }}
                 >
                   <UserPlus className="size-4" aria-hidden="true" />
-                  Créer un compte
+                  {invitesByLink ? "Inviter un collègue" : "Créer un compte"}
                 </Button>
               </CardAction>
             )}
@@ -506,7 +658,7 @@ export function UserManagement() {
                       two and lose the current value from view; keeping it as a field keeps both.
                 */}
                 <CardList
-                  className={CARDS_ONLY_LG}
+                  className={CARDS_ONLY_XL}
                   ariaLabel="Utilisateurs du cabinet"
                   items={users}
                   getKey={(u) => u.id}
@@ -534,6 +686,9 @@ export function UserManagement() {
                       )}
                       {u.mustChangePassword && (
                         <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
+                      )}
+                      {u.invitationPending && (
+                        <Badge variant="secondary" className={statusToneClass("pending")}>Invitation envoyée</Badge>
                       )}
                     </>
                   )}
@@ -567,44 +722,12 @@ export function UserManagement() {
                     },
                     { label: "Dernière connexion", value: formatDate(u.lastLoginAt) },
                   ]}
-                  actions={(u) => {
-                    const isSelf = !!u.email && u.email === currentUser?.email
-                    return (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label={`Actions pour ${u.fullName || u.email}`}>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {canResetPasswords && (
-                            <DropdownMenuItem onSelect={() => setPending({ type: "reset", user: u })}>
-                              Réinitialiser le mot de passe
-                            </DropdownMenuItem>
-                          )}
-                          {u.isActive ? (
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              disabled={isSelf}
-                              onSelect={() => setPending({ type: "status", user: u })}
-                            >
-                              Désactiver
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem onSelect={() => setPending({ type: "status", user: u })}>
-                              {/* « Réactiver » is wrong for an account that was never active. */}
-                              {u.isPendingActivation ? "Activer le compte" : "Réactiver"}
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )
-                  }}
+                  actions={rowMenu}
                   empty={
                     debouncedSearch ? "Aucun utilisateur ne correspond à votre recherche" : "Aucun utilisateur"
                   }
                 />
-                <Table containerClassName={TABLE_ONLY_LG}>
+                <Table containerClassName={TABLE_ONLY_XL}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nom</TableHead>
@@ -625,11 +748,7 @@ export function UserManagement() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      users.map((user) => {
-                        // Backend forbids self-deactivation (would be an unrecoverable lockout);
-                        // mirror that here so the action isn't offered as a dead end.
-                        const isSelf = !!user.email && user.email === currentUser?.email
-                        return (
+                      users.map((user) => (
                         <TableRow key={user.id}>
                           <TableCell className="font-medium text-foreground">{user.fullName || "-"}</TableCell>
                           <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
@@ -675,50 +794,17 @@ export function UserManagement() {
                               {user.mustChangePassword && (
                                 <Badge variant="secondary" className="text-2xs">Doit changer le mot de passe</Badge>
                               )}
+                              {user.invitationPending && (
+                                <Badge variant="secondary" className={statusToneClass("pending")}>
+                                  Invitation envoyée
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="text-muted-foreground">{formatDate(user.lastLoginAt)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              {canResetPasswords && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1"
-                                  onClick={() => setPending({ type: "reset", user })}
-                                >
-                                  <KeyRound className="h-3 w-3" />
-                                  Réinitialiser le mot de passe
-                                </Button>
-                              )}
-                              {user.isActive ? (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1 text-destructive hover:text-destructive"
-                                  onClick={() => setPending({ type: "status", user })}
-                                  disabled={isSelf}
-                                  title={isSelf ? "Vous ne pouvez pas désactiver votre propre compte" : undefined}
-                                >
-                                  <UserX className="h-3 w-3" />
-                                  Désactiver
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 gap-1"
-                                  onClick={() => setPending({ type: "status", user })}
-                                >
-                                  <UserCheck className="h-3 w-3" />
-                                  {user.isPendingActivation ? "Activer le compte" : "Réactiver"}
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
+                          <TableCell className="text-right">{rowMenu(user)}</TableCell>
                         </TableRow>
-                        )
-                      })
+                      ))
                     )}
                   </TableBody>
                 </Table>
@@ -749,6 +835,7 @@ export function UserManagement() {
                     : "Réactiver cet utilisateur ?")}
               {pending?.type === "regenerate" && "Régénérer le code du cabinet ?"}
               {pending?.type === "role" && "Modifier le rôle de cet utilisateur ?"}
+              {pending?.type === "resend" && "Renvoyer l'invitation ?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending?.type === "reset" && (
@@ -780,6 +867,12 @@ export function UserManagement() {
                   <span className="font-semibold">{pending.user.email}</span> pourra de nouveau se connecter.
                 </>
               )}
+              {pending?.type === "resend" && (
+                <>
+                  Un nouveau lien est envoyé à <span className="font-semibold">{pending.user.email}</span>.
+                  L&apos;ancien lien ne fonctionnera plus.
+                </>
+              )}
               {pending?.type === "regenerate" &&
                 "Le code actuel cessera de fonctionner pour les nouvelles inscriptions. Les comptes existants ne sont pas affectés."}
               {pending?.type === "role" && (
@@ -809,23 +902,45 @@ export function UserManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* The step-up IS the confirmation: its sentence names who loses what, so a second dialog would only repeat it. */}
+      <StepUpDialog
+        open={totpResetFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setTotpResetFor(null)
+        }}
+        action={RESET_TOTP_ACTION}
+        destructiveLabel="Réinitialiser"
+        purpose={
+          totpResetFor
+            ? `Le second facteur de ${totpResetFor.email || totpResetFor.fullName} et ses codes de récupération seront supprimés, et ses sessions fermées.`
+            : ""
+        }
+        hasTotp={ownHasTotp ?? true}
+        onConfirmed={(confirmationToken) => {
+          const target = totpResetFor
+          setTotpResetFor(null)
+          if (target) void resetSecondFactor(target, confirmationToken)
+        }}
+      />
+
       {/*
         « Créer un compte » (US-3). No password field, deliberately: the server mints one, so an admin cannot
         set a weak shared secret, and the account is forced to replace it at first login. Not a `Sheet` below
         `md:` — three short fields is a light surface, not a data-entry one (§ 5).
       */}
       <Dialog open={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
-        <DialogContent>
+        <DialogContent data-guide="user-dialog">
           <DialogHeader>
-            <DialogTitle>Créer un compte</DialogTitle>
+            <DialogTitle>{invitesByLink ? "Inviter un collègue" : "Créer un compte"}</DialogTitle>
             <DialogDescription>
-              Le mot de passe est généré et affiché une seule fois. La personne devra le changer à sa première
-              connexion.
+              {invitesByLink
+                ? "APEXA lui envoie un e-mail avec un lien pour choisir son mot de passe."
+                : "Le mot de passe est généré et affiché une seule fois. La personne devra le changer à sa première connexion."}
             </DialogDescription>
           </DialogHeader>
           <FormErrorBanner message={createError} />
           <div className="space-y-4">
-            <div className="space-y-2">
+            <div className="space-y-2" data-guide="user-fields">
               <Label htmlFor="create-user-fullname">Nom complet</Label>
               <Input
                 id="create-user-fullname"
@@ -835,7 +950,7 @@ export function UserManagement() {
                 disabled={creating}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" data-guide="user-fields">
               <Label htmlFor="create-user-email">E-mail</Label>
               <Input
                 id="create-user-email"
@@ -943,6 +1058,7 @@ export function UserManagement() {
                 rather than merely unlikely — the same reasoning as `chequePaymentFields()`. */}
             <Button
               className="coarse:h-11"
+              data-guide="user-submit"
               onClick={submitCreate}
               disabled={
                 creating ||
@@ -952,7 +1068,13 @@ export function UserManagement() {
                   (!createFirstName.trim() || !createLastName.trim() || !createSpecialty))
               }
             >
-              {creating ? "Création…" : "Créer le compte"}
+              {invitesByLink
+                ? creating
+                  ? "Envoi…"
+                  : "Envoyer l'invitation"
+                : creating
+                  ? "Création…"
+                  : "Créer le compte"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -995,6 +1117,43 @@ export function UserManagement() {
           </div>
           <DialogFooter>
             <Button onClick={() => setTempPassword(null)}>Terminé</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* guided-first-days C — the invitation, shown once. The link is here even when the e-mail left: a spam
+          folder or a typo is found out later, and the link is what « Copier » hands over by WhatsApp. */}
+      <Dialog open={invitation !== null} onOpenChange={(open) => !open && setInvitation(null)}>
+        {/* Outside taps ignored for the temporary password's reason: it opens under the thumb that pressed send. */}
+        <DialogContent onInteractOutside={(event) => event.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>{invitation?.emailed ? "Invitation envoyée" : "L'e-mail n'est pas parti"}</DialogTitle>
+            <DialogDescription>
+              {invitation?.emailed ? (
+                <>
+                  <span className="font-semibold">{invitation.email || "La personne"}</span> a reçu un lien pour
+                  choisir son mot de passe. Il est valable 7 jours et ne sert qu&apos;une fois.
+                </>
+              ) : (
+                <>
+                  Le compte de <span className="font-semibold">{invitation?.email || "cette personne"}</span> existe,
+                  mais l&apos;e-mail n&apos;a pas pu être envoyé. Copiez le lien et envoyez-le-lui (WhatsApp, SMS…).
+                  Il est valable 7 jours.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 rounded-lg border bg-muted p-3">
+            <code className="min-w-0 flex-1 break-all font-mono text-xs">{invitation?.url}</code>
+            <Button variant="outline" size="sm" className="shrink-0 gap-1 coarse:h-11" onClick={copyInvitationLink}>
+              {linkCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {linkCopied ? "Copié" : "Copier le lien"}
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button className="coarse:h-11" onClick={() => setInvitation(null)}>
+              Terminé
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

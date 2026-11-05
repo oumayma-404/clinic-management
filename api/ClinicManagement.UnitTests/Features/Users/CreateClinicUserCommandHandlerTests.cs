@@ -31,6 +31,12 @@ public class CreateClinicUserCommandHandlerTests
         public Mock<IClinicContext> ClinicContext { get; } = new();
         public Mock<ILocalAuthService> LocalAuth { get; } = new();
         public Mock<IUnitOfWork> UnitOfWork { get; } = new();
+        public Mock<IStaffInvitationPolicy> InvitationPolicy { get; } = new();
+        public Mock<IStaffInvitationRepository> Invitations { get; } = new();
+        public Mock<IClinicRepository> Clinics { get; } = new();
+        public Mock<ITransactionalEmailSender> Email { get; } = new();
+        public Mock<IPublicAppUrlProvider> AppUrl { get; } = new();
+        public List<StaffInvitation> AddedInvitations { get; } = new();
         public List<User> Added { get; } = new();
         public List<Doctor> AddedDoctors { get; } = new();
 
@@ -52,6 +58,17 @@ public class CreateClinicUserCommandHandlerTests
             LocalAuth.Setup(a => a.GenerateTemporaryPassword()).Returns("Temp-Pass-42");
             LocalAuth.Setup(a => a.HashPassword(It.IsAny<string>())).Returns<string>(p => $"hash({p})");
             UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+            // A cabinet's own PC unless a test says otherwise: the temporary-password path every older case pins.
+            InvitationPolicy.SetupGet(p => p.InvitesStaffByLink).Returns(false);
+            AppUrl.SetupGet(a => a.IsConfigured).Returns(true);
+            AppUrl.SetupGet(a => a.BaseUrl).Returns("https://app.apexa.tn");
+            Invitations.Setup(r => r.AddAsync(It.IsAny<StaffInvitation>(), It.IsAny<CancellationToken>()))
+                .Callback<StaffInvitation, CancellationToken>((i, _) => AddedInvitations.Add(i))
+                .Returns(Task.CompletedTask);
+            Email.SetupGet(e => e.IsConfigured).Returns(true);
+            Email.Setup(e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Application.Common.Email.EmailContent>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(TransactionalEmailResult.Sent);
         }
 
         public CreateClinicUserCommandHandler Handler() => new(
@@ -60,6 +77,11 @@ public class CreateClinicUserCommandHandlerTests
             ClinicContext.Object,
             LocalAuth.Object,
             UnitOfWork.Object,
+            InvitationPolicy.Object,
+            Invitations.Object,
+            Clinics.Object,
+            Email.Object,
+            AppUrl.Object,
             NullLogger<CreateClinicUserCommandHandler>.Instance);
     }
 

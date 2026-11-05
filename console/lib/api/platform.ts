@@ -727,3 +727,70 @@ export async function deleteClinic(
     body,
   });
 }
+
+// ── « Retours » — what the cabinets' people told the vendor (`guided-first-days` E) ─────────────────────────
+
+/**
+ * One message from a cabinet's person to the vendor: the week-one card (`source: "semaine-1"`) or « Aide » →
+ * « Donner mon avis ou une idée » (`"aide"`). Written TO the vendor and never copied from a record — the form asks
+ * for no patient name. Labels are French, resolved server-side.
+ *
+ * ⚠️ `contactEmail` is present only when the person ticked « APEXA peut me recontacter »; `null` is their answer,
+ * not a missing value.
+ */
+export interface PlatformFeedback {
+  feedbackId: string;
+  clinicId: string;
+  clinicName: string;
+  authorName: string;
+  authorRoleLabel: string;
+  kind: string;
+  kindLabel: string;
+  source: string;
+  helpRating: number | null;
+  easeRating: number | null;
+  likedAreas: string[];
+  hardAreas: string[];
+  /** « Autre : … » under each area group, in the person's own words. */
+  likedOther: string | null;
+  hardOther: string | null;
+  message: string | null;
+  fromScreen: string | null;
+  contactEmail: string | null;
+  createdAt: string;
+}
+
+export interface PlatformFeedbackPage {
+  items: PlatformFeedback[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+}
+
+/** The four kinds the form offers, in its order — the filter's chips. An unknown kind is ignored server-side. */
+export const FEEDBACK_KIND_FILTERS = [
+  { key: "idee", label: "Idées" },
+  { key: "probleme", label: "Problèmes" },
+  { key: "question", label: "Questions" },
+  { key: "avis", label: "Avis" },
+] as const;
+
+export interface FeedbackQuery {
+  kind?: string;
+  page?: number;
+}
+
+export function feedbackSearchParams(query: FeedbackQuery): URLSearchParams {
+  const params = new URLSearchParams();
+  if (query.kind) params.set("kind", query.kind);
+  if (query.page && query.page > 1) params.set("page", String(query.page));
+  return params;
+}
+
+export async function fetchFeedback(token: string, query: FeedbackQuery): Promise<PlatformFeedbackPage> {
+  const suffix = feedbackSearchParams(query).toString();
+  return consoleFetch<PlatformFeedbackPage>(`/platform/feedback${suffix ? `?${suffix}` : ""}`, { token });
+}

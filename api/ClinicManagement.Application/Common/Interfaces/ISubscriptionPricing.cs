@@ -27,4 +27,7 @@ public interface ISubscriptionPricing
     string? ContactEmail { get; }
 
     string? ContactPhone { get; }
+
+    /// <summary>The vendor's WhatsApp number when it is not the one to call; null = WhatsApp uses <see cref="ContactPhone"/>.</summary>
+    string? WhatsAppPhone { get; }
 }

@@ -40,6 +40,7 @@ public class SessionFamilyPurgeJob
     private readonly ISessionFamilyRepository _sessionFamilies;
     private readonly IClinicSignupRepository _signups;
     private readonly IPasswordResetRequestRepository _passwordResets;
+    private readonly IStaffInvitationRepository _invitations;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<SessionFamilyPurgeJob> _logger;
@@ -48,6 +49,7 @@ public class SessionFamilyPurgeJob
         ISessionFamilyRepository sessionFamilies,
         IClinicSignupRepository signups,
         IPasswordResetRequestRepository passwordResets,
+        IStaffInvitationRepository invitations,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
         ILogger<SessionFamilyPurgeJob> logger)
@@ -55,6 +57,7 @@ public class SessionFamilyPurgeJob
         _sessionFamilies = sessionFamilies;
         _signups = signups;
         _passwordResets = passwordResets;
+        _invitations = invitations;
         _auditActor = auditActor;
         _tenantScope = tenantScope;
         _logger = logger;
@@ -84,9 +87,11 @@ public class SessionFamilyPurgeJob
         var nowUtc = DateTime.UtcNow;
         var signups = await DrainAsync(() => _signups.PurgeSpentAsync(nowUtc, SignUpClinicCommandHandler.ConsumedRetention));
         var resets = await DrainAsync(() => _passwordResets.PurgeSpentAsync(nowUtc, RequestPasswordResetCommandHandler.ConsumedRetention));
+        // guided-first-days C: used invitations after the reset's retention, unused ones once expired.
+        var invitations = await DrainAsync(() => _invitations.PurgeSpentAsync(nowUtc, RequestPasswordResetCommandHandler.ConsumedRetention));
         _logger.LogInformation(
-            "Purge des inscriptions et réinitialisations périmées : {Signups} inscription(s), {Resets} demande(s).",
-            signups, resets);
+            "Purge des inscriptions, réinitialisations et invitations périmées : {Signups} inscription(s), {Resets} demande(s), {Invitations} invitation(s).",
+            signups, resets, invitations);
     }
 
     /// <summary>Repeats a bounded purge until a pass removes nothing; capped so a fault cannot spin forever.</summary>

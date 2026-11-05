@@ -2587,6 +2587,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                     }}
                     size="sm"
                     className="w-full sm:w-auto"
+                    data-guide="record-new"
                   >
                     Nouvelle fiche de soins
                   </Button>
@@ -2608,6 +2609,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                             setEditingRecord(null)
                             setRecordModalOpen(true)
                           }}
+                          data-guide="record-new"
                         >
                           Nouvelle fiche de soins
                         </Button>

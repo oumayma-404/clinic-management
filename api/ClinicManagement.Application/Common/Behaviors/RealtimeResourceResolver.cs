@@ -47,10 +47,11 @@ public static class RealtimeResourceResolver
     // which is not an aggregate root and emits nothing by design (D-6).
     // "Relay" (clinic-pc-copy): the PC de secours heartbeats every few seconds; no screen refreshes on that.
     // "StaffChat": a message signals its own members on `staffChatChanged`; a clinic-wide broadcast would wake every colleague.
+    // "Feedback" (guided-first-days E): a message to the VENDOR and one person's own question state — no clinic screen shows either.
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "Backup", "Connectivity", "Dashboard", "Messaging", "Platform", "PushDevices", "Relay", "StaffChat",
-        "Subscriptions"
+        "Auth", "Backup", "Connectivity", "Dashboard", "Feedback", "Messaging", "Platform", "PushDevices", "Relay",
+        "StaffChat", "Subscriptions"
     };
 
     /// <summary>

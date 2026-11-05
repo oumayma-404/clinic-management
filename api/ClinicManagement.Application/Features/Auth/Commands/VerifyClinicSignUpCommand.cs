@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Email;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -255,7 +256,10 @@ public class VerifyClinicSignUpCommandHandler
     /// « Windows a protégé votre PC » screen <i>in advance</i>, with the two buttons numbered, and a
     /// dentist meeting that screen alone closes the installer and telephones.</para>
     /// </summary>
-    private const string InstallPageUrl = "https://apexa.tn/#telecharger";
+    private const string InstallPageUrl = ApexaPublicLinks.InstallPage;
+
+    /// <summary>The « Premiers pas » videos page of the site (guided-first-days). A link, never a button.</summary>
+    private const string TutorialsPageUrl = ApexaPublicLinks.TutorialsPage;
 
     /// <summary>
     /// The « bienvenue » e-mail: the cabinet exists, here is how to get into it the first time.
@@ -310,7 +314,8 @@ public class VerifyClinicSignUpCommandHandler
                     Details =
                     [
                         new EmailDetail("Votre identifiant", email),
-                        new EmailDetail("APEXA dans un navigateur", $"{_appUrl.BaseUrl}/login", IsLink: true)
+                        new EmailDetail("APEXA dans un navigateur", $"{_appUrl.BaseUrl}/login", IsLink: true),
+                        new EmailDetail("Vidéos : vos premiers pas", TutorialsPageUrl, IsLink: true)
                     ],
                     StepsTitle = "Votre première connexion, étape par étape",
                     Steps =

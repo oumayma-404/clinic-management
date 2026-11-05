@@ -6,6 +6,7 @@ Track incomplete work, bugs, and technical debt across all features.
 
 | Item | Feature | Type | Priority | Created |
 |------|---------|------|----------|---------|
+| [Creating a patient from « Patients » does not open their page](./patient-create-does-not-open-page.md) | general | bug | medium | 2026-11-03 |
 | [Security & Tunisian-compliance remediation — what is still outstanding](./security-remediation-outstanding.md) | general | incomplete | high | 2026-08-31 |
 | [A write path for the per-clinic TTN identity (`set-clinic-ttn-identity` verb)](./ttn-per-clinic-identity-write-path.md) | multi-tenant-cloud | incomplete | high | 2026-08-06 |
 | [Verify/regenerate the CNAM EF migration with the EF tool](./cnam-migration-ef-verify.md) | cnam-bulletin-soins | parked | high | 2026-07-17 |
@@ -25,6 +26,7 @@ Track incomplete work, bugs, and technical debt across all features.
 | [The hosted security layer is running reduced on Render's free tier — restore it on a real VM](./render-free-tier-transit-relaxation.md) | hosted-security-hardening | debt | **high** | 2026-08-12 |
 | [The landing page shipped with its captures — five corrections deferred (a wrong phone capture, page weight)](./landing-v5-shipped-corrections.md) | landing-v2 | incomplete | medium | 2026-08-19 |
 | [Two simultaneous saves can store overlapping congés — add the exclusion constraint](./doctor-leave-overlap-constraint.md) | doctor-conges | correctness | low | 2026-10-20 |
+| [A second-factor reset tells the person they will enrol again — false unless they are an admin](./second-factor-reset-promises-re-enrolment.md) | password-recovery-gaps | bug | medium | 2026-11-03 |
 | [« non synchronisé » shows on every visit of a cabinet that never connected Google](./agenda-sync-badge-without-google.md) | google-calendar | ux | low | 2026-11-03 |
 
 ## Completed Items

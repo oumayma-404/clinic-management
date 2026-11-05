@@ -22,6 +22,7 @@ public static class ClinicUserMappingExtensions
         IsActive = user.IsActive,
         IsPendingActivation = user.IsPendingActivation,
         MustChangePassword = user.MustChangePassword,
+        HasSecondFactor = user.IsTotpEnrolled,
         LastLoginAt = user.LastLoginAt,
         Version = user.Version,
         CreatedAt = user.CreatedAt,

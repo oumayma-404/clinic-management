@@ -9,9 +9,10 @@ namespace ClinicManagement.Application.Common.Interfaces;
 public interface ITotpService
 {
     /// <summary>
-    /// A fresh base32 shared secret, in the form an authenticator app accepts. Only the bootstrap verb calls
-    /// this (AC-1.3) — no request-time path may mint one, or the second factor would be obtainable by whoever
-    /// already has the password, which is the one thing it exists to prevent.
+    /// A fresh base32 shared secret, in the form an authenticator app accepts. For a console account only the
+    /// bootstrap verb calls this (AC-1.3). A clinic account's sign-in enrolment (<c>EnrolTotpCommand</c>) mints one
+    /// at request time, but only for an account that holds no confirmed factor (or a replacement grant earned with a
+    /// recovery code), after the password is verified — so it never lets a password alone replace a working factor.
     /// </summary>
     string GenerateSecret();
 

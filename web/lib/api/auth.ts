@@ -109,10 +109,33 @@ export interface AuthModeDto {
   relayFeedEnabled?: boolean;
   /** clinic-pc-copy: this server IS a PC de secours (`=== true`). */
   isClinicRelay?: boolean;
+  /**
+   * guided-first-days C: an admin adds a colleague by e-mail — the colleague chooses her own password behind a
+   * one-time link — instead of being handed a temporary password. Online version only; read `=== true`.
+   */
+  invitesStaffByLink?: boolean;
+  /**
+   * Whether the vendor's console can clear a lost second factor here — the way back for a sole administrator
+   * whose authenticator and recovery codes are both gone. `false` means the server PC's `reset-user-totp` verb is.
+   *
+   * ⚠️ **Three-valued on the client**: absent (an older API) must show only the sentence true everywhere, never
+   * the LAN one, which would send a hosted dentist to a command on a PC they do not have.
+   */
+  vendorResetsSecondFactor?: boolean;
+  /** The vendor's support number, served only where `vendorResetsSecondFactor` is true. */
+  supportPhone?: string | null;
   /** demo-cabinet: this is the public demo — nothing is saved, and a band says so on every screen (`=== true`). */
   isDemo?: boolean;
   /** demo-cabinet: where a demo visitor creates a real cabinet; set only on the demo. */
   demoSignupUrl?: string | null;
+}
+
+/** What the invitation page greets with (`POST /api/auth/invitation/preview`). */
+export interface StaffInvitationPreviewDto {
+  /** As the admin typed it (« Dr Ross Geller ») — the e-mail greets with the same name. May be empty. */
+  fullName: string;
+  email: string;
+  clinicName: string;
 }
 
 /** What `POST /api/auth/signup` requests. Mirrors the backend `ClinicSignUpRequest`. */
@@ -198,5 +221,17 @@ export const authApi = {
    */
   completePasswordReset: async (token: string, newPassword: string): Promise<void> => {
     await apiPost<Record<string, never>>('/auth/password-reset/complete', { token, newPassword }, null);
+  },
+
+  /**
+   * guided-first-days C: who the invitation is for. A POST so the token never sits in a URL; a used, expired,
+   * re-sent or unknown link is a 410 carrying the server's one sentence.
+   */
+  previewInvitation: async (token: string): Promise<StaffInvitationPreviewDto> =>
+    apiPost<StaffInvitationPreviewDto>('/auth/invitation/preview', { token }, null),
+
+  /** Sets the colleague's first password and spends the link. No session: she signs in at `/login` afterwards. */
+  acceptInvitation: async (token: string, password: string): Promise<void> => {
+    await apiPost<Record<string, never>>('/auth/invitation/accept', { token, password }, null);
   },
 };

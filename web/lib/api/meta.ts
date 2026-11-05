@@ -17,6 +17,12 @@ export interface ClientRequirementsDto {
   android?: { minimumVersion: string; currentVersion: string; downloadUrl: string; sha256: string };
 }
 
+/** The website's download section (Android and iPhone), and the same link as a QR code (`data:` PNG). */
+export interface PhoneAppDownloadDto {
+  url: string;
+  qrPng: string;
+}
+
 export const metaApi = {
   /**
    * The client-version floor and where to update (AC-28).
@@ -28,4 +34,10 @@ export const metaApi = {
    */
   clientRequirements: (): Promise<ClientRequirementsDto> =>
     apiGet<ClientRequirementsDto>('/meta/client-requirements', undefined, null),
+
+  /**
+   * « Votre téléphone » (guided-first-days B): the APK the in-app updater itself is sent to, so the QR never points
+   * at an older build than the app would update to. Signed-in only.
+   */
+  phoneApp: (): Promise<PhoneAppDownloadDto> => apiGet<PhoneAppDownloadDto>('/meta/phone-app'),
 };

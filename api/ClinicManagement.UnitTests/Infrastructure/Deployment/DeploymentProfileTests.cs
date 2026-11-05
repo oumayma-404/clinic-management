@@ -66,6 +66,9 @@ public class DeploymentProfileTests
             // with no SMTP credentials, so the capability would be present-and-broken. It joins
             // `hostedOnlyCapabilities` below for AllowsPublicClinicSignup's reason.
             [nameof(DeploymentProfile.AllowsPasswordResetByEmail)] = (false, true, false, false),
+            // guided-first-days C: an e-mailed first-password link needs a mailbox and a public address — the
+            // password reset's reason, so the same column.
+            [nameof(DeploymentProfile.InvitesStaffByLink)] = (false, true, false, false),
             // clinic-subscription AC-7.1–7.3. The THIRD hosted-only capability: the two other kinds are ✗ for
             // their own reasons (the clinic's own disk; a topology that predates the arrangement), not by default.
             [nameof(DeploymentProfile.RequiresSubscription)] = (false, true, true, false),
@@ -151,6 +154,7 @@ public class DeploymentProfileTests
         {
             nameof(DeploymentProfile.AllowsPublicClinicSignup),
             nameof(DeploymentProfile.AllowsPasswordResetByEmail),
+            nameof(DeploymentProfile.InvitesStaffByLink),
             nameof(DeploymentProfile.ServesPlatformConsole),
             nameof(DeploymentProfile.RequiresSubscription),
             nameof(DeploymentProfile.SellsVendorMessaging),

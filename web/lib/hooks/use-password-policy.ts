@@ -88,6 +88,48 @@ export function usePasswordResetEnabled(): boolean | null {
 }
 
 /**
+ * Whether an admin adds a colleague by e-mail invitation here (`guided-first-days` C) rather than by temporary
+ * password. Only the WORDING of « Inviter » reads it — what the create call actually did is read from its own
+ * response, so a failed probe costs a label, never a wrong dialog. `=== true`, the rolling-deploy convention.
+ */
+export function useInvitesStaffByLink(): boolean {
+  const [enabled, setEnabled] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    load()
+      .then((mode) => { if (active) setEnabled(mode.invitesStaffByLink === true) })
+      .catch(() => { /* stays false: the create flow still reads its own response */ })
+    return () => { active = false }
+  }, [])
+
+  return enabled
+}
+
+/**
+ * Who can clear a lost second factor when no recovery code is left — named on the login screen's recovery step.
+ *
+ * ⚠️ `null` until the probe answers, and on a failed probe: the two deployments name opposite remedies (the
+ * vendor vs. a command on the server PC), so no line beats the wrong line. `vendor` is itself three-valued —
+ * `undefined` is an older API, and the caller then names only the colleague administrator.
+ */
+export function useSecondFactorRecovery(): { vendor: boolean | undefined; supportPhone: string | null } | null {
+  const [recovery, setRecovery] = useState<{ vendor: boolean | undefined; supportPhone: string | null } | null>(null)
+
+  useEffect(() => {
+    let active = true
+    load()
+      .then((mode) => {
+        if (active) setRecovery({ vendor: mode.vendorResetsSecondFactor, supportPhone: mode.supportPhone ?? null })
+      })
+      .catch(() => { /* stays null: no line rather than the wrong line */ })
+    return () => { active = false }
+  }, [])
+
+  return recovery
+}
+
+/**
  * Whether this deployment still lets somebody create their own account from a clinic code.
  *
  * ⚠️ **Defaults to `true`, and a failed probe leaves it there.** Every consumer gates on the flag rather than on

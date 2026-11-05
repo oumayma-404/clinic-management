@@ -306,6 +306,34 @@ export interface ProcedureMixPointDto {
  * copy of what the dashboard contains — a second list would drift, and the first block added without updating it
  * would be visible on the page but absent from the panel, i.e. impossible to hide.
  */
+/** One « Premiers pas » step (`GettingStartedKeys` server-side; `lib/getting-started.ts` here). */
+export interface GettingStartedStepDto {
+  key: string;
+  done: boolean;
+  /** Done only because the person ticked it — the card offers to untick it. */
+  doneByHand?: boolean;
+}
+
+/** One account and its first sign-in from the phone app — « Déjà fait » in « Votre téléphone ». */
+export interface PhoneAppPersonDto {
+  name: string;
+  role: string;
+  /** `android` · `ios-home-screen` · `ios`; null until that person has signed in from a phone app. */
+  platform: string | null;
+  firstSignInAt: string | null;
+  /** The reader's own row (« Vous »). */
+  isYou: boolean;
+}
+
+/** « Premiers pas » for the signed-in administrator's cabinet. `visible: false` ⇒ both lists are empty. */
+export interface GettingStartedDto {
+  visible: boolean;
+  steps: GettingStartedStepDto[];
+  phoneApp: PhoneAppPersonDto[];
+  /** Hidden because every step is done (not because the first 30 days are over). */
+  completed?: boolean;
+}
+
 export interface DashboardPreferencesDto {
   hiddenKpis: string[];
   availableKpis: string[];

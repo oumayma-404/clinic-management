@@ -338,7 +338,7 @@ public class FreeSlotFinderTests
     {
         var (handler, visit) = Query(ClinicId);
 
-        var result = await handler.Handle(new GetFreeSlotsQuery { AppointmentId = visit.Id, From = Monday, Days = asked }, default);
+        var result = await handler.Handle(new GetFreeSlotsQuery { AppointmentId = visit.Id, From = QueryMonday, Days = asked }, default);
 
         Assert.Equal(served, result.Value!.Days.Count);
     }

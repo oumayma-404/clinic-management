@@ -28,6 +28,8 @@ public class RelayFenceCoverageTests
     {
         ["JoinClinicCommand:Clinic"] = "reads the cabinet its clinic code names; the account it creates is a User",
         ["EnrolTotpCommand:Clinic"] = "reads the cabinet's name for the authenticator's label",
+        ["CreateClinicUserCommand:Clinic"] = "reads the cabinet's name for the invitation e-mail; the account it creates is a User",
+        ["ResendStaffInvitationCommand:Clinic"] = "reads the cabinet's name for the invitation e-mail; the invitation is never carried",
         ["PairRelayCommand:Clinic"] = "reads the cabinet's name for the PC's pairing answer",
         ["VerifyClinicSignUpCommand:Clinic"] = "creates a NEW cabinet, which has no PC de secours to be fenced by",
         ["VerifyClinicSignUpCommand:ProcedureType"] = "seeds a NEW cabinet's catalogue; no PC de secours yet",

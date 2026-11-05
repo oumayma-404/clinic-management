@@ -34,6 +34,10 @@ import { seedCost, type OdontogramPlanSeed, type SeedCandidate } from "@/compone
 import { useProcedureTypes } from "@/lib/hooks/use-catalogues"
 import { groupProceduresByCategory } from "@/components/procedure-categories"
 import { patientsApi } from "@/lib/api/patients"
+import { ModeSegmented } from "@/components/ui/mode-segmented"
+import { NewPatientFields } from "@/components/patients/new-patient-fields"
+import { DuplicatePatientDialog } from "@/components/patients/duplicate-patient-dialog"
+import { useInlineNewPatient, type InlineNewPatientSnapshot } from "@/lib/hooks/use-inline-new-patient"
 import type { TreatmentPlanDto, PatientDto, ProcedureTypeDto } from "@/lib/api/types"
 import { formatAmount, formatDT, formatDateTime, parseAmountInput, quoteFr, todayLocalIso } from "@/lib/format"
 import { addMonths, format, parseISO } from "date-fns"
@@ -93,6 +97,9 @@ export type TreatmentPlanSeedLine = OdontogramPlanSeed
 /** What the devis editor hands the shell (`clinic-pc-copy` D23): the screen, and the copy it was opened against. */
 interface CarriedPlanForm {
   patientId: string
+  /** « Nouveau patient » on a new devis — the walk-in's fields and, once created, its id. */
+  isNewPatient: boolean
+  newPatient: InlineNewPatientSnapshot
   title: string
   notes: string
   lines: PlanLineRow[]
@@ -153,6 +160,14 @@ export function TreatmentPlanFormModal({
   /** One of the picker reads failed — never conflated with "the catalogue is empty". */
   const pickersFailed = patientsFailed || catalogue.failed
   const [patientId, setPatientId] = useState("")
+  /**
+   * « Nouveau patient » on a new devis (guided-first-days D): a devis is often the first thing a new patient gets,
+   * and the only way used to be to leave this form, create the patient, and start again. Created once, after the
+   * rest of the form is valid, and reused by every retry (`useInlineNewPatient`).
+   */
+  const [isNewPatient, setIsNewPatient] = useState(false)
+  const newPatient = useInlineNewPatient()
+  const [duplicatePatientPrompt, setDuplicatePatientPrompt] = useState<string | null>(null)
   const [title, setTitle] = useState("")
   const [notes, setNotes] = useState("")
   const [lines, setLines] = useState<LineRow[]>([emptyLine()])
@@ -347,11 +362,17 @@ export function TreatmentPlanFormModal({
     dirty: true,
     state: {
       patientId, title, notes, lines, installments, installmentsTouched,
+      isNewPatient, newPatient: newPatient.snapshot(),
       placeholderTitle: storedPlaceholderTitleRef.current,
       opened: openedRef.current,
     },
-    restore: (s) => {
-      if (!editingPlan) setPatientId(s.patientId)
+    restore: (s, draft) => {
+      if (!editingPlan) {
+        setPatientId(s.patientId)
+        // A devis draft from before « Nouveau patient » existed here carries neither.
+        setIsNewPatient(s.isNewPatient ?? false)
+        newPatient.restore(s.newPatient, draft.origin !== window.location.origin)
+      }
       setTitle(s.title)
       setNotes(s.notes)
       setLines(s.lines.length > 0 ? s.lines : [emptyLine()])
@@ -381,6 +402,9 @@ export function TreatmentPlanFormModal({
       hydrateFrom(editingPlan)
     } else {
       setPatientId(presetPatientId ?? "")
+      setIsNewPatient(false)
+      newPatient.reset()
+      setDuplicatePatientPrompt(null)
       openedRef.current = null
       setTakenOver([])
       const seeded = seedLines && seedLines.length > 0
@@ -753,8 +777,13 @@ export function TreatmentPlanFormModal({
       : "Ex. Réhabilitation prothétique"
   }, [lines])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    void save(false)
+  }
+
+  /** The whole save. Re-entered by « Créer quand même » on a possible duplicate, with that answer granted. */
+  const save = async (allowDuplicatePatient: boolean) => {
     // AC-3.2: the first save after the app switched server is refused once; « Recharger » keeps the typing.
     if (carried.consumeSwitch()) {
       if (editingPlan) conflict.raise(carried.switchRefusal)
@@ -771,9 +800,16 @@ export function TreatmentPlanFormModal({
     // clearing its banner at the top of every submit can never reach a second 409 (`use-conflict.ts`).
     conflict.clearMessage()
 
-    if (!patientId) {
+    if (!isNewPatient && !patientId) {
       setError("Veuillez sélectionner un patient.")
       return
+    }
+    if (isNewPatient) {
+      const invalid = newPatient.validate()
+      if (invalid) {
+        setError(invalid)
+        return
+      }
     }
 
     /*
@@ -844,8 +880,23 @@ export function TreatmentPlanFormModal({
         })
         toast.success("Traitement mis à jour")
       } else {
+        // The patient last, once every check on the devis has passed — a refused devis must not leave a
+        // patient behind. A retry books onto the one already created (`useInlineNewPatient`).
+        let targetPatientId = patientId
+        if (isNewPatient) {
+          const created = await newPatient.ensureCreated(allowDuplicatePatient)
+          if (created.kind === "duplicate") {
+            setDuplicatePatientPrompt(created.message)
+            return
+          }
+          if (created.kind === "failed") {
+            setError(created.error)
+            return
+          }
+          targetPatientId = created.id
+        }
         const payload: CreateTreatmentPlanRequest = {
-          patientId,
+          patientId: targetPatientId,
           title: effectiveTitle,
           notes: notes.trim() || null,
           items: parsedLines.value,
@@ -961,10 +1012,38 @@ export function TreatmentPlanFormModal({
 
           <div className="grid gap-4 sm:grid-cols-2">
             {!(presetPatientId || isEditing) && (
-            <div className="space-y-1.5">
-              <Label htmlFor="patient">
-                Patient <span className="text-destructive">*</span>
-              </Label>
+            <div className={cn("space-y-1.5", isNewPatient && "sm:col-span-2")}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                {isNewPatient ? (
+                  <p className="text-sm font-medium">
+                    Patient <span className="text-destructive">*</span>
+                  </p>
+                ) : (
+                  <Label htmlFor="patient">
+                    Patient <span className="text-destructive">*</span>
+                  </Label>
+                )}
+                {/* Locked once the patient is created: switching back would orphan a real record. */}
+                <ModeSegmented
+                  ariaLabel="Type de patient"
+                  size="sm"
+                  disabled={newPatient.alreadyCreated || loading}
+                  value={isNewPatient ? "new" : "existing"}
+                  onChange={(mode) => {
+                    const isNew = mode === "new"
+                    setIsNewPatient(isNew)
+                    if (isNew) setPatientId("")
+                    else newPatient.clearFields()
+                  }}
+                  options={[
+                    { value: "existing", label: "Patient existant" },
+                    { value: "new", label: "Nouveau patient" },
+                  ]}
+                />
+              </div>
+              {isNewPatient ? (
+                <NewPatientFields patient={newPatient} idPrefix="plan-" savedWhat="le devis" disabled={loading} />
+              ) : (
                 <Select value={patientId} onValueChange={setPatientId} disabled={loading}>
                   <SelectTrigger id="patient">
                     <SelectValue placeholder="Sélectionner un patient" />
@@ -977,9 +1056,10 @@ export function TreatmentPlanFormModal({
                     ))}
                   </SelectContent>
                 </Select>
+              )}
             </div>
             )}
-            <div className={cn("space-y-1.5", (presetPatientId || isEditing) && "sm:col-span-2")}>
+            <div className={cn("space-y-1.5", (presetPatientId || isEditing || isNewPatient) && "sm:col-span-2")}>
               <Label htmlFor="title">
                 Titre
               </Label>
@@ -1679,6 +1759,20 @@ export function TreatmentPlanFormModal({
     </Dialog>
     <DiscardChangesDialog guard={guard} />
     {refundDialog}
+    <DuplicatePatientDialog
+      message={duplicatePatientPrompt}
+      patientName={newPatient.typedName}
+      busy={loading}
+      onDismiss={() => setDuplicatePatientPrompt(null)}
+      onPickExisting={() => {
+        setIsNewPatient(false)
+        newPatient.clearFields()
+      }}
+      onCreateAnyway={() => {
+        setDuplicatePatientPrompt(null)
+        void save(true)
+      }}
+    />
     <AlertDialog
       open={pendingRemoval !== null}
       onOpenChange={(o) => !o && setPendingRemoval(null)}

@@ -298,6 +298,24 @@ public static class PlatformReadShape
         // ── PC de secours (clinic-pc-copy AC-9.1). A state key and its short French label, derived from a
         // heartbeat — never the PC's machine name, its addresses or anything it holds.
         "RelayState",
-        "RelayLabel"
+        "RelayLabel",
+        // ── « Retours » (guided-first-days E). A message WRITTEN BY A CLINIC USER TO THE VENDOR, never copied from a
+        // record: the form asks for no patient name and says so in the field (owner's answer 4, 2026-11-03). The
+        // author is a staff account — `AdminEmail`'s category — and `ContactEmail` is that account's address only
+        // when the person ticked « on peut me recontacter ». Ratings, areas and kinds are closed vocabularies;
+        // `LikedOther`/`HardOther` are the « Autre : … » lines beside the areas — the same free text as `Message`.
+        "FeedbackId",
+        "AuthorName",
+        "AuthorRoleLabel",
+        "Source",
+        "HelpRating",
+        "EaseRating",
+        "LikedAreas",
+        "HardAreas",
+        "LikedOther",
+        "HardOther",
+        "Message",
+        "FromScreen",
+        "ContactEmail"
     };
 }

@@ -1316,7 +1316,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
         prop, so a successful save closes without being asked to confirm — no `markClean` bookkeeping, and no
         way for the two to fall out of step (AC-23). */}
     <Dialog open={open} onOpenChange={guard.onOpenChange}>
-      <DialogContent mobile="sheet" className="gap-0 p-0 md:max-h-[90dvh] md:max-w-4xl">
+      <DialogContent mobile="sheet" className="gap-0 p-0 md:max-h-[90dvh] md:max-w-4xl" data-guide="patient-dialog">
         <DialogHeader className="p-6 pb-4">
           <div className="flex items-start justify-between">
             <div>
@@ -1410,7 +1410,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                   *consequence* — the telephone — that consequence is still stated, which is the half that matters.
                 */}
                 {/* First Name */}
-                <div className="space-y-2">
+                <div className="space-y-2" data-guide="patient-names">
                   <Label htmlFor="firstName">
                     Prénom <span className="text-destructive">*</span>
                   </Label>
@@ -1426,7 +1426,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                 </div>
 
                 {/* Last Name */}
-                <div className="space-y-2">
+                <div className="space-y-2" data-guide="patient-names">
                   <Label htmlFor="lastName">
                     Nom <span className="text-destructive">*</span>
                   </Label>
@@ -2369,7 +2369,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
             <X className="h-4 w-4 mr-2" />
             Annuler
           </Button>
-          <Button type="submit" onClick={handleSave} disabled={loading}>
+          <Button type="submit" onClick={handleSave} disabled={loading} data-guide="patient-submit">
             <Save className="h-4 w-4 mr-2" />
             {loading
               ? (patient ? "Enregistrement…" : "Création…")

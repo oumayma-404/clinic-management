@@ -121,6 +121,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<NotificationDismissal> NotificationDismissals { get; set; }
     // Internal staff chat (staff-chat): both clinic-owned and filtered; the marker carries a ClinicId unlike NotificationRead.
     public DbSet<StaffMessage> StaffMessages { get; set; }
+
+    // guided-first-days E: what a cabinet's people tell the vendor, and who is still asked the week-one question.
+    public DbSet<ProductFeedback> ProductFeedback { get; set; }
+    public DbSet<UserFeedbackPrompt> UserFeedbackPrompts { get; set; }
     public DbSet<StaffChatReadMarker> StaffChatReadMarkers { get; set; }
     public DbSet<StaffQuickMessageList> StaffQuickMessageLists { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
@@ -181,6 +185,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // scope is ever established and a filtered read would return zero rows with no error — indistinguishable from
     // « no such request », on the one path whose job is to tell those two apart.
     public DbSet<PasswordResetRequest> PasswordResetRequests { get; set; }
+
+    // guided-first-days C: a colleague's first-password link. No ClinicId (reached through its user, FK cascade), so no
+    // filter — the link is opened by an anonymous request with no clinic in scope, like a password reset.
+    public DbSet<StaffInvitation> StaffInvitations { get; set; }
 
     // The vendor's console identity population (platform-console FR-1). Like ClinicSignup above and for the same
     // structural reason, these carry **no ClinicId**: a console account belongs to no cabinet, which is the whole
@@ -330,6 +338,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         // (plan R-5).
         modelBuilder.Entity<StaffNotification>().HasQueryFilter(n => IsSystemWide || n.ClinicId == ScopedClinicId);
         modelBuilder.Entity<StaffMessage>().HasQueryFilter(m => IsSystemWide || m.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ProductFeedback>().HasQueryFilter(f => IsSystemWide || f.ClinicId == ScopedClinicId);
         modelBuilder.Entity<StaffChatReadMarker>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);
         modelBuilder.Entity<StaffQuickMessageList>().HasQueryFilter(l => IsSystemWide || l.ClinicId == ScopedClinicId);
         // Invoice is directly clinic-owned → filtered like the other aggregate roots. Its children
@@ -528,6 +537,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         typeof(SessionFamily),
         // clinic-pc-copy: written by the PC's heartbeat every few seconds; a lifecycle step must not 409 against it.
         typeof(ClinicRelay),
+        // guided-first-days E: « shown » / « plus tard » on one person's own question, from two tabs at worst —
+        // nothing anyone typed lives on this row, so last-write-wins is right and a 409 would be noise.
+        typeof(UserFeedbackPrompt),
     };
 
     /// <summary>

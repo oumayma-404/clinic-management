@@ -92,6 +92,7 @@ public class GetSubscriptionQueryHandler : IRequestHandler<GetSubscriptionQuery,
                 PaymentInstructions = _pricing.PaymentInstructions,
                 ContactEmail = _pricing.ContactEmail,
                 ContactPhone = _pricing.ContactPhone,
+                WhatsAppPhone = _pricing.WhatsAppPhone,
             });
         }
         catch (Exception ex) when (ex is not ConflictException)
