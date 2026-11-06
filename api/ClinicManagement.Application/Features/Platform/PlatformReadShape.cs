@@ -316,6 +316,20 @@ public static class PlatformReadShape
         "HardOther",
         "Message",
         "FromScreen",
-        "ContactEmail"
+        "ContactEmail",
+        // ── News (console-news-broadcast): vendor-written subject/items/HTML, counts, instants, cabinet names — no admin address.
+        "Recipients",
+        "ClinicsWithoutAdminEmail",
+        "NewsHtml",
+        "TestSentTo",
+        "BroadcastId",
+        "AlreadyQueued",
+        "InProgress",
+        "Subject",
+        "SentAt",
+        "SentByName",
+        "Sent",
+        "Failed",
+        "FailedClinics"
     };
 }

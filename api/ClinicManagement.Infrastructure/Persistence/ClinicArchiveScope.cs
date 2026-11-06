@@ -103,6 +103,9 @@ public static class ClinicArchiveScope
         nameof(PlatformAccount),
         nameof(PlatformRecoveryCode),
         nameof(PlatformAccessEntry),
+        // The vendor's news e-mails: what the vendor sent, never a cabinet's record.
+        nameof(PlatformNewsBroadcast),
+        nameof(PlatformNewsRecipient),
         nameof(ClinicActivityDay),
         nameof(ClinicActivitySnapshot),
         nameof(ClinicSignup),

@@ -117,7 +117,8 @@
    * ⚠️ Never on siblings a few pixels apart: the pseudo-element overhangs its neighbours and, since the later
    * sibling paints last, it STEALS their taps. For anything in a row or a stack, grow the box itself.
    */
-  .touch-target {
+  /* `:where()` = specificity 0: an `absolute` on the same element must win (check:responsive N9). */
+  :where(.touch-target) {
     position: relative;
   }
 

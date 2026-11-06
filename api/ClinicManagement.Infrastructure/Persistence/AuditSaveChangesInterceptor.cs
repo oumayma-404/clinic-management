@@ -78,6 +78,8 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
         // as a mutation of its own data, which it is not. What the console does *to* a cabinet still audits itself,
         // through the cabinet's own aggregates and under `console|{accountId}`.
         nameof(PlatformAccessEntry),
+        // The vendor's news e-mail (its recipients are child rows, never audited): belongs to no cabinet, like PlatformAccount.
+        nameof(PlatformNewsBroadcast),
         // clinic-pc-copy: a heartbeat every few seconds; its lifecycle steps write explicit journal rows instead.
         nameof(ClinicRelay),
     };

@@ -227,6 +227,12 @@ public class SubscriptionExemptionCoverageTests
         // likeliest thing this route is pointed at, so gating it on that cabinet's own entitlement would make the
         // rows it left behind permanent — and would push the deletion back to SSH, where nothing is recorded.
         "PlatformClinicDeletion.Delete",
+
+        // --- The vendor's news e-mails (`console-news-broadcast`). The vendor's own mailing, sent from no cabinet;
+        // the preview and the test record nothing at all.
+        "PlatformNews.Preview",
+        "PlatformNews.SendTest",
+        "PlatformNews.Send",
     };
 
     /// <summary>

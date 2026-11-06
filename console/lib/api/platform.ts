@@ -794,3 +794,48 @@ export async function fetchFeedback(token: string, query: FeedbackQuery): Promis
   const suffix = feedbackSearchParams(query).toString();
   return consoleFetch<PlatformFeedbackPage>(`/platform/feedback${suffix ? `?${suffix}` : ""}`, { token });
 }
+
+// ── News e-mails (`console-news-broadcast`) ──────────────────────────────────────────────────────────────────
+
+/** One row of the news form: an emoji and one line of text. */
+export interface PlatformNewsItem {
+  emoji: string;
+  text: string;
+}
+
+/** Who « Envoyer » would reach right now. */
+export interface PlatformNewsAudience {
+  clinics: number;
+  recipients: number;
+  clinicsWithoutAdminEmail: number;
+}
+
+/** One past send. `failedClinics` are cabinet names, never addresses. */
+export interface PlatformNewsBroadcast {
+  broadcastId: string;
+  subject: string;
+  sentAt: string;
+  sentByName: string;
+  clinics: number;
+  recipients: number;
+  sent: number;
+  failed: number;
+  inProgress: boolean;
+  failedClinics: string[];
+}
+
+export interface PlatformNewsQueued {
+  broadcastId: string;
+  clinics: number;
+  recipients: number;
+  alreadyQueued: boolean;
+  inProgress: boolean;
+}
+
+export async function fetchNewsAudience(token: string): Promise<PlatformNewsAudience> {
+  return consoleFetch<PlatformNewsAudience>("/platform/news/audience", { token });
+}
+
+export async function fetchNewsHistory(token: string): Promise<PlatformNewsBroadcast[]> {
+  return consoleFetch<PlatformNewsBroadcast[]>("/platform/news", { token });
+}

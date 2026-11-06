@@ -219,6 +219,11 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     // rows worth most are the ones about a cabinet that no longer exists.
     public DbSet<PlatformAccessEntry> PlatformAccessEntries { get; set; }
 
+    // The console's news e-mails (console-news-broadcast). The vendor's, like the ledger above; the recipient rows
+    // carry the cabinet they went to, so they are named decisions in TenantScopeFilterTests.
+    public DbSet<PlatformNewsBroadcast> PlatformNewsBroadcasts { get; set; }
+    public DbSet<PlatformNewsRecipient> PlatformNewsRecipients { get; set; }
+
     // A cabinet's dated right to record new work, and the append-only ledger EndsOn is a full re-fold of
     // (clinic-subscription FR-1). Both clinic-owned with non-nullable ClinicIds, so both are filtered like the
     // rest; the vendor's console verbs declare UseSystemWide to reach every cabinet.

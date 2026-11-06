@@ -33,6 +33,8 @@ public static class Extensions
         // Here rather than in AddInfrastructure because it reads IHttpContextAccessor, exactly like ClinicContext
         // above; the console verbs need none of it, and they resolve ProcessAuditActorProvider instead.
         services.AddScoped<IPlatformSessionContext, PlatformSessionContext>();
+        // The console's news e-mails: the background job sends a recorded broadcast through it.
+        services.AddScoped<Features.Platform.IPlatformNewsDispatcher, Features.Platform.PlatformNewsDispatcher>();
         // Best-effort writer for the in-app staff notification feed (generated inline from command handlers).
         services.AddScoped<INotificationGenerator, NotificationGenerator>();
         // demo-cabinet: which demo cabinet a visitor enters (read by the session mint and GET auth/mode).
