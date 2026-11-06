@@ -9,6 +9,7 @@ import { baseSections, isNavItemVisible, type NavItem } from "@/lib/nav"
 import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
 import { useSession } from "@/lib/auth/session"
 import { StaffChatBarTab } from "@/components/staff-chat/staff-chat-launcher"
+import { useNewsBadge } from "@/lib/hooks/use-news-badge"
 
 /**
  * The phone's primary navigation (AC-7).
@@ -81,6 +82,8 @@ export function BottomNav() {
   const { user } = useSession()
   const { moneyHidden } = useMoneyVisibility()
   const items = barItems.filter((item) => isNavItemVisible(item.href, user?.role, moneyHidden))
+  // « Nouveautés » lives in the drawer, so « Plus » is where a phone learns there is something new to read.
+  const { unread: unreadNews } = useNewsBadge(user?.role === "admin")
   // Reuses the drawer's own state — no third piece of sidebar state, so AC-P3.18 still holds: nothing a phone
   // session does can overwrite the persisted desktop rail preference.
   const { setMobileOpen } = useSidebar()
@@ -143,13 +146,22 @@ export function BottomNav() {
       <button
         type="button"
         onClick={() => setMobileOpen(true)}
-        aria-label="Ouvrir la navigation"
+        aria-label={
+          unreadNews > 0
+            ? `Ouvrir la navigation — ${unreadNews} nouveauté${unreadNews > 1 ? "s" : ""} non lue${unreadNews > 1 ? "s" : ""}`
+            : "Ouvrir la navigation"
+        }
         className={cn(
           "flex flex-1 flex-col items-center justify-center gap-0.5 text-2xs font-medium text-muted-foreground",
           "h-[var(--bottom-bar-h)] transition-colors"
         )}
       >
-        <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+        <span className="relative">
+          <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+          {unreadNews > 0 && (
+            <span aria-hidden="true" className="absolute -end-1 -top-0.5 size-2 rounded-full bg-primary ring-2 ring-card" />
+          )}
+        </span>
         <span className="leading-none">Plus</span>
       </button>
     </nav>

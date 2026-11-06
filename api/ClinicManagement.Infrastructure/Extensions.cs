@@ -315,6 +315,7 @@ public static class Extensions
         // controllers are unreachable without the listener, and a ledger registered behind a capability would fail
         // to resolve on precisely the deployment where somebody switched the console on.
         services.AddScoped<IPlatformAccessEntryRepository, PlatformAccessEntryRepository>();
+        services.AddScoped<IPlatformNewsRepository, PlatformNewsRepository>();
 
         // File storage backend: the clinic's own disk (no MinIO) where the deployment stores blobs locally,
         // MinIO everywhere else (unchanged).

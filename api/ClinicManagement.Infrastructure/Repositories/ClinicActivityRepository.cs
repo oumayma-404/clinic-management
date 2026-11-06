@@ -225,6 +225,40 @@ public class ClinicActivityRepository : IClinicActivityRepository
         return await query.Select(Projection).FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<PlatformNewsAudienceClinic>> GetNewsAudienceAsync(
+        DateTime clinicToday, CancellationToken cancellationToken = default)
+    {
+        // The portfolio's own « Actif » predicate (trial included), so the console's filter and the audience agree.
+        var clinics = await PortfolioQuery(_context.Clinics.AsNoTracking(), messagingMonthKey: null)
+            .Where(SubscriptionPredicate(PlatformSubscriptionFilter.Active, clinicToday.Date, expiringWithinDays: 0))
+            .OrderBy(x => x.clinic.Name)
+            .ThenBy(x => x.clinic.Id)
+            .Select(x => new { x.clinic.Id, x.clinic.Name })
+            .ToListAsync(cancellationToken);
+
+        var ids = clinics.Select(c => c.Id).ToList();
+
+        var admins = await _context.Users
+            .AsNoTracking()
+            .Where(u => ids.Contains(u.ClinicId)
+                && u.Role == User.RoleAdmin
+                && u.IsActive
+                && u.Email != null
+                && u.Email != "")
+            .OrderBy(u => u.Email)
+            .Select(u => new { u.ClinicId, Email = u.Email!, u.FullName })
+            .ToListAsync(cancellationToken);
+
+        var byClinic = admins.ToLookup(a => a.ClinicId);
+
+        return clinics
+            .Select(c => new PlatformNewsAudienceClinic(
+                c.Id,
+                c.Name,
+                byClinic[c.Id].Select(a => new PlatformNewsAudienceAdmin(a.Email.Trim(), a.FullName)).ToList()))
+            .ToList();
+    }
+
     /// <summary>
     /// A cabinet beside its snapshot and its entitlement, or beside nothing. A named type rather than an anonymous
     /// one so the list and the detail can pass the <b>same</b> projection expression over it.

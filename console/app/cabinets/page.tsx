@@ -76,7 +76,7 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
           </p>
         </div>
         {/* The console's whole navigation, deliberately a few links rather than a rail (FR-7: no clinic chrome). It
-            wraps rather than collapsing behind a hamburger, because three items fit at 320 px. */}
+            wraps rather than collapsing behind a hamburger, because these few items fit at 320 px on two lines. */}
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/journal"
@@ -89,6 +89,12 @@ export default async function CabinetsPage({ searchParams }: PageProps) {
             className="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
           >
             Retours
+          </Link>
+          <Link
+            href="/nouveautes"
+            className="inline-flex min-h-11 items-center rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
+          >
+            Nouveautés
           </Link>
           <SignOutButton />
         </div>

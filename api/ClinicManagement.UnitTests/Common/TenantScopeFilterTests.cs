@@ -56,7 +56,9 @@ public class TenantScopeFilterTests
         // different question from the one the column asks. It is also read only by /journal, which exists precisely
         // to read across every cabinet, and its most valuable rows concern a cabinet that has since been deleted.
         ["PlatformAccessEntry"] = "the VENDOR's ledger of what it did, keyed on the cabinet it did it to: the only "
-                                  + "reader is the cross-cabinet journal, and a closed cabinet's rows must survive"
+                                  + "reader is the cross-cabinet journal, and a closed cabinet's rows must survive",
+        ["PlatformNewsRecipient"] = "the VENDOR's send log for a news e-mail, keyed on the cabinet it went to: read "
+                                    + "only by the console's history, across every cabinet"
     };
 
     private sealed class Scope : ICurrentClinicProvider
