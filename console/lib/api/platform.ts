@@ -821,6 +821,8 @@ export interface PlatformNewsBroadcast {
   sent: number;
   failed: number;
   inProgress: boolean;
+  /** Shown on the cabinets' « Nouveautés » page; « Masquer dans l'app » turns it off without touching the e-mails. */
+  visibleInApp: boolean;
   failedClinics: string[];
 }
 

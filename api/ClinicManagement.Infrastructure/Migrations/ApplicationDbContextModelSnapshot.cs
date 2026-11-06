@@ -3479,6 +3479,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("HiddenFromAppAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("RequestId")
                         .HasColumnType("uuid");
 
@@ -3509,6 +3512,26 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("PlatformNewsBroadcasts", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsReadMarker", b =>
+                {
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("ReadUpToUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ClinicId", "UserId");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("PlatformNewsReadMarkers", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsRecipient", b =>
@@ -6066,6 +6089,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                         });
 
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsReadMarker", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsRecipient", b =>

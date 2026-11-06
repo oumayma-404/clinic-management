@@ -15,6 +15,7 @@ import {
   Receipt,
   ReceiptText,
   Settings,
+  Sparkles,
   Stethoscope,
   Truck,
   UserCog,
@@ -35,6 +36,12 @@ import type { LucideIcon } from "lucide-react"
  */
 
 export type NavItem = { name: string; href: string; icon: LucideIcon }
+
+/**
+ * « Nouveautés » — the vendor's news, kept for the cabinet's administrators. Not in a section: it is rendered at the
+ * rail's foot only when `useNewsBadge` says the server serves it (absent on a cabinet's own PC).
+ */
+export const NEWS_NAV_ITEM: NavItem = { name: "Nouveautés", href: "/nouveautes", icon: Sparkles }
 export type NavSection = { title: string; items: NavItem[] }
 
 /** The « Finances » group's title — also what `MONEY_HIDDEN_HREFS` is derived from. */

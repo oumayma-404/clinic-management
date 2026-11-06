@@ -174,7 +174,7 @@ public static class PlatformNewsEmail
 
     /// <summary>Where « Ouvrir Apexa » leads, or null (no button) on an install with no public address.</summary>
     public static string? AppLink(IPublicAppUrlProvider appUrl) =>
-        appUrl.IsConfigured ? $"{appUrl.BaseUrl.TrimEnd('/')}/login" : null;
+        appUrl.IsConfigured ? $"{appUrl.BaseUrl.TrimEnd('/')}/nouveautes" : null;
 
     /// <summary>The real HTML with the lockup inlined as a data URI, since a browser cannot resolve <c>cid:</c>.</summary>
     public static string PreviewHtml(EmailContent content) =>

@@ -22,6 +22,7 @@ public class PlatformNewsBroadcastConfiguration : IEntityTypeConfiguration<Platf
         builder.Property(b => b.SentByName).IsRequired().HasMaxLength(PlatformNewsBroadcast.SentByNameMaxLength);
         builder.Property(b => b.CreatedAtUtc).IsRequired();
         builder.Property(b => b.CompletedAtUtc);
+        builder.Property(b => b.HiddenFromAppAtUtc);
 
         builder.HasIndex(b => b.CreatedAtUtc);
 

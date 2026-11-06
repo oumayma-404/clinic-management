@@ -55,6 +55,7 @@ public class PlatformNewsRepository : IPlatformNewsRepository
                 b.CreatedAtUtc,
                 b.CompletedAtUtc,
                 b.SentByName,
+                b.HiddenFromAppAtUtc,
                 Clinics = b.Recipients.Select(r => r.ClinicId).Distinct().Count(),
                 Recipients = b.Recipients.Count,
                 Sent = b.Recipients.Count(r => r.Status == PlatformNewsDeliveryStatus.Sent),
@@ -82,6 +83,7 @@ public class PlatformNewsRepository : IPlatformNewsRepository
                 b.CreatedAtUtc,
                 b.CompletedAtUtc,
                 b.SentByName,
+                b.HiddenFromAppAtUtc == null,
                 b.Clinics,
                 b.Recipients,
                 b.Sent,
@@ -89,4 +91,43 @@ public class PlatformNewsRepository : IPlatformNewsRepository
                 failedByBroadcast.TryGetValue(b.Id, out var names) ? names : []))
             .ToList();
     }
+
+    public async Task<PlatformNewsBroadcast?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await _context.PlatformNewsBroadcasts.FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
+
+    public async Task<IReadOnlyList<PlatformNewsAppRow>> ListVisibleInAppAsync(CancellationToken cancellationToken = default)
+    {
+        var broadcasts = await _context.PlatformNewsBroadcasts
+            .AsNoTracking()
+            .Where(b => b.HiddenFromAppAtUtc == null)
+            .OrderByDescending(b => b.CreatedAtUtc)
+            .ThenBy(b => b.Id)
+            .ToListAsync(cancellationToken);
+
+        return broadcasts
+            .Select(b => new PlatformNewsAppRow(
+                b.Id,
+                b.Subject,
+                b.CreatedAtUtc,
+                b.OrderedItems().Select(i => new PlatformNewsAppItem(i.Emoji, i.Text)).ToList()))
+            .ToList();
+    }
+
+    public async Task<int> CountVisibleInAppAfterAsync(DateTime after, CancellationToken cancellationToken = default) =>
+        await _context.PlatformNewsBroadcasts
+            .AsNoTracking()
+            .CountAsync(b => b.HiddenFromAppAtUtc == null && b.CreatedAtUtc > after, cancellationToken);
+
+    public async Task<DateTime?> GetNewestVisibleInAppAtAsync(CancellationToken cancellationToken = default) =>
+        await _context.PlatformNewsBroadcasts
+            .AsNoTracking()
+            .Where(b => b.HiddenFromAppAtUtc == null)
+            .MaxAsync(b => (DateTime?)b.CreatedAtUtc, cancellationToken);
+
+    public async Task<PlatformNewsReadMarker?> GetReadMarkerAsync(
+        string userId, CancellationToken cancellationToken = default) =>
+        await _context.PlatformNewsReadMarkers.FirstOrDefaultAsync(m => m.UserId == userId, cancellationToken);
+
+    public async Task AddReadMarkerAsync(PlatformNewsReadMarker marker, CancellationToken cancellationToken = default) =>
+        await _context.PlatformNewsReadMarkers.AddAsync(marker, cancellationToken);
 }

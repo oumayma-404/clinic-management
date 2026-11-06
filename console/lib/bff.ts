@@ -39,6 +39,11 @@ export async function forwardPost(request: Request, path: string): Promise<NextR
   return forward(path, "POST", body);
 }
 
+/** Forwards a POST whose path the route handler built itself (an id from the body, already checked). */
+export async function forwardAction(path: string): Promise<NextResponse> {
+  return forward(path, "POST", {});
+}
+
 /** Forwards a read. */
 export async function forwardGet(path: string): Promise<NextResponse> {
   return forward(path, "GET");

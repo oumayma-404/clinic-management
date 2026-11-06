@@ -84,3 +84,37 @@ Response 200: `[{ id, subject, sentAt, sentBy, clinics, recipients, sent, failed
 - A cabinet expiring mid-send still gets it (audience fixed at the click — AC-3).
 - An admin deactivated after the click still gets it; one created after does not.
 - Zero eligible recipients → « Envoyer » disabled and the server refuses (`news-no-audience`).
+
+---
+
+## Part 2 — « Nouveautés » dans l'app (owner's request, 2026-11-06, design on the « Nouveautés dans l'app » canvas)
+
+Every news the console sends is also kept on a page of the app, for the cabinet's **administrators only**.
+
+- **Where:** a « Nouveautés » row at the foot of the rail (and of the phone menu), with the count of unread news;
+  a dot on the phone bar's « Plus ». The page `/nouveautes`: a dated timeline of cards, newest first, « Nouveau » on
+  the unread ones, an index of every news by month beside it on a desktop, « Nouveautés plus anciennes » past ten.
+- **Which news:** every news sent and not hidden, including those sent before the cabinet joined.
+- **Unread:** sent after the admin's read marker — or, with none yet, after the account was created (a new admin
+  sees the whole history without a badge claiming years of news). Opening the page moves the marker to the newest
+  news, so a second visit writes nothing.
+- **Security:** `api/news` is `AdminOnly` server-side; all three routes **404 before the mediator** where the
+  deployment serves no console (a cabinet's own PC) — the browser shows no row on that 404.
+- **The e-mail's « Ouvrir Apexa »** now opens `/nouveautes` (through the login when signed out).
+- **Console:** « Envois précédents » gains « Dans l'app » — Visible / Masquée and one button, reversible, the e-mails
+  already sent untouched.
+
+### Acceptance criteria (Part 2)
+- AC-2.1 An admin of a cabinet sees the row and the page; a secretary or a doctor sees neither (403 server-side).
+- AC-2.2 The count equals the news sent after the admin's marker (else after the account's creation).
+- AC-2.3 Opening the page clears the count on every surface showing it, and keeps « Nouveau » on the cards for that visit.
+- AC-2.4 A news hidden in the console disappears from the page and the count; shown again, it comes back.
+- AC-2.5 On a deployment with no console, no row and no request beyond the one 404.
+- AC-2.6 The page works at 320 px (timeline collapses, the date moves into the card) and the index is desktop only.
+
+### Data (Part 2)
+- `PlatformNewsBroadcasts.HiddenFromAppAtUtc` (nullable, no default).
+- `PlatformNewsReadMarkers (ClinicId, UserId, ReadUpToUtc)` — its own table, **not a `Users` column**: a read must not
+  age the account's `xmin` or write a « Utilisateur modifié » row in the cabinet's journal (`StaffChatReadMarker`'s
+  shape). Tenant-filtered, cascade with the clinic, excluded from the archive and the PC de secours.
+- Migration `AddPlatformNewsInApp`, purely additive.

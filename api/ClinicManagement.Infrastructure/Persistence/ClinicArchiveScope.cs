@@ -106,6 +106,8 @@ public static class ClinicArchiveScope
         // The vendor's news e-mails: what the vendor sent, never a cabinet's record.
         nameof(PlatformNewsBroadcast),
         nameof(PlatformNewsRecipient),
+        // One admin's « lu jusqu'à » on the news page, keyed on an account the archive does not carry; the PC never shows news.
+        nameof(PlatformNewsReadMarker),
         nameof(ClinicActivityDay),
         nameof(ClinicActivitySnapshot),
         nameof(ClinicSignup),

@@ -105,7 +105,7 @@ public class PlatformNewsTests
     [Fact]
     public void The_Email_Frames_The_Rows_Between_The_Fun_Opening_And_The_Warm_Closing()
     {
-        var content = PlatformNewsEmail.Compose(Draft("Agenda plus rapide.", "SMS la veille."), "Dr Sassi", "Cabinet Sassi", "https://app.apexa.tn/login");
+        var content = PlatformNewsEmail.Compose(Draft("Agenda plus rapide.", "SMS la veille."), "Dr Sassi", "Cabinet Sassi", "https://app.apexa.tn/nouveautes");
 
         Assert.Equal("Happy Apexing ! 🦷✨", content.Kicker);
         Assert.Equal("Les nouveautés Apexa ✨", content.Title);
@@ -114,7 +114,7 @@ public class PlatformNewsTests
         Assert.Equal(new[] { "Agenda plus rapide.", "SMS la veille." }, content.Bullets.Select(b => b.Text));
         Assert.Equal(new[] { "Apexa, toujours à vos côtés 💙", "L'équipe Apexa" }, content.Outro);
         Assert.Equal("Vous recevez cet e-mail en tant qu'administrateur du cabinet Cabinet Sassi.", content.Note);
-        Assert.Equal("https://app.apexa.tn/login", content.Action?.Url);
+        Assert.Equal("https://app.apexa.tn/nouveautes", content.Action?.Url);
     }
 
     [Fact]
@@ -127,9 +127,9 @@ public class PlatformNewsTests
     }
 
     [Theory]
-    [InlineData(true, "https://app.apexa.tn/", "https://app.apexa.tn/login")]
+    [InlineData(true, "https://app.apexa.tn/", "https://app.apexa.tn/nouveautes")]
     [InlineData(false, "", null)]
-    public void The_Button_Leads_To_The_Sign_In_Page_Of_The_Configured_Address(bool configured, string baseUrl, string? expected)
+    public void The_Button_Leads_To_The_News_Page_Of_The_Configured_Address(bool configured, string baseUrl, string? expected)
     {
         var appUrl = new Mock<IPublicAppUrlProvider>();
         appUrl.SetupGet(a => a.IsConfigured).Returns(configured);

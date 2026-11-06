@@ -354,7 +354,7 @@ public class PlatformNewsCommandTests
 
         Assert.Equal("Bonjour Dr a,", content!.Greeting);
         Assert.Equal("Vous recevez cet e-mail en tant qu'administrateur du cabinet Cabinet a.", content.Note);
-        Assert.Equal("https://app.apexa.tn/login", content.Action?.Url);
+        Assert.Equal("https://app.apexa.tn/nouveautes", content.Action?.Url);
     }
 
     [Fact]
@@ -375,8 +375,8 @@ public class PlatformNewsCommandTests
     {
         _news.Setup(n => n.ListRecentAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(
         [
-            new PlatformNewsSummaryRow(Guid.NewGuid(), "En cours", At, null, "Oumayma", 2, 3, 1, 0, []),
-            new PlatformNewsSummaryRow(Guid.NewGuid(), "Fini", At, At, "Oumayma", 2, 3, 2, 1, ["Cabinet Payant"]),
+            new PlatformNewsSummaryRow(Guid.NewGuid(), "En cours", At, null, "Oumayma", true, 2, 3, 1, 0, []),
+            new PlatformNewsSummaryRow(Guid.NewGuid(), "Fini", At, At, "Oumayma", false, 2, 3, 2, 1, ["Cabinet Payant"]),
         ]);
 
         var result = await new ListPlatformNewsQueryHandler(_news.Object, NullLogger<ListPlatformNewsQueryHandler>.Instance)
@@ -385,5 +385,6 @@ public class PlatformNewsCommandTests
         var rows = result.Value!;
         Assert.Equal(new[] { true, false }, rows.Select(r => r.InProgress));
         Assert.Equal(new[] { "Cabinet Payant" }, rows[1].FailedClinics);
+        Assert.Equal(new[] { true, false }, rows.Select(r => r.VisibleInApp));
     }
 }

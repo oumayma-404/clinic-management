@@ -88,8 +88,27 @@ public class PlatformNewsController : ApiControllerBase
         return Accepted(queued);
     }
 
+    [HttpPost("{id:guid}/hide")]
+    [AllowsWithoutSubscription("Hiding the vendor's own news from the app records no cabinet's work.")]
+    public Task<ActionResult<PlatformNewsVisibilityDto>> Hide(Guid id, CancellationToken cancellationToken) =>
+        SetVisibility(id, visible: false, cancellationToken);
+
+    [HttpPost("{id:guid}/show")]
+    [AllowsWithoutSubscription("Showing the vendor's own news in the app records no cabinet's work.")]
+    public Task<ActionResult<PlatformNewsVisibilityDto>> Show(Guid id, CancellationToken cancellationToken) =>
+        SetVisibility(id, visible: true, cancellationToken);
+
+    private async Task<ActionResult<PlatformNewsVisibilityDto>> SetVisibility(
+        Guid id, bool visible, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new SetPlatformNewsVisibilityCommand { BroadcastId = id, Visible = visible }, cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result, StatusFor(result.Code));
+    }
+
     private static int StatusFor(string? code) => code switch
     {
+        SetPlatformNewsVisibilityCommandHandler.NotFoundCode => StatusCodes.Status404NotFound,
         PlatformNewsRules.EmailNotConfiguredCode => StatusCodes.Status503ServiceUnavailable,
         SendPlatformNewsTestCommandHandler.SendFailedCode => StatusCodes.Status502BadGateway,
         _ => StatusCodes.Status400BadRequest,

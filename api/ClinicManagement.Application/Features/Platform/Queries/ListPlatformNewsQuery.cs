@@ -44,6 +44,7 @@ public class ListPlatformNewsQueryHandler
                     r.Sent,
                     r.Failed,
                     r.CompletedAtUtc is null,
+                    r.VisibleInApp,
                     r.FailedClinics))
                 .ToList());
         }

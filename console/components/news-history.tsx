@@ -53,6 +53,12 @@ export function NewsHistory({
     }
   }, [reloadKey, load]);
 
+  const markVisibility = useCallback((broadcastId: string, visibleInApp: boolean) => {
+    setItems((current) =>
+      current?.map((item) => (item.broadcastId === broadcastId ? { ...item, visibleInApp } : item)) ?? current,
+    );
+  }, []);
+
   const inProgress = items?.some((item) => item.inProgress) ?? false;
   useEffect(() => {
     if (!inProgress) {
@@ -97,6 +103,7 @@ export function NewsHistory({
                     <TableHead scope="col">Par</TableHead>
                     <TableHead scope="col">Cabinets</TableHead>
                     <TableHead scope="col">Résultat</TableHead>
+                    <TableHead scope="col">Dans l&apos;app</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -110,6 +117,9 @@ export function NewsHistory({
                       <TableCell>{item.clinics}</TableCell>
                       <TableCell>
                         <Outcome item={item} />
+                      </TableCell>
+                      <TableCell>
+                        <AppVisibility item={item} onChanged={markVisibility} />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -127,12 +137,79 @@ export function NewsHistory({
               fields={(item) => [
                 { label: "Cabinets", value: item.clinics },
                 { label: "Résultat", value: <Outcome item={item} /> },
+                { label: "Dans l'app", value: <AppVisibility item={item} onChanged={markVisibility} /> },
               ]}
             />
           </div>
         </>
       )}
     </>
+  );
+}
+
+/** Whether the cabinets' « Nouveautés » page shows this news, and the one button that changes it. Reversible, so no confirm. */
+function AppVisibility({
+  item,
+  onChanged,
+}: {
+  item: PlatformNewsBroadcast;
+  onChanged: (broadcastId: string, visibleInApp: boolean) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const action = item.visibleInApp ? "Masquer" : "Afficher";
+
+  const toggle = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/bff/nouveautes/visibilite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ broadcastId: item.broadcastId, visible: !item.visibleInApp }),
+      });
+      if (!response.ok) {
+        setError((await readRefusal(response)).error);
+        return;
+      }
+      const data = await readJson<{ broadcastId: string; visibleInApp: boolean }>(response);
+      onChanged(item.broadcastId, data?.visibleInApp ?? !item.visibleInApp);
+    } catch {
+      setError(NETWORK_ERROR);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 whitespace-normal">
+      <span className="inline-flex items-center gap-1.5 text-sm">
+        <span
+          aria-hidden="true"
+          className={
+            item.visibleInApp
+              ? "size-2 rounded-full bg-primary"
+              : "size-2 rounded-full border border-muted-foreground"
+          }
+        />
+        {item.visibleInApp ? "Visible" : "Masquée"}
+      </span>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        onClick={() => void toggle()}
+        aria-label={`${action} « ${item.subject} » dans l'app`}
+      >
+        {busy ? "…" : action}
+      </Button>
+      {error ? (
+        <p className="w-full text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

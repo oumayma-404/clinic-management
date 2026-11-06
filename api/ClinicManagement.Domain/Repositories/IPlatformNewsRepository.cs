@@ -17,7 +17,31 @@ public interface IPlatformNewsRepository
 
     /// <summary>The newest broadcasts first, counted in SQL.</summary>
     Task<IReadOnlyList<PlatformNewsSummaryRow>> ListRecentAsync(int take, CancellationToken cancellationToken = default);
+
+    /// <summary>Tracked, without its recipients — what « Masquer / Afficher dans l'app » needs.</summary>
+    Task<PlatformNewsBroadcast?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>Every news the app shows, newest first, with its items. Small by nature: the vendor writes a few a month.</summary>
+    Task<IReadOnlyList<PlatformNewsAppRow>> ListVisibleInAppAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>How many news the app shows that were sent after <paramref name="after"/>.</summary>
+    Task<int> CountVisibleInAppAfterAsync(DateTime after, CancellationToken cancellationToken = default);
+
+    /// <summary>When the newest news the app shows was sent; null when it shows none.</summary>
+    Task<DateTime?> GetNewestVisibleInAppAtAsync(CancellationToken cancellationToken = default);
+
+    Task<PlatformNewsReadMarker?> GetReadMarkerAsync(string userId, CancellationToken cancellationToken = default);
+
+    Task AddReadMarkerAsync(PlatformNewsReadMarker marker, CancellationToken cancellationToken = default);
 }
+
+public sealed record PlatformNewsAppRow(
+    Guid Id,
+    string Subject,
+    DateTime CreatedAtUtc,
+    IReadOnlyList<PlatformNewsAppItem> Items);
+
+public sealed record PlatformNewsAppItem(string Emoji, string Text);
 
 /// <summary>One line of the console's history of sends.</summary>
 public sealed record PlatformNewsSummaryRow(
@@ -26,6 +50,7 @@ public sealed record PlatformNewsSummaryRow(
     DateTime CreatedAtUtc,
     DateTime? CompletedAtUtc,
     string SentByName,
+    bool VisibleInApp,
     int Clinics,
     int Recipients,
     int Sent,

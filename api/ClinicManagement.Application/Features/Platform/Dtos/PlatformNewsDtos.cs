@@ -25,4 +25,7 @@ public record PlatformNewsBroadcastDto(
     int Sent,
     int Failed,
     bool InProgress,
+    bool VisibleInApp,
     IReadOnlyList<string> FailedClinics);
+
+public record PlatformNewsVisibilityDto(Guid BroadcastId, bool VisibleInApp);

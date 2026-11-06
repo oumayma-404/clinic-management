@@ -330,6 +330,7 @@ public static class PlatformReadShape
         "SentByName",
         "Sent",
         "Failed",
-        "FailedClinics"
+        "FailedClinics",
+        "VisibleInApp"
     };
 }

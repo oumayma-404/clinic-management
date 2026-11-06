@@ -30,6 +30,11 @@ public class PlatformNewsBroadcast : AggregateRoot<Guid>
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? CompletedAtUtc { get; private set; }
 
+    /// <summary>Set by the console's « Masquer dans l'app »: the e-mail is gone, the page in the app stops showing it.</summary>
+    public DateTime? HiddenFromAppAtUtc { get; private set; }
+
+    public bool IsVisibleInApp => HiddenFromAppAtUtc is null;
+
     private PlatformNewsBroadcast() { } // For EF Core
 
     public static PlatformNewsBroadcast Create(
@@ -126,6 +131,30 @@ public class PlatformNewsBroadcast : AggregateRoot<Guid>
         }
 
         CompletedAtUtc ??= nowUtc;
+    }
+
+    /// <summary>Takes the news off the cabinets' « Nouveautés » page; returns false when it was already hidden.</summary>
+    public bool HideFromApp(DateTime nowUtc)
+    {
+        if (HiddenFromAppAtUtc is not null)
+        {
+            return false;
+        }
+
+        HiddenFromAppAtUtc = nowUtc;
+        return true;
+    }
+
+    /// <summary>Puts a hidden news back on the page; returns false when it was already shown.</summary>
+    public bool ShowInApp()
+    {
+        if (HiddenFromAppAtUtc is null)
+        {
+            return false;
+        }
+
+        HiddenFromAppAtUtc = null;
+        return true;
     }
 
     private PlatformNewsRecipient Recipient(Guid recipientId) =>

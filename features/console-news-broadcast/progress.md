@@ -139,3 +139,18 @@ What changed, by mechanism:
 
 Gates after the last edit: API build ✅ · full unit suite **6 380 passed, 0 failed** · console `tsc` ✅ ·
 `check:responsive` 17/17 ✅ · `npm run build` ✅ · browser QA `qa/run-3.md` GREEN.
+
+## Part 2 — « Nouveautés » dans l'app (2026-11-06)
+
+Spec: `spec.md` § Part 2. Design: the « Nouveautés dans l'app » canvas (desktop · phone · phone menu · console).
+
+| Piece | Files |
+|---|---|
+| Hide / show | `PlatformNewsBroadcast.HideFromApp`/`ShowInApp`, `SetPlatformNewsVisibilityCommand`, `POST api/platform/news/{id}/hide\|show`, console `bff/nouveautes/visibilite` + « Dans l'app » column |
+| Read marker | `PlatformNewsReadMarker` (+ config, query filter, archive exclusion), `NewsReading.ReadUpTo` |
+| App reads | `Features/News` — `GetNewsQuery`, `GetNewsSummaryQuery`, `MarkNewsReadCommand`; `NewsController` (`AdminOnly`, 404 without a console); `News` on `RealtimeResourceResolver.ExcludedAreas` |
+| Web | `lib/api/news.ts`, `lib/hooks/use-news-badge.ts`, `NEWS_NAV_ITEM` (`lib/nav.ts`), rail + drawer row, « Plus » dot, `app/nouveautes/page.tsx`, `components/news/news-feed.tsx` |
+| E-mail | `PlatformNewsEmail.AppLink` → `/nouveautes` |
+
+Decisions: one per-admin marker table rather than a `Users` column (journal noise + `xmin`); the marker moves to the
+newest news, not to « now »; no realtime key (one person's read state); the badge is one read per page load.

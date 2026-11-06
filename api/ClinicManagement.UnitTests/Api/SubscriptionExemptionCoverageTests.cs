@@ -233,6 +233,11 @@ public class SubscriptionExemptionCoverageTests
         "PlatformNews.Preview",
         "PlatformNews.SendTest",
         "PlatformNews.Send",
+        // Whether a sent news stays on the cabinets' « Nouveautés » page — the vendor's own content, no cabinet's work.
+        "PlatformNews.Hide",
+        "PlatformNews.Show",
+        // One admin's « lu jusqu'à » on that page: an expired cabinet may still read its news without a badge staying lit.
+        "News.MarkRead",
     };
 
     /// <summary>
