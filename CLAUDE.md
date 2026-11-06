@@ -209,6 +209,7 @@ how it was built, `notes.md` is what shipped.
 - [`patient-outstanding-breakdown`](features/patient-outstanding-breakdown/notes.md) — « Solde dû » says what it is made of, and each row is settled where it is read
 - [`reste-a-payer-worklist`](features/reste-a-payer-worklist/notes.md) — « À clôturer » lists who owes, split « À relancer » (due now) / « En cours », open to every role
 - [`adoption-gaps-remediation`](features/adoption-gaps-remediation/notes.md) — Re-saving a fiche tops its note up, and la caisse's day is Tunisian (Part 2)
+- [`continuation-first-fiche-money`](features/continuation-first-fiche-money/notes.md) — A continuation's first séance keeps its fee on its own note · a correction that raises no note may not empty a devis act
 - [`audit-sections-3-to-10`](features/audit-sections-3-to-10/notes.md) — `verify-schema` (Local-mode console verb) · Tunisia is UTC+1, and `ClinicClock` is the only thing that knows it (P6) · A visit knows whether it was billed (P6) · One CNAM calculator (P6)
 
 **The clinical loop**

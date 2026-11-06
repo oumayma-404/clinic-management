@@ -1425,8 +1425,15 @@ export function PatientRecordModal({
    * ⚠️ Not on the continuation's FIRST séance: its own note represents the devis and bills this act at its real
    * fee, so marking it zeroed the séance's total and refused its own « Payé » on every re-save
    * (`PlanCarriedActPricing`'s `billedOnANoteRepresentingThePlan` is the server half).
+   *
+   * ⚠️ Both continuation shapes: the note attached to the devis (`billedOnInvoiceNumber`), or — with a priced
+   * « reste » — left unattached while this act sits on the devis at 0 « sur la note » (`carriedOnNoteNumber`).
+   * Missing the second zeroed the act on reopen, and « Corriger la note » then cancelled the note (prod, 06/11/2026).
    */
-  const ownNoteRepresentsThePlan = isInvoiced && billedPlanItem?.billedOnInvoiceNumber != null
+  const ownNoteRepresentsThePlan =
+    isInvoiced &&
+    (billedPlanItem?.billedOnInvoiceNumber != null ||
+      (recordCarriesPlanItem && billedPlanItem?.carriedOnNoteNumber != null))
   useEffect(() => {
     if (!open || !billedPlanItem || ownNoteRepresentsThePlan) return
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
@@ -2148,7 +2155,7 @@ export function PatientRecordModal({
       // money handed back, and a mis-keyed amount handed nothing back. So the refusal now opens the way out it
       // was describing. Branched on the CODE, never the sentence: rewording a refusal must not change behaviour.
       if (!correctionReason && err instanceof ApiError && CORRECTABLE_CODES.has(err.code ?? "")) {
-        setCorrection({ previousTotal: stored?.cost ?? 0, nextTotal: grandTotal })
+        setCorrection({ previousTotal: stored?.cost ?? 0, nextTotal: grandTotal, raisesReplacement: paidAmount > 0 })
         setLoading(false)
         return
       }
@@ -3202,7 +3209,12 @@ export function PatientRecordModal({
                 // the note. `tsc` catches it; the wrapper is what makes it unsayable.
                 onClick={() => {
                   if (contradictsNote) {
-                    setCorrection({ previousTotal: alreadyCollected, nextTotal: grandTotal })
+                    setCorrection({
+                      previousTotal: alreadyCollected,
+                      nextTotal: grandTotal,
+                      // The server raises a replacement only when something is paid (`BillIfPaidAsync`).
+                      raisesReplacement: paidAmount > 0,
+                    })
                     return
                   }
                   void handleSave()

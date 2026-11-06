@@ -59,6 +59,12 @@ public static class PlanCarriedActPricing
     /// continuation (« the note keeps the money »). Its act is priced on the NOTE, so the 0 is not imposed: zeroing
     /// it made the unchanged fiche unsaveable (« Payé 100 dépasse le total 0 ») for the life of the treatment.
     /// </param>
+    /// <param name="invoiceRepository">With <paramref name="ficheId"/>, lets the other continuation shape through.</param>
+    /// <param name="ficheId">
+    /// The fiche being saved. A continuation with a priced « reste » leaves its note UNATTACHED and marks the act
+    /// <c>BilledOnInvoiceId</c> instead, so <paramref name="billedOnANoteRepresentingThePlan"/> is false there —
+    /// and zeroing the act on a re-save of that fiche cancelled its note and voided its payment (prod, 06/11/2026).
+    /// </param>
     public static async Task<Imposed> ImposeAsync(
         ITreatmentPlanRepository planRepository,
         List<DentalRecordActInput> acts,
@@ -67,7 +73,9 @@ public static class PlanCarriedActPricing
         Guid clinicId,
         ILogger logger,
         CancellationToken cancellationToken,
-        bool billedOnANoteRepresentingThePlan = false)
+        bool billedOnANoteRepresentingThePlan = false,
+        IInvoiceRepository? invoiceRepository = null,
+        Guid? ficheId = null)
     {
         if (treatmentPlanId is not { } planId || treatmentPlanItemId is not { } itemId || acts.Count == 0)
         {
@@ -130,6 +138,12 @@ public static class PlanCarriedActPricing
             return new Imposed(acts);
         }
 
+        // The act's fee is on THIS fiche's own note (the continuation's first séance), so the note prices it.
+        if (await IsCarriedOnTheFichesOwnNoteAsync(item, invoiceRepository, ficheId, cancellationToken))
+        {
+            return new Imposed(acts);
+        }
+
         var carried = acts[index];
         logger.LogInformation(
             "Act « {Act} » is carried by treatment {PlanId}; imposing 0 in place of the {Cost} sent",
@@ -142,5 +156,25 @@ public static class PlanCarriedActPricing
             [index] = carried with { Cost = 0m, UnitCost = carried.UnitCost is null ? null : 0m },
         };
         return new Imposed(imposed);
+    }
+
+    /// <summary>
+    /// True when the devis holds <paramref name="item"/> at 0 because a note collects it, and that note bills the
+    /// fiche being saved. Read from the stored id, which survives a correction: the replaced note keeps its header.
+    /// </summary>
+    private static async Task<bool> IsCarriedOnTheFichesOwnNoteAsync(
+        TreatmentPlanItem item,
+        IInvoiceRepository? invoiceRepository,
+        Guid? ficheId,
+        CancellationToken cancellationToken)
+    {
+        if (invoiceRepository is null || ficheId is not { } fiche || item.BilledOnInvoiceId is not { } noteId)
+        {
+            return false;
+        }
+
+        var note = await invoiceRepository.GetByIdAsync(noteId, cancellationToken);
+        return note is not null
+            && (note.DentalRecordId == fiche || note.Lines.Any(l => l.DentalRecordId == fiche));
     }
 }

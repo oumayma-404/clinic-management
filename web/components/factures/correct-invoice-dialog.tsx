@@ -46,6 +46,11 @@ export interface CorrectionPreview {
    * nothing that read as a bug.
    */
   nextTotal?: number | null
+  /**
+   * False when the corrected séance collects nothing: the server raises a replacement only when something is
+   * paid, so « Nouvelle note » would announce a document that never appears. Omitted = true.
+   */
+  raisesReplacement?: boolean
 }
 
 interface CorrectInvoiceDialogProps {
@@ -81,6 +86,7 @@ export function CorrectInvoiceDialog({
   const [error, setError] = useState<string | null>(null)
 
   const nextTotal = preview.nextTotal ?? null
+  const raisesReplacement = preview.raisesReplacement !== false
   const difference = nextTotal === null ? 0 : Math.round((preview.previousTotal - nextTotal) * 1000) / 1000
   const label = preview.invoiceNumber ? `n° ${preview.invoiceNumber}` : "de cette séance"
 
@@ -116,7 +122,9 @@ export function CorrectInvoiceDialog({
               ? blockedReason
               : nextTotal === null
                 ? `La note ${label} est recopiée en brouillon modifiable. Rien ne bouge pour l'instant : elle garde son numéro et son paiement jusqu'à ce que la correction soit émise.`
-                : "Rien n'est remboursé : l'argent est resté au cabinet. La note fautive est annulée et remplacée par une note corrigée, qui reprend le paiement à sa date d'origine."}
+                : raisesReplacement
+                  ? "Rien n'est remboursé : l'argent est resté au cabinet. La note fautive est annulée et remplacée par une note corrigée, qui reprend le paiement à sa date d'origine."
+                  : "La note fautive est annulée et son paiement est traité comme jamais reçu. Aucune nouvelle note n'est émise : rien n'est encaissé sur cette séance."}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -126,13 +134,21 @@ export function CorrectInvoiceDialog({
               <span className="min-w-0 flex-1">Note {label} annulée</span>
               <span className="shrink-0 font-medium tabular-nums">{formatDT(preview.previousTotal)}</span>
             </div>
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/50 bg-primary/5 px-3 py-2">
-              <span className="min-w-0 flex-1">Nouvelle note, séance corrigée</span>
-              <span className="shrink-0 font-medium tabular-nums">{formatDT(nextTotal)}</span>
-            </div>
+            {raisesReplacement && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/50 bg-primary/5 px-3 py-2">
+                <span className="min-w-0 flex-1">Nouvelle note, séance corrigée</span>
+                <span className="shrink-0 font-medium tabular-nums">{formatDT(nextTotal)}</span>
+              </div>
+            )}
+            {!raisesReplacement && (
+              <p className="text-xs text-warning-ink">
+                Si le patient a réellement payé et récupère son argent, c&apos;est un remboursement — établissez un
+                avoir.
+              </p>
+            )}
             {/* ⚠️ States what the correction DOES, then names the other door — only the person at the chair knows
                 whether the old figure was really handed over, and this action does not perform a refund. */}
-            {difference > 0 && (
+            {raisesReplacement && difference > 0 && (
               <p className="text-xs text-warning-ink">
                 L&apos;encaissement enregistré passe de {formatDT(preview.previousTotal)} à{" "}
                 {formatDT(nextTotal)} : la différence est traitée comme jamais reçue. Si le patient a réellement
@@ -140,7 +156,7 @@ export function CorrectInvoiceDialog({
                 remboursement — établissez un avoir.
               </p>
             )}
-            {difference < 0 && (
+            {raisesReplacement && difference < 0 && (
               <p className="text-xs text-muted-foreground">
                 Il reste {formatDT(-difference)} à encaisser sur la nouvelle note.
               </p>
