@@ -1784,6 +1784,14 @@ export function PatientRecordModal({
    */
   const contradictsNote = isInvoiced && (overpaid || lowersBilledAmount)
 
+  /** « Corriger la note »'s figures, one builder for its two doors (the button and a refused save). */
+  const correctionPreview = (): CorrectionPreview => ({
+    previousTotal: stored?.cost ?? 0,
+    nextTotal: grandTotal,
+    previousCollected: billedNote?.collected ?? alreadyCollected,
+    nextCollected: paidAmount,
+  })
+
   /**
    * Refuse the save: mark the region, scroll it into view, and *also* toast.
    *
@@ -2155,7 +2163,7 @@ export function PatientRecordModal({
       // money handed back, and a mis-keyed amount handed nothing back. So the refusal now opens the way out it
       // was describing. Branched on the CODE, never the sentence: rewording a refusal must not change behaviour.
       if (!correctionReason && err instanceof ApiError && CORRECTABLE_CODES.has(err.code ?? "")) {
-        setCorrection({ previousTotal: stored?.cost ?? 0, nextTotal: grandTotal, raisesReplacement: paidAmount > 0 })
+        setCorrection(correctionPreview())
         setLoading(false)
         return
       }
@@ -3209,12 +3217,7 @@ export function PatientRecordModal({
                 // the note. `tsc` catches it; the wrapper is what makes it unsayable.
                 onClick={() => {
                   if (contradictsNote) {
-                    setCorrection({
-                      previousTotal: alreadyCollected,
-                      nextTotal: grandTotal,
-                      // The server raises a replacement only when something is paid (`BillIfPaidAsync`).
-                      raisesReplacement: paidAmount > 0,
-                    })
+                    setCorrection(correctionPreview())
                     return
                   }
                   void handleSave()

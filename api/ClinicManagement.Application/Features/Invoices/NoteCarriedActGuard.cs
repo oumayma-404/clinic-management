@@ -48,13 +48,11 @@ public static class NoteCarriedActGuard
     /// </summary>
     /// <returns><c>Result.Success()</c> when the note may be voided; a failure carrying
     /// <see cref="CarriedByPlanCode"/> otherwise.</returns>
-    /// <param name="refusal">The sentence for the caller's own action; <see cref="Refusal"/> when omitted.</param>
     public static async Task<Result> EnsureNotCarriedAsync(
         Guid clinicId,
         Invoice invoice,
         ITreatmentPlanRepository planRepository,
-        CancellationToken cancellationToken,
-        Func<IReadOnlyList<string?>, string>? refusal = null)
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(invoice);
 
@@ -111,7 +109,7 @@ public static class NoteCarriedActGuard
             return Result.Success();
         }
 
-        return Result.Failure(refusal is null ? Refusal(claiming) : refusal(claiming), CarriedByPlanCode);
+        return Result.Failure(Refusal(claiming), CarriedByPlanCode);
     }
 
     /// <summary>
@@ -119,27 +117,17 @@ public static class NoteCarriedActGuard
     /// a refusal that does not say what to do instead reads as a bug (<see cref="DentalRecordBillingRefusals"/>
     /// takes the same line).
     /// </summary>
-    public static string Refusal(IEnumerable<string?> planNumbers) =>
-        $"Cette note d'honoraires est reprise par {Subject(planNumbers)}, qui porte à 0 l'acte qu'elle facture : "
-        + "l'annuler ou la supprimer ferait disparaître cet honoraire de tous les soldes. "
-        + "Annulez d'abord le traitement, puis reprenez cette note.";
-
-    /// <summary>
-    /// The same refusal from the fiche: a correction with nothing paid cancels the note and raises none, so the
-    /// remedy it can offer on that screen is to keep an amount paid.
-    /// </summary>
-    public static string CorrectionRefusal(IEnumerable<string?> planNumbers) =>
-        $"Cette note d'honoraires est reprise par {Subject(planNumbers)}, qui porte à 0 l'acte qu'elle facture : "
-        + "sans montant payé, la corriger l'annulerait sans la remplacer, et cet honoraire disparaîtrait de tous "
-        + "les soldes. Gardez un montant payé sur cette séance, ou annulez d'abord le traitement.";
-
-    private static string Subject(IEnumerable<string?> planNumbers)
+    public static string Refusal(IEnumerable<string?> planNumbers)
     {
         var named = planNumbers
             .Select(n => n is null ? "un traitement suivi" : $"le devis n° {n}")
             .Distinct()
             .ToList();
 
-        return named.Count == 1 ? named[0] : string.Join(", ", named);
+        var subject = named.Count == 1 ? named[0] : string.Join(", ", named);
+
+        return $"Cette note d'honoraires est reprise par {subject}, qui porte à 0 l'acte qu'elle facture : "
+            + "l'annuler ou la supprimer ferait disparaître cet honoraire de tous les soldes. "
+            + "Annulez d'abord le traitement, puis reprenez cette note.";
     }
 }

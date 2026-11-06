@@ -342,10 +342,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                     //
                     // Pre-commit, like the refusal it replaces: the fiche and its note must move together or not
                     // at all.
-                    // `BillIfPaidAsync` raises the replacement only when something is paid.
                     var retired = await RetireForCorrectionAsync(
-                        note.InvoiceId, clinicResult.Value, request.CorrectionReason!,
-                        raisesReplacement: request.AmountPaid > 0m, cancellationToken);
+                        note.InvoiceId, clinicResult.Value, request.CorrectionReason!, cancellationToken);
                     if (retired.IsFailure)
                     {
                         return Result<DentalRecordDto>.FailureFrom(retired);
@@ -602,7 +600,6 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         Guid invoiceId,
         Guid clinicId,
         string reason,
-        bool raisesReplacement,
         CancellationToken cancellationToken)
     {
         var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
@@ -617,19 +614,6 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                 invoice.SupersededByInvoiceId is not null
                     ? "Cette note a déjà été corrigée : repartez de la note qui l'a remplacée."
                     : "Cette note est annulée : elle ne peut plus être corrigée.");
-        }
-
-        // With no replacement this is a cancellation, so it answers to the cancel/delete guard: a devis holding
-        // this note's act at 0 would otherwise keep a fee no document bills (prod, 06/11/2026).
-        if (!raisesReplacement)
-        {
-            var carried = await NoteCarriedActGuard.EnsureNotCarriedAsync(
-                clinicId, invoice, _treatmentPlanRepository, cancellationToken,
-                NoteCarriedActGuard.CorrectionRefusal);
-            if (carried.IsFailure)
-            {
-                return carried;
-            }
         }
 
         foreach (var payment in invoice.Payments.Where(p => !p.IsVoided).ToList())

@@ -21,7 +21,7 @@ namespace ClinicManagement.UnitTests.Features.Patients;
 /// <para><b>Production, 06/11/2026.</b> Traitement de canal on 46, 300 DT on note 2026-0141, 100 paid. Continued
 /// with a priced reste (devis 2026-0016). Reopening the 30/10 fiche: the server zeroed the act (« imposing 0 in
 /// place of the 300 sent »), « Corriger la note » with nothing paid cancelled the note, voided the 100 and raised
-/// nothing — the 300 DT séance was billed nowhere.</para>
+/// nothing — the 300 DT séance was billed nowhere. The dentist only meant « le patient n'a pas payé ces 100 ».</para>
 /// </summary>
 public class ContinuationFirstSeanceResaveTests
 {
@@ -196,21 +196,27 @@ public class ContinuationFirstSeanceResaveTests
         Assert.False(_note.Payments.Single().IsVoided);
     }
 
-    // ── fix 2: a correction that raises no replacement answers to the carried-note guard ─────────────────
+    // ── fix 2: « le patient n'a pas payé » — Payé 100 → 0 keeps a note billing the séance ────────────────
 
     [Fact]
-    public async Task Correcting_To_Nothing_Paid_Is_Refused_While_A_Devis_Holds_The_Act()
+    public async Task Correcting_To_Nothing_Paid_Raises_An_Unpaid_Note_And_Leaves_The_Devis_Alone()
     {
+        var totalBefore = _plan.TotalPlanned;
+
         var result = await Handler().Handle(
             Resave(paid: 0m, correctionReason: "Correction — note remplacée depuis l'application."),
             CancellationToken.None);
 
-        Assert.True(result.IsFailure);
-        Assert.Equal(NoteCarriedActGuard.CarriedByPlanCode, result.Code);
-        Assert.Contains("2026-0016", result.Error);
-        Assert.Equal(InvoiceStatus.PartiallyPaid, _note.Status);
-        Assert.False(_note.Payments.Single().IsVoided);
-        Assert.Empty(_billed);
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(InvoiceStatus.Cancelled, _note.Status);
+        Assert.True(_note.Payments.Single().IsVoided);
+        var replacement = Assert.Single(_billed);
+        Assert.Equal(_note.Id, replacement.SupersedesInvoiceId);
+        Assert.Null(replacement.PaidNow);
+        Assert.False(replacement.IsAutomatic);
+        Assert.Equal(ActCost, _fiche.Cost);
+        Assert.Equal(0m, _fiche.AmountPaid);
+        Assert.Equal(totalBefore, _plan.TotalPlanned);
     }
 
     // With money paid the note is replaced, and reads find the replacement through the fiche — allowed.
@@ -226,9 +232,9 @@ public class ContinuationFirstSeanceResaveTests
         Assert.Equal(_note.Id, Assert.Single(_billed).SupersedesInvoiceId);
     }
 
-    // A note no devis holds is corrected to nothing exactly as before.
+    // An ordinary fiche corrected to nothing paid keeps a note too — it used to be left billed nowhere.
     [Fact]
-    public async Task A_Note_No_Devis_Holds_Can_Still_Be_Corrected_To_Nothing_Paid()
+    public async Task An_Ordinary_Fiche_Corrected_To_Nothing_Paid_Keeps_An_Unpaid_Note()
     {
         _plans.Setup(r => r.GetPlansBilledOnInvoiceAsync(ClinicId, _note.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<(Guid, string?, TreatmentPlanStatus)>());
@@ -245,6 +251,17 @@ public class ContinuationFirstSeanceResaveTests
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal(InvoiceStatus.Cancelled, _note.Status);
+        Assert.Null(Assert.Single(_billed).PaidNow);
+    }
+
+    // An ordinary save with nothing paid still raises nothing — the replacement is a correction's alone.
+    [Fact]
+    public async Task An_Ordinary_Save_With_Nothing_Paid_Still_Bills_Nothing()
+    {
+        var billing = await DentalRecordAutoBilling.BillIfPaidAsync(
+            _sender.Object, _fiche, 0m, NullLogger.Instance, CancellationToken.None);
+
+        Assert.Equal(nameof(DentalRecordBillingOutcome.NotCollected), billing.Outcome);
         Assert.Empty(_billed);
     }
 }

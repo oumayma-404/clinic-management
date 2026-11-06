@@ -46,6 +46,8 @@ public static class DentalRecordAutoBilling
     /// What the patient has handed over in total for this séance, as saved on the fiche. Zero or negative means
     /// "nothing was collected", which is a legitimate outcome and not an error — the fiche is simply not billed,
     /// exactly as before this existed. A fiche billed later still goes through « Facturer cette intervention ».
+    /// ⚠️ Except on a correction (<paramref name="supersedesInvoiceId"/>): the replacement is issued UNPAID, or
+    /// « le patient n'a pas payé » cancelled the note and left the séance billed nowhere (prod, 06/11/2026).
     /// </param>
     public static async Task<DentalRecordBillingDto> BillIfPaidAsync(
         ISender sender,
@@ -55,7 +57,7 @@ public static class DentalRecordAutoBilling
         CancellationToken cancellationToken,
         Guid? supersedesInvoiceId = null)
     {
-        if (amountPaid <= 0m)
+        if (amountPaid <= 0m && supersedesInvoiceId is null)
         {
             return new DentalRecordBillingDto { Outcome = nameof(DentalRecordBillingOutcome.NotCollected) };
         }
@@ -73,7 +75,7 @@ public static class DentalRecordAutoBilling
                     // just asked for, raising the replacement is the entire point.
                     IsAutomatic = supersedesInvoiceId is null,
                     SupersedesInvoiceId = supersedesInvoiceId,
-                    PaidNow = new DentalRecordPaymentRequest
+                    PaidNow = amountPaid <= 0m ? null : new DentalRecordPaymentRequest
                     {
                         Amount = amountPaid,
                         // The fiche's own method (L8) — it used to be a hard-coded `Cash`, so a session settled by
