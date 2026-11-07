@@ -23,7 +23,8 @@ public class InAppNewsTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IPlatformNewsRepository> _news = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
-    private readonly List<PlatformNewsReadMarker> _addedMarkers = [];
+    private readonly Mock<IPlatformSessionContext> _session = new();
+    private readonly List<(Guid ClinicId, string UserId, DateTime ReadUpTo)> _advanced = [];
     private readonly User _admin;
     private PlatformNewsReadMarker? _marker;
     private IReadOnlyList<PlatformNewsAppRow> _rows = [];
@@ -36,8 +37,9 @@ public class InAppNewsTests
         _context.Setup(c => c.GetUserId()).Returns(_admin.Id);
         _users.Setup(r => r.GetByAuth0SubAsync(_admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(_admin);
         _news.Setup(r => r.GetReadMarkerAsync(_admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(() => _marker);
-        _news.Setup(r => r.AddReadMarkerAsync(It.IsAny<PlatformNewsReadMarker>(), It.IsAny<CancellationToken>()))
-            .Callback<PlatformNewsReadMarker, CancellationToken>((m, _) => _addedMarkers.Add(m))
+        _news.Setup(r => r.AdvanceReadMarkerAsync(
+                It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, DateTime, CancellationToken>((c, u, t, _) => _advanced.Add((c, u, t)))
             .Returns(Task.CompletedTask);
         _news.Setup(r => r.ListVisibleInAppAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() => _rows);
         _news.Setup(r => r.GetNewestVisibleInAppAtAsync(It.IsAny<CancellationToken>()))
@@ -56,7 +58,7 @@ public class InAppNewsTests
         new(_context.Object, _users.Object, _news.Object, NullLogger<GetNewsSummaryQueryHandler>.Instance);
 
     private MarkNewsReadCommandHandler MarkRead() =>
-        new(_context.Object, _users.Object, _news.Object, _unitOfWork.Object, NullLogger<MarkNewsReadCommandHandler>.Instance);
+        new(_context.Object, _users.Object, _news.Object, NullLogger<MarkNewsReadCommandHandler>.Instance);
 
     [Fact]
     public async Task With_No_Marker_Only_News_Sent_After_The_Account_Was_Created_Are_Unread()
@@ -102,9 +104,29 @@ public class InAppNewsTests
         var result = await MarkRead().Handle(new MarkNewsReadCommand(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        var marker = Assert.Single(_addedMarkers);
-        Assert.Equal((ClinicId, _admin.Id, newest), (marker.ClinicId, marker.UserId, marker.ReadUpToUtc));
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal((ClinicId, _admin.Id, newest), Assert.Single(_advanced));
+    }
+
+    [Fact]
+    public async Task Reading_Moves_The_Marker_Only_As_Far_As_The_Page_Showed()
+    {
+        var shown = Joined.AddDays(20);
+        _rows = [Row("Envoyée pendant la lecture", Joined.AddDays(21)), Row("Affichée", shown)];
+
+        await MarkRead().Handle(new MarkNewsReadCommand { UpTo = shown }, CancellationToken.None);
+
+        Assert.Equal(shown, Assert.Single(_advanced).ReadUpTo);
+    }
+
+    [Fact]
+    public async Task A_Date_Past_The_Newest_News_Is_Clamped_To_It()
+    {
+        var newest = Joined.AddDays(20);
+        _rows = [Row("Nouvelle", newest)];
+
+        await MarkRead().Handle(new MarkNewsReadCommand { UpTo = Joined.AddYears(5) }, CancellationToken.None);
+
+        Assert.Equal(newest, Assert.Single(_advanced).ReadUpTo);
     }
 
     [Fact]
@@ -116,8 +138,7 @@ public class InAppNewsTests
         var result = await MarkRead().Handle(new MarkNewsReadCommand(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        Assert.Empty(_addedMarkers);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Empty(_advanced);
     }
 
     [Fact]
@@ -126,7 +147,7 @@ public class InAppNewsTests
         var result = await MarkRead().Handle(new MarkNewsReadCommand(), CancellationToken.None);
 
         Assert.True(result.IsSuccess);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Empty(_advanced);
     }
 
     [Fact]
@@ -137,9 +158,18 @@ public class InAppNewsTests
 
         await MarkRead().Handle(new MarkNewsReadCommand(), CancellationToken.None);
 
-        Assert.Empty(_addedMarkers);
-        Assert.Equal(Joined.AddDays(30), _marker.ReadUpToUtc);
-        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal((ClinicId, _admin.Id, Joined.AddDays(30)), Assert.Single(_advanced));
+    }
+
+    [Fact]
+    public async Task A_Page_Older_Than_The_Marker_Never_Moves_It_Back()
+    {
+        _marker = new PlatformNewsReadMarker(ClinicId, _admin.Id, Joined.AddDays(30));
+        _rows = [Row("Nouvelle", Joined.AddDays(30)), Row("Ancienne", Joined.AddDays(10))];
+
+        await MarkRead().Handle(new MarkNewsReadCommand { UpTo = Joined.AddDays(10) }, CancellationToken.None);
+
+        Assert.Empty(_advanced);
     }
 
     [Fact]
@@ -152,19 +182,20 @@ public class InAppNewsTests
         Assert.True((await MarkRead().Handle(new MarkNewsReadCommand(), CancellationToken.None)).IsFailure);
     }
 
-    [Fact]
-    public void A_Marker_Never_Moves_Backwards()
+    private static PlatformNewsBroadcast Broadcast(bool sent = true)
     {
-        var marker = new PlatformNewsReadMarker(ClinicId, _admin.Id, Joined.AddDays(10));
-
-        Assert.False(marker.Advance(Joined.AddDays(5)));
-        Assert.Equal(Joined.AddDays(10), marker.ReadUpToUtc);
-        Assert.True(marker.Advance(Joined.AddDays(11)));
-    }
-
-    private static PlatformNewsBroadcast Broadcast() =>
-        PlatformNewsBroadcast.Create(Guid.NewGuid(), "Objet", [new PlatformNewsItemInput("🚀", "x")],
+        var broadcast = PlatformNewsBroadcast.Create(Guid.NewGuid(), "Objet", [new PlatformNewsItemInput("🚀", "x")],
             [new PlatformNewsRecipientInput(ClinicId, "Cabinet", "dr@cabinet.tn", null)], Guid.NewGuid(), "Oumayma", Joined);
+        if (sent)
+        {
+            var recipient = broadcast.Recipients.Single();
+            broadcast.Claim(recipient.Id, Joined);
+            broadcast.RecordSent(recipient.Id, Joined);
+            broadcast.Complete(Joined);
+        }
+
+        return broadcast;
+    }
 
     [Fact]
     public void Hiding_And_Showing_Are_Each_A_No_Op_When_Already_Done()
@@ -181,13 +212,13 @@ public class InAppNewsTests
     }
 
     private SetPlatformNewsVisibilityCommandHandler Visibility() =>
-        new(_news.Object, _unitOfWork.Object, NullLogger<SetPlatformNewsVisibilityCommandHandler>.Instance);
+        new(_news.Object, _session.Object, _unitOfWork.Object, NullLogger<SetPlatformNewsVisibilityCommandHandler>.Instance);
 
     [Fact]
     public async Task The_Console_Hides_A_News_From_The_App_And_Saves_Once()
     {
         var broadcast = Broadcast();
-        _news.Setup(r => r.GetAsync(broadcast.Id, It.IsAny<CancellationToken>())).ReturnsAsync(broadcast);
+        _news.Setup(r => r.GetWithoutRecipientsAsync(broadcast.Id, It.IsAny<CancellationToken>())).ReturnsAsync(broadcast);
 
         var result = await Visibility().Handle(
             new SetPlatformNewsVisibilityCommand { BroadcastId = broadcast.Id, Visible = false }, CancellationToken.None);
@@ -201,7 +232,7 @@ public class InAppNewsTests
     public async Task Pressing_Twice_Is_Not_A_Refusal_And_Writes_Nothing()
     {
         var broadcast = Broadcast();
-        _news.Setup(r => r.GetAsync(broadcast.Id, It.IsAny<CancellationToken>())).ReturnsAsync(broadcast);
+        _news.Setup(r => r.GetWithoutRecipientsAsync(broadcast.Id, It.IsAny<CancellationToken>())).ReturnsAsync(broadcast);
 
         var result = await Visibility().Handle(
             new SetPlatformNewsVisibilityCommand { BroadcastId = broadcast.Id, Visible = true }, CancellationToken.None);
@@ -217,5 +248,19 @@ public class InAppNewsTests
             new SetPlatformNewsVisibilityCommand { BroadcastId = Guid.NewGuid(), Visible = false }, CancellationToken.None);
 
         Assert.Equal(SetPlatformNewsVisibilityCommandHandler.NotFoundCode, result.Code);
+    }
+
+    [Fact]
+    public async Task A_News_Still_Being_Sent_Cannot_Be_Hidden_Yet()
+    {
+        var broadcast = Broadcast(sent: false);
+        _news.Setup(r => r.GetWithoutRecipientsAsync(broadcast.Id, It.IsAny<CancellationToken>())).ReturnsAsync(broadcast);
+
+        var result = await Visibility().Handle(
+            new SetPlatformNewsVisibilityCommand { BroadcastId = broadcast.Id, Visible = false }, CancellationToken.None);
+
+        Assert.Equal(SetPlatformNewsVisibilityCommandHandler.InProgressCode, result.Code);
+        Assert.True(broadcast.IsVisibleInApp);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

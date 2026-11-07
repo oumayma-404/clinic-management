@@ -40,14 +40,12 @@ public class PlatformNewsRepository : IPlatformNewsRepository
             .Select(b => b.Id)
             .ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<PlatformNewsSummaryRow>> ListRecentAsync(
-        int take, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<PlatformNewsSummaryRow>> ListAllAsync(CancellationToken cancellationToken = default)
     {
         var broadcasts = await _context.PlatformNewsBroadcasts
             .AsNoTracking()
             .OrderByDescending(b => b.CreatedAtUtc)
             .ThenBy(b => b.Id)
-            .Take(take)
             .Select(b => new
             {
                 b.Id,
@@ -92,14 +90,13 @@ public class PlatformNewsRepository : IPlatformNewsRepository
             .ToList();
     }
 
-    public async Task<PlatformNewsBroadcast?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
+    public async Task<PlatformNewsBroadcast?> GetWithoutRecipientsAsync(
+        Guid id, CancellationToken cancellationToken = default) =>
         await _context.PlatformNewsBroadcasts.FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
 
     public async Task<IReadOnlyList<PlatformNewsAppRow>> ListVisibleInAppAsync(CancellationToken cancellationToken = default)
     {
-        var broadcasts = await _context.PlatformNewsBroadcasts
-            .AsNoTracking()
-            .Where(b => b.HiddenFromAppAtUtc == null)
+        var broadcasts = await VisibleInApp()
             .OrderByDescending(b => b.CreatedAtUtc)
             .ThenBy(b => b.Id)
             .ToListAsync(cancellationToken);
@@ -114,20 +111,28 @@ public class PlatformNewsRepository : IPlatformNewsRepository
     }
 
     public async Task<int> CountVisibleInAppAfterAsync(DateTime after, CancellationToken cancellationToken = default) =>
-        await _context.PlatformNewsBroadcasts
-            .AsNoTracking()
-            .CountAsync(b => b.HiddenFromAppAtUtc == null && b.CreatedAtUtc > after, cancellationToken);
+        await VisibleInApp().CountAsync(b => b.CreatedAtUtc > after, cancellationToken);
 
     public async Task<DateTime?> GetNewestVisibleInAppAtAsync(CancellationToken cancellationToken = default) =>
-        await _context.PlatformNewsBroadcasts
-            .AsNoTracking()
-            .Where(b => b.HiddenFromAppAtUtc == null)
-            .MaxAsync(b => (DateTime?)b.CreatedAtUtc, cancellationToken);
+        await VisibleInApp().MaxAsync(b => (DateTime?)b.CreatedAtUtc, cancellationToken);
 
     public async Task<PlatformNewsReadMarker?> GetReadMarkerAsync(
         string userId, CancellationToken cancellationToken = default) =>
-        await _context.PlatformNewsReadMarkers.FirstOrDefaultAsync(m => m.UserId == userId, cancellationToken);
+        await _context.PlatformNewsReadMarkers
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.UserId == userId, cancellationToken);
 
-    public async Task AddReadMarkerAsync(PlatformNewsReadMarker marker, CancellationToken cancellationToken = default) =>
-        await _context.PlatformNewsReadMarkers.AddAsync(marker, cancellationToken);
+    // Keyed on "UserId" (unique): an account that changed cabinet moves its marker instead of colliding with it.
+    public async Task AdvanceReadMarkerAsync(
+        Guid clinicId, string userId, DateTime readUpToUtc, CancellationToken cancellationToken = default) =>
+        await _context.Database.ExecuteSqlInterpolatedAsync(
+            $@"INSERT INTO ""PlatformNewsReadMarkers"" (""ClinicId"", ""UserId"", ""ReadUpToUtc"")
+               VALUES ({clinicId}, {userId}, {DateTime.SpecifyKind(readUpToUtc, DateTimeKind.Utc)})
+               ON CONFLICT (""UserId"") DO UPDATE SET
+                   ""ClinicId"" = EXCLUDED.""ClinicId"",
+                   ""ReadUpToUtc"" = GREATEST(""PlatformNewsReadMarkers"".""ReadUpToUtc"", EXCLUDED.""ReadUpToUtc"")",
+            cancellationToken);
+
+    private IQueryable<PlatformNewsBroadcast> VisibleInApp() =>
+        _context.PlatformNewsBroadcasts.AsNoTracking().Where(b => b.HiddenFromAppAtUtc == null);
 }

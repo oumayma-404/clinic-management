@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { CardList } from "@/components/ui/card-list";
@@ -27,15 +27,24 @@ export function NewsHistory({
 }) {
   const [items, setItems] = useState(initialItems);
   const [error, setError] = useState(initialError);
+  // Only the latest read lands: a poll that left before a toggle must not put the old state back.
+  const readSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++readSeq.current;
     try {
       const response = await fetch("/bff/nouveautes/historique", { cache: "no-store" });
+      if (seq !== readSeq.current) {
+        return;
+      }
       if (!response.ok) {
         setError((await readRefusal(response)).error);
         return;
       }
       const data = await readJson<PlatformNewsBroadcast[]>(response);
+      if (seq !== readSeq.current) {
+        return;
+      }
       if (data === null) {
         setError("Réponse illisible du serveur.");
         return;
@@ -43,7 +52,9 @@ export function NewsHistory({
       setItems(data);
       setError(null);
     } catch {
-      setError(NETWORK_ERROR);
+      if (seq === readSeq.current) {
+        setError(NETWORK_ERROR);
+      }
     }
   }, []);
 
@@ -53,11 +64,15 @@ export function NewsHistory({
     }
   }, [reloadKey, load]);
 
-  const markVisibility = useCallback((broadcastId: string, visibleInApp: boolean) => {
-    setItems((current) =>
-      current?.map((item) => (item.broadcastId === broadcastId ? { ...item, visibleInApp } : item)) ?? current,
-    );
-  }, []);
+  const markVisibility = useCallback(
+    (broadcastId: string, visibleInApp: boolean) => {
+      setItems((current) =>
+        current?.map((item) => (item.broadcastId === broadcastId ? { ...item, visibleInApp } : item)) ?? current,
+      );
+      void load();
+    },
+    [load],
+  );
 
   const inProgress = items?.some((item) => item.inProgress) ?? false;
   useEffect(() => {
@@ -134,10 +149,11 @@ export function NewsHistory({
               getKey={(item) => item.broadcastId}
               title={(item) => <span className="whitespace-normal break-words">{item.subject}</span>}
               subtitle={(item) => `${formatDateTime(item.sentAt)} · ${item.sentByName}`}
+              // Beside the title, not in a field: a field's value is truncated, which clipped the button's ring.
+              status={(item) => <AppVisibility item={item} onChanged={markVisibility} labelled />}
               fields={(item) => [
                 { label: "Cabinets", value: item.clinics },
                 { label: "Résultat", value: <Outcome item={item} /> },
-                { label: "Dans l'app", value: <AppVisibility item={item} onChanged={markVisibility} /> },
               ]}
             />
           </div>
@@ -147,13 +163,19 @@ export function NewsHistory({
   );
 }
 
-/** Whether the cabinets' « Nouveautés » page shows this news, and the one button that changes it. Reversible, so no confirm. */
+/**
+ * Whether the cabinets' « Nouveautés » page shows this news, and the one button that changes it. Reversible, so no
+ * confirm. No button while the e-mails are going out: the server refuses then, its send holds the same row.
+ */
 function AppVisibility({
   item,
   onChanged,
+  labelled = false,
 }: {
   item: PlatformNewsBroadcast;
   onChanged: (broadcastId: string, visibleInApp: boolean) => void;
+  /** On a card there is no column header to say what « Visible » is about. */
+  labelled?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,8 +204,9 @@ function AppVisibility({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 whitespace-normal">
-      <span className="inline-flex items-center gap-1.5 text-sm">
+    <div className="flex max-w-60 flex-wrap items-center gap-x-3 gap-y-1.5 whitespace-normal">
+      {labelled ? <span className="w-full text-xs text-muted-foreground">Dans l&apos;app</span> : null}
+      <span className="inline-flex items-center gap-1.5 text-sm" role="status">
         <span
           aria-hidden="true"
           className={
@@ -194,16 +217,20 @@ function AppVisibility({
         />
         {item.visibleInApp ? "Visible" : "Masquée"}
       </span>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={busy}
-        onClick={() => void toggle()}
-        aria-label={`${action} « ${item.subject} » dans l'app`}
-      >
-        {busy ? "…" : action}
-      </Button>
+      {item.inProgress ? (
+        <span className="text-xs text-muted-foreground">Modifiable après l&apos;envoi</span>
+      ) : (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() => void toggle()}
+          aria-label={`${action} « ${item.subject} » dans l'app`}
+        >
+          {busy ? "…" : action}
+        </Button>
+      )}
       {error ? (
         <p className="w-full text-xs text-destructive" role="alert">
           {error}

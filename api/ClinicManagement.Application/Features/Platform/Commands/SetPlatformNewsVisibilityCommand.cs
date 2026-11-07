@@ -13,6 +13,10 @@ namespace ClinicManagement.Application.Features.Platform.Commands;
 /// « Masquer dans l'app » / « Afficher dans l'app »: whether a sent news stays on the cabinets' « Nouveautés » page.
 /// The e-mails already sent are untouched, and pressing twice is a no-op rather than a refusal.
 /// </summary>
+/// <remarks>
+/// Refused while the e-mails are still going out: the dispatcher holds the same row and its closing save would meet
+/// the version this write moved.
+/// </remarks>
 public class SetPlatformNewsVisibilityCommand : IRequest<Result<PlatformNewsVisibilityDto>>
 {
     public Guid BroadcastId { get; set; }
@@ -25,16 +29,22 @@ public class SetPlatformNewsVisibilityCommandHandler
     public const string NotFoundCode = "news_not_found";
     public const string NotFound = "Cette nouveauté n'existe plus.";
 
+    public const string InProgressCode = "news_in_progress";
+    public const string InProgress = "L'envoi de cette nouveauté est en cours. Réessayez une fois l'envoi terminé.";
+
     private readonly IPlatformNewsRepository _news;
+    private readonly IPlatformSessionContext _session;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<SetPlatformNewsVisibilityCommandHandler> _logger;
 
     public SetPlatformNewsVisibilityCommandHandler(
         IPlatformNewsRepository news,
+        IPlatformSessionContext session,
         IUnitOfWork unitOfWork,
         ILogger<SetPlatformNewsVisibilityCommandHandler> logger)
     {
         _news = news;
+        _session = session;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -44,16 +54,24 @@ public class SetPlatformNewsVisibilityCommandHandler
     {
         try
         {
-            var broadcast = await _news.GetAsync(request.BroadcastId, cancellationToken);
+            var broadcast = await _news.GetWithoutRecipientsAsync(request.BroadcastId, cancellationToken);
             if (broadcast is null)
             {
                 return Result<PlatformNewsVisibilityDto>.Failure(NotFound, NotFoundCode);
+            }
+
+            if (broadcast.CompletedAtUtc is null)
+            {
+                return Result<PlatformNewsVisibilityDto>.Failure(InProgress, InProgressCode);
             }
 
             var changed = request.Visible ? broadcast.ShowInApp() : broadcast.HideFromApp(DateTime.UtcNow);
             if (changed)
             {
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation(
+                    "Console account {AccountId} {Action} news {BroadcastId} in the app.",
+                    _session.GetAccountId(), request.Visible ? "showed" : "hid", broadcast.Id);
             }
 
             return Result<PlatformNewsVisibilityDto>.Success(

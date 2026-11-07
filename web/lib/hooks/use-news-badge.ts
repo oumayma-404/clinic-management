@@ -6,17 +6,18 @@ import { newsApi } from "@/lib/api/news"
 /**
  * The « Nouveautés » row and its count, shared by the rail, the phone drawer and the bar's « Plus ».
  *
- * One read per page load (`feedbackApi.prompt`'s shape): `absent` is the server's 404 — no news on this install, so no
- * row; a failed read is `failed`, which still shows the row (the page explains its own failure) but no count.
+ * `absent` is the server's 404 — no news on this install, so no row. A failed read stays `unknown` (no row, no count)
+ * and the next screen to mount a consumer asks again, at most once a minute.
  */
-export type NewsBadge =
-  | { status: "unknown" }
-  | { status: "absent" }
-  | { status: "failed" }
-  | { status: "ready"; unread: number }
+export type NewsBadge = { status: "unknown" } | { status: "absent" } | { status: "ready"; unread: number }
+
+const RETRY_AFTER_MS = 60_000
 
 let badge: NewsBadge = { status: "unknown" }
 let inflight: Promise<void> | null = null
+let retryAt = 0
+// Bumped by every answer the page publishes: a summary started before it is older news and is dropped.
+let generation = 0
 const listeners = new Set<() => void>()
 
 function publish(next: NewsBadge) {
@@ -25,19 +26,26 @@ function publish(next: NewsBadge) {
 }
 
 function load() {
-  if (inflight || badge.status !== "unknown") return
+  if (inflight || badge.status !== "unknown" || Date.now() < retryAt) return
+  const startedAt = generation
   inflight = newsApi
     .summary()
-    .then((summary) => publish(summary ? { status: "ready", unread: summary.unread } : { status: "absent" }))
-    .catch(() => publish({ status: "failed" }))
+    .then((summary) => {
+      if (startedAt !== generation) return
+      publish(summary ? { status: "ready", unread: summary.unread } : { status: "absent" })
+    })
+    .catch(() => {
+      retryAt = Date.now() + RETRY_AFTER_MS
+    })
     .finally(() => {
       inflight = null
     })
 }
 
-/** The page read the news: the count drops at once, on every surface showing it. */
-export function clearNewsBadge() {
-  if (badge.status === "ready" && badge.unread !== 0) publish({ status: "ready", unread: 0 })
+/** The page's own answer — what it read, then 0 once it marked — replaces whatever the rail had, on every surface. */
+export function setNewsBadge(unread: number) {
+  generation += 1
+  if (badge.status !== "ready" || badge.unread !== unread) publish({ status: "ready", unread })
 }
 
 function subscribe(listener: () => void) {
@@ -53,9 +61,6 @@ export function useNewsBadge(enabled: boolean): { shown: boolean; unread: number
     if (enabled) load()
   }, [enabled])
 
-  if (!enabled) return { shown: false, unread: 0 }
-  return {
-    shown: current.status === "ready" || current.status === "failed",
-    unread: current.status === "ready" ? current.unread : 0,
-  }
+  if (!enabled || current.status !== "ready") return { shown: false, unread: 0 }
+  return { shown: true, unread: current.unread }
 }

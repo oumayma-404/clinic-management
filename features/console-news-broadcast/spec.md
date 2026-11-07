@@ -97,12 +97,21 @@ Every news the console sends is also kept on a page of the app, for the cabinet'
 - **Which news:** every news sent and not hidden, including those sent before the cabinet joined.
 - **Unread:** sent after the admin's read marker — or, with none yet, after the account was created (a new admin
   sees the whole history without a badge claiming years of news). Opening the page moves the marker to the newest
-  news, so a second visit writes nothing.
+  news **the page showed** (never past the newest sent), so a news sent while the page was open stays unread, and a
+  second visit writes nothing. The marker only moves forward (one upsert, `GREATEST`), so two tabs never collide.
+- **A news shown again keeps the marker's verdict:** hidden then shown, it comes back without « Nouveau » if the
+  admin has since read past its send date — the marker is a date, not a list of what was seen. Accepted on purpose.
+- **The rail's count** is the summary's answer, replaced by the page's own as soon as the page has read the feed
+  (then 0 once marked); a failed summary shows no row and is asked again by the next screen.
 - **Security:** `api/news` is `AdminOnly` server-side; all three routes **404 before the mediator** where the
   deployment serves no console (a cabinet's own PC) — the browser shows no row on that 404.
 - **The e-mail's « Ouvrir Apexa »** now opens `/nouveautes` (through the login when signed out).
-- **Console:** « Envois précédents » gains « Dans l'app » — Visible / Masquée and one button, reversible, the e-mails
-  already sent untouched.
+- **Console:** « Envois précédents » lists **every** send (not the 20 latest) and gains « Dans l'app » — Visible /
+  Masquée and one button, reversible, the e-mails already sent untouched. No button while a send is still going out:
+  the server refuses it then (`news_in_progress`, 409), since the dispatcher holds the same row. Who hid or showed a
+  news is logged with the console account's id.
+- **PC de secours:** `POST api/news/read` stays open on a cloud fenced for a cut and is `[OnlineOnly]` on the PC —
+  the marker is never carried.
 
 ### Acceptance criteria (Part 2)
 - AC-2.1 An admin of a cabinet sees the row and the page; a secretary or a doctor sees neither (403 server-side).

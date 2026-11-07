@@ -39,5 +39,6 @@ async function readOrAbsent<T>(endpoint: string): Promise<T | null> {
 export const newsApi = {
   feed: () => readOrAbsent<NewsFeedDto>('/news'),
   summary: () => readOrAbsent<NewsSummaryDto>('/news/summary'),
-  markRead: () => apiPost<void>('/news/read', {}),
+  /** `upTo` is the `sentAt` of the newest news the page showed: one sent since is not marked read unseen. */
+  markRead: (upTo?: string) => apiPost<void>('/news/read', upTo ? { upTo } : {}),
 };

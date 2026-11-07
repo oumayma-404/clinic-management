@@ -154,3 +154,15 @@ Spec: `spec.md` § Part 2. Design: the « Nouveautés dans l'app » canvas (desk
 
 Decisions: one per-admin marker table rather than a `Users` column (journal noise + `xmin`); the marker moves to the
 newest news, not to « now »; no realtime key (one person's read state); the badge is one read per page load.
+
+### Part 2 — review and fixes (2026-11-07)
+
+`reviews/feature-review-part2.md`: five agents, 34 findings, 31 confirmed (1 Major). All applied:
+- the rail takes the page's own count (`setNewsBadge`), so a news hidden or read elsewhere never leaves a stale « 1 »;
+- the marker moves to the newest news the page **showed** (`upTo`), in one `GREATEST` upsert;
+- « Masquer » is refused while the e-mails still go out (`news_in_progress`, 409); the console lists every send;
+- `POST api/news/read` is open on a fenced cloud and `[OnlineOnly]` on the PC; the raw upsert is reviewed in
+  `RelayRawWriteCoverageTests`;
+- page: sequenced loads, focus on the card the index / « plus anciennes » reveals, long tokens wrap, emoji tile grows,
+  « N nouvelles », `role="status"` skeleton; rail: 99+ cap, count in the tooltip, aligned row, safe-area drawer foot.
+QA cycle 2: `qa/run-part2-2.md` GREEN (24 rows). Suite 6404 / 0.

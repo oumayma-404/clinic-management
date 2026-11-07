@@ -34,10 +34,7 @@ public class GetNewsSummaryQueryHandler : IRequestHandler<GetNewsSummaryQuery, R
     {
         try
         {
-            var userId = _clinicContext.GetUserId();
-            var user = string.IsNullOrWhiteSpace(userId)
-                ? null
-                : await _userRepository.GetByAuth0SubAsync(userId, cancellationToken);
+            var user = await NewsReading.ResolveCallerAsync(_clinicContext, _userRepository, cancellationToken);
             if (user is null)
             {
                 return Result<NewsSummaryDto>.Failure(ErrorMessages.Generic);

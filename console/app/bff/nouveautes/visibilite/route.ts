@@ -15,6 +15,10 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Requête illisible." }, { status: 400 });
   }
+  // A literal `null` (or a bare number) parses fine and is not an object.
+  if (body === null || typeof body !== "object") {
+    return NextResponse.json({ error: "Requête illisible." }, { status: 400 });
+  }
 
   if (typeof body.broadcastId !== "string" || !GUID.test(body.broadcastId)) {
     return NextResponse.json({ error: "Nouveauté non précisée." }, { status: 400 });

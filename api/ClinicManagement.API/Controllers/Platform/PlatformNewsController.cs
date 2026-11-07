@@ -109,6 +109,7 @@ public class PlatformNewsController : ApiControllerBase
     private static int StatusFor(string? code) => code switch
     {
         SetPlatformNewsVisibilityCommandHandler.NotFoundCode => StatusCodes.Status404NotFound,
+        SetPlatformNewsVisibilityCommandHandler.InProgressCode => StatusCodes.Status409Conflict,
         PlatformNewsRules.EmailNotConfiguredCode => StatusCodes.Status503ServiceUnavailable,
         SendPlatformNewsTestCommandHandler.SendFailedCode => StatusCodes.Status502BadGateway,
         _ => StatusCodes.Status400BadRequest,

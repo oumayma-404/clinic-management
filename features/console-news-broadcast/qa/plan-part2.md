@@ -26,6 +26,10 @@ admin's account existed, so **3 unread**.
 | A4 | marker | SQL | one `PlatformNewsReadMarkers` row, `ReadUpToUtc` = newest `CreatedAtUtc` | sql | — |
 | A5 | reload | reload `/nouveautes` | no « Nouveau », no « non lues », no pill | browser | 1440 |
 | A6 | e-mail | Mailpit, newest news message | button href ends `/nouveautes` | api | — |
+| A7 | mark body (cycle 2) | capture `POST /api/news/read` while A2 loads | body `upTo` = the newest card's `sentAt` | browser | 1440 |
+
+> **Cycle 2 (review fixes):** A2/A5 read « N nouvelles » (was « N non lues »); B4 and B5 also assert focus; rows
+> A7, B7, C6, D4, D5 added. No row removed.
 
 ## Tier B — alternate paths
 
@@ -37,6 +41,7 @@ admin's account existed, so **3 unread**.
 | B4 | « plus anciennes » | press it | 12 cards, button gone | browser | 1440 |
 | B5 | index | press the oldest entry in the index (before B4, fresh load) | that card is rendered and scrolled into view | browser | 1440 |
 | B6 | empty | console hides all 12 (API), reload | « Aucune nouveauté pour l'instant »; then show all again | browser + api | 1440 |
+| B7 | send in progress | SQL: newest `CompletedAtUtc` = null; console reload; BFF hide | « Modifiable après l'envoi », no button; hide → 409; still visible; restored | browser + api + sql | 1440 |
 
 ## Tier C — edge cases
 
@@ -47,6 +52,7 @@ admin's account existed, so **3 unread**.
 | C3 | collapsed rail | collapse the rail before reading | a dot on the « Nouveautés » icon | browser | 1440 |
 | C4 | widths | screenshots | readable at 390 / 820 / 1180 / 1536×730 | browser | all |
 | C5 | own PC (404) | — | ⏭ needs a SelfHostedLan API; covered by `NewsControllerTests` | — | — |
+| C6 | long tokens | the D4 news: a URL subject, an unbroken line, a 🦷🦷🦷 emoji | at 320 / 390 nothing overflows `main`, the title, the line or the emoji tile | browser | 320 / 390 |
 
 ## Tier D — regression sweep
 
@@ -55,3 +61,5 @@ admin's account existed, so **3 unread**.
 | D1 | rail on `/patients` | « Patients » active (bar + bold), « Nouveautés » row unchanged | browser | 1440 |
 | D2 | phone « Plus » | still opens the drawer | browser | 390 |
 | D3 | console history | « Résultat » still reads « 1 / 1 envoyé »; cards below `lg:` carry « Dans l'app » | browser | 1440 / 390 |
+| D4 | rail ↔ page | send a 13th news; rail « 1 »; console hides it; open the page from the rail | rail clears (the page publishes its own count) | browser | 1440 |
+| D5 | console card | 390: « Masquer » on a card | no ancestor up to the card clips it (`overflow: hidden` / ellipsis) | browser | 390 |

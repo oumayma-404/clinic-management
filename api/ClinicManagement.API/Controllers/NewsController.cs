@@ -18,6 +18,7 @@ namespace ClinicManagement.API.Controllers;
 [ApiController]
 [Route("api/news")]
 [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[AllowedWhileCloudFenced("Its one write is an admin's read marker on the vendor's news, a row the PC de secours never carries.")]
 public class NewsController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -49,11 +50,13 @@ public class NewsController : ApiControllerBase
 
     [HttpPost("read")]
     [AllowsWithoutSubscription("One admin's own read marker on the vendor's news, not clinic work.")]
-    public async Task<IActionResult> MarkRead(CancellationToken cancellationToken)
+    [OnlineOnly("The read marker lives on the cloud only; a PC de secours holding a cut never carries it back.")]
+    public async Task<IActionResult> MarkRead(
+        [FromBody] MarkNewsReadCommand? command, CancellationToken cancellationToken)
     {
         if (!_deployment.ServesPlatformConsole) return NotFound();
 
-        var result = await _mediator.Send(new MarkNewsReadCommand(), cancellationToken);
+        var result = await _mediator.Send(command ?? new MarkNewsReadCommand(), cancellationToken);
         return result.IsFailure ? HandleFailure(result) : NoContent();
     }
 }

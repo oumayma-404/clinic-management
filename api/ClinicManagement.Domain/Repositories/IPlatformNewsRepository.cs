@@ -15,11 +15,14 @@ public interface IPlatformNewsRepository
     /// <summary>Broadcasts recorded before <paramref name="createdBefore"/> and not yet completed, oldest first.</summary>
     Task<IReadOnlyList<Guid>> ListUnfinishedIdsAsync(DateTime createdBefore, CancellationToken cancellationToken = default);
 
-    /// <summary>The newest broadcasts first, counted in SQL.</summary>
-    Task<IReadOnlyList<PlatformNewsSummaryRow>> ListRecentAsync(int take, CancellationToken cancellationToken = default);
+    /// <summary>Every broadcast, newest first, counted in SQL — the console lists them all so any one can be hidden.</summary>
+    Task<IReadOnlyList<PlatformNewsSummaryRow>> ListAllAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Tracked, without its recipients — what « Masquer / Afficher dans l'app » needs.</summary>
-    Task<PlatformNewsBroadcast?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Tracked, WITHOUT its recipients — so <see cref="PlatformNewsBroadcast.IsSettled"/> is meaningless on it.
+    /// Only « Masquer / Afficher dans l'app » reads it.
+    /// </summary>
+    Task<PlatformNewsBroadcast?> GetWithoutRecipientsAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>Every news the app shows, newest first, with its items. Small by nature: the vendor writes a few a month.</summary>
     Task<IReadOnlyList<PlatformNewsAppRow>> ListVisibleInAppAsync(CancellationToken cancellationToken = default);
@@ -32,7 +35,9 @@ public interface IPlatformNewsRepository
 
     Task<PlatformNewsReadMarker?> GetReadMarkerAsync(string userId, CancellationToken cancellationToken = default);
 
-    Task AddReadMarkerAsync(PlatformNewsReadMarker marker, CancellationToken cancellationToken = default);
+    /// <summary>Creates the marker or moves it forward in one statement: two tabs at once neither collide nor move it back.</summary>
+    Task AdvanceReadMarkerAsync(
+        Guid clinicId, string userId, DateTime readUpToUtc, CancellationToken cancellationToken = default);
 }
 
 public sealed record PlatformNewsAppRow(

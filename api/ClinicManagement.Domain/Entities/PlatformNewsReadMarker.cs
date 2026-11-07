@@ -28,16 +28,4 @@ public class PlatformNewsReadMarker
         UserId = userId;
         ReadUpToUtc = readUpToUtc;
     }
-
-    /// <summary>Moves forward only: a slower tab's late read never un-reads a newer news.</summary>
-    public bool Advance(DateTime readUpToUtc)
-    {
-        if (readUpToUtc <= ReadUpToUtc)
-        {
-            return false;
-        }
-
-        ReadUpToUtc = readUpToUtc;
-        return true;
-    }
 }

@@ -373,7 +373,7 @@ public class PlatformNewsCommandTests
     [Fact]
     public async Task The_History_Reports_A_Send_Without_An_End_As_In_Progress()
     {
-        _news.Setup(n => n.ListRecentAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(
+        _news.Setup(n => n.ListAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
         [
             new PlatformNewsSummaryRow(Guid.NewGuid(), "En cours", At, null, "Oumayma", true, 2, 3, 1, 0, []),
             new PlatformNewsSummaryRow(Guid.NewGuid(), "Fini", At, At, "Oumayma", false, 2, 3, 2, 1, ["Cabinet Payant"]),

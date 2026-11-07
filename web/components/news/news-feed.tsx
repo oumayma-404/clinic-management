@@ -1,12 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
 import { ChevronDown, Sparkles } from "lucide-react"
 
 import { newsApi, type NewsEntryDto, type NewsFeedDto } from "@/lib/api/news"
-import { clearNewsBadge } from "@/lib/hooks/use-news-badge"
+import { setNewsBadge } from "@/lib/hooks/use-news-badge"
 import { getErrorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -37,35 +37,49 @@ const anchorOf = (id: string) => `nouveaute-${id}`
 export function NewsFeed() {
   const [state, setState] = useState<FeedState>({ kind: "loading" })
   const [visible, setVisible] = useState(PAGE_SIZE)
-  const [pendingScroll, setPendingScroll] = useState<string | null>(null)
+  const [pendingFocus, setPendingFocus] = useState<string | null>(null)
+  // The answer of an older load (StrictMode's second run, « Réessayer » pressed twice) is dropped, not shown.
+  const loadSeq = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current
+    const current = () => seq === loadSeq.current
     setState({ kind: "loading" })
     try {
       const feed = await newsApi.feed()
+      if (!current()) return
       if (!feed) {
         setState({ kind: "absent" })
         return
       }
       setState({ kind: "ready", feed })
-      // The cards keep their « Nouveau » for this visit; only the badge drops. A failed mark costs a badge, nothing more.
+      // The page's own count replaces the rail's, then drops once marked; the cards keep « Nouveau » for this visit.
+      setNewsBadge(feed.unread)
       if (feed.unread > 0) {
-        newsApi.markRead().then(clearNewsBadge, () => undefined)
+        newsApi.markRead(feed.entries[0]?.sentAt).then(() => setNewsBadge(0), () => undefined)
       }
     } catch (err) {
-      setState({ kind: "failed", message: getErrorMessage(err, "Impossible de charger les nouveautés.") })
+      if (current()) setState({ kind: "failed", message: getErrorMessage(err, "Impossible de charger les nouveautés.") })
     }
   }, [])
 
   useEffect(() => {
     void load()
+    return () => {
+      loadSeq.current += 1
+    }
   }, [load])
 
   useEffect(() => {
-    if (!pendingScroll) return
-    document.getElementById(anchorOf(pendingScroll))?.scrollIntoView({ behavior: "smooth", block: "start" })
-    setPendingScroll(null)
-  }, [pendingScroll, visible])
+    if (!pendingFocus) return
+    const article = document.getElementById(anchorOf(pendingFocus))
+    if (article) {
+      const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      article.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" })
+      article.focus({ preventScroll: true })
+    }
+    setPendingFocus(null)
+  }, [pendingFocus, visible])
 
   const unread = state.kind === "ready" ? state.feed.unread : 0
 
@@ -75,7 +89,7 @@ export function NewsFeed() {
       titleBadge={
         unread > 0 ? (
           <Badge variant="secondary" className="tabular-nums">
-            {unread} non lue{unread > 1 ? "s" : ""}
+            {unread} nouvelle{unread > 1 ? "s" : ""}
           </Badge>
         ) : undefined
       }
@@ -86,7 +100,7 @@ export function NewsFeed() {
     return (
       <>
         {header}
-        <div className="space-y-6" aria-busy="true" aria-label="Chargement des nouveautés">
+        <div className="space-y-6" role="status" aria-busy="true" aria-label="Chargement des nouveautés">
           {[0, 1].map((i) => (
             <div key={i} className="h-48 animate-pulse rounded-xl border bg-muted/40 md:ms-28" />
           ))}
@@ -130,7 +144,14 @@ export function NewsFeed() {
   const reveal = (id: string) => {
     const index = entries.findIndex((e) => e.id === id)
     if (index >= visible) setVisible(Math.ceil((index + 1) / PAGE_SIZE) * PAGE_SIZE)
-    setPendingScroll(id)
+    setPendingFocus(id)
+  }
+
+  // The button leaves the page on the last batch while focused: focus goes to the first card it revealed.
+  const showMore = () => {
+    const first = entries[visible]
+    setVisible((v) => v + PAGE_SIZE)
+    if (first) setPendingFocus(first.id)
   }
 
   return (
@@ -151,7 +172,7 @@ export function NewsFeed() {
           </div>
           {entries.length > visible && (
             <div className="md:ms-28">
-              <Button variant="outline" className="bg-card shadow-xs" onClick={() => setVisible((v) => v + PAGE_SIZE)}>
+              <Button variant="outline" className="bg-card shadow-xs" onClick={showMore}>
                 <ChevronDown aria-hidden="true" />
                 Nouveautés plus anciennes
               </Button>
@@ -169,7 +190,7 @@ function NewsTimelineEntry({ entry }: { entry: NewsEntryDto }) {
   const count = entry.items.length
   return (
     <li className="relative md:grid md:grid-cols-[5rem_minmax(0,1fr)] md:gap-x-8">
-      <div className="hidden pt-5 text-end md:block">
+      <div aria-hidden="true" className="hidden pt-5 text-end md:block">
         <p className="text-sm font-semibold text-foreground">{shortDate(entry.sentOn)}</p>
         <p className="text-xs text-muted-foreground">{format(day(entry.sentOn), "yyyy")}</p>
         <span
@@ -187,9 +208,10 @@ function NewsTimelineEntry({ entry }: { entry: NewsEntryDto }) {
 
       <article
         id={anchorOf(entry.id)}
+        tabIndex={-1}
         aria-labelledby={`${anchorOf(entry.id)}-titre`}
         className={cn(
-          "min-w-0 scroll-mt-6 overflow-hidden rounded-xl border bg-card",
+          "min-w-0 scroll-mt-6 overflow-hidden rounded-xl border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring",
           entry.isUnread ? "shadow-md" : "shadow-xs",
         )}
       >
@@ -200,11 +222,7 @@ function NewsTimelineEntry({ entry }: { entry: NewsEntryDto }) {
           )}
         >
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-            {entry.isUnread && (
-              <span className="rounded-md bg-primary px-2 py-0.5 text-2xs font-bold uppercase tracking-wide text-primary-foreground">
-                Nouveau
-              </span>
-            )}
+            {entry.isUnread && <Badge className="text-2xs font-bold uppercase tracking-wide">Nouveau</Badge>}
             <time dateTime={entry.sentOn} className="text-sm text-muted-foreground md:sr-only">
               {longDate(entry.sentOn)}
             </time>
@@ -215,7 +233,7 @@ function NewsTimelineEntry({ entry }: { entry: NewsEntryDto }) {
           <h2
             id={`${anchorOf(entry.id)}-titre`}
             className={cn(
-              "font-semibold leading-snug tracking-tight text-foreground",
+              "font-semibold leading-snug tracking-tight text-foreground break-words",
               entry.isUnread ? "text-lg sm:text-xl" : "text-base sm:text-lg",
             )}
           >
@@ -227,11 +245,11 @@ function NewsTimelineEntry({ entry }: { entry: NewsEntryDto }) {
             <li key={index} className="flex items-start gap-3 py-3 sm:gap-3.5">
               <span
                 aria-hidden="true"
-                className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/50 text-lg"
+                className="flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg border bg-muted/50 px-1 text-lg"
               >
                 {item.emoji}
               </span>
-              <p className="min-w-0 pt-1.5 text-sm leading-relaxed text-foreground/90 sm:text-base">{item.text}</p>
+              <p className="min-w-0 break-words pt-1.5 text-sm leading-relaxed text-foreground/90 sm:text-base">{item.text}</p>
             </li>
           ))}
         </ul>
@@ -269,7 +287,7 @@ function NewsIndex({ entries, onPick }: { entries: NewsEntryDto[]; onPick: (id: 
                     type="button"
                     onClick={() => onPick(entry.id)}
                     className={cn(
-                      "flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-start text-sm leading-snug transition-colors hover:bg-muted",
+                      "flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-start text-sm leading-snug transition-colors hover:bg-muted coarse:py-3",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       entry.isUnread ? "font-semibold text-foreground" : "text-muted-foreground",
                     )}
@@ -281,7 +299,7 @@ function NewsIndex({ entries, onPick }: { entries: NewsEntryDto[]; onPick: (id: 
                         entry.isUnread ? "bg-primary" : "border border-muted-foreground/50",
                       )}
                     />
-                    <span className="min-w-0">
+                    <span className="min-w-0 break-words">
                       {entry.subject}
                       {entry.isUnread && <span className="sr-only"> (non lue)</span>}
                     </span>

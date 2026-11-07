@@ -43,7 +43,7 @@ public class NewsControllerTests
 
         Assert.IsType<NotFoundResult>((await controller.List(CancellationToken.None)).Result);
         Assert.IsType<NotFoundResult>((await controller.Summary(CancellationToken.None)).Result);
-        Assert.IsType<NotFoundResult>(await controller.MarkRead(CancellationToken.None));
+        Assert.IsType<NotFoundResult>(await controller.MarkRead(null, CancellationToken.None));
     }
 
     [Fact]
@@ -64,7 +64,20 @@ public class NewsControllerTests
         var mediator = new Mock<IMediator>();
         mediator.Setup(m => m.Send(It.IsAny<MarkNewsReadCommand>(), It.IsAny<CancellationToken>())).ReturnsAsync(Result.Success());
 
-        Assert.IsType<NoContentResult>(await News(mediator.Object, DeploymentKind.HostedMultiTenant).MarkRead(CancellationToken.None));
+        Assert.IsType<NoContentResult>(await News(mediator.Object, DeploymentKind.HostedMultiTenant).MarkRead(null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task The_Date_The_Page_Showed_Reaches_The_Command()
+    {
+        var shown = new DateTime(2026, 11, 2, 9, 0, 0, DateTimeKind.Utc);
+        var mediator = new Mock<IMediator>();
+        mediator.Setup(m => m.Send(It.IsAny<MarkNewsReadCommand>(), It.IsAny<CancellationToken>())).ReturnsAsync(Result.Success());
+
+        await News(mediator.Object, DeploymentKind.HostedMultiTenant)
+            .MarkRead(new MarkNewsReadCommand { UpTo = shown }, CancellationToken.None);
+
+        mediator.Verify(m => m.Send(It.Is<MarkNewsReadCommand>(c => c.UpTo == shown), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Theory]

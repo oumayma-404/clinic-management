@@ -13,6 +13,8 @@ mkdirSync(SHOTS, { recursive: true });
 const consoleAcct = JSON.parse(readFileSync(new URL("./account.json", import.meta.url)));
 const { admin, secretary } = JSON.parse(readFileSync(new URL("./app-accounts.json", import.meta.url)));
 const NEWEST = "Premiers pas guidés";
+const LONG_SUBJECT = "https://apexa.tn/nouveautes/une-adresse-tres-longue-sans-aucun-espace-pour-voir-le-retour-a-la-ligne";
+const WIDE_EMOJI = "🦷🦷🦷";
 const OLDEST = "Relevé de caisse du jour";
 
 const findings = [];
@@ -149,6 +151,8 @@ try {
 } catch (e) { bad("C1", "threw", e.message); }
 
 // ── The page, first visit (desktop) ──
+let markBody = null;
+page.on("request", (r) => { if (r.method() === "POST" && r.url().endsWith("/api/news/read")) markBody = r.postData(); });
 try {
   await page.goto(`${WEB}/`);
   await railRow(page).click();
@@ -157,14 +161,14 @@ try {
   await poll(async () => (await cards.count()) > 0, 15000);
   const count = await cards.count();
   const nouveau = await page.locator("article[id^='nouveaute-'] header span", { hasText: /^Nouveau$/ }).count();
-  const unreadBadge = (await page.getByText(/^3 non lues$/).count()) > 0;
+  const unreadBadge = (await page.getByText(/^3 nouvelles$/).count()) > 0;
   const firstTitle = (await cards.first().locator("h2").textContent())?.trim();
   const index = page.getByRole("navigation", { name: "Toutes les nouveautés" });
   const indexEntries = await index.getByRole("button").count();
   const months = await index.locator("p").allTextContents();
   await shot(page, "A2-page-1440");
   count === 10 && nouveau === 3 && unreadBadge && firstTitle === NEWEST && indexEntries === 12 && months.length >= 3
-    ? ok("A2", `10 cards, 3 « Nouveau », « 3 non lues », index 12 under ${months.join(" · ")}`)
+    ? ok("A2", `10 cards, 3 « Nouveau », « 3 nouvelles », index 12 under ${months.join(" · ")}`)
     : bad("A2", "page", JSON.stringify({ count, nouveau, unreadBadge, firstTitle, indexEntries, months }));
 } catch (e) { bad("A2", "threw", e.message); }
 
@@ -174,6 +178,16 @@ try {
   const nouveau = await page.locator("article[id^='nouveaute-'] header span", { hasText: /^Nouveau$/ }).count();
   cleared && nouveau === 3 ? ok("A3", "rail pill gone, cards still « Nouveau »") : bad("A3", "after open", JSON.stringify({ pill: await railPill(page), nouveau }));
 } catch (e) { bad("A3", "threw", e.message); }
+
+// A7 — the page marks read up to the newest card it showed, not « everything sent »
+try {
+  const sentAt = await page.evaluate(async (api) => {
+    const { accessToken } = await (await fetch("/bff/auth/token")).json();
+    return (await (await fetch(`${api}/news`, { headers: { Authorization: `Bearer ${accessToken}` } })).json()).entries[0].sentAt;
+  }, API);
+  const body = markBody ? JSON.parse(markBody) : null;
+  body?.upTo === sentAt ? ok("A7", `mark sent with upTo = newest card (${sentAt})`) : bad("A7", "mark body", JSON.stringify({ markBody, sentAt }));
+} catch (e) { bad("A7", "threw", e.message); }
 
 // A4 — the marker
 try {
@@ -191,7 +205,8 @@ try {
     return box && box.y >= -5 && box.y < 900;
   }, 6000);
   await shot(page, "B5-index-oldest-1440");
-  inView ? ok("B5", "oldest card rendered and scrolled into view") : bad("B5", "index jump", JSON.stringify(await target.boundingBox().catch(() => null)));
+  const focused = await poll(async () => (await page.evaluate(() => (document.activeElement?.textContent ?? "").slice(0, 200))).includes(OLDEST), 3000);
+  inView && focused ? ok("B5", "oldest card rendered, scrolled into view and focused") : bad("B5", "index jump", JSON.stringify({ box: await target.boundingBox().catch(() => null), focused }));
 } catch (e) { bad("B5", "threw", e.message); }
 
 // A5 + B4 — reload: everything read; « plus anciennes »
@@ -200,7 +215,7 @@ try {
   const cards = page.locator("article[id^='nouveaute-']");
   await poll(async () => (await cards.count()) > 0, 15000);
   const nouveau = await page.locator("article[id^='nouveaute-'] header span", { hasText: /^Nouveau$/ }).count();
-  const nonLues = await page.getByText(/non lues?$/).count();
+  const nonLues = await page.getByText(/^\d+ nouvelles?$/).count();
   const pill = await railPill(page);
   nouveau === 0 && nonLues === 0 && pill === "" ? ok("A5", "reload: no « Nouveau », no count") : bad("A5", "reload", JSON.stringify({ nouveau, nonLues, pill }));
   const more = page.getByRole("button", { name: "Nouveautés plus anciennes" });
@@ -208,7 +223,11 @@ try {
   await more.click();
   const after = await poll(async () => ((await cards.count()) === 12 ? 12 : undefined), 5000);
   const gone = (await more.count()) === 0;
-  before === 10 && after === 12 && gone ? ok("B4", "10 → 12 cards, button gone") : bad("B4", "older", JSON.stringify({ before, after, gone }));
+  const focusOn = await poll(async () => { const id = await page.evaluate(() => document.activeElement?.id ?? ""); return id.startsWith("nouveaute-") ? id : undefined; }, 3000);
+  const eleventh = await cards.nth(10).getAttribute("id");
+  before === 10 && after === 12 && gone && focusOn === eleventh
+    ? ok("B4", "10 → 12 cards, button gone, focus on the first card revealed")
+    : bad("B4", "older", JSON.stringify({ before, after, gone, focusOn, eleventh }));
 } catch (e) { bad("A5", "threw", e.message); }
 
 // C4 — widths
@@ -295,6 +314,102 @@ try {
 } catch (e) { bad("B3", "threw", e.message); }
 
 skip("C5", "a cabinet's own PC needs a SelfHostedLan API; the 404-before-mediator is NewsControllerTests'");
+
+// B7 — a send still going out: no button in the console, and the server refuses the toggle (409)
+try {
+  const id = history.find((h) => h.subject === NEWEST)?.broadcastId;
+  const completed = sql(`select "CompletedAtUtc" from "PlatformNewsBroadcasts" where "Id" = '${id}'`);
+  sql(`update "PlatformNewsBroadcasts" set "CompletedAtUtc" = null where "Id" = '${id}'`);
+  await cpage.setViewportSize({ width: 1440, height: 900 });
+  await cpage.goto(`${CONSOLE}/nouveautes`);
+  const row = cpage.locator("tr", { hasText: NEWEST }).first();
+  const text = await poll(async () => { const t = await row.innerText(); return /Modifiable après l.envoi/.test(t) ? t : undefined; }, 10000);
+  const buttons = await row.getByRole("button").count();
+  const status = await consoleVisibility(id, false);
+  await shot(cpage, "B7-console-in-progress-1440");
+  sql(`update "PlatformNewsBroadcasts" set "CompletedAtUtc" = '${completed}' where "Id" = '${id}'`);
+  const still = sql(`select "HiddenFromAppAtUtc" is null from "PlatformNewsBroadcasts" where "Id" = '${id}'`);
+  text && buttons === 0 && status === 409 && still === "t"
+    ? ok("B7", "in progress: « Modifiable après l'envoi », no button, hide → 409, still visible")
+    : bad("B7", "in progress", JSON.stringify({ text, buttons, status, still }));
+} catch (e) { bad("B7", "threw", e.message); }
+
+// D4 — the rail follows the page: a news hidden after the rail counted it does not keep « 1 »
+let longId = null;
+try {
+  const status = await cpage.evaluate(async ([subject, emoji]) => {
+    const r = await fetch("/bff/nouveautes", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: crypto.randomUUID(), subject, items: [{ emoji, text: "Unmotsanscoupurepourvoirsilecadrelecoupeoulelaissedeborderdelacarte".repeat(2) }] }) });
+    return r.status;
+  }, [LONG_SUBJECT, WIDE_EMOJI]);
+  const done = await poll(async () => {
+    const h = await cpage.evaluate(async () => (await fetch("/bff/nouveautes/historique")).json());
+    const row = h.find((x) => x.subject === LONG_SUBJECT);
+    return row && !row.inProgress ? row : undefined;
+  }, 30000, 1000);
+  longId = done?.broadcastId ?? null;
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${WEB}/`);
+  const before = await poll(() => railPill(page).then((p) => (p === "1" ? p : undefined)), 15000);
+  await consoleVisibility(longId, false);
+  await railRow(page).click();
+  await page.waitForURL(/\/nouveautes$/, { timeout: 15000 });
+  await poll(async () => (await page.locator("article[id^='nouveaute-']").count()) > 0, 15000);
+  const cleared = await poll(async () => (await railPill(page)) === "", 8000);
+  await shot(page, "D4-rail-follows-page-1440");
+  status >= 200 && status < 300 && longId && before === "1" && cleared
+    ? ok("D4", "rail « 1 » → news hidden → page opened → rail cleared")
+    : bad("D4", "rail vs page", JSON.stringify({ status, longId, before, pill: await railPill(page) }));
+} catch (e) { bad("D4", "threw", e.message); }
+
+// C6 — an unbreakable subject, an unbreakable line and a three-glyph emoji at 320 / 390
+try {
+  if (!longId) throw new Error("no long news");
+  await consoleVisibility(longId, true);
+  for (const w of [320, 390]) {
+    await ppage.setViewportSize({ width: w, height: 760 });
+    await ppage.goto(`${WEB}/nouveautes`);
+    const card = ppage.locator("article[id^='nouveaute-']").first();
+    await poll(async () => ((await card.locator("h2").textContent()) ?? "").includes("apexa.tn"), 15000);
+    const m = await ppage.evaluate(() => {
+      const main = document.querySelector("main");
+      const art = document.querySelector("article[id^='nouveaute-']");
+      const h2 = art?.querySelector("h2");
+      const tile = art?.querySelector("li span[aria-hidden='true']");
+      const text = art?.querySelector("li p");
+      return {
+        page: main ? main.scrollWidth - main.clientWidth : -1,
+        title: h2 ? h2.scrollWidth - h2.clientWidth : -1,
+        text: text ? text.scrollWidth - text.clientWidth : -1,
+        tile: tile ? tile.scrollWidth - tile.clientWidth : -1,
+      };
+    });
+    await shot(ppage, `C6-long-news-${w}`);
+    m.page <= 1 && m.title <= 1 && m.text <= 1 && m.tile <= 1
+      ? ok("C6", `${w}: long subject and text wrap, emoji tile holds its glyphs`)
+      : bad("C6", `${w} overflow`, JSON.stringify(m));
+  }
+} catch (e) { bad("C6", "threw", e.message); }
+
+// D5 — console cards below lg: « Dans l'app » beside the title, its button outside any clipping box
+try {
+  await cpage.setViewportSize({ width: 390, height: 844 });
+  await cpage.goto(`${CONSOLE}/nouveautes`);
+  const btn = cpage.getByRole("button", { name: `Masquer « ${NEWEST} » dans l'app` }).locator("visible=true");
+  await poll(async () => (await btn.count()) > 0, 10000);
+  await btn.scrollIntoViewIfNeeded();
+  const clipped = await btn.evaluate((b) => {
+    let el = b.parentElement;
+    while (el && el.tagName !== "LI") {
+      const cs = getComputedStyle(el);
+      if (cs.overflow === "hidden" || cs.overflowX === "hidden" || cs.textOverflow === "ellipsis") return el.tagName + "." + el.className;
+      el = el.parentElement;
+    }
+    return null;
+  });
+  await shot(cpage, "D5-console-card-390");
+  clipped === null ? ok("D5", "card's « Masquer » sits outside any clipping box") : bad("D5", "button inside a clipping box", clipped);
+} catch (e) { bad("D5", "threw", e.message); }
 
 await browser.close();
 const failures = findings.filter((f) => !f.skipped);

@@ -7,7 +7,10 @@ using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Platform.Queries;
 
-/// <summary>The recent news sends, newest first, with what reached whom.</summary>
+/// <summary>
+/// Every news send, newest first, with what reached whom. Not cut to the recent ones: each row is where that news is
+/// hidden from (or shown again in) the cabinets' page, which shows them all.
+/// </summary>
 public class ListPlatformNewsQuery : IRequest<Result<IReadOnlyList<PlatformNewsBroadcastDto>>>
 {
 }
@@ -15,8 +18,6 @@ public class ListPlatformNewsQuery : IRequest<Result<IReadOnlyList<PlatformNewsB
 public class ListPlatformNewsQueryHandler
     : IRequestHandler<ListPlatformNewsQuery, Result<IReadOnlyList<PlatformNewsBroadcastDto>>>
 {
-    public const int HistorySize = 20;
-
     private readonly IPlatformNewsRepository _news;
     private readonly ILogger<ListPlatformNewsQueryHandler> _logger;
 
@@ -31,7 +32,7 @@ public class ListPlatformNewsQueryHandler
     {
         try
         {
-            var rows = await _news.ListRecentAsync(HistorySize, cancellationToken);
+            var rows = await _news.ListAllAsync(cancellationToken);
 
             return Result<IReadOnlyList<PlatformNewsBroadcastDto>>.Success(rows
                 .Select(r => new PlatformNewsBroadcastDto(

@@ -90,6 +90,8 @@ export function DashboardSidebar() {
   const renderItem = (item: NavItem, collapsed: boolean, zone: Zone, unread = 0) => {
     const isActive = isActivePath(item.href)
     const unreadLabel = unread > 0 ? ` — ${unread} non lue${unread > 1 ? "s" : ""}` : ""
+    // The bell's cap: a pill wider than « 99+ » pushes the row's name out of a 256 px rail.
+    const unreadPill = unread > 99 ? "99+" : String(unread)
     const linkContent = (
       <Link
         href={item.href}
@@ -165,7 +167,7 @@ export function DashboardSidebar() {
               aria-hidden="true"
               className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-2xs font-semibold tabular-nums text-primary-foreground"
             >
-              {unread}
+              {unreadPill}
             </span>
           ))}
       </Link>
@@ -176,7 +178,7 @@ export function DashboardSidebar() {
         <Tooltip key={item.href} delayDuration={0}>
           <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
           <TooltipContent side="right">
-            <p>{item.name}</p>
+            <p>{unread > 0 ? `${item.name} · ${unreadPill} non lue${unread > 1 ? "s" : ""}` : item.name}</p>
           </TooltipContent>
         </Tooltip>
       )
@@ -244,9 +246,10 @@ export function DashboardSidebar() {
   // to find out which it is. Only one is exposed at a time today (the rail is `display:none` below `md:`, the
   // drawer unmounted above it), but P2 adds a third nav that IS concurrent with the rail.
   // « Nouveautés » sits apart from the sections: it is the vendor's news, not a place in the cabinet's own work.
+  // `px-1` on the foot's `p-2` lines its icon up with the nav's `px-3` rows above.
   const newsRow = (collapsed: boolean) =>
     news.shown ? (
-      <div className="pb-1">
+      <div className="px-1 pb-1">
         <TooltipProvider>{renderItem(NEWS_NAV_ITEM, collapsed, zoneForPath(NEWS_NAV_ITEM.href), news.unread)}</TooltipProvider>
       </div>
     ) : null
@@ -415,7 +418,11 @@ export function DashboardSidebar() {
           <div className="flex h-full flex-col overflow-hidden">
             {brandHeader(false)}
             {navigation(false, "Navigation du menu")}
-            {news.shown && <div className="border-t border-sidebar-border px-2 pt-2">{newsRow(false)}</div>}
+            {news.shown && (
+              <div className="border-t border-sidebar-border px-2 pt-2 pb-[env(safe-area-inset-bottom,0px)]">
+                {newsRow(false)}
+              </div>
+            )}
           </div>
         </SheetContent>
       </Sheet>
