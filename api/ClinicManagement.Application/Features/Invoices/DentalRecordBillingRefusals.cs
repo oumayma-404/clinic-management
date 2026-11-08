@@ -49,12 +49,12 @@ public static class DentalRecordBillingRefusals
 
     /// <summary>
     /// Lowering the collected amount. Money already recorded on a numbered document cannot be un-received by
-    /// retyping a field.
+    /// retyping a field — « Corriger la note » replaces the note; an avoir only when money went back.
     /// </summary>
     public static string PaymentLowered(string? invoiceNumber, decimal alreadyCollected) =>
         $"Cette fiche est facturée sur {Document(invoiceNumber)}, qui a déjà encaissé "
-        + $"{FormatAmount(alreadyCollected)} DT. Un montant déjà encaissé ne peut pas être diminué ici : "
-        + "établissez un avoir sur la note d'honoraires.";
+        + $"{FormatAmount(alreadyCollected)} DT. Pour diminuer ce montant, utilisez « Corriger la note » ; "
+        + "si le patient a réellement été remboursé, établissez plutôt un avoir.";
 
     /// <summary>
     /// Changing the acts of a billed fiche. Not refused because editing is dangerous, but because an issued note's

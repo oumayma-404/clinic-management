@@ -30,6 +30,15 @@
 4. **The devis page gets « Corriger » on the séance-1 note row** → opens that fiche (`?editRecord=`), where the
    fiche and its note move together.
 5. `/caisse` « Corriger le montant » opens a draft, so its dialog no longer previews « nouvelle note X » (`nextTotal: null`).
+6. **The line under « Payé » points at « Corriger la note »** (QA F-1). It said « un montant payé ne se diminue pas ici
+   — établissez un avoir » above the button that does exactly that; the server's `PaymentLowered` sentence said the same
+   and now names « Corriger la note » too (an avoir only when money really went back).
+7. **The devis text names no note** (QA F-2): « La 1re séance du … est facturée sur sa propre note d'honoraires ». A
+   number stored there went stale on the first correction; the live number is on the act row. These notes never reach
+   the PDF (`DevisPdfData` has none), whatever the old comment said.
+8. **« avec d'autres actes » is counted in lines** (QA F-3), never inferred from money: after a correction the share is
+   0 (« not attributable »), and a re-priced act or a timbre fiscal made `TTC − share > 0` lie. `GetMoneyByIdsAsync`
+   carries `LineCount`; the creation-time twin in `ContinueRecordedActCommand` uses `Lines.Count`.
 
 ⚠️ An earlier version of this branch **refused** the Payé-0 correction while a devis held the act. That blocked a
 legitimate fix of a typo; the replacement note is what makes it safe.
@@ -43,12 +52,19 @@ legitimate fix of a typo; the replacement note is what makes it safe.
 | 3 | `patient-record-modal` `ownNoteRepresentsThePlan` | `markBilledOnPlan` effect only | changed here |
 | 4 | `CorrectionPreview` (+2 optional fields) | `invoices-table` (draft, `null`), `caisse-row-actions` | unaffected without the fields — same figures as before |
 | 5 | `plan-workspace` carried-note row | — | additive link |
+| 6 | `GetMoneyByIdsAsync` tuple (+`LineCount`) | `TreatmentPlanWorkflowProjection` (only caller) + `CarriedNoteMoneyTests` | changed here |
+| 7 | `DentalRecordBillingRefusals.PaymentLowered` sentence | `DentalRecordBillingGuard` (fiche turns its code into the dialog) | re-tested — QA A3 |
+| 8 | stored devis notes sentence | devis page header, devis form | re-tested — QA A5/F2; old plans keep their text |
 
 ## Tests
 
-`ContinuationFirstSeanceResaveTests` (8). The re-save and correction cases fail on the old code.
+- `ContinuationFirstSeanceResaveTests` (8) — the re-save and correction cases fail on the old code.
+- `CarriedNoteMoneyTests` + 4 (a corrected note, re-priced, timbre fiscal, a real second line).
+- Browser: `qa/plan.md` + `qa/walk.mjs` on an isolated copy — run 1 RED (3 findings, all already on main),
+  run 2 GREEN, 59/59. To re-run: copy a main-lineage dev database, start API/web from this tree on spare ports,
+  `arrange.mjs` for fresh fixtures, then `walk.mjs`.
 
 ## Not done
 
-- No browser pass.
 - Hamdane's data is untouched: both fiches stay deleted. The 30/10 one is in the 06/11 03:00 recovery point.
+- His devis 2026-0016 on prod keeps its old text naming the cancelled note 2026-0141 (stored before this fix).

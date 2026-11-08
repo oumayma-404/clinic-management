@@ -61,13 +61,16 @@ public class CarriedNoteMoneyTests
         _invoices.Setup(r => r.GetDentalRecordLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(notes.Select(n => (RecordId, n.InvoiceId, n.Number, n.Status)).ToArray());
 
-    /// <summary>The money of specific notes, by id.</summary>
+    /// <summary>The money of specific notes, by id — each billing one line (the carried act) unless stated.</summary>
     private void Money(params (Guid Id, string? Number, decimal Total, decimal Collected)[] notes) =>
+        MoneyWithLines(notes.Select(n => (n.Id, n.Number, n.Total, n.Collected, 1)).ToArray());
+
+    private void MoneyWithLines(params (Guid Id, string? Number, decimal Total, decimal Collected, int Lines)[] notes) =>
         _invoices.Setup(r => r.GetMoneyByIdsAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(notes
                 .Select(n => (n.Id, n.Number, InvoiceStatus.Issued, n.Total, n.Collected,
-                    Math.Max(0m, n.Total - n.Collected)))
+                    Math.Max(0m, n.Total - n.Collected), n.Lines))
                 .ToArray());
 
     /// <summary>The devis a continuation mints: the billed act at 0 marked against a note, the new work beside it.</summary>
@@ -215,8 +218,8 @@ public class CarriedNoteMoneyTests
     {
         var noteId = Guid.NewGuid();
         FicheBilledBy((noteId, "2026-0019", InvoiceStatus.Issued));
-        // 90 for the continued act + 30 of détartrage on the same séance.
-        Money((noteId, "2026-0019", 120m, 50m));
+        // 90 for the continued act + 30 of détartrage on the same séance — two lines.
+        MoneyWithLines((noteId, "2026-0019", 120m, 50m, 2));
 
         var dto = await Map(ContinuationPlan(noteId));
 
@@ -270,7 +273,7 @@ public class CarriedNoteMoneyTests
         FicheBilledBy((noteId, null, InvoiceStatus.Draft));
         _invoices.Setup(r => r.GetMoneyByIdsAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { (noteId, (string?)null, InvoiceStatus.Draft, ActCost, 0m, ActCost) });
+            .ReturnsAsync(new[] { (noteId, (string?)null, InvoiceStatus.Draft, ActCost, 0m, ActCost, 1) });
 
         var dto = await Map(ContinuationPlan(noteId));
 
@@ -308,6 +311,45 @@ public class CarriedNoteMoneyTests
         // The note's own figures are still exact, which is what the screen quotes instead.
         Assert.Equal(95m, carried.Total);
         Assert.Equal(45m, carried.Outstanding);
+    }
+
+    /// <summary>
+    /// QA 07/11/2026, F-3: after « le patient n'a pas payé » the replacement note bills the same one act, and
+    /// the row read « avec d'autres actes » — the 0 above (« could not be attributed ») was compared with the
+    /// note's total. Re-priced (90 → 95) or carrying a timbre fiscal, the answer is the same: one line, one act.
+    /// </summary>
+    [Theory]
+    [InlineData(90, 0)]   // the reported case: same price, nothing paid
+    [InlineData(95, 50)]  // re-priced on the correction
+    [InlineData(91, 0)]   // a timbre fiscal of 1 DT on the TTC
+    public async Task A_Note_Billing_Only_The_Carried_Act_Never_Claims_Other_Work(int total, int collected)
+    {
+        var cancelled = Guid.NewGuid();
+        var replacement = Guid.NewGuid();
+        FicheBilledBy(
+            (cancelled, "2026-0019", InvoiceStatus.Cancelled),
+            (replacement, "2026-0020", InvoiceStatus.Issued));
+        Money((replacement, "2026-0020", total, collected));
+
+        var dto = await Map(ContinuationPlan(cancelled));
+
+        Assert.False(Assert.Single(dto.CarriedInvoices).BillsOtherWork);
+    }
+
+    /// <summary>The other direction holds through a correction: a second line is other work.</summary>
+    [Fact]
+    public async Task A_Replaced_Note_With_A_Second_Line_Still_Says_So()
+    {
+        var cancelled = Guid.NewGuid();
+        var replacement = Guid.NewGuid();
+        FicheBilledBy(
+            (cancelled, "2026-0019", InvoiceStatus.Cancelled),
+            (replacement, "2026-0020", InvoiceStatus.Issued));
+        MoneyWithLines((replacement, "2026-0020", 120m, 0m, 2));
+
+        var dto = await Map(ContinuationPlan(cancelled));
+
+        Assert.True(Assert.Single(dto.CarriedInvoices).BillsOtherWork);
     }
 
     /// <summary>An ordinary devis carries nothing, and every one of these fields stays absent.</summary>

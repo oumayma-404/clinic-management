@@ -284,16 +284,17 @@ public class ContinueRecordedActCommandHandler
              * Why the devis says so in its notes rather than in the act's designation: the designation is the
              * act's identity everywhere else — the picker's label, the fiche's prefill, the act card's name —
              * so « Coiffage pulpaire (facturé sur la note 2026-0016) » would follow that act onto every screen
-             * it appears on. A 0 with no explanation on a printed devis is what needs answering, and the notes
-             * are what the document prints for it.
+             * it appears on.
+             *
+             * ⚠️ **No note number and no amount in it — stored text cannot follow a note.** A correction replaces
+             * the note (new number) and may re-price the act, and nothing re-writes these notes: after « le
+             * patient n'a pas payé » the devis went on naming the CANCELLED note (QA 07/11/2026, F-2). The live
+             * note is named where it is read — the act row (« sur la note n° … ») and the money section. (These
+             * notes are on the devis page only; `DevisPdfData` carries none.)
              */
-            // ⚠️ Through `DentalRecordBillingRefusals.Document`, never `Number` directly: a Draft note has no
-            // number, and interpolating it printed « sur la note d'honoraires  (30,000 DT) » — a hole in the
-            // middle of a sentence on a document the patient is handed.
             var planNotes = noteKeepsTheFirstAct
-                ? $"La 1re séance du {record.InterventionDate:dd/MM/yyyy} est facturée sur "
-                  + $"{DentalRecordBillingRefusals.Document(billingInvoice!.Number)} "
-                  + $"({act.Cost:0.000} DT). Ce devis ne porte que le travail restant."
+                ? $"La 1re séance du {record.InterventionDate:dd/MM/yyyy} est facturée sur sa propre note "
+                  + "d'honoraires. Ce devis ne porte que le travail restant."
                 : null;
 
             var plan = new TreatmentPlan(Guid.NewGuid(), clinicId, record.PatientId, designation, planNotes);
@@ -471,7 +472,8 @@ public class ContinueRecordedActCommandHandler
                     Collected = billingInvoice.AmountCollected,
                     Outstanding = billingInvoice.Outstanding,
                     BilledActAmount = act.Cost,
-                    BillsOtherWork = billingInvoice.TotalTtc - act.Cost > 0.0005m,
+                    // Lines, as the read does (`TreatmentPlanMappingExtensions`): a timbre fiscal is no other act.
+                    BillsOtherWork = billingInvoice.Lines.Count > 1,
                 };
                 dto.CarriedInvoices = new List<PlanCarriedInvoiceDto> { carried };
                 dto.TreatmentTotal = InvoiceCalculator.RoundMoney(plan.TotalPlanned + carried.Total);

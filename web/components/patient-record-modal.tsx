@@ -1766,9 +1766,8 @@ export function PatientRecordModal({
   const overpaid = roundMillimes(paidAmount) > roundMillimes(grandTotal)
 
   /**
-   * The amount already on the note. Lowering it is refused server-side (`dental_record_payment_lowered`) — money
-   * recorded on a numbered document is corrected by an avoir, never by retyping a field — so the field says so
-   * before the round trip rather than after it.
+   * The amount already on the note. Lowering it is a correction (`dental_record_payment_lowered` without a
+   * reason): the button becomes « Corriger la note », which replaces the note.
    */
   const alreadyCollected = isInvoiced ? roundMillimes(stored?.amountPaid ?? 0) : 0
   const lowersBilledAmount = isInvoiced && roundMillimes(paidAmount) < alreadyCollected
@@ -3141,9 +3140,10 @@ export function PatientRecordModal({
                   </span>
                 </p>
               ) : lowersBilledAmount ? (
-                <p role="status" className="font-medium text-destructive">
-                  {formatDT(alreadyCollected)} déjà payés sur la note · un montant payé ne se diminue pas ici —
-                  établissez un avoir.
+                <p role="status" className="font-medium text-warning-ink">
+                  {/* Not a refusal: lowering « Payé » is what « Corriger la note » does — the old « ne se diminue
+                      pas ici, établissez un avoir » contradicted the button under it (QA 07/11/2026, F-1). */}
+                  {formatDT(alreadyCollected)} déjà payés sur la note · « Corriger la note » la remplace.
                 </p>
               ) : isInvoiced ? (
                 <p className="text-muted-foreground">
