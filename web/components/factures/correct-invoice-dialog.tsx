@@ -46,6 +46,13 @@ export interface CorrectionPreview {
    * nothing that read as a bug.
    */
   nextTotal?: number | null
+  /**
+   * What the old note had collected and what the corrected séance records as paid — both or neither. The fiche
+   * path knows both; without them the dialog compared a collected figure with a total (« il reste 200 » on a
+   * new note owing 300).
+   */
+  previousCollected?: number
+  nextCollected?: number
 }
 
 interface CorrectInvoiceDialogProps {
@@ -81,8 +88,22 @@ export function CorrectInvoiceDialog({
   const [error, setError] = useState<string | null>(null)
 
   const nextTotal = preview.nextTotal ?? null
-  const difference = nextTotal === null ? 0 : Math.round((preview.previousTotal - nextTotal) * 1000) / 1000
   const label = preview.invoiceNumber ? `n° ${preview.invoiceNumber}` : "de cette séance"
+  const round = (n: number) => Math.round(n * 1000) / 1000
+  const collected =
+    preview.previousCollected !== undefined && preview.nextCollected !== undefined
+      ? { before: preview.previousCollected, after: preview.nextCollected }
+      : null
+  // Money recorded as received that the correction treats as never received.
+  const notReceived = collected
+    ? round(collected.before - collected.after)
+    : nextTotal === null ? 0 : round(preview.previousTotal - nextTotal)
+  const receivedBefore = collected ? collected.before : preview.previousTotal
+  const receivedAfter = collected ? collected.after : (nextTotal ?? 0)
+  // What the new note will still await.
+  const stillOwed = nextTotal === null
+    ? 0
+    : collected ? round(nextTotal - collected.after) : -notReceived
 
   const handleConfirm = async () => {
     setBusy(true)
@@ -116,33 +137,41 @@ export function CorrectInvoiceDialog({
               ? blockedReason
               : nextTotal === null
                 ? `La note ${label} est recopiée en brouillon modifiable. Rien ne bouge pour l'instant : elle garde son numéro et son paiement jusqu'à ce que la correction soit émise.`
-                : "Rien n'est remboursé : l'argent est resté au cabinet. La note fautive est annulée et remplacée par une note corrigée, qui reprend le paiement à sa date d'origine."}
+                : collected && collected.after <= 0
+                  ? "La note fautive est annulée et remplacée par une note corrigée, sans paiement : le patient la réglera plus tard."
+                  : "Rien n'est remboursé : l'argent est resté au cabinet. La note fautive est annulée et remplacée par une note corrigée, qui reprend le paiement à sa date d'origine."}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
         {!blockedReason && nextTotal !== null && (
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2">
-              <span className="min-w-0 flex-1">Note {label} annulée</span>
+              <span className="min-w-0 flex-1">
+                Note {label} annulée
+                {collected && <span className="text-muted-foreground"> · payé {formatDT(collected.before)}</span>}
+              </span>
               <span className="shrink-0 font-medium tabular-nums">{formatDT(preview.previousTotal)}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/50 bg-primary/5 px-3 py-2">
-              <span className="min-w-0 flex-1">Nouvelle note, séance corrigée</span>
+              <span className="min-w-0 flex-1">
+                Nouvelle note, séance corrigée
+                {collected && <span className="text-muted-foreground"> · payé {formatDT(collected.after)}</span>}
+              </span>
               <span className="shrink-0 font-medium tabular-nums">{formatDT(nextTotal)}</span>
             </div>
             {/* ⚠️ States what the correction DOES, then names the other door — only the person at the chair knows
                 whether the old figure was really handed over, and this action does not perform a refund. */}
-            {difference > 0 && (
+            {notReceived > 0 && (
               <p className="text-xs text-warning-ink">
-                L&apos;encaissement enregistré passe de {formatDT(preview.previousTotal)} à{" "}
-                {formatDT(nextTotal)} : la différence est traitée comme jamais reçue. Si le patient a réellement
-                versé {formatDT(preview.previousTotal)} et récupère les {formatDT(difference)}, c&apos;est un
-                remboursement — établissez un avoir.
+                L&apos;encaissement enregistré passe de {formatDT(receivedBefore)} à {formatDT(receivedAfter)} : la
+                différence est traitée comme jamais reçue. Si le patient a réellement versé{" "}
+                {formatDT(receivedBefore)} et récupère les {formatDT(notReceived)}, c&apos;est un remboursement —
+                établissez un avoir.
               </p>
             )}
-            {difference < 0 && (
+            {stillOwed > 0 && (
               <p className="text-xs text-muted-foreground">
-                Il reste {formatDT(-difference)} à encaisser sur la nouvelle note.
+                Il reste {formatDT(stillOwed)} à encaisser sur la nouvelle note.
               </p>
             )}
           </div>

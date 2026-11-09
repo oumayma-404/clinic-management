@@ -214,6 +214,81 @@ check(
 );
 
 check(
+  "touch-target-position",
+  "N9",
+  "`.touch-target` never sets `position` at full specificity — wrap it in `:where()`",
+  "`buttonVariants` and two primitives put `touch-target` on elements that also carry `absolute`. Both rules " +
+    "live in `@layer utilities` at one specificity, so the STYLESHEET's source order decides — not the class " +
+    "attribute, and not something tailwind-merge can see. Here `relative` won: the sheet's « X » dropped into the " +
+    "flow, was clipped by `overflow-hidden`, and left 60 px of blank panel; the password field's eye button left " +
+    "its field. `:where(.touch-target)` is specificity 0, so it applies only where nothing else sets `position`.",
+  () => {
+    const setsPosition = /(^|[;\s])position\s*:|@apply[^;]*\b(?:relative|absolute|fixed|sticky|static)\b/;
+    const named = /\.touch-target(?![-\w])/;
+    // `@utility touch-target`, or any selector naming it outside `:where()` and without a pseudo-element.
+    const fullSpecificity = (selector) =>
+      /^@utility\s+touch-target\b/.test(selector.trim()) ||
+      (!selector.includes("::") && named.test(selector.replace(/:where\([^)]*\)/g, "")));
+    const hits = [];
+    for (const file of ALL_FILES.filter((f) => f.endsWith(".css"))) {
+      // Comments blanked to spaces, newlines kept, so a line number still points at the source.
+      const src = read(file).replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
+      for (const m of src.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        if (m[1].split(",").some(fullSpecificity) && setsPosition.test(m[2])) {
+          const line = src.slice(0, m.index + m[1].search(/\S/)).split("\n").length;
+          hits.push({ file: rel(file), line, text: m[1].trim(), full: `${m[1].trim()} {${m[2].trim()}}` });
+        }
+      }
+    }
+    return hits;
+  }
+);
+
+check(
+  "news-limits-match-the-server",
+  "N10",
+  "The news form's limits and default emoji equal the server's",
+  "`news-composer.tsx` caps the subject, a row and the row count, and picks a default emoji, from constants that " +
+    "copy `PlatformNewsBroadcast`, `PlatformNewsItem` and `PlatformNewsRules`. Nothing else ties them: raise a " +
+    "limit on one side and the form accepts text the send then refuses, or forbids text the server would take.",
+  () => {
+    const api = join(WEB_ROOT, "..", "api");
+    const pairs = [
+      ["MAX_ITEMS", "ClinicManagement.Domain/Entities/PlatformNewsBroadcast.cs", /const int MaxItems = (\d+);/],
+      ["SUBJECT_MAX", "ClinicManagement.Domain/Entities/PlatformNewsBroadcast.cs", /const int SubjectMaxLength = (\d+);/],
+      ["TEXT_MAX", "ClinicManagement.Domain/ValueObjects/PlatformNewsItem.cs", /const int TextMaxLength = (\d+);/],
+      ["EMOJIS[0]", "ClinicManagement.Application/Features/Platform/PlatformNews.cs", /DefaultEmoji = "([^"]+)";/],
+    ];
+    const composer = ALL_FILES.find((f) => rel(f) === "components/news-composer.tsx");
+    if (!composer) {
+      return [{ file: "components/news-composer.tsx", line: 0, text: "missing", full: "the news form was not found" }];
+    }
+    const form = read(composer);
+    const hits = [];
+    for (const [name, csPath, csPattern] of pairs) {
+      let server;
+      try {
+        server = readFileSync(join(api, ...csPath.split("/")), "utf8").match(csPattern)?.[1];
+      } catch {
+        server = undefined;
+      }
+      const client = name === "EMOJIS[0]"
+        ? form.match(/const EMOJIS = \[\s*"([^"]+)"/)?.[1]
+        : form.match(new RegExp(`const ${name} = (\\d+);`))?.[1];
+      if (server === undefined || client === undefined || server !== client) {
+        hits.push({
+          file: rel(composer),
+          line: 0,
+          text: name,
+          full: `form ${client ?? "not found"} ≠ server ${server ?? "not found"} (${csPath})`,
+        });
+      }
+    }
+    return hits;
+  }
+);
+
+check(
   "sheet-vh",
   "P4",
   "No `vh` in a dialog / sheet height — use `dvh`",

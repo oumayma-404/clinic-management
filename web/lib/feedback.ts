@@ -1,4 +1,4 @@
-import { baseSections, buildConfigItems } from "@/lib/nav"
+import { baseSections, buildConfigItems, NEWS_NAV_ITEM } from "@/lib/nav"
 
 /**
  * « Donner mon avis » and the week-one question (guided-first-days E) — the browser's copy of the closed sets
@@ -51,7 +51,7 @@ export const FEEDBACK_CARD_HEIGHT_VAR = "--feedback-card-h"
  */
 export function screenLabel(pathname: string | null | undefined): string | null {
   if (!pathname) return null
-  const items = [...baseSections.flatMap((s) => s.items), ...buildConfigItems(true, true)]
+  const items = [...baseSections.flatMap((s) => s.items), ...buildConfigItems(true, true), NEWS_NAV_ITEM]
   let best: { name: string; href: string } | null = null
   for (const item of items) {
     const matches =

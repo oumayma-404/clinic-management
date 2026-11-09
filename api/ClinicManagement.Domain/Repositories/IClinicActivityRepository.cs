@@ -73,7 +73,20 @@ public interface IClinicActivityRepository
     /// </param>
     Task<PlatformClinicRow?> GetClinicRowAsync(
         Guid clinicId, string? messagingMonthKey = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Who a news e-mail goes to: every cabinet the portfolio's « Actif » filter matches (trial included), each with
+    /// its active admin accounts that have an address. A cabinet with no such admin is returned with none.
+    /// </summary>
+    Task<IReadOnlyList<PlatformNewsAudienceClinic>> GetNewsAudienceAsync(
+        DateTime clinicToday, CancellationToken cancellationToken = default);
 }
+
+/// <summary>One cabinet a news e-mail may reach, and the admin addresses it would reach there.</summary>
+public sealed record PlatformNewsAudienceClinic(Guid ClinicId, string Name, IReadOnlyList<PlatformNewsAudienceAdmin> Admins);
+
+/// <summary>One admin account of an eligible cabinet.</summary>
+public sealed record PlatformNewsAudienceAdmin(string Email, string? FullName);
 
 /// <summary>How the portfolio list is narrowed. Every field but the day is optional; an omitted one narrows nothing.</summary>
 /// <param name="ClinicToday">

@@ -1452,6 +1452,19 @@ try
         RecurringJob.RemoveIfExists("take-recovery-points");
     }
 
+    // The console's news e-mails: every 5 minutes, finish any send a crash or exhausted retries left « en cours ».
+    if (profile.ServesPlatformConsole)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.PlatformNewsDispatchJob>(
+            ClinicManagement.API.BackgroundJobs.PlatformNewsDispatchJob.ResumeJobId,
+            job => job.ResumeUnfinished(CancellationToken.None),
+            "*/5 * * * *");
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists(ClinicManagement.API.BackgroundJobs.PlatformNewsDispatchJob.ResumeJobId);
+    }
+
     // OS push dispatcher (mobile-native-shells Part 6) — minutely, connectivity-gated, and registered ONLY where
     // the deployment can actually push (AC-51). Unlike its three siblings above, which are safe to register
     // unconditionally because they no-op until configured, this one is registered conditionally on purpose: a

@@ -133,4 +133,52 @@ public class EmailLayoutTests
         Assert.Contains("mailto:", html);
         Assert.Contains("Le mot de passe de votre compte vient d", html);
     }
+
+    [Fact]
+    public void A_message_with_no_kicker_or_bullets_renders_neither_and_keeps_the_heading_row_unchanged()
+    {
+        var content = AnyContent();
+        var html = EmailLayout.Html(content);
+
+        Assert.Contains("<tr><td class=\"px\" style=\"padding:20px 32px 0 32px;\">\n  <h1", html.ReplaceLineEndings("\n"));
+        Assert.DoesNotContain("letter-spacing:0.02em", html);
+        Assert.DoesNotContain("width:34px", html);
+        Assert.StartsWith(content.Title + "\n", EmailLayout.PlainText(content));
+    }
+
+    [Fact]
+    public void The_kicker_is_the_first_line_of_both_parts_and_sits_above_the_heading()
+    {
+        var content = AnyContent() with { Kicker = "Happy Apexing !" };
+        var html = EmailLayout.Html(content);
+
+        Assert.True(html.IndexOf("Happy Apexing !", StringComparison.Ordinal) < html.IndexOf("<h1", StringComparison.Ordinal));
+        Assert.StartsWith("Happy Apexing !\n\n" + content.Title, EmailLayout.PlainText(content));
+    }
+
+    [Fact]
+    public void Bullets_carry_their_marker_in_the_html_and_in_the_plain_text_in_order()
+    {
+        var content = AnyContent() with
+        {
+            Bullets = [new EmailBullet("🚀", "Les rappels partent la veille."), new EmailBullet("📅", "Agenda plus rapide.")]
+        };
+        var html = EmailLayout.Html(content);
+        var text = EmailLayout.PlainText(content);
+
+        Assert.Contains("&#128640;", html);
+        Assert.True(html.IndexOf("Les rappels partent la veille.", StringComparison.Ordinal)
+                    < html.IndexOf("Agenda plus rapide.", StringComparison.Ordinal));
+        Assert.Contains("🚀 Les rappels partent la veille.\n📅 Agenda plus rapide.\n", text);
+    }
+
+    [Fact]
+    public void A_bullet_is_escaped_like_every_other_value()
+    {
+        var html = EmailLayout.Html(AnyContent() with { Bullets = [new EmailBullet("<i>", "<b>gras</b>")] });
+
+        Assert.DoesNotContain("<b>gras", html);
+        Assert.Contains("&lt;b&gt;gras&lt;/b&gt;", html);
+        Assert.Contains("&lt;i&gt;", html);
+    }
 }

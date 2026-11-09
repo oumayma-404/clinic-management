@@ -48,9 +48,10 @@ public static class RealtimeResourceResolver
     // "Relay" (clinic-pc-copy): the PC de secours heartbeats every few seconds; no screen refreshes on that.
     // "StaffChat": a message signals its own members on `staffChatChanged`; a clinic-wide broadcast would wake every colleague.
     // "Feedback" (guided-first-days E): a message to the VENDOR and one person's own question state — no clinic screen shows either.
+    // "News" (console-news-broadcast Part 2): one admin's read marker on the vendor's news — nobody else's screen changes.
     private static readonly HashSet<string> ExcludedAreas = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Auth", "Backup", "Connectivity", "Dashboard", "Feedback", "Messaging", "Platform", "PushDevices", "Relay",
+        "Auth", "Backup", "Connectivity", "Dashboard", "Feedback", "Messaging", "News", "Platform", "PushDevices", "Relay",
         "StaffChat", "Subscriptions"
     };
 

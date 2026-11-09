@@ -3619,6 +3619,120 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("PlatformAccounts", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsBroadcast", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("HiddenFromAppAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SentByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SentByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAtUtc");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
+                    b.ToTable("PlatformNewsBroadcasts", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsReadMarker", b =>
+                {
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("ReadUpToUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ClinicId", "UserId");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("PlatformNewsReadMarkers", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsRecipient", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AttemptedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("BroadcastId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClinicName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FullName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BroadcastId", "Status");
+
+                    b.ToTable("PlatformNewsRecipients", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformRecoveryCode", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6282,6 +6396,63 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsBroadcast", b =>
+                {
+                    b.OwnsMany("ClinicManagement.Domain.ValueObjects.PlatformNewsItem", "Items", b1 =>
+                        {
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("Id"));
+
+                            b1.Property<Guid>("BroadcastId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Emoji")
+                                .IsRequired()
+                                .HasMaxLength(16)
+                                .HasColumnType("character varying(16)");
+
+                            b1.Property<int>("SortOrder")
+                                .HasColumnType("integer");
+
+                            b1.Property<string>("Text")
+                                .IsRequired()
+                                .HasMaxLength(300)
+                                .HasColumnType("character varying(300)");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("BroadcastId");
+
+                            b1.ToTable("PlatformNewsItems", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("BroadcastId");
+                        });
+
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsReadMarker", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsRecipient", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.PlatformNewsBroadcast", null)
+                        .WithMany("Recipients")
+                        .HasForeignKey("BroadcastId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformRecoveryCode", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.PlatformAccount", "Account")
@@ -6766,6 +6937,11 @@ namespace ClinicManagement.Infrastructure.Migrations
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformAccount", b =>
                 {
                     b.Navigation("RecoveryCodes");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformNewsBroadcast", b =>
+                {
+                    b.Navigation("Recipients");
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ProcedureType", b =>

@@ -205,6 +205,8 @@ public interface IInvoiceRepository
     /// without limit.
     /// </para>
     /// <para>Cancelled and draft invoices are returned — the caller decides what a voided note still says.</para>
+    /// <para><c>LineCount</c> answers « does this note bill anything besides the carried act? » — a total cannot,
+    /// since a correction re-prices the act and a timbre fiscal adds to the TTC without adding a line.</para>
     /// </summary>
     Task<IReadOnlyList<(
         Guid InvoiceId,
@@ -212,7 +214,8 @@ public interface IInvoiceRepository
         InvoiceStatus Status,
         decimal TotalTtc,
         decimal AmountCollected,
-        decimal Outstanding)>>
+        decimal Outstanding,
+        int LineCount)>>
         GetMoneyByIdsAsync(
             Guid clinicId,
             IReadOnlyCollection<Guid> invoiceIds,

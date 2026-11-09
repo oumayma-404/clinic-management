@@ -15,6 +15,9 @@ public sealed record EmailDetail(string Label, string Value, bool IsLink = false
 /// <param name="Detail">What to expect, or the thing that trips people up. Optional.</param>
 public sealed record EmailStep(string Title, string? Detail = null);
 
+/// <summary>One bullet of a list: a short marker (an emoji) and one line of text.</summary>
+public sealed record EmailBullet(string Marker, string Text);
+
 /// <summary>The call to action. One per e-mail, never two — see <see cref="EmailContent.Action"/>.</summary>
 public sealed record EmailAction(string Label, string Url);
 
@@ -40,6 +43,9 @@ public sealed record EmailAction(string Label, string Url);
 /// </summary>
 public sealed record EmailContent
 {
+    /// <summary>A short line above the heading, in brand colour. Optional; absent renders nothing.</summary>
+    public string? Kicker { get; init; }
+
     /// <summary>The big heading inside the message. Not the subject — see <see cref="Preheader"/>.</summary>
     public required string Title { get; init; }
 
@@ -57,6 +63,9 @@ public sealed record EmailContent
 
     /// <summary>The paragraphs before the panel and the button.</summary>
     public IReadOnlyList<string> Intro { get; init; } = [];
+
+    /// <summary>A marker-and-text list right after <see cref="Intro"/>. Empty renders nothing.</summary>
+    public IReadOnlyList<EmailBullet> Bullets { get; init; } = [];
 
     /// <summary>The facts panel. Empty renders no panel at all rather than an empty box.</summary>
     public IReadOnlyList<EmailDetail> Details { get; init; } = [];

@@ -153,7 +153,7 @@ public static class EmailLayout
               <img src="cid:{LogoContentId}" width="140" height="42" alt="APEXA"
                    style="display:block;height:42px;max-width:140px;border:0;outline:none;text-decoration:none;font-family:{Font};font-size:22px;font-weight:700;letter-spacing:-0.01em;color:{BrandDeep};">
             </td></tr>
-            <tr><td class="px" style="padding:20px 32px 0 32px;">
+            {Kicker(content.Kicker)}<tr><td class="px" style="padding:{(string.IsNullOrWhiteSpace(content.Kicker) ? 20 : 8)}px 32px 0 32px;">
               <h1 class="h1" style="margin:0;font-family:{Font};font-size:28px;line-height:1.22;font-weight:700;color:{Ink};">{Escape(content.Title)}</h1>
             </td></tr>
             <tr><td class="px" style="padding:20px 32px 0 32px;">
@@ -172,6 +172,11 @@ public static class EmailLayout
         foreach (var paragraph in content.Intro)
         {
             sb.Append(Paragraph(paragraph, top: 14));
+        }
+
+        if (content.Bullets.Count > 0)
+        {
+            sb.Append(BulletList(content.Bullets));
         }
 
         if (content.Details.Count > 0)
@@ -248,6 +253,11 @@ public static class EmailLayout
     {
         var sb = new StringBuilder(1024);
 
+        if (!string.IsNullOrWhiteSpace(content.Kicker))
+        {
+            sb.Append(content.Kicker).Append("\n\n");
+        }
+
         sb.Append(content.Title).Append('\n');
         sb.Append(new string('=', Math.Min(content.Title.Length, 60))).Append("\n\n");
 
@@ -259,6 +269,16 @@ public static class EmailLayout
         foreach (var paragraph in content.Intro)
         {
             sb.Append(paragraph).Append("\n\n");
+        }
+
+        foreach (var bullet in content.Bullets)
+        {
+            sb.Append(bullet.Marker).Append(' ').Append(bullet.Text).Append('\n');
+        }
+
+        if (content.Bullets.Count > 0)
+        {
+            sb.Append('\n');
         }
 
         foreach (var detail in content.Details)
@@ -314,6 +334,53 @@ public static class EmailLayout
             + "le demandera jamais par e-mail.\n");
 
         return sb.ToString();
+    }
+
+    /// <summary>The line above the heading; empty when there is none, so a mail without one is unchanged.</summary>
+    private static string Kicker(string? kicker) =>
+        string.IsNullOrWhiteSpace(kicker)
+            ? string.Empty
+            : $"""
+              <tr><td class="px" style="padding:22px 32px 0 32px;">
+                <p style="margin:0;font-family:{Font};font-size:14px;line-height:1.4;font-weight:700;letter-spacing:0.02em;color:{BrandDeep};">{Escape(kicker)}</p>
+              </td></tr>
+
+              """;
+
+    /// <summary>
+    /// The marker list, in a panel. A table, not a <c>&lt;ul&gt;</c>, for <see cref="StepList"/>'s Outlook reason;
+    /// the marker cell is fixed-width so a two-line item stays aligned under itself.
+    /// </summary>
+    private static string BulletList(IReadOnlyList<EmailBullet> bullets)
+    {
+        var rows = new StringBuilder();
+
+        for (var i = 0; i < bullets.Count; i++)
+        {
+            var top = i == 0 ? 0 : 12;
+            rows.Append(
+                $"""
+                <tr>
+                  <td width="34" valign="top" style="width:34px;padding:{top}px 0 0 0;font-family:{Font};font-size:20px;line-height:1.3;">{Escape(bullets[i].Marker)}</td>
+                  <td valign="top" style="padding:{top}px 0 0 0;">
+                    <p style="margin:0;font-family:{Font};font-size:15px;line-height:1.55;color:{Ink};word-break:break-word;">{Escape(bullets[i].Text)}</p>
+                  </td>
+                </tr>
+
+                """);
+        }
+
+        return $"""
+            <tr><td class="px" style="padding:20px 32px 0 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:{Panel};border:1px solid {Hairline};border-radius:10px;">
+                <tr><td style="padding:18px 18px;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            {rows}      </table>
+                </td></tr>
+              </table>
+            </td></tr>
+
+            """;
     }
 
     private static string Paragraph(string text, int top, string weight = "400") =>

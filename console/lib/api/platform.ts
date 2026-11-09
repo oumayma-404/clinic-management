@@ -794,3 +794,60 @@ export async function fetchFeedback(token: string, query: FeedbackQuery): Promis
   const suffix = feedbackSearchParams(query).toString();
   return consoleFetch<PlatformFeedbackPage>(`/platform/feedback${suffix ? `?${suffix}` : ""}`, { token });
 }
+
+// ── News e-mails (`console-news-broadcast`) ──────────────────────────────────────────────────────────────────
+
+/** One row of the news form: an emoji and one line of text. */
+export interface PlatformNewsItem {
+  emoji: string;
+  text: string;
+}
+
+/** One address « Envoyer » would reach. `adminName` is null when the account has none. */
+export interface PlatformNewsAudienceRecipient {
+  clinicName: string;
+  adminName: string | null;
+  adminEmail: string;
+}
+
+/** Who « Envoyer » would reach right now: the counts, and the very rows the send records. */
+export interface PlatformNewsAudience {
+  clinics: number;
+  recipients: number;
+  clinicsWithoutAdminEmail: number;
+  recipientList: PlatformNewsAudienceRecipient[];
+  /** Eligible cabinets with no admin address — they receive nothing. */
+  skippedClinics: string[];
+}
+
+/** One past send. `failedClinics` are cabinet names, never addresses. */
+export interface PlatformNewsBroadcast {
+  broadcastId: string;
+  subject: string;
+  sentAt: string;
+  sentByName: string;
+  clinics: number;
+  recipients: number;
+  sent: number;
+  failed: number;
+  inProgress: boolean;
+  /** Shown on the cabinets' « Nouveautés » page; « Masquer dans l'app » turns it off without touching the e-mails. */
+  visibleInApp: boolean;
+  failedClinics: string[];
+}
+
+export interface PlatformNewsQueued {
+  broadcastId: string;
+  clinics: number;
+  recipients: number;
+  alreadyQueued: boolean;
+  inProgress: boolean;
+}
+
+export async function fetchNewsAudience(token: string): Promise<PlatformNewsAudience> {
+  return consoleFetch<PlatformNewsAudience>("/platform/news/audience", { token });
+}
+
+export async function fetchNewsHistory(token: string): Promise<PlatformNewsBroadcast[]> {
+  return consoleFetch<PlatformNewsBroadcast[]>("/platform/news", { token });
+}

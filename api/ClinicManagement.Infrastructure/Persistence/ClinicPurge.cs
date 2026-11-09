@@ -55,6 +55,10 @@ public class ClinicPurge : IClinicPurge
         [nameof(PlatformAccount)] = "a console account, which no cabinet owns",
         [nameof(PlatformRecoveryCode)] = "belongs to a console account, not to a cabinet",
 
+        // The vendor's record of the news it e-mailed. The recipient row names its cabinet by a stored name.
+        [nameof(PlatformNewsBroadcast)] = "a news e-mail the vendor sent, which no cabinet owns",
+        [nameof(PlatformNewsRecipient)] = "the vendor's send log: who a news e-mail went to, kept with its broadcast",
+
         // The Data Protection key ring. It is the INSTALL's, and every cabinet's encrypted reminder secrets are
         // protected with it, so deleting one practice must not take the keys that decrypt the others'.
         ["DataProtectionKey"] = "the install's Data Protection key ring, shared by every cabinet",

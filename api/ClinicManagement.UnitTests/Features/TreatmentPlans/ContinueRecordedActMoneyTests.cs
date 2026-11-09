@@ -251,18 +251,21 @@ public class ContinueRecordedActMoneyTests
     }
 
     /// <summary>
-    /// The devis prints a 0 on its first line, so it has to say why — and the explanation lives in the plan's
-    /// notes rather than in the act's désignation, which is the act's identity on every other screen.
+    /// The devis shows a 0 on its first line, so it says why — in the plan's notes rather than in the act's
+    /// désignation, which is the act's identity on every other screen.
+    /// ⚠️ <b>Without the note's number</b> (QA 07/11/2026, F-2): a correction replaces the note, nothing re-writes
+    /// these notes, and the devis went on naming a cancelled one. The live number is on the act row.
     /// </summary>
     [Fact]
-    public async Task The_Devis_States_Which_Note_Already_Billed_The_First_Act()
+    public async Task The_Devis_Says_The_First_Act_Is_On_Its_Own_Note_Without_Naming_One()
     {
         var actId = PinRecord();
         NoteOverTheFiche(InvoiceStatus.Issued);
 
         await ContinueActOf(actId, RemainingCost);
 
-        Assert.Contains("2026-0016", _saved!.Notes);
+        Assert.Contains("sa propre note d'honoraires", _saved!.Notes);
+        Assert.DoesNotContain("2026-0016", _saved.Notes);
         Assert.Equal("Coiffage pulpaire", _saved.Items.OrderBy(i => i.SequenceNumber).First().DesignationFr);
     }
 
@@ -321,9 +324,8 @@ public class ContinueRecordedActMoneyTests
         Assert.Equal(0m, _saved.Items.OrderBy(i => i.SequenceNumber).First().PlannedCost);
         Assert.Equal(RemainingCost, _saved.Items.OrderBy(i => i.SequenceNumber).Last().PlannedCost);
 
-        // …and the devis says which document holds the 30, naming a Draft as a Draft rather than printing a
-        // blank where its number would be.
-        Assert.Contains("brouillon de note d'honoraires", _saved.Notes);
+        // …and the devis says the 30 is on the séance's own note — no number, so a Draft leaves no blank either.
+        Assert.Contains("sa propre note d'honoraires", _saved.Notes);
         Assert.DoesNotContain("note n°", _saved.Notes);
     }
 

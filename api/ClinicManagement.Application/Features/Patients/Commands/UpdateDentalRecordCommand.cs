@@ -223,7 +223,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                     .Any(n => n.TreatmentPlanId == namedPlan && PlanBillingRules.RepresentsItsPlan(n.Status));
             var imposed = await PlanCarriedActPricing.ImposeAsync(
                 _treatmentPlanRepository, parsed.Value!, request.TreatmentPlanId, request.TreatmentPlanItemId,
-                clinicResult.Value, _logger, cancellationToken, ownNoteRepresentsThePlan);
+                clinicResult.Value, _logger, cancellationToken, ownNoteRepresentsThePlan,
+                _invoiceRepository, dentalRecord.Id);
             // ⚠️ The refusal is read, not just the acts: a fiche claiming a devis act it does not hold makes the
             // devis mark the WRONG act done. See `PlanCarriedAct.NamesAnActTheFicheDoesNotHold`.
             if (imposed.Refusal is not null)

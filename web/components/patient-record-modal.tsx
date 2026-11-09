@@ -1425,8 +1425,15 @@ export function PatientRecordModal({
    * ⚠️ Not on the continuation's FIRST séance: its own note represents the devis and bills this act at its real
    * fee, so marking it zeroed the séance's total and refused its own « Payé » on every re-save
    * (`PlanCarriedActPricing`'s `billedOnANoteRepresentingThePlan` is the server half).
+   *
+   * ⚠️ Both continuation shapes: the note attached to the devis (`billedOnInvoiceNumber`), or — with a priced
+   * « reste » — left unattached while this act sits on the devis at 0 « sur la note » (`carriedOnNoteNumber`).
+   * Missing the second zeroed the act on reopen, and « Corriger la note » then cancelled the note (prod, 06/11/2026).
    */
-  const ownNoteRepresentsThePlan = isInvoiced && billedPlanItem?.billedOnInvoiceNumber != null
+  const ownNoteRepresentsThePlan =
+    isInvoiced &&
+    (billedPlanItem?.billedOnInvoiceNumber != null ||
+      (recordCarriesPlanItem && billedPlanItem?.carriedOnNoteNumber != null))
   useEffect(() => {
     if (!open || !billedPlanItem || ownNoteRepresentsThePlan) return
     dispatch({ type: "markBilledOnPlan", procedureTypeId: billedPlanItem.procedureTypeId ?? null })
@@ -1759,9 +1766,8 @@ export function PatientRecordModal({
   const overpaid = roundMillimes(paidAmount) > roundMillimes(grandTotal)
 
   /**
-   * The amount already on the note. Lowering it is refused server-side (`dental_record_payment_lowered`) — money
-   * recorded on a numbered document is corrected by an avoir, never by retyping a field — so the field says so
-   * before the round trip rather than after it.
+   * The amount already on the note. Lowering it is a correction (`dental_record_payment_lowered` without a
+   * reason): the button becomes « Corriger la note », which replaces the note.
    */
   const alreadyCollected = isInvoiced ? roundMillimes(stored?.amountPaid ?? 0) : 0
   const lowersBilledAmount = isInvoiced && roundMillimes(paidAmount) < alreadyCollected
@@ -1776,6 +1782,14 @@ export function PatientRecordModal({
    * then a plain typo that should still block.</p>
    */
   const contradictsNote = isInvoiced && (overpaid || lowersBilledAmount)
+
+  /** « Corriger la note »'s figures, one builder for its two doors (the button and a refused save). */
+  const correctionPreview = (): CorrectionPreview => ({
+    previousTotal: stored?.cost ?? 0,
+    nextTotal: grandTotal,
+    previousCollected: billedNote?.collected ?? alreadyCollected,
+    nextCollected: paidAmount,
+  })
 
   /**
    * Refuse the save: mark the region, scroll it into view, and *also* toast.
@@ -2148,7 +2162,7 @@ export function PatientRecordModal({
       // money handed back, and a mis-keyed amount handed nothing back. So the refusal now opens the way out it
       // was describing. Branched on the CODE, never the sentence: rewording a refusal must not change behaviour.
       if (!correctionReason && err instanceof ApiError && CORRECTABLE_CODES.has(err.code ?? "")) {
-        setCorrection({ previousTotal: stored?.cost ?? 0, nextTotal: grandTotal })
+        setCorrection(correctionPreview())
         setLoading(false)
         return
       }
@@ -3126,9 +3140,10 @@ export function PatientRecordModal({
                   </span>
                 </p>
               ) : lowersBilledAmount ? (
-                <p role="status" className="font-medium text-destructive">
-                  {formatDT(alreadyCollected)} déjà payés sur la note · un montant payé ne se diminue pas ici —
-                  établissez un avoir.
+                <p role="status" className="font-medium text-warning-ink">
+                  {/* Not a refusal: lowering « Payé » is what « Corriger la note » does — the old « ne se diminue
+                      pas ici, établissez un avoir » contradicted the button under it (QA 07/11/2026, F-1). */}
+                  {formatDT(alreadyCollected)} déjà payés sur la note · « Corriger la note » la remplace.
                 </p>
               ) : isInvoiced ? (
                 <p className="text-muted-foreground">
@@ -3202,7 +3217,7 @@ export function PatientRecordModal({
                 // the note. `tsc` catches it; the wrapper is what makes it unsayable.
                 onClick={() => {
                   if (contradictsNote) {
-                    setCorrection({ previousTotal: alreadyCollected, nextTotal: grandTotal })
+                    setCorrection(correctionPreview())
                     return
                   }
                   void handleSave()
