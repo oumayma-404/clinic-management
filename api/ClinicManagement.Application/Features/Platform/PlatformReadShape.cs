@@ -317,9 +317,13 @@ public static class PlatformReadShape
         "Message",
         "FromScreen",
         "ContactEmail",
-        // ── News (console-news-broadcast): vendor-written subject/items/HTML, counts, instants, cabinet names — no admin address.
+        // ── News (console-news-broadcast): vendor-written subject/items/HTML, counts, instants, cabinet names.
+        // `RecipientList` (owner's ask, 2026-11-09) carries the admin addresses a send reaches, reusing the portfolio's
+        // `ClinicName` / `AdminName` / `AdminEmail` — staff accounts, never anyone a practice treats.
         "Recipients",
+        "RecipientList",
         "ClinicsWithoutAdminEmail",
+        "SkippedClinics",
         "NewsHtml",
         "TestSentTo",
         "BroadcastId",

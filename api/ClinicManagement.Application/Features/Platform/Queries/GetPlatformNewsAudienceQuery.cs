@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Platform.Queries;
 
-/// <summary>How many cabinets and addresses a news e-mail would reach right now — the figure the confirm states.</summary>
+/// <summary>Who a news e-mail would reach right now — the figures the confirm states and the list the page shows.</summary>
 public class GetPlatformNewsAudienceQuery : IRequest<Result<PlatformNewsAudienceDto>>
 {
 }
@@ -42,7 +42,14 @@ public class GetPlatformNewsAudienceQueryHandler
             var plan = PlatformNewsAudiencePlan.From(audience);
 
             return Result<PlatformNewsAudienceDto>.Success(
-                new PlatformNewsAudienceDto(plan.Clinics, plan.Recipients.Count, plan.ClinicsWithoutAdminEmail));
+                new PlatformNewsAudienceDto(
+                    plan.Clinics,
+                    plan.Recipients.Count,
+                    plan.ClinicsWithoutAdminEmail,
+                    plan.Recipients
+                        .Select(r => new PlatformNewsAudienceRecipientDto(r.ClinicName, r.FullName, r.Email))
+                        .ToList(),
+                    plan.SkippedClinics));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

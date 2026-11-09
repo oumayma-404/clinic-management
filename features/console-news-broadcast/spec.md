@@ -127,3 +127,17 @@ Every news the console sends is also kept on a page of the app, for the cabinet'
   age the account's `xmin` or write a « Utilisateur modifié » row in the cabinet's journal (`StaffChatReadMarker`'s
   shape). Tenant-filtered, cascade with the clinic, excluded from the archive and the PC de secours.
 - Migration `AddPlatformNewsInApp`, purely additive.
+
+## Part 3 — the console lists who a send reaches (owner's request, 2026-11-09)
+
+> « in console, can i have always a list for who the mail is gonna reach? just for me to do a sanity check »
+
+- AC-3.1 Under the send buttons, always shown: « Destinataires · N adresses · M cabinets », then one row per address —
+  the cabinet, the admin's name, the address.
+- AC-3.2 The rows are **the very rows a send records** (`PlatformNewsAudiencePlan.Recipients`, same order, same
+  de-duplication) — no second audience rule. `PlatformNewsCommandTests.The_Audience_List_Is_Exactly_The_Rows_A_Send_Records_In_The_Same_Order`.
+- AC-3.3 An eligible cabinet with no admin address is named in one line under the list (« ne reçoit rien »).
+- AC-3.4 Long names and addresses wrap at 320 px; the list scrolls on its own only from `lg:`, beside the sticky preview.
+- No journal row: the portfolio already lists each cabinet's admin address unjournaled; AC-7.3 journals a single
+  cabinet's detail read only. `PlatformReadShape` gains `RecipientList` / `SkippedClinics`; the row fields reuse the
+  portfolio's `ClinicName` / `AdminName` / `AdminEmail`. Blast radius: `blast-radius-recipient-list.md`.

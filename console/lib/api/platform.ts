@@ -803,11 +803,21 @@ export interface PlatformNewsItem {
   text: string;
 }
 
-/** Who « Envoyer » would reach right now. */
+/** One address « Envoyer » would reach. `adminName` is null when the account has none. */
+export interface PlatformNewsAudienceRecipient {
+  clinicName: string;
+  adminName: string | null;
+  adminEmail: string;
+}
+
+/** Who « Envoyer » would reach right now: the counts, and the very rows the send records. */
 export interface PlatformNewsAudience {
   clinics: number;
   recipients: number;
   clinicsWithoutAdminEmail: number;
+  recipientList: PlatformNewsAudienceRecipient[];
+  /** Eligible cabinets with no admin address — they receive nothing. */
+  skippedClinics: string[];
 }
 
 /** One past send. `failedClinics` are cabinet names, never addresses. */

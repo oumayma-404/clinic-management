@@ -113,19 +113,21 @@ public static partial class PlatformNewsRules
 
 /// <summary>Who one send reaches: every admin address once, the cabinets reached, the ones with no address.</summary>
 public sealed record PlatformNewsAudiencePlan(
-    IReadOnlyList<PlatformNewsRecipientInput> Recipients, int Clinics, int ClinicsWithoutAdminEmail)
+    IReadOnlyList<PlatformNewsRecipientInput> Recipients, int Clinics, IReadOnlyList<string> SkippedClinics)
 {
+    public int ClinicsWithoutAdminEmail => SkippedClinics.Count;
+
     public static PlatformNewsAudiencePlan From(IReadOnlyList<PlatformNewsAudienceClinic> clinics)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var recipients = new List<PlatformNewsRecipientInput>();
-        var withoutAddress = 0;
+        var withoutAddress = new List<string>();
 
         foreach (var clinic in clinics)
         {
             if (clinic.Admins.Count == 0)
             {
-                withoutAddress++;
+                withoutAddress.Add(clinic.Name);
                 continue;
             }
 

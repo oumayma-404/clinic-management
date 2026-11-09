@@ -88,6 +88,29 @@ public class PlatformNewsCommandTests
     }
 
     [Fact]
+    public async Task The_Audience_List_Is_Exactly_The_Rows_A_Send_Records_In_The_Same_Order()
+    {
+        _activity.Setup(a => a.GetNewsAudienceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new PlatformNewsAudienceClinic(Essai, "Cabinet Essai", [new("a@cab.tn", "Dr A")]),
+                new PlatformNewsAudienceClinic(Guid.NewGuid(), "Cabinet Sans Admin", []),
+                new PlatformNewsAudienceClinic(Payant, "Cabinet Payant", [new("b@cab.tn", "Dr B"), new("b2@cab.tn", null)]),
+            ]);
+        var audience = await new GetPlatformNewsAudienceQueryHandler(
+                _activity.Object, SystemWide(), NullLogger<GetPlatformNewsAudienceQueryHandler>.Instance)
+            .Handle(new GetPlatformNewsAudienceQuery(), CancellationToken.None);
+
+        await Send().Handle(Command(), CancellationToken.None);
+
+        Assert.True(audience.IsSuccess);
+        var sent = Assert.Single(_added).Recipients.Select(r => (r.ClinicName, r.FullName, r.Email));
+        Assert.Equal(sent, audience.Value!.RecipientList.Select(r => (r.ClinicName, r.AdminName, r.AdminEmail)));
+        Assert.Equal(new[] { "Cabinet Sans Admin" }, audience.Value.SkippedClinics);
+        Assert.Equal((2, 3, 1), (audience.Value.Clinics, audience.Value.Recipients, audience.Value.ClinicsWithoutAdminEmail));
+    }
+
+    [Fact]
     public async Task A_Repeated_Request_Id_Answers_The_First_Broadcast_And_Writes_Nothing()
     {
         var first = PlatformNewsBroadcast.Create(Guid.NewGuid(), "Objet", [new PlatformNewsItemInput("🚀", "x")],

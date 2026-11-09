@@ -429,12 +429,39 @@ export function NewsComposer({
           </Sheet>
         </div>
 
-        {audience.recipients === 0 ? (
-          <p className="text-sm text-muted-foreground" role="status">
-            Aucun cabinet actif ou en essai n&apos;a d&apos;administrateur avec une adresse e-mail
-            {audience.clinicsWithoutAdminEmail > 0 ? ` (${audience.clinicsWithoutAdminEmail} sans adresse)` : ""}.
-          </p>
-        ) : null}
+        <section aria-labelledby={`${fieldId}-recipients`} className="min-w-0 space-y-2">
+          <h2 id={`${fieldId}-recipients`} className="text-sm font-medium">
+            Destinataires{" "}
+            <span className="font-normal text-muted-foreground">
+              · {audience.recipients} adresse{audience.recipients > 1 ? "s" : ""} · {audience.clinics} cabinet
+              {audience.clinics > 1 ? "s" : ""}
+            </span>
+          </h2>
+          {audience.recipients === 0 ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              Aucun cabinet actif ou en essai n&apos;a d&apos;administrateur avec une adresse e-mail.
+            </p>
+          ) : (
+            // Scrolls on its own only beside the sticky preview; on a phone the page scrolls. `relative` clips its rows.
+            <ul className="relative divide-y divide-border rounded-lg border border-border bg-card lg:max-h-[min(28rem,60dvh)] lg:overflow-y-auto">
+              {audience.recipientList.map((recipient) => (
+                <li key={recipient.adminEmail} className="min-w-0 px-3 py-2 text-sm">
+                  <p className="font-medium [overflow-wrap:anywhere]">{recipient.clinicName}</p>
+                  <p className="text-muted-foreground [overflow-wrap:anywhere]">
+                    {recipient.adminName ? `${recipient.adminName} · ` : ""}
+                    {recipient.adminEmail}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+          {audience.skippedClinics.length > 0 ? (
+            <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
+              Sans adresse d&apos;administrateur, ne reçoi{audience.skippedClinics.length > 1 ? "vent" : "t"} rien :{" "}
+              {audience.skippedClinics.join(", ")}.
+            </p>
+          ) : null}
+        </section>
       </section>
 
       <section aria-labelledby={`${fieldId}-preview`} className="min-w-0 space-y-2 lg:sticky lg:top-4 lg:self-start">

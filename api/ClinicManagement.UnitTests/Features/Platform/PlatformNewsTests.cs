@@ -85,6 +85,7 @@ public class PlatformNewsTests
         Assert.Equal(new[] { "a@cab.tn", "b@cab.tn", "b2@cab.tn" }, plan.Recipients.Select(r => r.Email));
         Assert.Equal(2, plan.Clinics);
         Assert.Equal(1, plan.ClinicsWithoutAdminEmail);
+        Assert.Equal(new[] { "Cabinet Sans Admin" }, plan.SkippedClinics);
         Assert.Equal("Cabinet Payant", plan.Recipients[2].ClinicName);
     }
 
