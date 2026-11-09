@@ -13,6 +13,7 @@ import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
 import { usePendingLeaveCount } from "@/lib/hooks/use-staff-leave"
 import { useSubscription } from "@/lib/subscription/subscription-context"
+import { useClockStatus } from "@/components/team/clock-in-gate"
 import { PRODUCT_NAME } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -69,7 +70,15 @@ export function DashboardSidebar() {
   // whole « Finances » group are `AdminOrDoctor` server-side), and an admin/not-admin boolean cannot say that.
   const { moneyHidden } = useMoneyVisibility()
   const leaveEnabled = status?.clinic?.leaveRequestsEnabled === true
-  const sections: NavSection[] = buildNavSections(user?.role, subscriptionEnforced, moneyHidden, leaveEnabled)
+  // « Mes présences » for an account that pointe — its clock status is the one answer.
+  const attendanceTracked = useClockStatus().status?.tracked === true
+  const sections: NavSection[] = buildNavSections(
+    user?.role,
+    subscriptionEnforced,
+    moneyHidden,
+    leaveEnabled,
+    attendanceTracked,
+  )
   // Requests waiting for an admin, beside « Utilisateurs » (`conges-secretaires`).
   const pendingLeave = usePendingLeaveCount(user?.role === "admin" && leaveEnabled)
   const badgeFor = (href: string) => (href === "/users" ? pendingLeave : 0)

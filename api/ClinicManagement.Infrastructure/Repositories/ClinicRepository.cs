@@ -83,6 +83,27 @@ public class ClinicRepository : IClinicRepository
             .Select(c => c.IsMoneyHidden)
             .FirstOrDefaultAsync(cancellationToken);
     }
+
+    public async Task<ClinicAttendanceSwitches?> GetAttendanceSwitchesAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Clinics
+            .AsNoTracking()
+            .Where(c => c.Id == clinicId)
+            .Select(c => new ClinicAttendanceSwitches(
+                c.AttendanceEnabled, c.AttendanceLockEnabled, c.WorkingHoursJson, c.AttendanceLockArmedAtUtc))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ClinicAttendanceHours>> ListAttendanceHoursAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.Clinics
+            .AsNoTracking()
+            .Where(c => c.AttendanceEnabled)
+            .OrderBy(c => c.Id)
+            .Select(c => new ClinicAttendanceHours(c.Id, c.WorkingHoursJson))
+            .ToListAsync(cancellationToken);
+    }
 }
 
 

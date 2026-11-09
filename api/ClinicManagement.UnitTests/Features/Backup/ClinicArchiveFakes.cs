@@ -209,6 +209,11 @@ internal sealed class FakeAuditEntryRepository : IAuditEntryRepository
     public Task<IReadOnlyList<ClinicActivityAuditRow>> GetActivityRowsAsync(
         Guid clinicId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("A restore never reads the ledger back.");
+
+    public Task<DateTime?> GetLastSaveAtAsync(
+        Guid clinicId, string userId, DateTime fromUtc, DateTime toUtc, IReadOnlyCollection<string> excludingEntityTypes,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("A restore never reads the ledger back.");
 }
 
 /// <summary>

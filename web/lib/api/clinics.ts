@@ -51,6 +51,8 @@ export interface ClinicDto {
   leaveRequestsEnabled?: boolean;
   /** The secretaries pointe at the cabinet's borne (Paramètres → « Équipe »). */
   attendanceEnabled?: boolean;
+  /** « Bloquer l'app tant que l'arrivée n'est pas pointée » — meaningful only while the pointage is on. */
+  attendanceLockEnabled?: boolean;
   // Billing / note-d'honoraires settings.
   matriculeFiscal?: string | null;
   vatApplicable?: boolean;
@@ -74,6 +76,7 @@ export interface ClinicMoneyMaskDto {
 export interface TeamModulesDto {
   leaveRequestsEnabled: boolean;
   attendanceEnabled: boolean;
+  attendanceLockEnabled: boolean;
   version: number;
 }
 
@@ -217,7 +220,11 @@ export const clinicsApi = {
   },
 
   /** Paramètres → « Équipe »: an omitted switch is left as it is. */
-  setTeamModules: async (body: { leaveRequests?: boolean; attendance?: boolean }): Promise<TeamModulesDto> =>
+  setTeamModules: async (body: {
+    leaveRequests?: boolean;
+    attendance?: boolean;
+    attendanceLock?: boolean;
+  }): Promise<TeamModulesDto> =>
     apiPut<TeamModulesDto>('/clinics/team-modules', body),
 
   /** « Masquer l'argent » — one click. Refused with `totp_not_enrolled` to an admin with no authenticator. */

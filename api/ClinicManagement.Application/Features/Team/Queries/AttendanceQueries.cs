@@ -10,25 +10,34 @@ using MediatR;
 
 namespace ClinicManagement.Application.Features.Team.Queries;
 
-/// <summary>Paramètres → « Équipe »: the cabinet's bornes and who clocks in.</summary>
+/// <summary>Paramètres → « Équipe »: the cabinet's bornes, who clocks in, and where the setup stands.</summary>
 public class GetAttendanceSettingsQuery : IRequest<Result<AttendanceSettingsDto>>
 {
+    /// <summary>The instant judged; the wall clock when absent. Tests pin it.</summary>
+    public DateTime? NowUtc { get; init; }
 }
 
 public class GetAttendanceSettingsQueryHandler : IRequestHandler<GetAttendanceSettingsQuery, Result<AttendanceSettingsDto>>
 {
     private readonly IAttendanceTerminalRepository _terminals;
+    private readonly IAttendanceEntryRepository _entries;
+    private readonly IStaffLeaveRequestRepository _leaves;
     private readonly IUserRepository _users;
     private readonly IClinicRepository _clinics;
     private readonly IClinicContext _clinicContext;
+    private readonly ISessionFamilyRepository _sessions;
 
     public GetAttendanceSettingsQueryHandler(
-        IAttendanceTerminalRepository terminals, IUserRepository users, IClinicRepository clinics, IClinicContext clinicContext)
+        IAttendanceTerminalRepository terminals, IAttendanceEntryRepository entries, IStaffLeaveRequestRepository leaves,
+        IUserRepository users, IClinicRepository clinics, IClinicContext clinicContext, ISessionFamilyRepository sessions)
     {
         _terminals = terminals;
+        _entries = entries;
+        _leaves = leaves;
         _users = users;
         _clinics = clinics;
         _clinicContext = clinicContext;
+        _sessions = sessions;
     }
 
     public async Task<Result<AttendanceSettingsDto>> Handle(GetAttendanceSettingsQuery request, CancellationToken cancellationToken)
@@ -42,16 +51,30 @@ public class GetAttendanceSettingsQueryHandler : IRequestHandler<GetAttendanceSe
 
             var terminals = await _terminals.ListAsync(clinic.Id, cancellationToken);
             var roster = await StaffLeaveRules.RosterAsync(_users, clinic.Id, cancellationToken);
-            var nowUtc = DateTime.UtcNow;
+            var nowUtc = request.NowUtc ?? DateTime.UtcNow;
+            var tracked = AttendanceSetupRules.TrackedPeople(roster.Values);
+            var noPunch = await AttendanceSetupReads.NoPunchSinceOpeningAsync(
+                _entries, _leaves, clinic, terminals, tracked, nowUtc, cancellationToken);
+            var rows = new List<AttendanceTerminalDto>(terminals.Count);
+            foreach (var terminal in terminals)
+            {
+                var row = AttendanceRules.ToDto(terminal);
+                // A borne waiting for a device whose session ended would wait for ever: the list says so.
+                if (terminal is { IsPending: true, PendingSessionFamilyId: { } sessionId })
+                    row.DeviceSignedOut = !AttendanceRules.IsSignedIn(await _sessions.GetByIdAsync(sessionId, cancellationToken), nowUtc);
+                rows.Add(row);
+            }
+
             return Result<AttendanceSettingsDto>.Success(new AttendanceSettingsDto
             {
-                Terminals = terminals.Select(AttendanceRules.ToDto).ToList(),
+                Terminals = rows,
                 People = roster.Values
                     .OrderByDescending(u => u.IsActive)
                     .ThenBy(u => StaffLeaveRules.DisplayName(u), StringComparer.CurrentCultureIgnoreCase)
                     .ThenBy(u => u.Id, StringComparer.Ordinal)
                     .Select(u => AttendanceRules.ToSetting(u, nowUtc))
                     .ToList(),
+                Setup = AttendanceSetupRules.Setup(clinic, terminals, tracked, noPunch, nowUtc),
             });
         }
         catch (Exception ex) when (ex is not ConflictException)
@@ -161,7 +184,7 @@ public class ExportAttendanceQueryHandler : IRequestHandler<ExportAttendanceQuer
                         entry.Arrival,
                         entry.Departure,
                         CsvCell.Number(entry.Minutes),
-                        entry.DepartureMissing ? "Départ non pointé" : entry.IsPresent ? "Présente" : entry.IsCorrected ? "Corrigé" : string.Empty,
+                        AttendanceRules.StateLabel(entry),
                         entry.TerminalName,
                         entry.PunchedArrival,
                         entry.PunchedDeparture,
@@ -230,25 +253,29 @@ public class GetMyAttendanceQueryHandler : IRequestHandler<GetMyAttendanceQuery,
     }
 }
 
-/// <summary>« Équipe aujourd'hui »: who is here and since when, who is on congé, and what waits for the admin.</summary>
+/// <summary>« Équipe aujourd'hui »: who is here and since when, who is on congé, what waits for the admin, and a setup problem.</summary>
 public class GetTeamTodayQuery : IRequest<Result<TeamTodayDto>>
 {
+    /// <summary>The instant judged; the wall clock when absent. Tests pin it.</summary>
+    public DateTime? NowUtc { get; init; }
 }
 
 public class GetTeamTodayQueryHandler : IRequestHandler<GetTeamTodayQuery, Result<TeamTodayDto>>
 {
     private readonly IAttendanceEntryRepository _entries;
     private readonly IStaffLeaveRequestRepository _leaves;
+    private readonly IAttendanceTerminalRepository _terminals;
     private readonly IUserRepository _users;
     private readonly IClinicRepository _clinics;
     private readonly IClinicContext _clinicContext;
 
     public GetTeamTodayQueryHandler(
-        IAttendanceEntryRepository entries, IStaffLeaveRequestRepository leaves, IUserRepository users,
-        IClinicRepository clinics, IClinicContext clinicContext)
+        IAttendanceEntryRepository entries, IStaffLeaveRequestRepository leaves, IAttendanceTerminalRepository terminals,
+        IUserRepository users, IClinicRepository clinics, IClinicContext clinicContext)
     {
         _entries = entries;
         _leaves = leaves;
+        _terminals = terminals;
         _users = users;
         _clinics = clinics;
         _clinicContext = clinicContext;
@@ -263,16 +290,20 @@ public class GetTeamTodayQueryHandler : IRequestHandler<GetTeamTodayQuery, Resul
                 return Result<TeamTodayDto>.FailureFrom(resolved);
             var (_, clinic) = resolved.Value;
 
-            var today = AttendanceRules.Today();
+            var nowUtc = request.NowUtc ?? DateTime.UtcNow;
+            var today = AttendanceRules.Today(nowUtc);
             var roster = await StaffLeaveRules.RosterAsync(_users, clinic.Id, cancellationToken);
-            var people = roster.Values.Where(u => u.IsActive && u.IsAttendanceTracked).ToList();
+            var people = AttendanceSetupRules.TrackedPeople(roster.Values);
             // Open lines from earlier days surface as « départ non pointé »; a fortnight back is plenty for a desk read.
             var entries = await _entries.ListBetweenAsync(clinic.Id, today.AddDays(-14), today, null, cancellationToken);
             var leaves = await _leaves.GetApprovedOverlappingAsync(clinic.Id, today, today, cancellationToken);
+            var terminals = await _terminals.ListAsync(clinic.Id, cancellationToken);
+            var noPunch = await AttendanceSetupReads.NoPunchSinceOpeningAsync(
+                _entries, _leaves, clinic, terminals, people, nowUtc, cancellationToken, entries, leaves);
 
             var team = people
-                .Select(u => TeamTodayRules.PersonToday(u, entries, leaves, today))
-                .OrderBy(p => p.State switch { AttendanceRules.StateIn => 0, AttendanceRules.StateOut => 1, _ => 2 })
+                .Select(u => TeamTodayRules.PersonToday(u, entries, leaves, nowUtc))
+                .OrderBy(p => TeamTodayRules.Rank(p.State))
                 .ThenBy(p => p.FullName, StringComparer.CurrentCultureIgnoreCase)
                 .ThenBy(p => p.UserId, StringComparer.Ordinal)
                 .ToList();
@@ -281,6 +312,8 @@ public class GetTeamTodayQueryHandler : IRequestHandler<GetTeamTodayQuery, Resul
             {
                 Day = today,
                 People = team,
+                IsOpenDay = AttendanceRules.IsOpenDay(today, clinic.WorkingHoursJson),
+                SetupIssue = AttendanceSetupRules.SetupIssue(terminals, noPunch),
                 PendingLeaveCount = clinic.LeaveRequestsEnabled
                     ? await _leaves.CountPendingAsync(clinic.Id, cancellationToken)
                     : null,
@@ -290,6 +323,25 @@ public class GetTeamTodayQueryHandler : IRequestHandler<GetTeamTodayQuery, Resul
         {
             return Result<TeamTodayDto>.Failure("Erreur lors du chargement de l'équipe du jour.", ex);
         }
+    }
+}
+
+/// <summary>The dead-borne fact for the settings checklist and « Équipe aujourd'hui », reading today's lines only when it can matter.</summary>
+internal static class AttendanceSetupReads
+{
+    public static async Task<bool> NoPunchSinceOpeningAsync(
+        IAttendanceEntryRepository entries, IStaffLeaveRequestRepository leaves, Clinic clinic,
+        IReadOnlyCollection<AttendanceTerminal> terminals, IReadOnlyCollection<User> tracked, DateTime nowUtc,
+        CancellationToken cancellationToken, IReadOnlyList<AttendanceEntry>? linesRead = null,
+        IReadOnlyList<StaffLeaveRequest>? todaysLeavesRead = null)
+    {
+        var today = AttendanceRules.Today(nowUtc);
+        if (!terminals.Any(t => t.IsLive) || AttendanceLockRules.OpeningUtc(today, clinic.WorkingHoursJson) is null)
+            return false;
+        var lines = linesRead ?? await entries.ListBetweenAsync(clinic.Id, today, today, null, cancellationToken);
+        var accepted = todaysLeavesRead ?? await leaves.GetApprovedOverlappingAsync(clinic.Id, today, today, cancellationToken);
+        return AttendanceSetupRules.NoPunchSinceOpening(
+            nowUtc, clinic.WorkingHoursJson, terminals, tracked, accepted, lines.Any(l => l.LocalDay == today));
     }
 }
 
@@ -314,7 +366,9 @@ internal static class AttendanceSheetReader
             ? new List<User> { roster[userId] }
             : AttendanceSheetBuilder.PeopleFor(roster, lines);
 
+        var firstLineDay = await entries.GetFirstDayAsync(clinic.Id, cancellationToken);
         return Result<AttendanceSheetDto>.Success(AttendanceSheetBuilder.Build(
-            monthKey, range.From, range.To, people, lines, accepted, roster, clinic.WorkingHoursJson, AttendanceRules.Today()));
+            monthKey, range.From, range.To, people, lines, accepted, roster, clinic.WorkingHoursJson, AttendanceRules.Today(),
+            firstLineDay));
     }
 }

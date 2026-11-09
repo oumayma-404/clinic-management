@@ -1,5 +1,5 @@
 import {
-  CalendarOff, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react"
+  CalendarOff, Fingerprint, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react"
 import { buildNavSections } from "@/lib/nav"
 
 /**
@@ -214,6 +214,8 @@ const EXTRA_ICONS: Array<[string, LucideIcon]> = [
   ["/mon-profil", UserRound],
   // A secretary's own congés: in her rail only, and only while the cabinet has them switched on.
   ["/conges", CalendarOff],
+  // Her own pointage: in her rail only while her account pointe.
+  ["/mes-presences", Fingerprint],
   ["/securite", ShieldCheck],
   ["/patients", Users],
 ]

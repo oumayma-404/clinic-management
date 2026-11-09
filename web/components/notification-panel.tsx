@@ -13,13 +13,18 @@ import {
   ClipboardPlus,
   Clock,
   CreditCard,
+  Fingerprint,
   Loader2,
+  LockKeyhole,
   MessageSquareX,
+  MonitorCheck,
+  MonitorX,
   Hourglass,
   type LucideIcon,
   DatabaseBackup,
   Server,
   UserPlus,
+  UserRoundCheck,
   X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -80,6 +85,13 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   StaffLeaveApproved: CalendarCheck,
   StaffLeaveRejected: CalendarX,
   StaffLeaveCancelled: CalendarOff,
+  // pointage-obligatoire — still on today's line 15 min after closing: her departure, at the borne.
+  AttendanceDepartureMissing: UserRoundCheck,
+  // A borne went live and she has no schéma yet; a borne arrived on its device, or never will; 5 wrong schémas.
+  AttendanceSchemaToCreate: Fingerprint,
+  AttendanceBorneInstalled: MonitorCheck,
+  AttendanceBorneNotReceived: MonitorX,
+  AttendanceSchemaBlocked: LockKeyhole,
 }
 
 /**
@@ -127,6 +139,13 @@ const CATEGORY_TONE: Record<string, string> = {
   StaffLeaveApproved: "bg-success-wash text-success",
   StaffLeaveRejected: "bg-destructive-wash text-destructive",
   StaffLeaveCancelled: "bg-muted text-muted-foreground",
+  // A task for her, not a failure: amber, like any « à faire ».
+  AttendanceDepartureMissing: "bg-warning-wash text-warning-ink",
+  // Something she is asked to do once: teal. Installed is news; never received failed; a block waits on the admin.
+  AttendanceSchemaToCreate: "bg-primary/10 text-primary",
+  AttendanceBorneInstalled: "bg-success-wash text-success",
+  AttendanceBorneNotReceived: "bg-destructive-wash text-destructive",
+  AttendanceSchemaBlocked: "bg-warning-wash text-warning-ink",
 }
 
 function relativeTime(iso: string): string {

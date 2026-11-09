@@ -18,7 +18,10 @@ import { AppLoader } from "@/components/ui/app-loader"
 import { useSession } from "@/lib/auth/session"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Lock, ArrowLeft } from "lucide-react"
+import { Lock, ArrowLeft, CalendarClock, CalendarOff, type LucideIcon } from "lucide-react"
+import Link from "next/link"
+import { EmptyState } from "@/components/ui/empty-state"
+import { TEAM_SETTINGS_HREF } from "@/components/team/team-today-list"
 
 export default function UsersPage() {
   const { user, isLoading } = useSession()
@@ -78,7 +81,7 @@ export default function UsersPage() {
 }
 
 
-/** « Comptes · Congés · Présences » — each extra tab only while the cabinet has its module switched on. */
+/** « Comptes · Congés · Présences » — for an admin always; a module still off shows the way to switch it on. */
 function UsersTabs() {
   const { data: status } = useUserStatus()
   const leaveEnabled = status?.clinic?.leaveRequestsEnabled === true
@@ -89,9 +92,7 @@ function UsersTabs() {
   const [tab, setTab] = useState(
     seeded === USERS_LEAVE_TAB || seeded === USERS_ATTENDANCE_TAB ? seeded : "comptes",
   )
-  const active =
-    (tab === USERS_LEAVE_TAB && leaveEnabled) || (tab === USERS_ATTENDANCE_TAB && attendanceEnabled) ? tab : "comptes"
-  useUrlFilters({ onglet: active === "comptes" ? null : active }, Boolean(status))
+  useUrlFilters({ onglet: tab === "comptes" ? null : tab }, Boolean(status))
 
   useEffect(() => {
     const open = () => setTab(USERS_LEAVE_TAB)
@@ -99,50 +100,65 @@ function UsersTabs() {
     return () => window.removeEventListener(USERS_LEAVE_TAB_EVENT, open)
   }, [])
 
-  // « Votre secrétaire » tours « Comptes »: started from « Congés », its first control would be in a hidden tab.
+  // « Votre secrétaire » tours « Comptes » and « Congés » ends on « À décider »: each in its own tab, never a hidden one.
   const { running } = useGuide()
   useEffect(() => {
     if (running === "secretary") setTab("comptes")
+    else if (running === "conges") setTab(USERS_LEAVE_TAB)
   }, [running])
 
-  if (!leaveEnabled && !attendanceEnabled) return <UserManagement />
-
   return (
-    <Tabs value={active} onValueChange={setTab}>
+    <Tabs value={tab} onValueChange={setTab}>
       <TabsList className="coarse:h-auto">
         <TabsTrigger value="comptes" className="coarse:min-h-11">
           Comptes
         </TabsTrigger>
-        {leaveEnabled && (
-          <TabsTrigger value={USERS_LEAVE_TAB} className="gap-1.5 coarse:min-h-11">
-            Congés
-            {pendingCount > 0 && (
-              <span className="rounded-full bg-primary px-1.5 text-2xs font-semibold text-primary-foreground tabular-nums">
-                {pendingCount}
-                <span className="sr-only"> en attente</span>
-              </span>
-            )}
-          </TabsTrigger>
-        )}
-        {attendanceEnabled && (
-          <TabsTrigger value={USERS_ATTENDANCE_TAB} className="coarse:min-h-11">
-            Présences
-          </TabsTrigger>
-        )}
+        <TabsTrigger value={USERS_LEAVE_TAB} className="gap-1.5 coarse:min-h-11">
+          Congés
+          {leaveEnabled && pendingCount > 0 && (
+            <span className="rounded-full bg-primary px-1.5 text-2xs font-semibold text-primary-foreground tabular-nums">
+              {pendingCount}
+              <span className="sr-only"> en attente</span>
+            </span>
+          )}
+        </TabsTrigger>
+        <TabsTrigger value={USERS_ATTENDANCE_TAB} className="coarse:min-h-11">
+          Présences
+        </TabsTrigger>
       </TabsList>
       <TabsContent value="comptes" className="mt-6">
         <UserManagement />
       </TabsContent>
-      {leaveEnabled && (
-        <TabsContent value={USERS_LEAVE_TAB} className="mt-6">
+      <TabsContent value={USERS_LEAVE_TAB} className="mt-6">
+        {leaveEnabled ? (
           <StaffLeaveAdminPanel />
-        </TabsContent>
-      )}
-      {attendanceEnabled && (
-        <TabsContent value={USERS_ATTENDANCE_TAB} className="mt-6">
+        ) : (
+          <ModuleOff icon={CalendarOff} title="Les demandes de congé ne sont pas activées" ready={Boolean(status)} />
+        )}
+      </TabsContent>
+      <TabsContent value={USERS_ATTENDANCE_TAB} className="mt-6">
+        {attendanceEnabled ? (
           <AttendancePanel scope={{ kind: "all" }} />
-        </TabsContent>
-      )}
+        ) : (
+          <ModuleOff icon={CalendarClock} title="Le pointage n'est pas activé" ready={Boolean(status)} />
+        )}
+      </TabsContent>
     </Tabs>
+  )
+}
+
+/** A team module still off: said, with the way to the switch. Nothing is claimed before the clinic's read lands. */
+function ModuleOff({ icon, title, ready }: { icon: LucideIcon; title: string; ready: boolean }) {
+  if (!ready) return <AppLoader />
+  return (
+    <EmptyState
+      icon={icon}
+      title={title}
+      action={
+        <Button asChild className="coarse:h-11">
+          <Link href={TEAM_SETTINGS_HREF}>Activer dans Paramètres</Link>
+        </Button>
+      }
+    />
   )
 }

@@ -20,6 +20,9 @@ public class ClinicDto
     /// <summary>Secretaries clock in and out at the cabinet's borne (Paramètres → « Équipe »).</summary>
     public bool AttendanceEnabled { get; set; }
 
+    /// <summary>« Bloquer l'app tant que l'arrivée n'est pas pointée » — meaningful only while the pointage is on.</summary>
+    public bool AttendanceLockEnabled { get; set; }
+
     // Billing / note-d'honoraires settings.
     public string? MatriculeFiscal { get; set; }
     public bool VatApplicable { get; set; }

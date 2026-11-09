@@ -44,6 +44,7 @@ public class RelayFenceCoverageTests
     {
         ["BackupJob.cs"] = "a LAN server's own dump (BacksUpItsOwnData); BackupRun is not carried",
         ["DemoCabinetRebuilder.cs"] = "the public demo has no PC de secours; system-wide only to find the cabinet visitors enter",
+        ["AttendanceDepartureReminderJob.cs"] = "bell rows and their push only, which the fenced cloud keeps writing (FR-11 set)",
         ["ClinicActivityCounterJob.cs"] = "the vendor's counters (ClinicActivityDay/Snapshot), never carried",
         ["ClinicRecoveryPointJob.cs"] = "recovery points live in the cloud's object store and its own ledger, never carried",
         ["MessagingAllowanceJob.cs"] = "the vendor's forfait tables, never carried, and bell rows (FR-11 set)",

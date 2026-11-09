@@ -31,8 +31,6 @@ namespace ClinicManagement.API.Middleware;
 /// </summary>
 public class SubscriptionGateMiddleware
 {
-    private const string ApiPrefix = "/api";
-
     private readonly RequestDelegate _next;
 
     public SubscriptionGateMiddleware(RequestDelegate next)
@@ -94,8 +92,8 @@ public class SubscriptionGateMiddleware
     /// </remarks>
     private static bool Applies(HttpContext context, ISubscriptionPolicy policy) =>
         policy.RequiresSubscription
-        && context.Request.Path.StartsWithSegments(ApiPrefix)
-        && !IsRead(context.Request.Method)
+        && context.Request.Path.StartsWithSegments(WriteGate.ApiPrefix)
+        && !WriteGate.IsRead(context.Request.Method)
         && context.GetEndpoint() is { } endpoint
         && endpoint.Metadata.GetMetadata<AllowsWithoutSubscriptionAttribute>() is null;
 
@@ -109,8 +107,6 @@ public class SubscriptionGateMiddleware
     public static DateTime DayToJudge(HttpContext context, DateTime today) =>
         context.RequestServices?.GetService<IRelayLocalStatus>() is { IsHolding: true } ? today.AddDays(-CutGraceDays) : today;
 
-    private static bool IsRead(string method) =>
-        HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);
 
     private static Task RefuseAsync(HttpContext context, string error, string code)
     {

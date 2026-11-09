@@ -1,533 +1,541 @@
-# Feature Review: conges-secretaires
+# Feature Review: congés des secrétaires — functionality & ease of use
 
 **Status:** COMPLETE
 **Challenged:** Yes
-**Date:** 2026-11-05
-**Challenged Date:** 2026-11-05
+**Challenged Date:** 2026-11-09
+**Date:** 2026-11-09
 **Parent Branch:** main
-**Merge Base:** 3262d2e0 (= HEAD; feature is uncommitted — reviewed the working tree, diff assembled with `git add -N api web` then index restored)
-**Files Reviewed:** 75 changed files (+6234 lines, −18 lines) — backend 3004 diff lines, frontend 2797, tests 1411. Excluded: migration `.Designer.cs`, `ApplicationDbContextModelSnapshot.cs`, `features/**`, `CLAUDE.md` (read from the repo by the migration reviewer instead).
-**Review method:** 5 parallel agents adapted to this repo — Code Quality, Error Handling (MediatR + `Result<T>`, not ROP), Business Logic (spec AC-1…AC-15), Breaking Changes (migration vs snapshot/configs, mirrored sets, archive/relay scopes), Device & UX (frontend-web.md + DEVICE-CONTRACT.md). Out of scope told to all: pointage (parts 2–3), DEV-1/2/3, the kept PageHeader/Tabs.
-**Note on main:** origin/main is 7000b0e0, **26 commits ahead** of the merge-base, with 4 migrations this branch does not have (verified with `git rev-list` / `git diff --name-only`).
+**Merge Base:** 7000b0e0
+**Scope:** the whole congés feature in the worktree — commit `256ff8ce` (requests, decisions, notifications) plus the
+uncommitted « Droit à congé » rework (`droit-conges-blueprint.md`: rule, opening balance, adjustments, relevé).
+Pointage excluded (reviewed in `../pointage-obligatoire/reviews/`).
+**Review method:** the owner asked « review the congé feature on functionality, ease of use, how intuitive it is —
+users must know how it works instantly ». The four default code mandates were replaced by four read-only agents
+re-aimed at that question: **Doctor journey · Secretary journey · Functionality (numbers & rules) · Device & UX**.
+Duplicates merged; the four Criticals re-checked in `StaffLeaveLedger.cs` by the orchestrator. The earlier code
+review was renamed `feature-review-1-code.md`, not overwritten.
 
 ## Challenge Summary
 
 | Metric | Count |
 |--------|-------|
-| Original findings | 50 |
-| Confirmed | 29 |
-| Confirmed (adjusted) | 19 (3 of them merged into one finding) |
-| Dismissed (false positive) | 1 |
-| Dismissed (pre-existing) | 1 |
-| **Final findings** | 46 |
+| Original findings | 41 |
+| Confirmed | 14 |
+| Confirmed (adjusted) | 26 |
+| Dismissed (false positive) | 0 |
+| Dismissed (out of scope) | 1 |
+| **Final findings** | 40 |
 
-**Dismissed:**
-- Original #15 (an admin may decide her own request) — false positive: needs a secretary promoted while a request waits, and in the usual one-admin cabinet the proposed refusal would leave that request undecidable for good.
-- Original #47 (one `ClinicDtoMapper` instead of seven `new ClinicDto`) — pre-existing: the seven hand-written sites predate this branch, and the spec itself asks for « all 7 sites ».
-
-**Merged:** originals #2, #3 and #10 (reads after the commit inside the catch-all — Decide, Cancel, allowance) are one root cause and one fix → Finding 6.
+Challenged by two read-only agents against the source, the spec, the blueprint and `progress.md`'s recorded decisions;
+every ledger claim (Findings 1–6 of the original numbering) was worked by hand against `StaffLeaveLedger.cs`.
+Dismissed: original Finding 39 (the dashboard block's loading gap — pointage's own surface). Several findings describe
+a behaviour the blueprint or `progress.md` chose on purpose; their notes say so, and `/apply-review-fixes` must not
+silently revert those choices. Findings are renumbered by severity below.
 
 ## Findings
 
 ### Finding 1
-- **Severity:** Major
-- **Category:** Breaking Change
+- **Severity:** Critical
+- **Category:** Functionality
 - **Verdict:** Confirmed
-- **File:** api/ClinicManagement.Infrastructure/Migrations/20261105114746_AddStaffLeaveRequests.cs
-- **Line:** 1
-- **Anchor:** `AddStaffLeaveRequests` / `ApplicationDbContextModelSnapshot.BuildModel`
-- **Comment:** The branch sits on 3262d2e0; main has since gained `AddOnboardingSignInColumns`, `AddProductFeedback`, `AddStaffInvitations`, `AddFeedbackOtherAndTickedSteps`. This migration's Designer and the snapshot lack `ProductFeedback`, `StaffInvitation`, `UserFeedbackPrompt`, three new `User` columns and `TickedStepsCsv`. Both sides edited the snapshot, so a one-sided conflict resolution silently loses a model and the next `migrations add` duplicates tables. Ten other files changed on both sides (`User.cs`, `ApplicationDbContext.cs`, `user-management.tsx` +345 on main, `dashboard-header.tsx`, `clinic-settings.tsx`, `types.ts`…), and main's « Votre secrétaire » guide puts `data-guide` marks inside `UserManagement`, which now renders inside a tab. Fix: rebase on origin/main, delete this migration + Designer, take main's snapshot, re-scaffold (strip `xmin` by hand), `verify-schema` before/after, re-run the full suite + `check:responsive` + `tsc` + `next build`, re-walk `/users` incl. the guide.
+- **File:** api/ClinicManagement.Domain/Services/StaffLeaveLedger.cs
+- **Line:** 114
+- **Anchor:** `StaffLeaveLedger.Fold` (walk starts at 0 in the first year with any event)
+- **Comment:** **Congés taken before the first rule become a debt.** 8 j accepted in 2026, no rule; the doctor then
+  sets « 20 j par an » with the default start 1 Jan 2027 → on 1 Jan the card reads « 12 jours restants » and the
+  relevé « Dépassement reporté de 2026 −8 j », while 2026 itself shows no balance. With « par mois » (default 1 Dec)
+  the card shows « −6 jours restants » in red. Fix: uses dated before the first account day (first rule, opening or
+  adjustment) are history, not debits — the way an opening already absorbs earlier lines.
 
 ### Finding 2
-- **Severity:** Major
-- **Category:** Device & UX
+- **Severity:** Critical
+- **Category:** Functionality
 - **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-admin-panel.tsx
-- **Line:** 140
-- **Anchor:** `StaffLeaveAdminPanel` › history `ModeSegmented`
-- **Comment:** At 320–375 px the four `flex-1` options can only shrink to their longest word (« Acceptées »), so the control is wider than the 288 px box and `<main>` scrolls sideways — the horizontal scrollbar is visible in `qa/shots/C3-320-admin.png`. QA C3 passed because `walk.mjs` measured `document.documentElement.scrollWidth`, while `<main>` is the scroller (a probe bug). Fix: `className="grid w-full grid-cols-2 gap-1 sm:flex sm:w-auto"` (the request dialog's pattern), and make `walk.mjs` measure `#contenu-principal`'s `scrollWidth − clientWidth`.
+- **File:** api/ClinicManagement.Domain/Services/StaffLeaveLedger.cs
+- **Line:** 138
+- **Anchor:** `StaffLeaveLedger.Fold` › `ruleAtEnd`
+- **Comment:** **Days never expire when the rule starts after 31/12 — the owner's own example.** Rule « 20 j par an,
+  Perdus » from 1 Jan 2027 + « Solde de départ 10 j » on 6 Nov 2026 + 4 j taken: no rule is in force on 31/12/2026,
+  so nothing expires; in January she has **26** j, with one « Report de 2026 +6 j » line, although « Perdus » was
+  ticked and the 2026 card says « non pris perdus au 31/12 ». Fix: when no rule is in force at 31/12, the next rule's
+  carry choice decides. Add the 2027 assertion to `An_Opening_Absorbs_What_Came_Before_It…`.
+- **Challenge note:** progress.md chose « no rule in force on 31/12 → nothing expires », but its premise fails: `Rule` falls back to the future rule, so the 2026 card itself already promises « non pris perdus au 31/12 ».
 
 ### Finding 3
 - **Severity:** Major
-- **Category:** Device & UX
-- **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-request-list.tsx
-- **Line:** 178
-- **Anchor:** `StaffLeaveDecisionCards` › footer
-- **Comment:** At 768–~880 px (iPad portrait) the rail is `w-64`, so `md:grid-cols-2` gives ~252 px cards, while `sm:flex` puts Annuler + Refuser + Accepter (~266 px+) on one row; with `justify-end` « Annuler » starts before the card's edge — clipped at `<main>`'s edge in the left column, over the neighbour in the right. The team strip (`staff-leave-admin-panel.tsx:114`, `sm:grid-cols-2`) breaks names mid-word at the same width. Fix: a container query (`@container` + `@sm:flex`) or `xl:grid-cols-2`.
+- **Category:** Functionality
+- **Verdict:** Confirmed (adjusted — was Critical)
+- **File:** api/ClinicManagement.Domain/Services/StaffLeaveLedger.cs
+- **Line:** 290
+- **Anchor:** `StaffLeaveAccount.BalanceAfter`
+- **Comment:** **« Il restera » / « Solde après » and every other screen show different figures under a monthly
+  rule.** `BalanceAfter` reads on the congé's first day (credits up to then counted); the card, relevé and decision
+  e-mail read today. Example: 2 j/mois from 1 Jan, today 10 Mar, request 6–10 Jul (5 j): the form and the admin card
+  say 9, the card says 6; once accepted the e-mail, relevé and card say 1. She thinks days vanished. Fix: compute it
+  on the same day as the card (`Remaining − share`) and, if useful, show the credits still to come on their own line
+  (« +8 j d'ici le 6 juillet »). Add a monthly-rule case to `The_Balance_After_Equals_The_Remaining_Once_Accepted`.
+- **Challenge note:** Critical → Major — progress.md « Decisions (reversible) » chose « read on the first day » and a test pins it; each figure is true on its own day, so the defect is the missing date on the figure, not a wrong number. Fix either way: state the day, or align on today.
 
 ### Finding 4
 - **Severity:** Major
-- **Category:** Device & UX
-- **Verdict:** Confirmed
-- **File:** web/app/conges/page.tsx
-- **Line:** 122
-- **Anchor:** `CongesPage` › fixed « Demander un congé » CTA
-- **Comment:** Below 640 px the fixed 48 px CTA sits 12 px above the bottom bar, and `AppShell` has no runway (`app-shell.tsx:151` says to re-add one when something floats); `<main>`'s `p-4` clears 16 px only. The last ~44 px — « Prochain congé »'s date line or the calendar legend — can never be scrolled clear. Fix: `contentClassName="space-y-6 pb-16 sm:pb-0"`.
+- **Category:** Functionality
+- **Verdict:** Confirmed (adjusted — was Critical)
+- **File:** api/ClinicManagement.Domain/Services/StaffLeaveLedger.cs
+- **Line:** 290
+- **Anchor:** `StaffLeaveAccount.BalanceAfter` (`on = start > AsOf ? start : AsOf`)
+- **Comment:** **A congé starting last year is checked against THIS year's balance.** On 5 Jan 2027 an absence for
+  28–31 Dec 2026 (4 j) shows « Il restera 16 jours » (2027's 20 − 4); in truth 2026 ends with 1 j (lost) and 2027
+  stays at 20. A December request still waiting in January shows the same wrong figure. Fix: when
+  `start.Year < AsOf.Year`, read the start year's account on 31/12, before its expiry line.
+- **Challenge note:** Critical → Major — real (the method's own doc says « start's year »), but display only and a narrow window (a past-dated congé decided in January).
 
 ### Finding 5
 - **Severity:** Major
-- **Category:** Device & UX
+- **Category:** Functionality
 - **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-decision-dialogs.tsx
-- **Line:** 262
-- **Anchor:** `RejectLeaveDialog` (and `AcceptLeaveDialog`, 145)
-- **Comment:** `onOpenChange` is passed straight through: a typed « Motif du refus » (or an edited « Jours à décompter ») is discarded without asking on Escape, outside tap, ✕ or Android back. The request dialog already uses `useDirtyGuard` + `DiscardChangesDialog`; do the same here, `markClean()` on success.
+- **File:** api/ClinicManagement.Domain/Services/StaffLeaveLedger.cs
+- **Line:** 97
+- **Anchor:** `StaffLeaveLedger.Fold` (credit generation)
+- **Comment:** Switching « 20 j par an » to « 2 j par mois » in November (default start 1 Dec) credits 2026 twice:
+  « Droit 2026 +20 » and « Acquis — décembre +2 » → 22 on a 20-day year. Fix: a monthly rule starting in a year
+  already credited by a yearly rule earns nothing until the next 1 January (or default its start to 1 Jan and say so
+  in the live result, F7).
 
 ### Finding 6
-- **Severity:** Minor
-- **Category:** Error Handling
-- **Verdict:** Confirmed (adjusted — was Major ×2 + Minor, merged)
-- **File:** api/ClinicManagement.Application/Features/Team/Commands/DecideStaffLeaveRequestCommand.cs
-- **Line:** 111
-- **Anchor:** `DecideStaffLeaveRequestCommandHandler.Handle` · `CancelStaffLeaveRequestCommand.cs:90` · `SetLeaveAllowanceCommand.cs:72-73`
-- **Comment:** In all three handlers a read runs after `SaveChangesAsync` inside the catch-all (the roster in Decide/Cancel; the clinic + history in the allowance). If it throws, a saved write is reported as « Erreur lors de l'enregistrement… », no `team` broadcast goes out (failure result), and in Decide/Cancel the bell row/e-mail are skipped and a retry is refused as « déjà reçu une réponse ». Fix: move those reads before `SetExpectedVersion`/`SaveChangesAsync`, as `RecordStaffAbsenceCommandHandler` already does at line 72.
-- **Challenge note:** Merged originals #2, #3, #10 (one root cause, one fix). Severity lowered to Minor — it needs a database failure in the milliseconds between a commit and a one-row read; the stored data stays right.
+- **Severity:** Major
+- **Category:** Functionality
+- **Verdict:** Confirmed
+- **File:** api/ClinicManagement.Domain/Services/StaffLeaveLedger.cs
+- **Line:** 124
+- **Anchor:** `StaffLeaveLedger.Fold` (opening) / `StaffLeaveAccount.Year`; `GetStaffFileQuery.cs:81`
+- **Comment:** An opening wipes earlier congés from « Pris » and the relevé while other boxes still count them: March
+  congé 10 j, opening 10 j on 6 Nov → card « Pris 0 j », the box beside it « Congé payé 10 j », the footer « Total pris
+  depuis le début : 10 j », and no trace of March in the relevé (the blueprint said « listed as history »). Fix: count
+  every accepted day of the year in « Pris » (« dont 10 j inclus dans le solde de départ ») and show absorbed lines
+  greyed, without moving the balance.
 
 ### Finding 7
-- **Severity:** Minor
-- **Category:** Business Logic
-- **Verdict:** Confirmed (adjusted — was Major)
-- **File:** api/ClinicManagement.Application/Features/Team/Commands/SetLeaveAllowanceCommand.cs
-- **Line:** 56
-- **Anchor:** `SetLeaveAllowanceCommandHandler.Handle` (+ `ListStaffLeaveRequestsQuery`, `GetTeamLeaveOverviewQuery`, `GetStaffFileQuery`, `GetMyStaffLeaveQuery`, `PreviewStaffLeaveQuery`)
-- **Comment:** AC-1: while the switch is off « the API refuses ». Only Submit/Decide/Cancel/RecordAbsence check `LeaveRequestsEnabled`; the allowance write and five reads answer normally. The UI matches: « Fiche » in `user-management.tsx` (582, 693) and `/users/[userId]` show the history and the « Droit annuel » editor with the module off (only « Ajouter une absence » is gated, page line 63). Fix: return `ModuleOff` from these handlers and hide the congé part of the file + the allowance editor when off.
-- **Challenge note:** Severity lowered to Minor — the four writes that create or decide a congé are refused; what stays open is admin-only reads of the cabinet's own data and one allowance number.
+- **Severity:** Major
+- **Category:** UX — Doctor
+- **Verdict:** Confirmed
+- **File:** web/components/staff-leave/staff-leave-account-card.tsx
+- **Line:** 177
+- **Anchor:** `RuleDialog` › `setSince(nextStart(...))`
+- **Comment:** **A first rule set in November gives her nothing this year.** « 24 j par an » defaults to 1 Jan 2027,
+  « par mois » to 1 Dec: the card keeps showing « N jours pris » instead of a balance, the team strip « 0 jour pris »,
+  request cards « Non suivi », and nothing says she also needs « Solde de départ ». Fix: default a FIRST rule to
+  1 January of this year, and show the result live in the dialog (« Acquis aujourd'hui : 24 j · prochain +24 j le
+  1er janvier 2027 »), the way the request form shows « Il restera ».
+- **Challenge note:** The default is a code comment, not a spec decision, and it is what leads to Finding 3's debt.
 
 ### Finding 8
-- **Severity:** Minor
-- **Category:** Business Logic
-- **Verdict:** Confirmed (adjusted — was Major)
-- **File:** api/ClinicManagement.Application/Features/Team/StaffLeaveRules.cs
-- **Line:** 125
-- **Anchor:** `StaffLeaveRules.ShareInYear`
-- **Comment:** A cross-year count is split by each year's share of open days. The spec's own example breaks it: 1 January is always a jour férié and AC-7 has the admin remove it in « Décompter ». Wed 30 Dec → Sat 2 Jan, 4 asked, 3 counted → real split 2026 = 2, 2027 = 1; the code gives 1.5 / 1.5 (and `StaffLeaveRulesTests.A_Split_Rounds_To_The_Half_Day…` pins 1.5). Cheapest fix: leave 1 January out of the open-day counts inside `ShareInYear` (fixed national holiday) — that gives 2 / 1 for this case with no schema change; a stored per-year count is the general fix.
-- **Challenge note:** Severity lowered to Minor — only a congé spanning the new year whose count was reduced, and the error is half a day per year.
+- **Severity:** Major
+- **Category:** UX — Secretary / Device & UX
+- **Verdict:** Confirmed
+- **File:** web/app/conges/page.tsx
+- **Line:** 74
+- **Anchor:** `CongesPage` › `body()`, `showAsk` (111)
+- **Comment:** **Her first request is the hardest to make, and her status is two screens down.** The full-year relevé
+  (~11 lines, ~670 px on a phone) sits between the card and her requests, so a bell tap on « Congé refusé » lands far
+  from the answer; and with no request yet, the header and fixed phone « Demander un congé » do not render — the only
+  one is in the empty state, under the whole relevé. Fix: « En cours et à venir » (or the empty state) right under the
+  card, the relevé below behind « Voir le relevé » (folds, never removed), and the ask buttons whenever she may ask.
 
 ### Finding 9
-- **Severity:** Minor
-- **Category:** Error Handling
+- **Severity:** Major
+- **Category:** UX — Doctor / Secretary
 - **Verdict:** Confirmed
-- **File:** api/ClinicManagement.Application/Features/Team/Commands/CancelStaffLeaveRequestCommand.cs
-- **Line:** 81
-- **Anchor:** `CancelStaffLeaveRequestCommandHandler.Handle`
-- **Comment:** `!leave.HoldsItsDays` answers « Cette demande a déjà reçu une réponse. » for an already **Cancelled** request too (second tab) — the wrong state is named. Fix: own sentence (« Cette demande est déjà annulée. ») or idempotent success; keep `NotPending` for `Rejected`.
+- **File:** web/app/users/[userId]/page.tsx
+- **Line:** 137
+- **Anchor:** `leaveBody` › « Relevé {year} »; `useMyStaffLeave` (`web/lib/hooks/use-staff-leave.ts:77`)
+- **Comment:** **Expired days are never visible — the feature the owner asked for.** The relevé shows only the current
+  year with no year control, and the expiry line belongs to the year before, so « Perdus au 31/12 » always reads 0
+  and on 2 January six days vanish without a trace on either side; nothing warns in December either. Fix: a year
+  stepper on the relevé, a first line « 6 j non pris en 2026 : perdus » in the new year, and « À prendre avant le
+  31/12 : N j » while the rule says « Perdus ».
 
 ### Finding 10
-- **Severity:** Minor
-- **Category:** Business Logic
-- **Verdict:** Confirmed
-- **File:** api/ClinicManagement.Application/Features/Team/StaffLeaveNotices.cs
-- **Line:** 28
-- **Anchor:** `StaffLeaveNotices.Rejected` / `Email`
-- **Comment:** AC-9: the bell row and e-mail name the dates **and the days**. The refused versions name no day count (bell line 29; e-mail details 64-67: Cabinet, Type, Dates, Motif). Fix: add `FrenchDayPeriod.Days(leave.RequestedDays)` to both.
+- **Severity:** Major
+- **Category:** Functionality
+- **Verdict:** Confirmed (adjusted)
+- **File:** api/ClinicManagement.Domain/Entities/StaffLeaveRequest.cs
+- **Line:** 150
+- **Anchor:** `StaffLeaveRequest.CanBeCancelledOn`; `CancelStaffLeaveRequestCommand.cs:85`
+- **Comment:** An absence the admin entered for a past date can never be corrected: the type defaults to « Congé
+  payé », and if she meant « Maladie » the congé has « started », so cancelling is refused for good and the days stay
+  off the balance. Fix: an admin may cancel, with a motif, any accepted congé or absence whatever its date; « already
+  started » stays the secretary's rule.
+- **Challenge note:** The balance can be repaired with an adjustment, but the record stays wrong for good (type, history row, « Absences acceptées »); AC-10's rule was written for the secretary.
 
 ### Finding 11
 - **Severity:** Minor
-- **Category:** Business Logic
-- **Verdict:** Confirmed
-- **File:** api/ClinicManagement.Domain/Entities/StaffLeaveRequest.cs
-- **Line:** 134
-- **Anchor:** `CanBeCancelledOn` / `CancelStaffLeaveRequestCommandHandler` (line 77)
-- **Comment:** The owner check lets a secretary withdraw an absence the **admin recorded** (`EnteredByAdmin`) before it starts — e.g. an imposed « Sans solde » week; the admins are notified, but only after it is gone. Fix: refuse the owner's cancel when `EnteredByAdmin`, and set `CanCancel` to match.
+- **Category:** UX — Doctor
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/components/staff-leave/staff-leave-account-card.tsx
+- **Line:** 60
+- **Anchor:** `StaffLeaveAccountCard` › « Règle »; `staff-leave-balance-card.tsx:89`
+- **Comment:** **A saved rule that starts later is invisible.** After « 2 j par mois à partir du 1er décembre » the
+  line still reads « 24 j par an » (looks like the save failed); a future-only rule reads « depuis le 1er janvier
+  2027 » (wrong tense); « Modifier » re-seeds the date to next year; the secretary's card says « prochain : +2 j le
+  1er décembre » under « 24 j par an » with no mention of the change. Fix: show both — « 24 j par an → 2 j par mois à
+  partir du 1er décembre » — and « à partir du » for a future date, on both cards.
+- **Challenge note:** Major → Minor — the new rule IS listed just below in the account card's lines (« Règle : … à partir du 1er décembre »), so not invisible; the « Règle » line, the « depuis » tense and the re-seed are real.
 
 ### Finding 12
 - **Severity:** Minor
-- **Category:** Business Logic
-- **Verdict:** Confirmed
-- **File:** api/ClinicManagement.Application/Features/Team/Commands/RecordStaffAbsenceCommand.cs
-- **Line:** 87
-- **Anchor:** `RecordStaffAbsenceCommandHandler.Handle` → `StaffLeaveRules.OverlapSentence` (StaffLeaveRules.cs:35)
-- **Comment:** `FindHoldingOverlapAsync` returns a waiting **or** accepted request, but the sentence always says « … a déjà un congé du … », which reads as accepted; the admin is not told to answer the waiting request instead. Fix: put the status in the sentence (« une demande en attente » vs « un congé accepté »).
+- **Category:** UX — Doctor
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/components/staff-leave/staff-leave-request-list.tsx
+- **Line:** 196
+- **Anchor:** `StaffLeaveDecisionCards` › « Annuler »
+- **Comment:** A waiting card offers « Annuler · Refuser · Accepter »; « Annuler » looks like « close » but withdraws
+  the request with no motif and tells the secretary « Votre congé … a été annulé par Dr X » — a refusal without the
+  required motif (AC-8). Fix: remove « Annuler » from waiting cards (« Refuser » covers it), keep it in the ⋯ of
+  accepted congés, and ask a motif when an admin cancels someone else's congé.
+- **Challenge note:** Major → Minor — the spec's Edge Cases keep pending requests cancellable by the admin, and a confirm names the congé first; the missing motif and the « annulé par » wording are the real gap.
 
 ### Finding 13
 - **Severity:** Minor
-- **Category:** Business Logic
-- **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-admin-panel.tsx
-- **Line:** 130
-- **Anchor:** `StaffLeaveAdminPanel` (pending section) / `useLeaveDialogs`
-- **Comment:** The dialogs are mounted inside `StaffLeaveDecisionCards`; when another admin decides the **last** waiting request, the `team` refresh swaps the cards for `EmptyState` and the open dialog vanishes with no message. `StaffLeaveRows` on `/conges` does the same when a row moves from « à venir » to « Historique ». Fix: mount the dialogs once at panel/page level.
+- **Category:** UX — Doctor / Secretary
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/lib/staff-leave.ts
+- **Line:** 49
+- **Anchor:** `staffDaysLabel`; `balanceAfterValue` (`staff-leave-request-list.tsx:133`); `FrenchDayPeriod.Days`
+- **Comment:** **Going over the balance is invisible.** A request beyond the balance is allowed, so « Solde après » is
+  the only warning — and it prints « -3 jour » in plain ink (singular for any value ≤ 1, a hyphen), on the card, in
+  the form (« Il restera -3 jour ») and in the e-mail. Fix: below zero, « 3 j de dépassement » in the destructive tone
+  everywhere; plural from `Math.Abs(days) > 1`, « − » for the sign.
+- **Challenge note:** Major → Minor — the blueprint decided a request beyond the balance is allowed and « shows it negative », and the balance card does turn red; the « -3 jour » wording and the plain ink on the form/card are the gap.
 
 ### Finding 14
 - **Severity:** Minor
-- **Category:** Business Logic
-- **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-request-list.tsx
-- **Line:** 164
-- **Anchor:** `StaffLeaveDecisionCards` (« Solde après »), also `staff-leave-request-dialog.tsx:229` (« Il restera »)
-- **Comment:** Both figures are for the congé's **start** year but don't name it, while the team strip and the balance card show the current year — in December « 2 / 30 j » beside « Solde après 25 jours » reads as a contradiction. « Non suivi » on Maladie/Sans solde suggests the allowance is not tracked. Fix: « Solde {année} après » when the year differs from today's; « Ne compte pas » for other types.
+- **Category:** Functionality / UX — Secretary
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** api/ClinicManagement.Domain/Services/StaffLeaveLedger.cs
+- **Line:** 288
+- **Anchor:** `StaffLeaveAccount.BalanceAfter`; `PreviewStaffLeaveQuery.cs:86`; `ListStaffLeaveRequestsQuery.cs:121`
+- **Comment:** « Il restera » and « Solde après » ignore her other WAITING requests: Reste 10, a 5-day request waiting,
+  she asks 5 more → the form says 5; the admin sees two cards saying 5 and 5; if both are accepted she has 0. Fix:
+  subtract her other waiting congés payés of that year, or show « 5 j · 0 j si la demande en attente est acceptée ».
+- **Challenge note:** Major → Minor — after one acceptance the `team` broadcast recomputes the other card, so the admin never decides on the stale figure; only the secretary's form overstates.
 
 ### Finding 15
 - **Severity:** Minor
-- **Category:** Business Logic
-- **Verdict:** Confirmed
-- **File:** web/components/user-management.tsx
-- **Line:** 582
-- **Anchor:** `UserManagement` row actions (also 691)
-- **Comment:** Spec edge case: a former secretary keeps her history in her file. « Fiche » shows only for `role === "secretary"`, so that file is reachable only through a row in « Toutes les demandes ». Fix: show it for any account with a congé history (or any account).
+- **Category:** UX — Secretary
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/components/staff-leave/staff-leave-balance-card.tsx
+- **Line:** 38
+- **Anchor:** `StaffLeaveBalanceCard` › stats row
+- **Comment:** The card's figures do not add up to « Reste »: « En attente » sits in the row with Acquis · Pris ·
+  Prévus but is not subtracted (24 − 0 − 4,5 − 1 = 18,5 while the card says 19,5); `upcoming` is never read, so with
+  a monthly rule she cannot see what she will have by summer. Fix: one group Acquis − Pris − Prévus = Reste, « En
+  attente » set apart beside the bar's orange segment, and « À venir d'ici le 31/12 » when above 0.
+- **Challenge note:** Major → Minor — excluding « En attente » from « Reste » is the blueprint's design and pending is already set apart in amber with its own bar segment; `upcoming` never being shown is the real gap.
 
 ### Finding 16
 - **Severity:** Minor
-- **Category:** Breaking Change
-- **Verdict:** Confirmed
-- **File:** web/components/team-modules-card.tsx
-- **Line:** 27
-- **Anchor:** `TeamModulesCard.toggle`
-- **Comment:** `PUT clinics/team-modules` writes the `Clinics` row, aging the `clinicVersion` that `clinic-settings.tsx` holds (378) and sends on every section save (440/579/617). The card discards the returned version, so flipping « Équipe » while a section is in edit raises « modifiés par quelqu'un d'autre » (381-386) for the admin's own change, and the next section save 409s. Fix: `onSaved(version)` → `setClinicVersion` (line 1555). `MoneyDiscreetCard` has the same shape (pre-existing).
+- **Category:** UX — Secretary
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/lib/staff-leave.ts
+- **Line:** 187
+- **Anchor:** `staffLeaveDaysText`; `StaffLeaveNotices.Approved` (`StaffLeaveNotices.cs:25`)
+- **Comment:** « 2,5 jours décomptés (3 jours demandés) » and « … est accepté (2,5 jours) » read as « only 2,5 of my
+  3 days were granted », while every date is granted and only 2,5 come off her balance (jour férié). Fix: « 16 → 18
+  novembre accordé · 2,5 j retirés de votre solde »; no « décomptés » figure for Maladie / Sans solde.
+- **Challenge note:** Major → Minor — accurate text and AC-7's own term; wording only.
 
 ### Finding 17
 - **Severity:** Minor
-- **Category:** Device & UX
-- **Verdict:** Confirmed
-- **File:** web/app/users/page.tsx
-- **Line:** 99
-- **Anchor:** `UsersTabs` › `TabsTrigger coarse:min-h-11`
-- **Comment:** Coarse pointer: `TabsList` keeps `h-9` + `overflow-x-auto` (`ui/tabs.tsx:41`) while the trigger is `h-[calc(100%-1px)]` plus `min-h-11` — 44 px pills in a 36 px track: clipped, vertical wobble, 36 px hit area. Fix: `coarse:h-auto` on the `TabsList`.
+- **Category:** UX — Secretary
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/components/staff-leave/staff-leave-bits.tsx
+- **Line:** 69
+- **Anchor:** `staffLeaveDecisionLine`
+- **Comment:** A congé the admin withdrew looks exactly like one she cancelled herself — a grey « Annulé » with no name;
+  the only explanation was a bell row that scrolls away. Fix: carry who cancelled and show « Annulé par Dr Salma Ben
+  Youssef » / « Annulé par vous ».
+- **Challenge note:** Major → Minor — an information gap; the bell row does name the admin.
 
 ### Finding 18
 - **Severity:** Minor
-- **Category:** Device & UX
-- **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-request-list.tsx
-- **Line:** 309
-- **Anchor:** `StaffLeaveHistory` › Jours `<TableCell numeric>`
-- **Comment:** `numeric` adds `whitespace-nowrap` (`ui/table.tsx:205`), so « 2,5 jours décomptés (3 jours demandés) » (`staffLeaveDaysText`) is one unbreakable block that pushes the ⋯ column behind the fade at 1024–1280 px. Fix: keep `numeric` on the figure, put « (3 jours demandés) » on a wrapping second line.
+- **Category:** UX — Doctor
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/components/team-modules-card.tsx
+- **Line:** 78
+- **Anchor:** `TeamModulesCard` › « Demandes de congé des secrétaires »
+- **Comment:** Switching congés on gives a toast and nothing else — nothing leads her to set each secretary's droit,
+  and there is no « Me guider ». Fix: under the switch, one line per secretary (« Ines Gharbi — 24 j par an » /
+  « Amira — Droit à définir [Définir] ») linking to her file, plus a « Congés » tour (`web/lib/guides/`, like
+  `pointage.ts`): switch → file → droit → À décider.
+- **Challenge note:** Major → Minor — not in the spec, and each file already shows « Définir la règle » / « Aucun droit à congé défini »; a guide is a new build.
 
 ### Finding 19
 - **Severity:** Minor
-- **Category:** Device & UX
-- **Verdict:** Confirmed
-- **File:** web/components/user-management.tsx
-- **Line:** 693
-- **Anchor:** `UserManagement` › table « Fiche » button
-- **Comment:** At 1440 the Actions column already overflows (`qa/shots/D1-1440-comptes.png`: « Réinitia… » cut, « Désactiver » off-screen); a third nowrap button pushes the destructive action further out. Fix: link the name cell to `/users/{id}` instead; keep the card-menu item.
-- **Challenge note:** The overflow itself pre-exists; this branch makes it worse, which is what is kept.
+- **Category:** UX — Doctor
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/components/staff-leave/staff-leave-admin-panel.tsx
+- **Line:** 44
+- **Anchor:** `TeamMemberCard`; « Non suivi » (`staff-leave-request-list.tsx:134`)
+- **Comment:** The team strip cannot tell « no droit set » from « fine » (« 0 jour pris · Aucun congé prévu »);
+  over-balance reads « −2 / 24 j » in normal colour with the bar stuck at 100 %; waiting days are not shown. Fix: a
+  « Droit à définir » chip, a red remaining when negative, « 1 j en attente »; on request cards « Droit non défini »
+  linking to her file instead of « Non suivi ».
+- **Challenge note:** Major → Minor — « no droit » already reads differently (« 0 jour pris » vs « 18 / 24 j »); negative in plain colour, the bar clamped at 100 % and no pending days are real.
 
 ### Finding 20
 - **Severity:** Minor
-- **Category:** Device & UX
-- **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-decision-dialogs.tsx
-- **Line:** 340
-- **Anchor:** `CancelLeaveConfirm` title; aria-labels (`staff-leave-request-list.tsx:184`, `RowActions` 226)
-- **Comment:** Admin context: « Annuler le congé du 16 au 18 novembre ? » and « Actions pour le congé … » don't say **whose** — two secretaries off on the same dates read identically. Fix: add `request.userName` when the viewer is the admin.
+- **Category:** UX — Doctor
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/components/staff-leave/staff-leave-admin-panel.tsx
+- **Line:** 90
+- **Anchor:** `StaffLeaveAdminPanel` (no « Ajouter une absence »)
+- **Comment:** « Ajouter une absence » exists only in one secretary's file header; when a secretary calls in sick the
+  doctor opens Utilisateurs → Congés and finds no button. Fix: the button in the Congés tab with a « Secrétaire »
+  picker; the file keeps its prefilled one.
+- **Challenge note:** Major → Minor — each team-strip card links to the file, two clicks away.
 
 ### Finding 21
 - **Severity:** Minor
-- **Category:** Device & UX
-- **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-admin-panel.tsx
-- **Line:** 111
-- **Anchor:** `StaffLeaveAdminPanel` › team strip / history filter
-- **Comment:** If `useTeamLeaveOverview` fails or is loading, `members` is `[]` and « Équipe » just disappears (a failed read shown as nothing). After a filter change `useTeamRead` keeps the previous key's data, and line 152 only shows the loader when there is none — so « Refusées » shows the « Toutes » rows until the read lands. Fix: `LoadFailureNotice` with `team.refetch`; show the loader while `decided.loading`.
+- **Category:** UX — Doctor
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** web/components/dashboard/dashboard-page.tsx
+- **Line:** 202
+- **Anchor:** `teamTodayApplies`
+- **Comment:** The dashboard's « N demandes de congé en attente » appears only when POINTAGE is on; a cabinet with
+  congés alone sees nothing on the dashboard (only the bell and a badge on « Utilisateurs » at the bottom of the
+  rail). Fix: show the block, or at least the pending link, when `leaveRequestsEnabled`.
+- **Challenge note:** Major → Minor — the gate comes from the pointage commit on this same branch (not main), and a congés-only cabinet gets no dashboard cue; the bell and the tab badge remain.
 
 ### Finding 22
 - **Severity:** Minor
-- **Category:** Device & UX
-- **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-request-list.tsx
-- **Line:** 325
-- **Anchor:** `StaffLeaveHistory` › `CardList`
-- **Comment:** The table's « Secrétaire » cell links to her file (295); the card form below `lg` has no `href`, so phones/iPad portrait lose that path (the only one for a deactivated secretary). Fix: `href={(r) => (showName ? userHref(r) : undefined)}`.
+- **Category:** Functionality
+- **Verdict:** Confirmed (adjusted — was Major)
+- **File:** api/ClinicManagement.Application/Features/Team/Commands/RecordStaffAbsenceCommand.cs
+- **Line:** 84
+- **Anchor:** `RecordStaffAbsenceCommandHandler.Handle`
+- **Comment:** « Ajouter une absence » saves the raw count, so a jour férié cannot be taken out (AC-7's « retiré dans
+  Décompter » exists on « Accepter » only): 30/12 → 02/01 counts 1 January → 4 j instead of 3, with no way to edit
+  it. Fix: « Jours à décompter » on the absence form, prefilled from the preview, passed to `RecordByAdmin`.
+- **Challenge note:** Major → Minor — AC-11 gives the absence the request's fields and AC-7 puts « Décompter » on Accepter only; workarounds exist (split the range, or « Ajouter ou retirer des jours »).
 
 ### Finding 23
 - **Severity:** Minor
 - **Category:** Device & UX
-- **Verdict:** Confirmed
+- **Verdict:** Confirmed (adjusted — was Major)
 - **File:** web/components/staff-leave/staff-leave-decision-dialogs.tsx
-- **Line:** 160
-- **Anchor:** `AcceptLeaveDialog` › − / + stepper
-- **Comment:** The global `:focus-visible` outline (`globals.css:931`, 2 px offset) is drawn outside the raw `<button>`s and clipped by the wrapper's `overflow-hidden` on three sides, so keyboard focus barely shows. Fix: `focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none`.
+- **Line:** 152
+- **Anchor:** `AcceptLeaveDialog.step` / `useLeaveDecision` (69)
+- **Comment:** Changes made with buttons are not seen as edits: « − » on « Jours à décompter » (3 → 2 for a jour
+  férié), « Perdus / Reportés », the request's Type and « Demi-journée » change React state only, so `useDirtyGuard`
+  never marks the dialog dirty and an outside tap, Escape or the back gesture closes it silently; reopening shows 3
+  again. Fix: pass the hook's `alsoDirty` argument (as `feedback-dialog.tsx` does) in each of these dialogs.
+- **Challenge note:** Major → Minor — only button choices are lost (and show again on reopen); every typed field is guarded.
 
 ### Finding 24
 - **Severity:** Minor
-- **Category:** Code Quality
+- **Category:** UX — Doctor
 - **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-decision-dialogs.tsx
-- **Line:** 54
-- **Anchor:** `parseDays` / `daysText`
-- **Comment:** « half days, 0–366 » is written here and again inline in `AllowanceEditor` (`app/users/[userId]/page.tsx:198`); `366` appears three times; `daysText` and `String(allowance).replace(".", ",")` re-implement `formatStaffDays`. Fix: `MAX_STAFF_DAYS` + `parseStaffDays()` in `lib/staff-leave.ts`, used by both.
+- **File:** web/components/staff-leave/staff-leave-account-card.tsx
+- **Line:** 351
+- **Anchor:** `OpeningDialog`
+- **Comment:** « Solde de départ » depends on a description sentence (against the no-helper-text rule) and stays
+  unclear about congés already accepted for later (the fold subtracts them again, 10 → 6). Fix: « Fixer le solde »,
+  the form as a sentence (« Il lui reste [ ] j au [date] »), and the result live (« Après les congés déjà acceptés :
+  6 j »); drop the description.
 
 ### Finding 25
 - **Severity:** Minor
-- **Category:** Code Quality
-- **Verdict:** Confirmed
-- **File:** web/lib/nav.ts
-- **Line:** 228
-- **Anchor:** `DAILY_SECTION_TITLE`
-- **Comment:** Declared after `baseSections`, which still writes the literal `"Quotidien"` (line 55); renaming the section silently drops « Congés » from the secretary's menu (line 255). Fix: declare it above and use it at line 55.
+- **Category:** UX — Doctor
+- **Verdict:** Confirmed (adjusted)
+- **File:** web/app/users/[userId]/page.tsx
+- **Line:** 97
+- **Anchor:** `body` › `leaveEnabled && leaveBody()`
+- **Comment:** With pointage on, a doctor's or admin's file shows « Congé payé », « Droit à congé — Définir la règle »
+  and « Historique », though they cannot ask for congés. Fix: the congé section only when `file.role === "secretary"`.
+- **Challenge note:** The proposed fix (secretary only) breaks the spec Edge Case « role changed away from secretary: her history stays in her file » — show the section for a secretary or for anyone with congé history or entries.
 
 ### Finding 26
 - **Severity:** Minor
-- **Category:** Code Quality
-- **Verdict:** Confirmed
-- **File:** api/ClinicManagement.Application/Features/Team/Queries/ListStaffLeaveRequestsQuery.cs
-- **Line:** 122
-- **Anchor:** `ListStaffLeaveRequestsQueryHandler.Handle`
-- **Comment:** `StaffLeaveRequestsPageDto.PendingCount` is never read (the tab and rail read `pending-count`; `web/lib/api/team.ts:40` only declares it), yet every list call pays a `COUNT`. Remove it from both DTOs and the handler.
+- **Category:** UX — Secretary
+- **Verdict:** Confirmed (adjusted)
+- **File:** web/components/staff-leave/staff-leave-request-dialog.tsx
+- **Line:** 77
+- **Anchor:** preview effect; `PreviewStaffLeaveQuery.cs:75`, `StaffLeaveRules.cs:35`
+- **Comment:** Overlapping dates are refused only after the motif is typed and sent, under a « Il restera » that
+  looked fine, and the sentence does not say whether the other one is waiting or accepted. Fix: the preview returns
+  the overlap and shows it under Du/Au at once, phrased like the admin's (« une demande en attente » / « un congé
+  accepté »).
+- **Challenge note:** The sentence « Vous avez déjà une demande du … » is AC-4's own example; the gap is that the preview never checks overlap, so the refusal only comes on send.
 
 ### Finding 27
-- **Severity:** Suggestion
-- **Category:** Error Handling
-- **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** api/ClinicManagement.Application/Features/Team/Commands/SetLeaveAllowanceCommand.cs
-- **Line:** 60
-- **Anchor:** `SetLeaveAllowanceCommandHandler.Handle` / `User.SetAnnualLeaveAllowance`
-- **Comment:** The only handler in the feature that validates by catching `ArgumentException` and returning `ex.Message`; `User.SetAnnualLeaveAllowance` hard-codes « 366 » beside `MaxAnnualLeaveAllowanceDays`, which duplicates `StaffLeaveRequest.MaxDays`. Fix: `User.AllowanceRefusalFor(decimal?)` on one shared constant, checked before the setter.
-- **Challenge note:** Lowered to Suggestion — the inner try wraps one domain call whose message is already the intended French sentence; nothing else can leak through it today.
+- **Severity:** Minor
+- **Category:** Functionality
+- **Verdict:** Confirmed
+- **File:** api/ClinicManagement.Application/Features/Team/StaffLeaveRules.cs
+- **Line:** 142
+- **Anchor:** `StaffLeaveRules.ValidateNewAsync`
+- **Comment:** A request on a closed day counts 0 and is sent (« … demande un congé le 15/11 (0 jour) »). Fix: refuse
+  when the count is 0 — « Le cabinet est fermé ces jours-là. » — on the field and on the server.
 
 ### Finding 28
-- **Severity:** Suggestion
-- **Category:** Business Logic
-- **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** api/ClinicManagement.Application/Features/Team/Commands/RecordStaffAbsenceCommand.cs
-- **Line:** 89
-- **Anchor:** `RecordStaffAbsenceCommandHandler.Handle`
-- **Comment:** A recorded absence is saved accepted with the computed count and no « Décompter », so one over a jour férié overstates « Pris ». Optional `countedDays` + the same stepper in the dialog would cover it.
-- **Challenge note:** Lowered to Suggestion — spec AC-11 says « same fields » as the request and « saved as accepted »; the admin can also leave the férié out of the dates.
+- **Severity:** Minor
+- **Category:** UX — Secretary / Device & UX
+- **Verdict:** Confirmed (adjusted)
+- **File:** web/components/staff-leave/staff-leave-request-dialog.tsx
+- **Line:** 215
+- **Anchor:** day-count card
+- **Comment:** The count (« 3 jours · Il restera 21 jours ») renders after the motif — below the fold on a phone sheet
+  and hidden by the keyboard while typing; it vanishes silently for Maladie / Sans solde / no droit and on a failed
+  preview read. Fix: directly under Du/Au; the same slot says « Ne compte pas sur votre solde », « Solde non suivi »
+  or « Décompte indisponible ».
+- **Challenge note:** Not true that it vanishes for Maladie / Sans solde — the count stays and only « Il restera » drops, per AC-3; placement after the motif and the silent failed read are real.
 
 ### Finding 29
-- **Severity:** Suggestion
-- **Category:** Business Logic
-- **Verdict:** Confirmed (adjusted — was Minor)
+- **Severity:** Minor
+- **Category:** UX — Secretary
+- **Verdict:** Confirmed
 - **File:** web/components/staff-leave/staff-leave-decision-dialogs.tsx
-- **Line:** 322
-- **Anchor:** `CancelLeaveConfirm.handleCancel`
-- **Comment:** The cancel re-reads and sends the fresh version without checking the status is still the one the dialog names, so the version check protects nothing. Fix: as Accept/Refuse do — if `fresh.status !== request.status`, say so with « Recharger ».
-- **Challenge note:** Lowered to Suggestion — the person's intent (withdraw this congé) is still honoured whichever status it reached; only the dialog's sentence goes stale.
+- **Line:** 370
+- **Anchor:** `CancelLeaveConfirm` and wording across the screens
+- **Comment:** Wording drifts: « Ce congé était accepté » before anything happened; a waiting one is « Annuler le
+  congé »/« Congé annulé » (should be « Retirer la demande »/« Demande retirée »); three date styles (« 16 → 18
+  novembre », « du 16/11 au 18/11 », « du 16 novembre au 18 novembre 2026 »); « Refusé » pill vs « est refusée »
+  bell; « Prochain congé · … · en cours »; « Congé prévu · … · à venir » says it twice. Fix: one vocabulary and one
+  date style across screen, bell and e-mail.
 
 ### Finding 30
-- **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** web/lib/realtime/clinic-hub.ts
-- **Line:** 41
-- **Anchor:** `RealtimeResource`
-- **Comment:** The edit moved `DoctorLeaves`' comment onto the end of the new `Team` line, which now carries two `//` comments, the second describing the wrong key. Move it back to line 40.
-- **Challenge note:** Lowered to Suggestion — comment only.
+- **Severity:** Minor
+- **Category:** Device & UX
+- **Verdict:** Confirmed
+- **File:** web/components/staff-leave/staff-leave-admin-panel.tsx
+- **Line:** 61
+- **Anchor:** `TeamMemberCard`
+- **Comment:** At 320 px, with no rule and both taken and planned days, the `shrink-0` figure (~170 px) leaves the name
+  ~1 character wide — « Ines Gharbi » renders as a vertical stack of letters. Fix: let the row wrap
+  (`flex-wrap`, figure `basis-full sm:basis-auto`).
 
 ### Finding 31
-- **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** web/lib/hooks/use-staff-leave.ts
-- **Line:** 24
-- **Anchor:** `useTeamRead`
-- **Comment:** Line-for-line copy of `useLeavesRead` (`lib/hooks/use-doctor-leaves.ts:17`); only the key and type differ. One `useKeyedRead<T>(resource, key, read)` wrapped by both.
-- **Challenge note:** Lowered to Suggestion — the refactor reaches a shipped hook outside this feature.
+- **Severity:** Minor
+- **Category:** Device & UX
+- **Verdict:** Confirmed (adjusted)
+- **File:** web/components/staff-leave/staff-leave-request-list.tsx
+- **Line:** 328
+- **Anchor:** `StaffLeaveHistory` › name Link
+- **Comment:** The row's only path to the secretary's file is a ~28 px link on a coarse pointer (the only path at all
+  for a deactivated secretary). Fix: `coarse:min-h-11` on the Link.
+- **Challenge note:** Not the only path for a deactivated secretary — « Comptes » links every secretary's file; the ~28 px target on a coarse pointer is real.
 
 ### Finding 32
-- **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** web/app/conges/page.tsx
-- **Line:** 26
-- **Anchor:** `SectionTitle`
-- **Comment:** The same section heading exists four times (here, `staff-leave-admin-panel.tsx:37`, two inline `<h2>` in `app/users/[userId]/page.tsx:89,106`). Export one from `staff-leave-bits.tsx`.
-- **Challenge note:** Lowered to Suggestion — styling duplication only.
+- **Severity:** Minor
+- **Category:** Device & UX
+- **Verdict:** Confirmed
+- **File:** web/components/staff-leave/staff-leave-account-card.tsx
+- **Line:** 177
+- **Anchor:** `RuleDialog` seed effect
+- **Comment:** Seeding « À partir du » after open fires a real `change`, so an untouched rule dialog asks « Abandonner
+  les modifications ? » on « Retour », ✕ or Escape. Fix: seed in the same render as `open` (or `guard.markClean()`
+  after seeding).
+- **Challenge note:** Only when the frequency stays « par an » (a monthly rule remounts the Select via `key`).
 
 ### Finding 33
-- **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** web/components/staff-leave/staff-leave-request-list.tsx
-- **Line:** 214
-- **Anchor:** `RowActions`
-- **Comment:** Both call sites (317, 340) pass `admin` as `true`, so the prop and the `decidable = admin && …` false branch are dead. Drop the prop.
-- **Challenge note:** Lowered to Suggestion — dead parameter, no behaviour.
+- **Severity:** Minor
+- **Category:** Device & UX
+- **Verdict:** Confirmed
+- **File:** web/components/staff-leave/staff-leave-request-dialog.tsx
+- **Line:** 161
+- **Anchor:** Type `ModeSegmented`
+- **Comment:** From 768 px the dialog is ~400 px but `sm:flex` follows the viewport: four types at ~70 px each, and
+  « Congé payé » wraps to two lines while the others do not. Fix: `grid grid-cols-2` at every width in this dialog,
+  or a container hinge.
 
 ### Finding 34
 - **Severity:** Suggestion
-- **Category:** Code Quality
+- **Category:** UX — Doctor / Functionality
 - **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** api/ClinicManagement.Application/Features/Team/Commands/DecideStaffLeaveRequestCommand.cs
-- **Line:** 101
-- **Anchor:** `DecideStaffLeaveRequestCommandHandler.Handle`
-- **Comment:** Re-implements `StaffLeaveRequest.Reject`'s motif checks with different wording (« Indiquez le motif du refus. » vs « Le motif du refus est requis. »). A `StaffLeaveRequest.RejectionRefusalFor(reason)` used by both (the `CountRefusalFor` shape).
-- **Challenge note:** Lowered to Suggestion — the handler checks first, so the entity's sentence is an unreachable backstop.
+- **File:** web/components/staff-leave/staff-leave-request-list.tsx
+- **Line:** 180
+- **Anchor:** `StaffLeaveDecisionCards` › « Solde après »; `StaffLeaveAccounts.cs:81`
+- **Comment:** A congé across 31/12 shows only the first year's share (« Jours 10 · Solde après 12 » from 16 — the
+  2027 share is nowhere), and in « Accepter » the figure vanishes once the count is edited. Fix: both years (« 2026 :
+  12 j · 2027 : 14 j »), recomputed server-side for the edited count.
+- **Challenge note:** Minor → Suggestion — chosen on purpose (progress.md QA F-1; the dialog hides the figure once a cross-year count is edited); congés across 31/12 only.
 
 ### Finding 35
 - **Severity:** Suggestion
-- **Category:** Code Quality
+- **Category:** UX — Doctor
 - **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** api/ClinicManagement.Application/Features/Team/Queries/PreviewStaffLeaveQuery.cs
-- **Line:** 66
-- **Anchor:** `PreviewStaffLeaveQueryHandler.Handle`
-- **Comment:** A hand copy of the date-range rule beside `StaffLeaveRequest.RefusalFor`. Split `RangeRefusalFor(start, end)` out and call it here.
-- **Challenge note:** Lowered to Suggestion — the preview answers « no count » rather than refusing, so a drift shows no figure, never a wrong save.
+- **File:** web/components/staff-leave/staff-leave-account-card.tsx
+- **Line:** 95
+- **Anchor:** `StaffLeaveAccountCard` › lines list
+- **Comment:** Each opening/adjustment appears twice on the page, under two names and with two ✕ (the account card's
+  list and the relevé). Fix: the card lists rules only (« Historique des règles »); openings and adjustments are
+  cancelled from the relevé.
+- **Challenge note:** Minor → Suggestion — the card list is the only place to cancel rules and earlier years' lines (the relevé has no year picker), so its proposed fix would remove a capability; do it only together with the year stepper.
 
 ### Finding 36
 - **Severity:** Suggestion
-- **Category:** Code Quality
+- **Category:** UX — Doctor
 - **Verdict:** Confirmed (adjusted — was Minor)
 - **File:** api/ClinicManagement.Application/Features/Team/Queries/ListStaffLeaveRequestsQuery.cs
-- **Line:** 104
-- **Anchor:** `ListStaffLeaveRequestsQueryHandler.Handle`
-- **Comment:** `GetApprovedOverlappingAsync` runs once per pending row (N+1). One read over the min-start→max-end span, filtered in memory.
-- **Challenge note:** Lowered to Suggestion — N is the waiting requests of one cabinet, a handful.
+- **Line:** 126
+- **Anchor:** `othersOff`
+- **Comment:** « Déjà en congé sur ces dates » counts accepted congés only; two secretaries asking for the same week
+  each get a card with no warning. Fix: a second line « Demande aussi ces dates : Amira (en attente) ».
+- **Challenge note:** Minor → Suggestion — AC-6 asks for exactly « already on an accepted congé »; showing pending ones too is an addition.
 
 ### Finding 37
 - **Severity:** Suggestion
-- **Category:** Code Quality
+- **Category:** Functionality
 - **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** api/ClinicManagement.Infrastructure/Repositories/StaffLeaveRequestRepository.cs
-- **Line:** 48
-- **Anchor:** `ListAsync`
-- **Comment:** The total re-encodes the `pendingOnly` filter (48-49) instead of reusing the one the `switch` applies (33-37); line 78 repeats `HoldsItsDays`' status set. Build the filtered query once and count it.
-- **Challenge note:** Lowered to Suggestion — both copies agree today.
+- **File:** api/ClinicManagement.API/Controllers/TeamController.cs
+- **Line:** 356
+- **Anchor:** `TeamController.StatusFor`
+- **Comment:** Congé refusals carry no code, so module-off is 400 (not 403 `team_module_off`) and « already answered »
+  / overlap / « already started » are 400, not 409 — a second admin's decision landing between the dialog's read and
+  its POST shows the sentence with no « Recharger » (AC-14). Fix: codes on the `StaffLeaveRules` refusals, mapped
+  403 / 409.
+- **Challenge note:** Minor → Suggestion — DEV-1 in progress.md chose the 400s, and the dialog re-reads just before posting and offers « Recharger » itself; only a decision landing in that millisecond window misses it. Side note: pointage's module-off is 403 in the same controller.
 
 ### Finding 38
 - **Severity:** Suggestion
-- **Category:** Code Quality
+- **Category:** Device & UX
 - **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** api/ClinicManagement.Domain/Entities/StaffLeaveRequest.cs
-- **Line:** 60
-- **Anchor:** `Covers`
-- **Comment:** Dead code: `StaffLeaveRequest.Covers` (tests only — the real rule is `StaffLeaveRequestRepository.Touching`) and `FindHoldingOverlapAsync`'s `excludeId` (never passed). Remove or wire.
-- **Challenge note:** Narrowed — the `Year` parameters of `GetMyStaffLeaveQuery` / `GetStaffFileQuery` are dropped from this finding: `?year=` is in the spec's API contract.
+- **File:** web/components/staff-leave/staff-leave-request-list.tsx
+- **Line:** 348
+- **Anchor:** `StaffLeaveHistory` › Décision cell
+- **Comment:** On an iPad landscape (table from `lg:`, finger) `TableCell clamp` cuts the refusal motif to two lines,
+  the rest only in a `title` that needs a hover. Fix: no `clamp` here, or the motif as its own block line.
+- **Challenge note:** Minor → Suggestion — `clamp` + automatic `title` is the free-text pattern frontend-web.md § 6 prescribes; the full motif is in the card form below `lg:` and in the secretary's own view.
 
 ### Finding 39
 - **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** api/ClinicManagement.Application/Features/Team/Commands/CancelStaffLeaveRequestCommand.cs
-- **Line:** 112
-- **Anchor:** `CancelStaffLeaveRequestCommandHandler.Handle`
-- **Comment:** `StaffLeaveRules.ClinicToday()` is read twice (80 and 112); reuse one `today`.
-- **Challenge note:** Lowered to Suggestion — differs only across midnight, and only in the returned `CanCancel`.
+- **Category:** UX — Secretary
+- **Verdict:** Confirmed
+- **File:** web/components/staff-leave/staff-leave-request-dialog.tsx
+- **Line:** 192
+- **Anchor:** « Demi-journée »
+- **Comment:** A demi-journée has no morning/afternoon choice, so the cabinet does not know when she is away (she will
+  write it in the motif). Fix: « Journée · Matin · Après-midi » when Du = Au.
+- **Challenge note:** A new capability on top of AC-2 (`HalfDay` is a yes/no column).
 
 ### Finding 40
 - **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed (adjusted — was Minor)
-- **File:** api/ClinicManagement.Domain/Entities/StaffNotification.cs
-- **Line:** 204
-- **Anchor:** `ForStaffLeave`
-- **Comment:** Accepts any `NotificationCategory`; a guard to the four `StaffLeave*` members would stop a mismatched row.
-- **Challenge note:** Lowered to Suggestion, and the precedent claim is wrong: the other `For*` factories hard-code their one category rather than guard a parameter.
-
-### Finding 41
-- **Severity:** Suggestion
-- **Category:** Error Handling
-- **Verdict:** Confirmed
-- **File:** api/ClinicManagement.Application/Features/Team/Queries/ListStaffLeaveRequestsQuery.cs
+- **Category:** Device & UX
+- **Verdict:** Confirmed (adjusted)
+- **File:** web/components/staff-leave/staff-leave-admin-panel.tsx
 - **Line:** 71
-- **Anchor:** `ListStaffLeaveRequestsQueryHandler.Handle`
-- **Comment:** An unknown `status` silently means « all » (200 with the wrong rows). Treat only null/blank as all; refuse anything else.
-
-### Finding 42
-- **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed
-- **File:** api/ClinicManagement.Application/Features/Team/Commands/SubmitStaffLeaveRequestCommand.cs
-- **Line:** 70
-- **Anchor:** `SubmitStaffLeaveRequestCommandHandler.Handle`
-- **Comment:** Lines 70-80 and `RecordStaffAbsenceCommand.cs:78-89` run the same four steps (`ParseType` → `RefusalFor` → `FindHoldingOverlapAsync` → `CountDays`). One `StaffLeaveRules.ValidateNewAsync(...)`; move `NotASecretary` (RecordStaffAbsenceCommand.cs:26) into `StaffLeaveRules`.
-
-### Finding 43
-- **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed
-- **File:** api/ClinicManagement.Application/Features/Team/StaffLeaveRules.cs
-- **Line:** 163
-- **Anchor:** `ResolveCallerAsync`
-- **Comment:** Same body as `StaffChatRoster.ResolveCallerAsync` (StaffChatRoster.cs:52) with different refusal constants. One `CallerResolver` in `Common/` taking the two sentences.
-
-### Finding 44
-- **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed
-- **File:** web/app/users/[userId]/page.tsx
-- **Line:** 187
-- **Anchor:** `AllowanceEditor`
-- **Comment:** The effect copies the prop into state (initializer written twice, extra render) — use `key={String(allowance)}`. `file.role as UserRole` (124) could go by typing `StaffFileDto.role` as `UserRole`.
-
-### Finding 45
-- **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed
-- **File:** web/components/staff-leave/staff-leave-decision-dialogs.tsx
-- **Line:** 109
-- **Anchor:** `AcceptLeaveDialog` / `RejectLeaveDialog`
-- **Comment:** Both repeat re-read → still Pending? → conflict → decide → toast → close → `onChanged`, with identical `reload`. A `useLeaveDecision(request, onOpenChange, onChanged)` hook.
-
-### Finding 46
-- **Severity:** Suggestion
-- **Category:** Code Quality
-- **Verdict:** Confirmed
-- **File:** web/app/users/page.tsx
-- **Line:** 82
-- **Anchor:** `UsersTabs`
-- **Comment:** `usePendingLeaveCount` is mounted here and in `DashboardSidebar`: two requests + two subscriptions per `team` broadcast on `/users`. Read it once.
-
-## Notes
-
-- **Probe bug in `qa/walk.mjs`** (Finding 2): the C rows measured `document.documentElement.scrollWidth`; `<main id="contenu-principal">` is the scroller. Fix the probe with the source fix (rule now in `test-in-browser`'s probe-trap table).
-- **Warning for `/apply-review-fixes`:** do not « fix » DEV-1/2/3 or the kept PageHeader/Tabs; Finding 28 is spec-accepted behaviour (AC-11) — optional.
-- Clean, per the migration agent: migration ↔ Designer ↔ snapshot ↔ configs consistent on this base, no `xmin`; enums appended; `ReachesALockedPhone` complete; realtime key, `AuditLabels`, all 7 `ClinicDto` sites, TS `ClinicDto` updated; archive/relay/purge derived; both `INotificationGenerator` implementations updated; `DoctorLeaveRules.Period` output unchanged; gates block new writes by default.
+- **Anchor:** team strip bar; `StaffLeaveStatusPill` (`staff-leave-bits.tsx:284`)
+- **Comment:** A hand-rolled `role="img"` bar beside `ui/progress.tsx`, and a hand-built status pill beside `Badge` +
+  `STATUS_TONE_CLASS`: the next device fix to either primitive misses these copies. Fix: `<Progress>` for the strip,
+  the pill on `Badge`.
+- **Challenge note:** The pill already uses `STATUS_TONE_CLASS`; only Badge's shape is copied. The pill is at `staff-leave-bits.tsx:19`, not 284.
 
 ## Review Summary
 
 | Severity | Count |
 |----------|-------|
-| Critical | 0 |
-| Major | 5 |
-| Minor | 21 |
-| Suggestion | 20 |
-| **Total** | 46 |
-
-## Fixes applied (2026-11-05, `/apply-review-fixes`)
-
-**41 applied · 5 not applied.**
-
-| # | Outcome | What changed |
-|---|---------|--------------|
-| 1 | fixed | rebased on origin/main 7000b0e0 without a commit; snapshot from main, migration re-scaffolded with the same `Up()` and id; `verify-schema` before/after; the merged « ⋯ » menu carries « Voir sa fiche et ses congés »; main's « Votre secrétaire » tour switches `/users` to « Comptes » |
-| 2 | fixed | history filter is a 2×2 grid below `sm:` |
-| 3 | fixed | cards and team strip hinge on their own width (`@container`), footer on `@sm:` |
-| 4 | fixed | `/conges` gets `pb-16 sm:pb-0` while the fixed button shows |
-| 5 | fixed | Accepter / Refuser go through `useDirtyGuard` + `DiscardChangesDialog` |
-| 6 | fixed | roster / clinic / history read before the save in Decide, Cancel and the allowance; test `A_Roster_That_Cannot_Be_Read_Stops_The_Decision_Before_Anything_Is_Saved` |
-| 7 | fixed | the five reads and the allowance refuse with `ModuleOff`; « Fiche » and the file page follow the switch |
-| 8 | fixed, other remedy | the first year keeps its own open days, the second takes the rest — 1 Jan taken out comes off the new year; no schema change |
-| 9 | fixed | « Cette demande est déjà annulée. » |
-| 10 | fixed | refused bell row and e-mail name the days (not repeated for a half day) |
-| 11 | fixed | `CanBeCancelledBy(byAdmin, today)`; `CanCancel` depends on who reads it |
-| 12 | fixed | « a déjà une demande en attente … : répondez-y plutôt » vs « un congé accepté » |
-| 13 | fixed | `useLeaveDialogs` is mounted by the page / panel, lists take `onOpen` |
-| 14 | fixed | « Solde {année} après » outside the current year; « Ne compte pas » for other types |
-| 15 | challenged | her file is reachable from every row of « Toutes les demandes » (table link, and now the card too — #22); a « Fiche » on doctor/admin accounts would open a congé file for accounts the spec excludes |
-| 16 | fixed | `TeamModulesCard onSaved(version)` → `setClinicVersion`; the card's own broadcast is not read as a peer's |
-| 17 | fixed | `TabsList coarse:h-auto` |
-| 18 | fixed | the figure stays on one line, « (N jours demandés) » wraps under it |
-| 19 | fixed | the name cell links to the file; the table « Fiche » button is gone |
-| 20 | fixed | admin confirm and labels name the secretary |
-| 21 | fixed | team strip: loader + `LoadFailureNotice`; another filter's rows are dropped until its read lands |
-| 22 | fixed | history cards link to the file |
-| 23 | fixed | stepper `focus-visible` ring inset |
-| 24 | fixed | `MAX_STAFF_DAYS` + `parseStaffDays` in `lib/staff-leave.ts`, used by both dialogs |
-| 25 | fixed | `DAILY_SECTION_TITLE` declared first and used by `baseSections` |
-| 26 | fixed | `PendingCount` removed (C# + TS) |
-| 27 | fixed | `User.AllowanceRefusalFor`, one constant |
-| 28 | not applied | spec AC-11: « same fields », saved as accepted — an option, not a defect |
-| 29 | fixed | a changed status closes the confirm and reloads instead of cancelling |
-| 30 | fixed | comment back on `DoctorLeaves` |
-| 31 | not applied | would refactor the shipped `use-doctor-leaves` hook, outside this feature |
-| 32 | fixed | `StaffLeaveSectionTitle` in `staff-leave-bits.tsx`, four sites |
-| 33 | fixed | `admin` prop removed |
-| 34 | fixed | `StaffLeaveRequest.RejectionRefusalFor` |
-| 35 | fixed | `StaffLeaveRequest.RangeRefusalFor`, used by the preview |
-| 36 | fixed | one approved-overlap read per list |
-| 37 | fixed | the filter is built once and counted; the `HoldsItsDays` status set stays written twice |
-| 38 | fixed | `Covers` and `excludeId` removed |
-| 39 | fixed | one `today` per cancel |
-| 40 | fixed | `ForStaffLeave` refuses a non-congé category |
-| 41 | fixed | « Filtre de statut inconnu. » |
-| 42 | fixed | `StaffLeaveRules.ValidateNewAsync` |
-| 43 | not applied | would edit StaffChat and Relay, outside this feature |
-| 44 | fixed | `key` on the editor, `StaffFileDto.role: UserRole` |
-| 45 | fixed | `useLeaveDecision` |
-| 46 | not applied | sharing one count needs a shell-level context; two reads of one number |
-
-**Gates after the last edit:** unit suite 6342/0 (6 skipped) · tsc ✅ · check:responsive 85/85 · browser `qa/run-4.md` GREEN 91/91 (with F1–F4 and the `<main>` scroll probe).
+| Critical | 2 |
+| Major | 8 |
+| Minor | 23 |
+| Suggestion | 7 |
+| **Total** | 40 |

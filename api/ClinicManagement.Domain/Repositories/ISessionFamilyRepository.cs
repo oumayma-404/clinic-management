@@ -44,6 +44,13 @@ public interface ISessionFamilyRepository
     Task<IReadOnlyList<SessionFamily>> GetLiveForUserAsync(
         string userId, DateTime nowUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The cabinet's signed-in devices: live sessions of its active accounts, most recently used first, with their
+    /// account loaded — what « Ajouter une borne » offers. Untracked, capped.
+    /// </summary>
+    Task<IReadOnlyList<SessionFamily>> GetLiveForClinicAsync(
+        Guid clinicId, DateTime nowUtc, int take, CancellationToken cancellationToken = default);
+
     Task AddAsync(SessionFamily family, CancellationToken cancellationToken = default);
 
     /// <summary>

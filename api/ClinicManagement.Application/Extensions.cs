@@ -45,6 +45,10 @@ public static class Extensions
         // AC-P4.10 — draws an act's material list out of stock when its fiche is saved. Scoped and called
         // post-commit from the dental-record handlers, like the notification generator beside it.
         services.AddScoped<IStockConsumptionService, StockConsumptionService>();
+        // pointage-obligatoire: the facts behind « Pointez votre arrivée », read by the 423 gate and the lock screen.
+        services.AddScoped<Features.Team.AttendanceLockEvaluator>();
+        // The pointage's setup rows (« créez votre schéma », borne installée / non reçue, schéma bloqué), post-commit.
+        services.AddScoped<Features.Team.AttendanceNotifier>();
         // Fire-and-forget, connectivity-gated Google Calendar sync for appointment create/update.
         services.AddScoped<IAppointmentGoogleSyncDispatcher, AppointmentGoogleSyncDispatcher>();
         services.AddScoped<Features.Relay.IRelayReturnAftermath, Features.Relay.RelayReturnAftermath>();

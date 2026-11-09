@@ -101,6 +101,7 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
                     IsMoneyHidden = clinic.IsMoneyHidden,
                     LeaveRequestsEnabled = clinic.LeaveRequestsEnabled,
                     AttendanceEnabled = clinic.AttendanceEnabled,
+                    AttendanceLockEnabled = clinic.AttendanceLockEnabled,
                     LogoUrl = clinic.LogoUrl,
                     MatriculeFiscal = clinic.MatriculeFiscal,
                     VatApplicable = clinic.VatApplicable,

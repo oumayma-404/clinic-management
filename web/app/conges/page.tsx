@@ -1,12 +1,13 @@
 "use client"
 
 import { useState } from "react"
-import { CalendarOff, Plus } from "lucide-react"
+import { CalendarOff, ChevronRight, Plus } from "lucide-react"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { StaffLeaveBalanceCard } from "@/components/staff-leave/staff-leave-balance-card"
 import { StaffLeaveMonthCalendar, StaffLeaveNextCard } from "@/components/staff-leave/staff-leave-month-calendar"
 import { StaffLeaveRequestDialog } from "@/components/staff-leave/staff-leave-request-dialog"
+import { StaffLeaveStatement } from "@/components/staff-leave/staff-leave-statement"
 import { StaffLeaveSectionTitle } from "@/components/staff-leave/staff-leave-bits"
 import { StaffLeaveRows, useLeaveDialogs } from "@/components/staff-leave/staff-leave-request-list"
 import { AccessDeniedCard } from "@/components/ui/access-denied-card"
@@ -15,25 +16,52 @@ import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PageHeader } from "@/components/ui/page-header"
+import type { MyStaffLeaveDto } from "@/lib/api/team"
 import { useSession } from "@/lib/auth/session"
 import { todayLocalIso } from "@/lib/format"
-import { useMyStaffLeave } from "@/lib/hooks/use-staff-leave"
+import { useLeaveStatementYear, useMyStaffLeave } from "@/lib/hooks/use-staff-leave"
 import { useUserStatus } from "@/lib/hooks/use-user-status"
 import { isUpcomingLeave } from "@/lib/staff-leave"
 import { cn } from "@/lib/utils"
 
-/** « Mes congés » — a secretary's balance, her requests ahead and behind, the month, and « Demander un congé ». */
+/** The relevé, folded under « Voir le relevé » so her requests come first; never removed. */
+function StatementDisclosure({ data }: { data: MyStaffLeaveDto }) {
+  const [open, setOpen] = useState(false)
+  const statement = useLeaveStatementYear({ kind: "me" }, data)
+  return (
+    <section aria-label="Relevé" className="space-y-3">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ms-2 gap-1.5 px-2 text-muted-foreground coarse:h-11"
+        aria-expanded={open}
+        aria-controls="leave-statement-panel"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <ChevronRight className={cn("size-4 transition-transform", open && "rotate-90")} aria-hidden="true" />
+        {open ? "Masquer le relevé" : "Voir le relevé"}
+      </Button>
+      {open && (
+        <div id="leave-statement-panel">
+          <StaffLeaveStatement {...statement} />
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** « Mes congés » — her balance, what is ahead of her, the relevé on demand, her history and the month. */
 export default function CongesPage() {
   const { user, isLoading: sessionLoading } = useSession()
   const { data: status, isLoading: statusLoading } = useUserStatus()
   const isSecretary = user?.role === "secretary"
   const enabled = status?.clinic?.leaveRequestsEnabled === true
-  const { data, loading, failed, refetch } = useMyStaffLeave(isSecretary && enabled)
+  const canAsk = isSecretary && enabled
+  const { data, loading, failed, refetch } = useMyStaffLeave(canAsk)
   const [dialogOpen, setDialogOpen] = useState(false)
   const todayKey = todayLocalIso()
   const { open, dialogs } = useLeaveDialogs(refetch)
 
-  const canAsk = isSecretary && enabled
   const askButton = (className?: string) => (
     <Button className={cn("gap-2 coarse:h-11", className)} onClick={() => setDialogOpen(true)}>
       <Plus className="size-4" aria-hidden="true" />
@@ -67,11 +95,18 @@ export default function CongesPage() {
     }
     if (loading && !data) return <AppLoader label="Chargement de vos congés…" />
     if (failed || !data) return <LoadFailureNotice message="Vos congés n'ont pas pu être chargés." onRetry={refetch} />
+
+    const hasStatement = data.statement.length > 0 || data.balance.hasAccount || data.balance.takenTotal > 0
+    const statement = hasStatement ? <StatementDisclosure data={data} /> : null
+
     return (
       <>
         <StaffLeaveBalanceCard balance={data.balance} />
         {data.items.length === 0 ? (
-          <EmptyState icon={CalendarOff} title="Aucune demande pour le moment" action={askButton()} />
+          <>
+            <EmptyState icon={CalendarOff} title="Aucune demande pour le moment" />
+            {statement}
+          </>
         ) : (
           <div className="flex flex-wrap items-start gap-6">
             <div className="min-w-0 flex-[999_1_32rem] space-y-6">
@@ -83,6 +118,7 @@ export default function CongesPage() {
                   <StaffLeaveRows items={upcoming} todayKey={todayKey} onOpen={open} />
                 )}
               </section>
+              {statement}
               {history.length > 0 && (
                 <section aria-labelledby="leave-history" className="space-y-3">
                   <StaffLeaveSectionTitle id="leave-history">Historique</StaffLeaveSectionTitle>
@@ -101,16 +137,14 @@ export default function CongesPage() {
     )
   }
 
-  const showAsk = canAsk && Boolean(data) && (data?.items.length ?? 0) > 0
-
   return (
     <ClinicGuard>
       {/* The fixed phone button covers the last ~60 px of the page, so the content gets a runway to scroll past it. */}
-      <AppShell contentClassName={cn("space-y-6", showAsk && "pb-16 sm:pb-0")}>
-        <PageHeader title="Mes congés" actions={showAsk ? askButton("hidden sm:inline-flex") : undefined} />
+      <AppShell contentClassName={cn("space-y-6", canAsk && "pb-16 sm:pb-0")}>
+        <PageHeader title="Mes congés" actions={canAsk ? askButton("hidden sm:inline-flex") : undefined} />
         {body()}
       </AppShell>
-      {showAsk && (
+      {canAsk && (
         // A phone asks from the bottom of the screen, where the thumb is; the header button takes over from `sm:`.
         <div className="fixed inset-x-4 bottom-[calc(var(--bottom-inset)+0.75rem)] z-30 sm:hidden print:hidden">
           {askButton("h-12 w-full text-base shadow-lg")}

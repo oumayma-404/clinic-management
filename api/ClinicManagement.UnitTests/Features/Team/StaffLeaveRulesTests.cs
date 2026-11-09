@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Features.Team;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
+using ClinicManagement.Domain.Services;
 using Xunit;
 
 namespace ClinicManagement.UnitTests.Features.Team;
@@ -23,6 +24,15 @@ public class StaffLeaveRulesTests
     private static string Hours(params DayOfWeek[] open) =>
         "[" + string.Join(",", Enum.GetValues<DayOfWeek>().Select(d =>
             $"{{\"Day\":\"{d}\",\"Enabled\":{(open.Contains(d) ? "true" : "false")},\"From\":\"09:00\",\"To\":\"17:00\",\"BreakFrom\":null,\"BreakTo\":null}}")) + "]";
+
+    /// <summary>24 j par an from 1 January 2026, read on 20 November 2026 — the old « droit annuel » of these cases.</summary>
+    private static readonly DateOnly Fri20Nov = new(2026, 11, 20);
+
+    private static StaffLeaveAllowanceEntry[] TwentyFourAYear() => new[]
+    {
+        StaffLeaveAllowanceEntry.Rule(Guid.NewGuid(), ClinicId, Secretary, 24m, StaffLeaveAccrual.Year, false,
+            new DateOnly(2026, 1, 1), Admin, "Dr Salma", new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+    };
 
     private static StaffLeaveRequest Leave(
         StaffLeaveType type, DateOnly start, DateOnly end, decimal days, StaffLeaveStatus status, decimal? counted = null)
@@ -102,7 +112,7 @@ public class StaffLeaveRulesTests
             Leave(StaffLeaveType.Sick, Mon16Nov.AddDays(5), Mon16Nov.AddDays(5), 1m, StaffLeaveStatus.Pending),
         };
 
-        var balance = StaffLeaveRules.Balance(2026, 24m, requests, null);
+        var balance = StaffLeaveAccounts.Balance(StaffLeaveAccounts.Fold(TwentyFourAYear(), requests, null, Fri20Nov), 2026);
 
         Assert.Equal(2026, balance.Year);
         Assert.Equal(2.5m, balance.Taken);
@@ -113,9 +123,10 @@ public class StaffLeaveRulesTests
     [Fact]
     public void With_No_Allowance_There_Is_No_Remaining()
     {
-        var balance = StaffLeaveRules.Balance(2026, null, Array.Empty<StaffLeaveRequest>(), null);
+        var balance = StaffLeaveAccounts.Balance(
+            StaffLeaveAccounts.Fold(Array.Empty<StaffLeaveAllowanceEntry>(), Array.Empty<StaffLeaveRequest>(), null, Fri20Nov), 2026);
 
-        Assert.Null(balance.Allowance);
+        Assert.False(balance.HasAccount);
         Assert.Null(balance.Remaining);
         Assert.Equal(0m, balance.Taken);
     }
@@ -128,9 +139,10 @@ public class StaffLeaveRulesTests
             Leave(StaffLeaveType.PaidLeave, Mon16Nov, Mon16Nov.AddDays(2), 3m, StaffLeaveStatus.Approved, counted: 2.5m),
         };
 
-        var after = StaffLeaveRules.BalanceAfter(24m, history, Wed30Dec, Sat2Jan, 4m, null);
+        var after = StaffLeaveAccounts.BalanceAfter(TwentyFourAYear(), history, null, Wed30Dec, Sat2Jan, 4m, Fri20Nov);
 
-        Assert.Equal(19.5m, after);
+        Assert.Equal(19.5m, after!.Balance);
+        Assert.Equal(Wed30Dec, after.On);
     }
 
     [Fact]
@@ -139,16 +151,18 @@ public class StaffLeaveRulesTests
         var accepted = Leave(StaffLeaveType.PaidLeave, Mon16Nov, Mon16Nov.AddDays(2), 3m, StaffLeaveStatus.Approved, counted: 2.5m);
         var crossing = Leave(StaffLeaveType.PaidLeave, Wed30Dec, Sat2Jan, 4m, StaffLeaveStatus.Approved);
 
-        var announced = StaffLeaveRules.BalanceAfter(24m, new[] { accepted }, Wed30Dec, Sat2Jan, 4m, null);
-        var actual = StaffLeaveRules.Balance(2026, 24m, new[] { accepted, crossing }, null).Remaining;
+        var rule = TwentyFourAYear();
+        var announced = StaffLeaveAccounts.BalanceAfter(rule, new[] { accepted }, null, Wed30Dec, Sat2Jan, 4m, Fri20Nov);
+        var actual = StaffLeaveAccounts.Fold(rule, new[] { accepted, crossing }, null, Fri20Nov).Year(2026).Remaining;
 
-        Assert.Equal(actual, announced);
+        Assert.Equal(actual, announced!.Balance);
     }
 
     [Fact]
     public void A_Same_Year_Congé_Deducts_All_Its_Days()
     {
-        Assert.Equal(21m, StaffLeaveRules.BalanceAfter(24m, Array.Empty<StaffLeaveRequest>(), Mon16Nov, Mon16Nov.AddDays(2), 3m, null));
+        Assert.Equal(21m, StaffLeaveAccounts.BalanceAfter(
+            TwentyFourAYear(), Array.Empty<StaffLeaveRequest>(), null, Mon16Nov, Mon16Nov.AddDays(2), 3m, Fri20Nov)!.Balance);
     }
 
     [Fact]

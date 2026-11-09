@@ -184,8 +184,7 @@ public static class RelayAlertRules
         var days = read.State == WorkingHoursReadState.Valid ? read.Days : DefaultHours;
 
         var local = ClinicClock.ToClinicLocal(nowUtc);
-        var dayName = WorkingHoursSerializer.Weekdays[(int)local.DayOfWeek];
-        var day = days.FirstOrDefault(d => string.Equals(d.Day?.Trim(), dayName, StringComparison.OrdinalIgnoreCase));
+        var day = WorkingHoursSerializer.DayOf(days, local.DayOfWeek);
         if (day is null || !day.Enabled
             || !WorkingHoursSerializer.TryParseTime(day.From, out var from)
             || !WorkingHoursSerializer.TryParseTime(day.To, out var to))

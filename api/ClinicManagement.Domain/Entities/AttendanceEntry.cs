@@ -31,6 +31,12 @@ public class AttendanceEntry : AggregateRoot<Guid>
     public DateTime? DepartureUtc { get; private set; }
     public AttendanceDepartureSource? DepartureSource { get; private set; }
 
+    /// <summary>
+    /// A departure she gave herself the next morning (<c>pointage-obligatoire</c> AC-8): her last save in the app that
+    /// day, as she was shown it — null when the journal held none. Meaningful only while the departure is declared.
+    /// </summary>
+    public DateTime? DeclaredLastSaveUtc { get; private set; }
+
     public string? CorrectedByUserId { get; private set; }
     public string? CorrectionReason { get; private set; }
     public DateTime? CorrectedAt { get; private set; }
@@ -40,6 +46,9 @@ public class AttendanceEntry : AggregateRoot<Guid>
 
     public bool IsOpen => DepartureUtc is null;
     public bool IsCorrected => CorrectedAt is not null;
+
+    /// <summary>Its departure is the hour she declared, untouched since (an admin's correction makes it « Corrigé »).</summary>
+    public bool IsDeclared => DepartureSource == AttendanceDepartureSource.DeclaredBySelf;
 
     private AttendanceEntry() { } // For EF Core
 
@@ -114,6 +123,25 @@ public class AttendanceEntry : AggregateRoot<Guid>
         PunchedDepartureUtc = nowUtc;
         DepartureUtc = nowUtc;
         DepartureSource = AttendanceDepartureSource.Borne;
+        UpdatedAt = nowUtc;
+    }
+
+    /// <summary>
+    /// The departure of an earlier day she forgot to pointer, given by her at the next arrival. Never today's line:
+    /// that one closes at the borne.
+    /// </summary>
+    public void DeclareDeparture(DateTime departureUtc, DateTime? lastSaveUtc, DateOnly localToday, DateTime nowUtc)
+    {
+        if (!IsOpen)
+            throw new InvalidOperationException("Ce pointage a déjà un départ.");
+        if (LocalDay >= localToday)
+            throw new InvalidOperationException("Seul le départ d'un jour passé se déclare.");
+        if (departureUtc <= ArrivalUtc)
+            throw new ArgumentException("Le départ doit être après l'arrivée.", nameof(departureUtc));
+
+        DepartureUtc = departureUtc;
+        DepartureSource = AttendanceDepartureSource.DeclaredBySelf;
+        DeclaredLastSaveUtc = lastSaveUtc;
         UpdatedAt = nowUtc;
     }
 

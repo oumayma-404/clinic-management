@@ -434,6 +434,22 @@ public class AttendanceRulesTests
     }
 
     [Fact]
+    public void An_Empty_Day_Counts_As_Absent_Only_From_The_First_Line_And_The_Account_Creation()
+    {
+        var created = AttendanceRules.LocalDayOf(_ines.CreatedAt);
+
+        Assert.Null(AttendanceSheetBuilder.CountsFrom(null, _ines));
+        Assert.Equal(created, AttendanceSheetBuilder.CountsFrom(created.AddDays(-30), _ines));
+        Assert.Equal(created.AddDays(5), AttendanceSheetBuilder.CountsFrom(created.AddDays(5), _ines));
+
+        var roster = new Dictionary<string, User> { [_ines.Id] = _ines };
+        var sheet = AttendanceSheetBuilder.Build(
+            "2026-11", Sun1Nov, new DateOnly(2026, 11, 30), new[] { _ines }, Array.Empty<AttendanceEntry>(),
+            Array.Empty<StaffLeaveRequest>(), roster, null, Thu5Nov, created.AddDays(5));
+        Assert.Equal(created.AddDays(5), Assert.Single(sheet.People).CountsFrom);
+    }
+
+    [Fact]
     public void The_Sheet_Has_A_Column_For_Who_Pointe_Plus_Anyone_With_A_Line_That_Month()
     {
         var gone = Person(User.RoleSecretary, "Sana Partie");
@@ -455,10 +471,10 @@ public class AttendanceRulesTests
         var amira = Person(User.RoleSecretary, "Amira Ben Salah");
         var leaves = new[] { Leave(_ines, Thu5Nov, Thu5Nov), Leave(_leila, Thu5Nov, Thu5Nov), Leave(amira, Thu5Nov, Thu5Nov, halfDay: true) };
 
-        var ines = TeamTodayRules.PersonToday(_ines, lines, leaves, Thu5Nov);
-        var leila = TeamTodayRules.PersonToday(_leila, lines, leaves, Thu5Nov);
-        var halfDay = TeamTodayRules.PersonToday(amira, lines, leaves, Thu5Nov);
-        var nobody = TeamTodayRules.PersonToday(_admin, lines, leaves, Thu5Nov);
+        var ines = TeamTodayRules.PersonToday(_ines, lines, leaves, Noon5NovUtc);
+        var leila = TeamTodayRules.PersonToday(_leila, lines, leaves, Noon5NovUtc);
+        var halfDay = TeamTodayRules.PersonToday(amira, lines, leaves, Noon5NovUtc);
+        var nobody = TeamTodayRules.PersonToday(_admin, lines, leaves, Noon5NovUtc);
 
         Assert.Equal(AttendanceRules.StateOut, halfDay.State);
         Assert.True(halfDay.LeaveHalfDay);

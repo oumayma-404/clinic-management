@@ -1,36 +1,36 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { toast } from "sonner"
 import { ArrowLeft, CalendarOff, Plus } from "lucide-react"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
+import { CancelEntryDialog, StaffLeaveAccountCard, type CancellableLine } from "@/components/staff-leave/staff-leave-account-card"
 import { StaffLeaveBalanceCard } from "@/components/staff-leave/staff-leave-balance-card"
+import { StaffLeaveStatement } from "@/components/staff-leave/staff-leave-statement"
 import { StaffLeaveRequestDialog } from "@/components/staff-leave/staff-leave-request-dialog"
 import { StaffLeaveSectionTitle } from "@/components/staff-leave/staff-leave-bits"
 import { StaffLeaveHistory, useLeaveDialogs } from "@/components/staff-leave/staff-leave-request-list"
 import { AttendancePanel } from "@/components/team/attendance-panel"
+import { PointagePersonRow } from "@/components/team/attendance-settings-card"
+import { TEAM_SETTINGS_HREF } from "@/components/team/team-today-list"
 import { STATUS_TONE_CLASS } from "@/components/ui/status-tone"
 import { AccessDeniedCard } from "@/components/ui/access-denied-card"
 import { AppLoader } from "@/components/ui/app-loader"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { PageHeader } from "@/components/ui/page-header"
-import { teamApi } from "@/lib/api/team"
+import { pointageApi, type AttendancePersonSettingDto } from "@/lib/api/pointage"
 import { USER_ROLE_LABELS_FR } from "@/lib/api/users"
 import { useSession } from "@/lib/auth/session"
-import { showErrorToast } from "@/lib/errors"
-import { useStaffFile } from "@/lib/hooks/use-staff-leave"
+import { useLeaveStatementYear, useStaffFile } from "@/lib/hooks/use-staff-leave"
 import { useUserStatus } from "@/lib/hooks/use-user-status"
 import type { StaffLeaveType } from "@/lib/api/team"
-import { MAX_STAFF_DAYS, formatStaffDays, parseStaffDays, staffDaysShort } from "@/lib/staff-leave"
+import { leaveMovementLabel, staffDaysShort } from "@/lib/staff-leave"
+import { RealtimeResource } from "@/lib/realtime/clinic-hub"
+import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { cn } from "@/lib/utils"
 
 const TYPE_SWATCH: Record<StaffLeaveType, string> = {
@@ -51,7 +51,7 @@ function decodeSegment(value: string | string[] | undefined): string | null {
   }
 }
 
-/** A secretary's file for the admin: her congé balance, the yearly allowance, and every request. */
+/** A secretary's file for the admin: her congé balance, her « Droit à congé » and its relevé, and every request. */
 export default function StaffFilePage() {
   const params = useParams()
   const userId = decodeSegment(params?.userId)
@@ -63,9 +63,17 @@ export default function StaffFilePage() {
   const [attendanceName, setAttendanceName] = useState<string | null>(null)
   const { data: file, loading, failed, refetch } = useStaffFile(isAdmin && leaveEnabled ? userId : null)
   const [absenceOpen, setAbsenceOpen] = useState(false)
-  const { open, dialogs } = useLeaveDialogs(refetch, { showName: true })
+  const [cancelling, setCancelling] = useState<CancellableLine | null>(null)
+  const { open, dialogs } = useLeaveDialogs(refetch, { admin: true })
+  const statement = useLeaveStatementYear(userId && file ? { kind: "user", userId } : null, file)
+  const refetchLeave = () => {
+    refetch()
+    statement.onRetry()
+  }
 
   const canRecordAbsence = Boolean(file && leaveEnabled && file.role === "secretary")
+  // A secretary's file, or anyone who still has congés or « Droit à congé » lines from when she was one.
+  const showLeave = !file || file.role === "secretary" || file.items.length > 0 || file.entries.length > 0
 
   const body = () => {
     if (sessionLoading || !status) return <AppLoader />
@@ -77,59 +85,81 @@ export default function StaffFilePage() {
         />
       )
     }
-    const presences =
-      attendanceEnabled && userId ? (
-        <section aria-labelledby="staff-presences" className="space-y-3">
-          <StaffLeaveSectionTitle id="staff-presences">Présences</StaffLeaveSectionTitle>
-          <AttendancePanel scope={{ kind: "person", userId }} onPersonName={setAttendanceName} />
-        </section>
-      ) : null
-    if (!leaveEnabled) {
+    if (!leaveEnabled && !attendanceEnabled) {
       return (
-        presences ?? (
-          <EmptyState
-            icon={CalendarOff}
-            title="Les demandes de congé ne sont pas activées"
-            description="Activez-les dans « Paramètres » pour retrouver le solde et l'historique de chacun."
-          />
-        )
+        <EmptyState
+          icon={CalendarOff}
+          title="Ni les congés ni le pointage ne sont activés"
+          action={
+            <Button asChild className="coarse:h-11">
+              <Link href={TEAM_SETTINGS_HREF}>Activer dans Paramètres</Link>
+            </Button>
+          }
+        />
       )
     }
+    // Présences stand on their own read: a failed congés file must not take them down with it.
+    return (
+      <>
+        {leaveEnabled && showLeave && leaveBody()}
+        {leaveEnabled && !showLeave && !attendanceEnabled && (
+          <EmptyState size="compact" icon={CalendarOff} title="Aucun congé enregistré" />
+        )}
+        {attendanceEnabled && userId && (
+          <section aria-labelledby="staff-presences" className="space-y-3">
+            <StaffLeaveSectionTitle id="staff-presences">Présences</StaffLeaveSectionTitle>
+            <StaffPointageHeader userId={userId} />
+            <AttendancePanel scope={{ kind: "person", userId }} onPersonName={setAttendanceName} />
+          </section>
+        )}
+      </>
+    )
+  }
+
+  const leaveBody = () => {
     if (loading && !file) return <AppLoader label="Chargement de la fiche…" />
-    if (failed || !file) return <LoadFailureNotice message="La fiche n'a pas pu être chargée." onRetry={refetch} />
+    if (failed || !file) return <LoadFailureNotice message="Les congés n'ont pas pu être chargés." onRetry={refetch} />
     return (
       <>
         <div className="flex flex-wrap items-stretch gap-4">
-          <StaffLeaveBalanceCard
-            className="min-w-0 flex-[999_1_28rem]"
-            balance={file.balance}
-            action={
-              <AllowanceEditor
-                key={String(file.balance.allowance)}
-                userId={file.userId}
-                allowance={file.balance.allowance}
-                onSaved={refetch}
-              />
-            }
-          />
+          <StaffLeaveBalanceCard className="min-w-0 flex-[999_1_28rem]" balance={file.balance} />
           <section
             aria-labelledby="staff-leave-by-type"
             className="min-w-0 flex-[1_1_16rem] space-y-2 rounded-xl border bg-card p-5 sm:p-6"
           >
             <StaffLeaveSectionTitle id="staff-leave-by-type">Absences acceptées en {file.balance.year}</StaffLeaveSectionTitle>
             <ul className="divide-y">
-              {file.acceptedByType.map((total) => (
-                <li key={total.type} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                  <span className="inline-flex items-center gap-2.5">
-                    <span aria-hidden="true" className={cn("size-2 rounded-sm", TYPE_SWATCH[total.type])} />
-                    {total.typeLabel}
-                  </span>
-                  <span className="font-semibold tabular-nums">{staffDaysShort(total.days)}</span>
-                </li>
-              ))}
+              {file.acceptedByType.map((total) => {
+                const inOpening = total.type === "PaidLeave" ? (file.balance.takenInOpening ?? 0) : 0
+                return (
+                  <li key={total.type} className="py-2.5 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="inline-flex items-center gap-2.5">
+                        <span aria-hidden="true" className={cn("size-2 rounded-sm", TYPE_SWATCH[total.type])} />
+                        {total.typeLabel}
+                      </span>
+                      <span className="font-semibold tabular-nums">{staffDaysShort(total.days)}</span>
+                    </div>
+                    {inOpening > 0 && (
+                      <p className="ps-[1.125rem] text-xs text-muted-foreground">
+                        dont {staffDaysShort(inOpening)}{" "}
+                        {file.balance.opening !== null ? "inclus dans le solde de départ" : "avant le début du droit à congé"}
+                      </p>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           </section>
         </div>
+        <StaffLeaveAccountCard file={file} onChanged={refetchLeave} />
+        <section aria-labelledby="staff-leave-statement" className="space-y-3">
+          <StaffLeaveSectionTitle id="staff-leave-statement">Relevé</StaffLeaveSectionTitle>
+          <StaffLeaveStatement
+            {...statement}
+            onCancel={(m) => m.entryId && setCancelling({ id: m.entryId, label: leaveMovementLabel(m) })}
+          />
+        </section>
         <section aria-labelledby="staff-leave-history" className="space-y-3">
           <StaffLeaveSectionTitle id="staff-leave-history">Historique</StaffLeaveSectionTitle>
           {file.items.length === 0 ? (
@@ -143,7 +173,6 @@ export default function StaffFilePage() {
             />
           )}
         </section>
-        {presences}
       </>
     )
   }
@@ -154,7 +183,10 @@ export default function StaffFilePage() {
     <ClinicGuard>
       <AppShell contentClassName="space-y-6">
         <Button asChild variant="ghost" size="sm" className="-ms-2 w-fit gap-1.5 coarse:h-11">
-          <Link href="/users?onglet=conges">
+          <Link
+            href={leaveEnabled || !attendanceEnabled ? "/users?onglet=conges" : "/users?onglet=presences"}
+            data-guide="conges-back"
+          >
             <ArrowLeft className="size-4" aria-hidden="true" />
             Utilisateurs
           </Link>
@@ -186,81 +218,58 @@ export default function StaffFilePage() {
         {body()}
       </AppShell>
       {dialogs}
+      <CancelEntryDialog entry={cancelling} onClose={() => setCancelling(null)} onSaved={refetchLeave} />
       {file && canRecordAbsence && (
         <StaffLeaveRequestDialog
           open={absenceOpen}
           onOpenChange={setAbsenceOpen}
           target={{ kind: "admin", userId: file.userId, userName: file.fullName }}
-          onSaved={refetch}
+          onSaved={refetchLeave}
         />
       )}
     </ClinicGuard>
   )
 }
 
-/** « Droit annuel » — days of congé payé a year, in halves; empty clears it. Keyed on the saved value by its caller. */
-function AllowanceEditor({
-  userId,
-  allowance,
-  onSaved,
-}: {
-  userId: string
-  allowance: number | null
-  onSaved: () => void
-}) {
-  const [value, setValue] = useState(allowance === null ? "" : formatStaffDays(allowance))
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+/** The file's « Présences » header: whether this person pointe, their schéma, and its two fixes. */
+function StaffPointageHeader({ userId }: { userId: string }) {
+  const { data: status } = useUserStatus()
+  const lockOn = status?.clinic?.attendanceLockEnabled !== false
+  const [person, setPerson] = useState<AttendancePersonSettingDto | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (saving) return
-    let days: number | null = null
-    if (value.trim()) {
-      days = parseStaffDays(value)
-      if (days === null) {
-        setError(`Par demi-journée, entre 0 et ${MAX_STAFF_DAYS}.`)
-        return
-      }
-    }
-    setSaving(true)
-    setError(null)
+  const load = useCallback(async () => {
     try {
-      await teamApi.setAllowance(userId, days)
-      toast.success(days === null ? "Droit annuel retiré" : "Droit annuel enregistré")
-      onSaved()
-    } catch (err) {
-      showErrorToast(err, "Le droit annuel n'a pas pu être enregistré.")
+      const settings = await pointageApi.settings()
+      setPerson(settings.people.find((p) => p.userId === userId) ?? null)
+      setFailed(false)
+    } catch {
+      setFailed(true)
     } finally {
-      setSaving(false)
+      setLoaded(true)
     }
-  }
+  }, [userId])
 
+  useEffect(() => {
+    void load()
+  }, [load])
+  useClinicRealtime(RealtimeResource.Team, () => void load())
+
+  if (failed && !person) {
+    return (
+      <LoadFailureNotice
+        variant="inline"
+        message="Le réglage du pointage n'a pas pu être chargé."
+        onRetry={() => void load()}
+      />
+    )
+  }
+  if (!loaded) return <div className="h-12 animate-pulse rounded-md bg-muted/50" aria-hidden="true" />
+  if (!person) return null
   return (
-    <form noValidate onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
-      <div className="space-y-1">
-        <Label htmlFor="staff-allowance">Droit annuel (jours)</Label>
-        <Input
-          id="staff-allowance"
-          inputMode="decimal"
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value)
-            setError(null)
-          }}
-          aria-invalid={Boolean(error)}
-          aria-describedby={error ? "staff-allowance-error" : undefined}
-          className="w-28 md:text-sm"
-        />
-      </div>
-      <Button type="submit" variant="outline" className="coarse:h-11" disabled={saving}>
-        {saving ? "Enregistrement…" : "Enregistrer"}
-      </Button>
-      {error && (
-        <p id="staff-allowance-error" className="basis-full text-xs text-destructive">
-          {error}
-        </p>
-      )}
-    </form>
+    <div className="rounded-md border bg-card px-3 py-2.5">
+      <PointagePersonRow as="div" showName={false} person={person} lockOn={lockOn} onChanged={() => void load()} />
+    </div>
   )
 }

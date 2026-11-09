@@ -325,12 +325,13 @@ function LocalLoginForm() {
         // Sent only once the field exists, so « pas encore demandé » stays distinct from « demandé et faux ».
         // `trustDevice` rides every attempt including the first: the first one opens no session, so the server
         // reads and discards it — sending it only on the second would mean tracking which attempt this is.
+        // Named on every sign-in, trusted or not: « Ajouter une borne » lists the shared reception PC by it.
         body: JSON.stringify({
           email,
           password,
           ...(totpCode ? { totpCode } : {}),
           trustDevice,
-          ...(trustDevice ? { deviceLabel: deviceName() } : {}),
+          deviceLabel: deviceName(),
           // The first sign-in from the phone app ticks « Votre téléphone » in « Premiers pas ».
           clientSurface: appSurface(),
         }),

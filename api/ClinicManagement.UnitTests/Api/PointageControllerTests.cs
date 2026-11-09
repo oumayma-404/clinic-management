@@ -132,6 +132,49 @@ public class PointageControllerTests
     }
 
     [Fact]
+    public async Task An_Earlier_Day_Left_Open_Answers_409_With_What_The_Declaration_Step_Shows()
+    {
+        PunchAnswers(Result<PunchOutcome>.Success(new PunchOutcome(null, new PunchRefusal(
+            AttendanceLockRules.PreviousDepartureMissingCode,
+            AttendanceLockRules.PreviousDepartureMissing(new DateOnly(2026, 11, 5), new DateOnly(2026, 11, 6)), null, null,
+            new PreviousDayDto("2026-11-05", "08:02", "17:46")))));
+
+        var result = Assert.IsType<ObjectResult>((await Controller().Punch(Tap, default)).Result);
+
+        Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
+        var body = Body(result);
+        Assert.Equal(AttendanceLockRules.PreviousDepartureMissingCode, body.GetProperty("code").GetString());
+        Assert.Equal("2026-11-05", body.GetProperty("day").GetString());
+        Assert.Equal("08:02", body.GetProperty("arrival").GetString());
+        Assert.Equal("17:46", body.GetProperty("lastSaveAt").GetString());
+        Assert.Empty(SetCookie);
+    }
+
+    [Fact]
+    public async Task The_Declared_Hour_Travels_From_The_Body_To_The_Command()
+    {
+        PunchAnswers(Result<PunchOutcome>.Failure(AttendanceRules.TerminalUnknown, AttendanceRules.TerminalUnknownCode));
+
+        await Controller().Punch(new PointageController.PunchRequest("user-1", new List<int> { 0, 1, 2, 5 }, "arrival", "17:30"), default);
+
+        _mediator.Verify(m => m.Send(It.Is<PunchCommand>(c => c.DeclaredPreviousDeparture == "17:30"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(true, "borne-secret")]
+    [InlineData(false, null)]
+    public async Task Her_Clock_Status_Is_Asked_With_This_Devices_Borne_Cookie(bool withCookie, string? expected)
+    {
+        _mediator.Setup(m => m.Send(It.IsAny<GetMyClockStatusQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<ClockStatusDto>.Success(new ClockStatusDto { Locked = true }));
+
+        var result = await Controller(withCookie).MyClockStatus(default);
+
+        Assert.True(Assert.IsType<ClockStatusDto>(Assert.IsType<OkObjectResult>(result.Result).Value).Locked);
+        _mediator.Verify(m => m.Send(It.Is<GetMyClockStatusQuery>(q => q.Secret == expected), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task The_Status_Read_Is_Asked_With_The_Devices_Cookie()
     {
         _mediator.Setup(m => m.Send(It.IsAny<GetPointageStatusQuery>(), It.IsAny<CancellationToken>()))

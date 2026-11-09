@@ -12,6 +12,9 @@ namespace ClinicManagement.Application.Features.Team.Queries;
 /// <summary>The caller's own congés: the year's balance and every request, newest first.</summary>
 public class GetMyStaffLeaveQuery : IRequest<Result<MyStaffLeaveDto>>
 {
+    /// <summary>The clinic day judged; today when absent. Tests pin it, so a balance never depends on when the suite runs.</summary>
+    public DateOnly? Today { get; init; }
+
     /// <summary>The year the balance is for; the clinic's current year when absent.</summary>
     public int? Year { get; set; }
 }
@@ -19,17 +22,20 @@ public class GetMyStaffLeaveQuery : IRequest<Result<MyStaffLeaveDto>>
 public class GetMyStaffLeaveQueryHandler : IRequestHandler<GetMyStaffLeaveQuery, Result<MyStaffLeaveDto>>
 {
     private readonly IStaffLeaveRequestRepository _requests;
+    private readonly IStaffLeaveAllowanceRepository _allowances;
     private readonly IUserRepository _users;
     private readonly IClinicRepository _clinics;
     private readonly IClinicContext _clinicContext;
 
     public GetMyStaffLeaveQueryHandler(
         IStaffLeaveRequestRepository requests,
+        IStaffLeaveAllowanceRepository allowances,
         IUserRepository users,
         IClinicRepository clinics,
         IClinicContext clinicContext)
     {
         _requests = requests;
+        _allowances = allowances;
         _users = users;
         _clinics = clinics;
         _clinicContext = clinicContext;
@@ -49,12 +55,15 @@ public class GetMyStaffLeaveQueryHandler : IRequestHandler<GetMyStaffLeaveQuery,
                 return Result<MyStaffLeaveDto>.Failure(StaffLeaveRules.ModuleOff);
             var all = await _requests.GetByUserAsync(caller.ClinicId, caller.Id, cancellationToken);
             var roster = await StaffLeaveRules.RosterAsync(_users, caller.ClinicId, cancellationToken);
-            var today = StaffLeaveRules.ClinicToday();
+            var today = request.Today ?? StaffLeaveRules.ClinicToday();
+            var entries = await _allowances.GetForUserAsync(caller.ClinicId, caller.Id, cancellationToken);
+            var year = request.Year ?? today.Year;
+            var account = StaffLeaveAccounts.Fold(entries, all, clinic.WorkingHoursJson, today, year);
 
             return Result<MyStaffLeaveDto>.Success(new MyStaffLeaveDto
             {
-                Balance = StaffLeaveRules.Balance(
-                    request.Year ?? ClinicClock.ClinicYear(), caller.AnnualLeaveAllowanceDays, all, clinic.WorkingHoursJson),
+                Balance = StaffLeaveAccounts.Balance(account, year),
+                Statement = StaffLeaveAccounts.Statement(account, year, all, entries),
                 Items = all.Select(r => StaffLeaveRules.ToDto(r, roster, today, viewerIsAdmin: caller.IsAdmin())).ToList(),
             });
         }

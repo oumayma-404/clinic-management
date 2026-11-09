@@ -155,3 +155,43 @@ Fresh worktree from `origin/main`. Only untracked: the four `features/` spec fol
 | Suite | Filter | Result |
 |-------|--------|--------|
 | Unit (Release, scratch `BaseOutputPath`) | none — the unfiltered suite | 6329 passed, 0 failed, 6 skipped (pre-existing) |
+
+## « Droit à congé » — rule, starting balance, relevé (owner, 2026-11-06)
+
+Blueprint: `droit-conges-blueprint.md` (option 1 of `/think-solution`). « Droit annuel » (one number reset each 1
+January) becomes a **rule per secretary** (« N j par an » on 1 January or « N j par mois » on each 1st, from a date,
+unused days lost on 31/12 or carried) plus a **starting balance** and **days ± with a motif**, all append-only and
+cancelled with a motif. Acquired, taken, planned, lost and the relevé are folded on read (`StaffLeaveLedger`), so the
+card, the file, a waiting request's « solde après » and the decision e-mail cannot disagree.
+
+**Decisions (reversible):** a request beyond the balance is not refused (today's behaviour); a negative balance
+carries into the next year; the leave year is the calendar year; « solde après » is read on the congé's first day (a
+monthly rule's credits until then count); with no rule in force on 31/12, nothing expires.
+
+**Migration `AddStaffLeaveAllowanceEntries`:** the table (no `xmin`, hand-removed), then each non-null
+`Users.AnnualLeaveAllowanceDays` → a rule « N j par an, perdus au 31/12 » from 1 January of the clinic's year (no
+balance moves), then the column is dropped (hand-ordered after the backfill). `Down` restores the latest yearly rule.
+Applied to the demo copy only.
+
+**Tests:** `StaffLeaveLedgerTests` (28) + `StaffLeaveAllowanceCommandTests` (11); the balance tests of
+`StaffLeaveRulesTests` / `StaffLeaveQueryTests` moved onto `StaffLeaveAccounts` with the day pinned (`Today`); the old
+allowance command and its 6 tests are gone. Whole suite **6772 passed · 0 failed · 6 skipped**. `check:responsive`
+86/86 · `tsc` clean.
+
+**Browser:** run 6 RED (F1 — « par an » → « par mois » emptied « À partir du » and the rule was not saved; the dialog
+also re-seeded on every refetch — fixed in `RuleDialog`), run 7 RED on the walk alone, run 8 **GREEN 123/124 (1 ⏭
+pre-existing)**. `next build` green after the fix.
+
+**M1 — the database update with real values (2026-11-07, throwaway local copy `clinic_allowmig_test`, dropped after;
+SQL written by `dotnet ef migrations script`, never `database update`, whose design-time factory reads the shared
+`clinic_management` from appsettings):** `verify-schema` before → **found `Days` mapped `numeric(5,1)` against the
+solution's `(18,3)` convention** — fixed in the configuration, the migration, its designer and the snapshot
+(`has-pending-model-changes`: none). Down: table gone, Ines restored to 24 from her live « par an » rule. Values set
+24 · 18,5 · 0, up: three rules « par an, perdus » from 1 January 2026, `Droit annuel (repris)`, column dropped, `Days`
+`numeric(18,3)`. `verify-schema` after: every `StaffLeaveAllowanceEntries` check ok; the 5 drifts left were already on
+the copy and are unrelated (audit chain, a backfill, messaging month, key ring, secrets generation).
+
+**Every gap (2026-11-07):** run 9 RED on environment/probe only (a cold `next dev` and a touch emulation that did not
+take), run 10 **GREEN 145/146** — monthly rule from January, a rule cancelled, 31/12 lost / carried / owed, her page
+updating live, the e-mail's « restant », tablet touch sizes. Unit suite 6772 ✅ after the `(18,3)` fix.
+

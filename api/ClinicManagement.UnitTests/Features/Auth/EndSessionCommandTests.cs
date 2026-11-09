@@ -33,7 +33,11 @@ public class EndSessionCommandTests
     private readonly Mock<IUnitOfWork> _uow = new();
 
     private EndSessionCommandHandler Handler() => new(
-        _families.Object, _uow.Object, NullLogger<EndSessionCommandHandler>.Instance);
+        _families.Object,
+        new ClinicManagement.Application.Features.Team.AttendanceNotifier(
+            Mock.Of<INotificationGenerator>(), Mock.Of<IUserRepository>(), Mock.Of<IAttendanceTerminalRepository>(),
+            Mock.Of<ITenantScope>(), NullLogger<ClinicManagement.Application.Features.Team.AttendanceNotifier>.Instance),
+        _uow.Object, NullLogger<EndSessionCommandHandler>.Instance);
 
     private static SessionFamily ALiveFamily() => new(
         "user-1",

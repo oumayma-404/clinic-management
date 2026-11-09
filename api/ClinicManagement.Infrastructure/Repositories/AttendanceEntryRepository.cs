@@ -29,6 +29,14 @@ public class AttendanceEntryRepository : IAttendanceEntryRepository
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<DateOnly?> GetFirstDayAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
+        await _context.AttendanceEntries
+            .AsNoTracking()
+            .Where(e => e.ClinicId == clinicId)
+            .OrderBy(e => e.LocalDay)
+            .Select(e => (DateOnly?)e.LocalDay)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<IReadOnlyList<AttendanceEntry>> ListBetweenAsync(
         Guid clinicId, DateOnly fromDay, DateOnly toDay, string? userId = null,
         CancellationToken cancellationToken = default)
@@ -38,6 +46,35 @@ public class AttendanceEntryRepository : IAttendanceEntryRepository
         if (userId is not null)
             query = query.Where(e => e.UserId == userId);
         return await query
+            .OrderBy(e => e.LocalDay)
+            .ThenBy(e => e.ArrivalUtc)
+            .ThenBy(e => e.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> HasLineOnAsync(
+        Guid clinicId, string userId, DateOnly day, CancellationToken cancellationToken = default)
+    {
+        return await _context.AttendanceEntries
+            .AnyAsync(e => e.ClinicId == clinicId && e.UserId == userId && e.LocalDay == day, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AttendanceEntry>> ListOpenOnAsync(
+        Guid clinicId, DateOnly day, CancellationToken cancellationToken = default)
+    {
+        return await _context.AttendanceEntries
+            .AsNoTracking()
+            .Where(e => e.ClinicId == clinicId && e.LocalDay == day && e.DepartureUtc == null)
+            .OrderBy(e => e.ArrivalUtc)
+            .ThenBy(e => e.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AttendanceEntry>> ListOpenBeforeAsync(
+        Guid clinicId, string userId, DateOnly day, CancellationToken cancellationToken = default)
+    {
+        return await _context.AttendanceEntries
+            .Where(e => e.ClinicId == clinicId && e.UserId == userId && e.LocalDay < day && e.DepartureUtc == null)
             .OrderBy(e => e.LocalDay)
             .ThenBy(e => e.ArrivalUtc)
             .ThenBy(e => e.Id)

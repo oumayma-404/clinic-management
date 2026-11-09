@@ -190,23 +190,44 @@ export function CorrectAttendanceDialog({
   )
 }
 
+/** Where « Ajouter un pointage » was started from: that person, that day. */
+export interface AttendanceRecordPrefill {
+  userId?: string
+  /** `YYYY-MM-DD`. */
+  day?: string
+}
+
+/** « 14:05 » — the viewer's clock, the arrival an admin records while the person stands in front of her. */
+const nowHm = () => {
+  const now = new Date()
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+}
+
+/** Today's arrival is « now »; another day's is typed, never invented. */
+const arrivalFor = (day: string) => (day === todayLocalIso() ? nowHm() : "")
+
 /** « Ajouter un pointage » (AC-10): a day with none, with a motif. */
 export function RecordAttendanceDialog({
   open,
   onOpenChange,
   people,
   defaultUserId,
+  prefill,
   onSaved,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   people: AttendancePersonDto[]
+  /** One person's file: the person is fixed and not asked. */
   defaultUserId?: string
+  /** Started from a row: that person and that day, still changeable. */
+  prefill?: AttendanceRecordPrefill | null
   onSaved: () => void
 }) {
   const [userId, setUserId] = useState("")
   const [day, setDay] = useState(todayLocalIso())
-  const [arrival, setArrival] = useState("08:00")
+  const [arrival, setArrival] = useState("")
+  const [arrivalTouched, setArrivalTouched] = useState(false)
   const [departure, setDeparture] = useState("")
   const [reason, setReason] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -219,18 +240,26 @@ export function RecordAttendanceDialog({
     const opening = open && !wasOpen.current
     wasOpen.current = open
     if (!opening) return
-    setUserId(defaultUserId ?? (people.length === 1 ? people[0].userId : ""))
-    setDay(todayLocalIso())
-    setArrival("08:00")
+    const firstDay = prefill?.day ?? todayLocalIso()
+    setUserId(prefill?.userId ?? defaultUserId ?? (people.length === 1 ? people[0].userId : ""))
+    setDay(firstDay)
+    setArrival(arrivalFor(firstDay))
+    setArrivalTouched(false)
     setDeparture("")
     setReason("")
     setError(null)
-  }, [open, defaultUserId, people])
+  }, [open, defaultUserId, prefill, people])
+
+  const changeDay = (next: string) => {
+    setDay(next)
+    if (!arrivalTouched) setArrival(arrivalFor(next))
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!userId) return setError("Choisissez la personne.")
     if (!day) return setError("Choisissez le jour.")
+    if (!arrival) return setError("Indiquez l'heure d'arrivée.")
     if (!reason.trim()) return setError("Indiquez le motif.")
     setSaving(true)
     setError(null)
@@ -275,12 +304,20 @@ export function RecordAttendanceDialog({
               )}
               <div className="space-y-2">
                 <Label htmlFor="record-day">Jour</Label>
-                <Input id="record-day" type="date" value={day} max={todayLocalIso()} onChange={(e) => setDay(e.target.value)} />
+                <Input id="record-day" type="date" value={day} max={todayLocalIso()} onChange={(e) => changeDay(e.target.value)} />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="record-arrival">Arrivée</Label>
-                  <TimeInput id="record-arrival" value={arrival} onChange={setArrival} />
+                  <TimeInput
+                    id="record-arrival"
+                    value={arrival}
+                    onChange={(next) => {
+                      setArrival(next)
+                      setArrivalTouched(true)
+                    }}
+                    allowEmpty
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="record-departure">Départ</Label>

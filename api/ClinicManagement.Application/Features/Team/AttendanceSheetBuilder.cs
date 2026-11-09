@@ -15,7 +15,7 @@ public static class AttendanceSheetBuilder
     public static AttendanceSheetDto Build(
         string monthKey, DateOnly from, DateOnly to, IReadOnlyList<User> people, IReadOnlyList<AttendanceEntry> entries,
         IEnumerable<StaffLeaveRequest> acceptedLeaves, IReadOnlyDictionary<string, User> roster, string? workingHoursJson,
-        DateOnly today)
+        DateOnly today, DateOnly? firstLineDay = null)
     {
         var peopleIds = people.Select(p => p.Id).ToHashSet();
         var leaves = acceptedLeaves
@@ -49,11 +49,26 @@ public static class AttendanceSheetBuilder
             Month = monthKey,
             MonthLabel = ClinicClock.MonthLabelFr(monthKey),
             People = people
-                .Select(p => new AttendancePersonDto { UserId = p.Id, FullName = StaffLeaveRules.DisplayName(p), IsActive = p.IsActive })
+                .Select(p => new AttendancePersonDto
+                {
+                    UserId = p.Id,
+                    FullName = StaffLeaveRules.DisplayName(p),
+                    IsActive = p.IsActive,
+                    CountsFrom = CountsFrom(firstLineDay, p),
+                })
                 .ToList(),
             Days = days,
             Totals = people.Select(p => AttendanceRules.Totals(p.Id, entries, today)).ToList(),
         };
+    }
+
+    /// <summary>Before the cabinet's first line, or before her account existed, an empty day is not an absence.</summary>
+    public static DateOnly? CountsFrom(DateOnly? firstLineDay, User person)
+    {
+        if (firstLineDay is not { } first)
+            return null;
+        var created = AttendanceRules.LocalDayOf(person.CreatedAt);
+        return created > first ? created : first;
     }
 
     /// <summary>Who the sheet has a column for: everyone who pointe today, plus anyone with a line in the month.</summary>

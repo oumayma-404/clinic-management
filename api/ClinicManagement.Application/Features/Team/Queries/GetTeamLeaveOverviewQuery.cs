@@ -9,25 +9,33 @@ using MediatR;
 
 namespace ClinicManagement.Application.Features.Team.Queries;
 
-/// <summary>« Utilisateurs → Congés »'s team strip: every active secretary's balance for the year and next congé.</summary>
+/// <summary>
+/// « Utilisateurs → Congés »'s team strip: every active secretary's balance for the year, next congé and congé payé
+/// still waiting for a decision.
+/// </summary>
 public class GetTeamLeaveOverviewQuery : IRequest<Result<TeamLeaveOverviewDto>>
 {
+    /// <summary>The clinic day judged; today when absent. Tests pin it, so a balance never depends on when the suite runs.</summary>
+    public DateOnly? Today { get; init; }
 }
 
 public class GetTeamLeaveOverviewQueryHandler : IRequestHandler<GetTeamLeaveOverviewQuery, Result<TeamLeaveOverviewDto>>
 {
     private readonly IStaffLeaveRequestRepository _requests;
+    private readonly IStaffLeaveAllowanceRepository _allowances;
     private readonly IUserRepository _users;
     private readonly IClinicRepository _clinics;
     private readonly IClinicContext _clinicContext;
 
     public GetTeamLeaveOverviewQueryHandler(
         IStaffLeaveRequestRepository requests,
+        IStaffLeaveAllowanceRepository allowances,
         IUserRepository users,
         IClinicRepository clinics,
         IClinicContext clinicContext)
     {
         _requests = requests;
+        _allowances = allowances;
         _users = users;
         _clinics = clinics;
         _clinicContext = clinicContext;
@@ -44,8 +52,8 @@ public class GetTeamLeaveOverviewQueryHandler : IRequestHandler<GetTeamLeaveOver
             if (!admin.IsAdmin())
                 return Result<TeamLeaveOverviewDto>.Failure(StaffLeaveRules.AdminOnly);
 
-            var year = ClinicClock.ClinicYear();
-            var today = StaffLeaveRules.ClinicToday();
+            var today = request.Today ?? StaffLeaveRules.ClinicToday();
+            var year = today.Year;
             var clinic = await _clinics.GetByIdAsync(admin.ClinicId, cancellationToken);
             if (clinic is not { LeaveRequestsEnabled: true })
                 return Result<TeamLeaveOverviewDto>.Failure(StaffLeaveRules.ModuleOff);
@@ -53,6 +61,8 @@ public class GetTeamLeaveOverviewQueryHandler : IRequestHandler<GetTeamLeaveOver
             // Unpaged: a cabinet's congés are a handful per secretary per year.
             var all = await _requests.ListAsync(admin.ClinicId, null, null, null, cancellationToken);
             var byUser = all.Items.ToLookup(r => r.UserId);
+            // One read for the whole cabinet, grouped — never one per secretary.
+            var entriesByUser = (await _allowances.GetForClinicAsync(admin.ClinicId, cancellationToken)).ToLookup(e => e.UserId);
 
             var members = roster.Values
                 .Where(u => u.IsSecretary() && u.IsActive)
@@ -63,14 +73,19 @@ public class GetTeamLeaveOverviewQueryHandler : IRequestHandler<GetTeamLeaveOver
                         .Where(r => r.Status == StaffLeaveStatus.Approved && r.EndDate >= today)
                         .OrderBy(r => r.StartDate)
                         .FirstOrDefault();
+                    var balance = StaffLeaveAccounts.Balance(
+                        StaffLeaveAccounts.Fold(entriesByUser[u.Id], own, clinic.WorkingHoursJson, today), year);
                     return new TeamLeaveMemberDto
                     {
                         UserId = u.Id,
                         FullName = StaffLeaveRules.DisplayName(u),
-                        Balance = StaffLeaveRules.Balance(year, u.AnnualLeaveAllowanceDays, own, clinic.WorkingHoursJson),
+                        Balance = balance,
                         NextStartDate = next?.StartDate,
                         NextEndDate = next?.EndDate,
                         NextHalfDay = next?.HalfDay ?? false,
+                        NextHalfDayPart = next?.HalfDayPart?.ToString(),
+                        // The year's share, as her own card counts it — a request for next year is not waiting on this one.
+                        PendingDays = balance.Pending,
                     };
                 })
                 .OrderBy(m => m.FullName, StringComparer.CurrentCultureIgnoreCase)

@@ -1,5 +1,8 @@
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Auth;
+using ClinicManagement.Application.Features.Auth.Commands;
 using ClinicManagement.Application.Features.Team;
 using ClinicManagement.Application.Features.Team.Commands;
 using ClinicManagement.Domain.Common;
@@ -29,7 +32,9 @@ public class AttendanceAdminCommandTests
     private readonly Mock<IClinicContext> _context = new();
     private readonly Mock<ILocalAuthService> _hasher = new();
     private readonly Mock<IUnitOfWork> _uow = new();
+    private readonly Mock<ILoginAttemptTracker> _attempts = new();
     private readonly List<User> _roster = new();
+    private readonly List<AttendanceTerminal> _bornes = new();
     private readonly List<AttendanceEntry> _lines = new();
     private readonly Clinic _clinic = new(ClinicId, "Cabinet Test", code: "CODE01");
     private readonly User _ines;
@@ -46,6 +51,9 @@ public class AttendanceAdminCommandTests
         _entries.Setup(r => r.ListBetweenAsync(ClinicId, It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid _, DateOnly from, DateOnly to, string? userId, CancellationToken _) =>
                 _lines.Where(e => e.LocalDay >= from && e.LocalDay <= to && (userId is null || e.UserId == userId)).ToList());
+        _entries.Setup(r => r.ListOpenOnAsync(ClinicId, It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, DateOnly day, CancellationToken _) => (IReadOnlyList<AttendanceEntry>)_lines.Where(e => e.IsOpen && e.LocalDay == day).ToList());
+        _terminals.Setup(r => r.ListAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(() => _bornes.ToList());
 
         _ines = Account(User.RoleSecretary, "Ines Gharbi");
         _admin = Account(User.RoleAdmin, "Dr Salma Ben Youssef");
@@ -80,7 +88,10 @@ public class AttendanceAdminCommandTests
     private void VerifyNoSave() => _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
 
     private RevokeAttendanceTerminalCommandHandler Revoke() =>
-        new(_terminals.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object);
+        new(_terminals.Object, _entries.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object);
+
+    private UnlockAttendanceSchemaCommandHandler Unlock() =>
+        new(_users.Object, _clinics.Object, _context.Object, _uow.Object);
 
     private ResetAttendanceSchemaCommandHandler ResetSchema() =>
         new(_users.Object, _clinics.Object, _context.Object, _uow.Object);
@@ -95,7 +106,7 @@ public class AttendanceAdminCommandTests
         new(_entries.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object);
 
     private SetMyAttendanceSchemaCommandHandler MySchema() =>
-        new(_users.Object, _clinics.Object, _context.Object, _hasher.Object, _uow.Object);
+        new(_users.Object, _clinics.Object, _context.Object, _hasher.Object, _attempts.Object, _uow.Object);
 
     // ---- « Retirer » --------------------------------------------------------------------------------------
 
@@ -126,6 +137,72 @@ public class AttendanceAdminCommandTests
         Assert.Equal(AttendanceRules.NotFoundCode, result.Code);
         Assert.True(foreign.IsActive);
         VerifyNoSave();
+    }
+
+    private AttendanceTerminal CabinetBorne(string name)
+    {
+        var borne = AttendanceTerminal.Register(Guid.NewGuid(), ClinicId, name, SessionCredential.Hash(name), _admin.Id, DateTime.UtcNow.AddDays(-3));
+        _terminals.Setup(r => r.GetByIdAsync(borne.Id, It.IsAny<CancellationToken>())).ReturnsAsync(borne);
+        _bornes.Add(borne);
+        return borne;
+    }
+
+    [Fact]
+    public async Task The_Last_Live_Borne_Is_Not_Retired_While_Someone_Has_Not_Pointed_Their_Departure()
+    {
+        var borne = CabinetBorne("Accueil");
+        BorneLine(Today, closed: false);
+        SignIn(_admin);
+
+        var result = await Revoke().Handle(new RevokeAttendanceTerminalCommand { Id = borne.Id }, default);
+
+        Assert.Equal(AttendanceRules.BorneLastWhilePresentCode, result.Code);
+        Assert.Equal("Ines Gharbi n'a pas encore pointé son départ : gardez une borne active jusqu'à son départ.", result.Error);
+        Assert.True(borne.IsActive);
+        VerifyNoSave();
+    }
+
+    [Fact]
+    public async Task Another_Live_Borne_Or_Nobody_Present_Lets_It_Go()
+    {
+        var accueil = CabinetBorne("Accueil");
+        CabinetBorne("Salle 2");
+        BorneLine(Today, closed: false);
+        SignIn(_admin);
+
+        var result = await Revoke().Handle(new RevokeAttendanceTerminalCommand { Id = accueil.Id }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.False(accueil.IsActive);
+    }
+
+    [Fact]
+    public async Task A_Departure_Already_Pointed_Does_Not_Hold_The_Last_Borne()
+    {
+        var borne = CabinetBorne("Accueil");
+        BorneLine(Today, closed: true);
+        BorneLine(Today.AddDays(-1), closed: false);
+        SignIn(_admin);
+
+        var result = await Revoke().Handle(new RevokeAttendanceTerminalCommand { Id = borne.Id }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.False(borne.IsActive);
+    }
+
+    [Fact]
+    public async Task A_Waiting_Borne_Is_Always_Retired()
+    {
+        var waiting = AttendanceTerminal.AssignToDevice(Guid.NewGuid(), ClinicId, "Accueil", Guid.NewGuid(), null, _admin.Id, DateTime.UtcNow);
+        _terminals.Setup(r => r.GetByIdAsync(waiting.Id, It.IsAny<CancellationToken>())).ReturnsAsync(waiting);
+        _bornes.Add(waiting);
+        BorneLine(Today, closed: false);
+        SignIn(_admin);
+
+        var result = await Revoke().Handle(new RevokeAttendanceTerminalCommand { Id = waiting.Id }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.False(waiting.IsActive);
     }
 
     [Fact]
@@ -171,6 +248,39 @@ public class AttendanceAdminCommandTests
 
         Assert.Equal(StaffLeaveRules.NotFoundCode, result.Code);
         Assert.True(stranger.HasAttendanceSchema);
+        VerifyNoSave();
+    }
+
+    // ---- « Débloquer » -------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Unlocking_Lifts_The_Block_And_Keeps_The_Schema()
+    {
+        _ines.SetAttendanceSchema("HASH:0-1-2-5");
+        for (var i = 0; i < User.MaxSchemaFailures; i++)
+            _ines.RegisterSchemaFailure(DateTime.UtcNow);
+        SignIn(_admin);
+
+        var result = await Unlock().Handle(new UnlockAttendanceSchemaCommand { UserId = _ines.Id }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.True(_ines.HasAttendanceSchema);
+        Assert.Equal("HASH:0-1-2-5", _ines.AttendanceSchemaHash);
+        Assert.False(_ines.IsSchemaLocked(DateTime.UtcNow));
+        Assert.True(result.Value!.HasSchema);
+        Assert.Null(result.Value.LockedUntil);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Only_An_Admin_Of_This_Cabinet_Unlocks()
+    {
+        var stranger = Account(User.RoleSecretary, "Amira Autre", OtherClinicId);
+        SignIn(_ines);
+        Assert.Equal(AttendanceRules.AdminOnly, (await Unlock().Handle(new UnlockAttendanceSchemaCommand { UserId = _ines.Id }, default)).Error);
+
+        SignIn(_admin);
+        Assert.Equal(StaffLeaveRules.NotFoundCode, (await Unlock().Handle(new UnlockAttendanceSchemaCommand { UserId = stranger.Id }, default)).Code);
         VerifyNoSave();
     }
 
@@ -559,6 +669,103 @@ public class AttendanceAdminCommandTests
         Assert.Equal(AttendanceRules.NotTrackedSelf, result.Error);
         Assert.False(_doctor.HasAttendanceSchema);
         VerifyNoSave();
+    }
+
+    // ---- replacing a schéma asks her password ------------------------------------------------------------
+
+    private const string Password = "mot-de-passe-de-ines";
+
+    private void WithExistingSchema()
+    {
+        _ines.SetAttendanceSchema("HASH:0-1-2-5");
+        _hasher.Setup(h => h.VerifyPassword("HASH", It.IsAny<string>()))
+            .Returns<string, string>((_, given) => given == Password ? PasswordVerificationOutcome.Success : PasswordVerificationOutcome.Failed);
+        SignIn(_ines);
+    }
+
+    private Task<Result<AttendancePersonSettingDto>> Redraw(string? password) =>
+        MySchema().Handle(new SetMyAttendanceSchemaCommand { Pattern = new List<int> { 0, 4, 8, 5 }, CurrentPassword = password }, default);
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task Replacing_A_Schema_Without_Her_Password_Is_Refused(string? password)
+    {
+        WithExistingSchema();
+
+        var result = await Redraw(password);
+
+        Assert.Equal(AttendanceRules.SchemaPasswordRequiredCode, result.Code);
+        Assert.Equal("HASH:0-1-2-5", _ines.AttendanceSchemaHash);
+        VerifyNoSave();
+    }
+
+    [Fact]
+    public async Task A_Wrong_Password_Counts_Like_A_Failed_Sign_In_And_Keeps_The_Schema()
+    {
+        WithExistingSchema();
+
+        var result = await Redraw("pas-le-bon");
+
+        Assert.Equal(AttendanceRules.SchemaPasswordWrongCode, result.Code);
+        Assert.Equal("HASH:0-1-2-5", _ines.AttendanceSchemaHash);
+        Assert.Equal(1, _ines.FailedLoginAttempts);
+        _attempts.Verify(a => a.RecordFailure(_ines.Id), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Her_Password_Lets_Her_Replace_It_And_Lifts_A_Block()
+    {
+        WithExistingSchema();
+        for (var i = 0; i < User.MaxSchemaFailures; i++)
+            _ines.RegisterSchemaFailure(DateTime.UtcNow);
+
+        var result = await Redraw(Password);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal("HASH:0-4-8-5", _ines.AttendanceSchemaHash);
+        Assert.Null(result.Value!.LockedUntil);
+        _attempts.Verify(a => a.RecordFailure(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task While_The_Account_Is_Locked_Out_Even_The_Right_Password_Is_Refused_With_The_Sign_In_Sentence()
+    {
+        WithExistingSchema();
+        _attempts.Setup(a => a.IsLockedOutForCurrentSource(_ines.Id)).Returns(true);
+
+        var result = await Redraw(Password);
+
+        Assert.Equal(ClinicAuthRefusals.TooManyAttempts, result.Code);
+        Assert.Equal(LoginCommandHandler.LockedOutError, result.Error);
+        Assert.Equal("HASH:0-1-2-5", _ines.AttendanceSchemaHash);
+        _hasher.Verify(h => h.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        VerifyNoSave();
+    }
+
+    [Fact]
+    public async Task The_Durable_Lockout_Refuses_Too()
+    {
+        WithExistingSchema();
+        for (var i = 0; i < User.MaxFailedLoginAttempts; i++)
+            _ines.RecordFailedLogin();
+
+        var result = await Redraw(Password);
+
+        Assert.Equal(ClinicAuthRefusals.TooManyAttempts, result.Code);
+        VerifyNoSave();
+    }
+
+    [Fact]
+    public async Task Her_First_Schema_Needs_No_Password()
+    {
+        SignIn(_ines);
+
+        var result = await Redraw(null);
+
+        Assert.True(result.IsSuccess, result.Error);
+        _hasher.Verify(h => h.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]

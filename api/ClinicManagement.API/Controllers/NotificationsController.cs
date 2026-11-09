@@ -75,6 +75,7 @@ public class NotificationsController : ApiControllerBase
     /// </summary>
     [HttpPut("{id}/read")]
     [AllowsWithoutSubscription("FR-3 — otherwise the expiry notice itself could never be dismissed (AC-3.4).")]
+    [AllowsBeforeClockIn("Reading her own bell records nothing of the cabinet's work.")]
     public async Task<IActionResult> MarkRead(Guid id)
     {
         var result = await _mediator.Send(new MarkNotificationReadCommand { Id = id });
@@ -94,6 +95,7 @@ public class NotificationsController : ApiControllerBase
     /// </summary>
     [HttpPut("read-all")]
     [AllowsWithoutSubscription("FR-3 — clearing the bell is reading, and it is where the warnings arrive.")]
+    [AllowsBeforeClockIn("Reading her own bell records nothing of the cabinet's work.")]
     public async Task<IActionResult> MarkAllRead()
     {
         var result = await _mediator.Send(new MarkAllNotificationsReadCommand());
@@ -116,6 +118,7 @@ public class NotificationsController : ApiControllerBase
     /// </remarks>
     [HttpDelete("{id}")]
     [AllowsWithoutSubscription("FR-3 — same reasoning as MarkRead: the expiry notice arrives here too.")]
+    [AllowsBeforeClockIn("Tidying her own bell records nothing of the cabinet's work.")]
     public async Task<IActionResult> Dismiss(Guid id)
     {
         var result = await _mediator.Send(new DismissNotificationCommand { Id = id });
@@ -134,6 +137,7 @@ public class NotificationsController : ApiControllerBase
     /// </summary>
     [HttpDelete]
     [AllowsWithoutSubscription("FR-3 — same reasoning as MarkAllRead.")]
+    [AllowsBeforeClockIn("Tidying her own bell records nothing of the cabinet's work.")]
     public async Task<IActionResult> DismissAll()
     {
         var result = await _mediator.Send(new DismissAllNotificationsCommand());

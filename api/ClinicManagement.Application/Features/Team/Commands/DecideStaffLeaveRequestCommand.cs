@@ -30,6 +30,7 @@ public class DecideStaffLeaveRequestCommandHandler
     : IRequestHandler<DecideStaffLeaveRequestCommand, Result<StaffLeaveRequestDto>>
 {
     private readonly IStaffLeaveRequestRepository _requests;
+    private readonly IStaffLeaveAllowanceRepository _allowances;
     private readonly IUserRepository _users;
     private readonly IClinicRepository _clinics;
     private readonly IClinicContext _clinicContext;
@@ -41,6 +42,7 @@ public class DecideStaffLeaveRequestCommandHandler
 
     public DecideStaffLeaveRequestCommandHandler(
         IStaffLeaveRequestRepository requests,
+        IStaffLeaveAllowanceRepository allowances,
         IUserRepository users,
         IClinicRepository clinics,
         IClinicContext clinicContext,
@@ -51,6 +53,7 @@ public class DecideStaffLeaveRequestCommandHandler
         ILogger<DecideStaffLeaveRequestCommandHandler> logger)
     {
         _requests = requests;
+        _allowances = allowances;
         _users = users;
         _clinics = clinics;
         _clinicContext = clinicContext;
@@ -132,13 +135,15 @@ public class DecideStaffLeaveRequestCommandHandler
     /// <summary>The congé payé left in the request's year, for the e-mail; null when none is tracked or it cannot be read.</summary>
     private async Task<decimal?> RemainingAsync(User owner, Clinic clinic, StaffLeaveRequest leave, CancellationToken cancellationToken)
     {
-        if (owner.AnnualLeaveAllowanceDays is null || leave.Type != StaffLeaveType.PaidLeave || leave.Status != StaffLeaveStatus.Approved)
+        if (leave.Type != StaffLeaveType.PaidLeave || leave.Status != StaffLeaveStatus.Approved)
             return null;
         try
         {
             var all = await _requests.GetByUserAsync(clinic.Id, owner.Id, cancellationToken);
-            return StaffLeaveRules
-                .Balance(leave.StartDate.Year, owner.AnnualLeaveAllowanceDays, all, clinic.WorkingHoursJson)
+            var entries = await _allowances.GetForUserAsync(clinic.Id, owner.Id, cancellationToken);
+            return StaffLeaveAccounts
+                .Fold(entries, all, clinic.WorkingHoursJson, StaffLeaveRules.ClinicToday(), leave.StartDate.Year)
+                .Year(leave.StartDate.Year)
                 .Remaining;
         }
         catch (Exception ex)

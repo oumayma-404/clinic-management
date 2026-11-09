@@ -44,15 +44,18 @@ public class EndOtherSessionCommandHandler : IRequestHandler<EndOtherSessionComm
 
     private readonly IClinicContext _clinicContext;
     private readonly ISessionFamilyRepository _sessionFamilies;
+    private readonly Team.AttendanceNotifier _attendance;
     private readonly IUnitOfWork _unitOfWork;
 
     public EndOtherSessionCommandHandler(
         IClinicContext clinicContext,
         ISessionFamilyRepository sessionFamilies,
+        Team.AttendanceNotifier attendance,
         IUnitOfWork unitOfWork)
     {
         _clinicContext = clinicContext;
         _sessionFamilies = sessionFamilies;
+        _attendance = attendance;
         _unitOfWork = unitOfWork;
     }
 
@@ -82,6 +85,8 @@ public class EndOtherSessionCommandHandler : IRequestHandler<EndOtherSessionComm
             {
                 family.End(Reason);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
+                // A borne still waiting for that device will never arrive: the admins are told.
+                await _attendance.SessionEndedAsync(family, cancellationToken);
             }
 
             return Result.Success();

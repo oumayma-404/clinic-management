@@ -58,8 +58,9 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     // `ClinicAuthRefusals` along with its code, so the sentence and the thing a client branches on cannot
     // drift apart. It also stops being the one English string on this path.
 
-    // Same wording for both lockout tiers: the caller must not learn which brake stopped them.
-    private const string LockedOutError =
+    // Same wording for both lockout tiers: the caller must not learn which brake stopped them. Public for the one other
+    // password check that counts on the same lockout (replacing a schéma de pointage).
+    public const string LockedOutError =
         "Ce compte est temporairement bloqué après plusieurs tentatives de connexion échouées. Veuillez réessayer plus tard.";
 
     private readonly IUserRepository _userRepository;

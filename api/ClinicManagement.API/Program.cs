@@ -1113,6 +1113,10 @@ try
     // set, the account is cached, and routing has already run. Inert where RequiresSubscription is false.
     app.UseMiddleware<ClinicManagement.API.Middleware.SubscriptionGateMiddleware>();
 
+    // pointage-obligatoire: a tracked secretary's saves wait for her arrival at the borne (423 clock_in_required) —
+    // after the subscription gate, so a lapsed cabinet hears « pay » first.
+    app.UseMiddleware<ClinicManagement.API.Middleware.AttendanceLockMiddleware>();
+
     // « Mode discret »: refuses the reads marked [HiddenWhenMoneyMasked] while a cabinet has hidden its money.
     app.UseMiddleware<ClinicManagement.API.Middleware.MoneyMaskGateMiddleware>();
 
@@ -1279,6 +1283,20 @@ try
     else
     {
         RecurringJob.RemoveIfExists("start-running-appointments");
+    }
+
+    // pointage-obligatoire AC-6: « Départ non pointé » 15 min after closing — every 5 minutes, so it lands within five
+    // of that. In-app plus a push; not connectivity-gated (a bell row), and never on a PC de secours (it runs no clinic jobs).
+    if (profile.RunsClinicJobs)
+    {
+        RecurringJob.AddOrUpdate<ClinicManagement.API.BackgroundJobs.AttendanceDepartureReminderJob>(
+            "remind-missing-departures",
+            job => job.RemindMissingDepartures(),
+            "*/5 * * * *");
+    }
+    else
+    {
+        RecurringJob.RemoveIfExists("remind-missing-departures");
     }
 
     // demo-cabinet: the public demo builds its own cabinet on first boot (or when an operator asks with

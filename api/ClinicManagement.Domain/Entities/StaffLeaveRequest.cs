@@ -33,6 +33,9 @@ public class StaffLeaveRequest : AggregateRoot<Guid>
     /// <summary>Half a day; only ever true on a one-day congé.</summary>
     public bool HalfDay { get; private set; }
 
+    /// <summary>Morning or afternoon of a half day; null on a whole day, or on a half day nobody qualified.</summary>
+    public StaffLeaveHalfDayPart? HalfDayPart { get; private set; }
+
     public string Reason { get; private set; } = string.Empty;
     public StaffLeaveStatus Status { get; private set; }
 
@@ -48,6 +51,9 @@ public class StaffLeaveRequest : AggregateRoot<Guid>
     public DateTime? CancelledAt { get; private set; }
     public string? CancelledByUserId { get; private set; }
 
+    /// <summary>Why it was withdrawn — required when an admin withdraws someone else's.</summary>
+    public string? CancelReason { get; private set; }
+
     /// <summary>Recorded by an admin (« Ajouter une absence ») rather than asked for.</summary>
     public bool EnteredByAdmin { get; private set; }
 
@@ -62,7 +68,7 @@ public class StaffLeaveRequest : AggregateRoot<Guid>
     /// <summary>A request the secretary sends, waiting for a decision.</summary>
     public StaffLeaveRequest(
         Guid id, Guid clinicId, string userId, StaffLeaveType type, DateOnly startDate, DateOnly endDate,
-        bool halfDay, string reason, decimal requestedDays)
+        bool halfDay, string reason, decimal requestedDays, StaffLeaveHalfDayPart? halfDayPart = null)
     {
         if (RefusalFor(startDate, endDate, halfDay, reason) is { } refusal)
             throw new ArgumentException(refusal);
@@ -70,6 +76,8 @@ public class StaffLeaveRequest : AggregateRoot<Guid>
             throw new ArgumentException("Le compte du congé est requis.", nameof(userId));
         if (requestedDays < 0)
             throw new ArgumentOutOfRangeException(nameof(requestedDays));
+        if (halfDayPart is { } part && !Enum.IsDefined(part))
+            throw new ArgumentOutOfRangeException(nameof(halfDayPart));
 
         Id = id;
         ClinicId = clinicId;
@@ -78,22 +86,28 @@ public class StaffLeaveRequest : AggregateRoot<Guid>
         StartDate = startDate;
         EndDate = endDate;
         HalfDay = halfDay;
+        // A part only qualifies a half day.
+        HalfDayPart = halfDay ? halfDayPart : null;
         Reason = reason.Trim();
         RequestedDays = requestedDays;
         Status = StaffLeaveStatus.Pending;
         CreatedAt = DateTime.UtcNow;
     }
 
-    /// <summary>« Ajouter une absence »: an admin records it, accepted at once and counted as asked.</summary>
+    /// <summary>
+    /// « Ajouter une absence »: an admin records it, accepted at once — counted as asked, or as <paramref name="countedDays"/>
+    /// when she takes a jour férié out.
+    /// </summary>
     public static StaffLeaveRequest RecordByAdmin(
         Guid id, Guid clinicId, string userId, StaffLeaveType type, DateOnly startDate, DateOnly endDate,
-        bool halfDay, string reason, decimal days, string adminUserId)
+        bool halfDay, string reason, decimal days, string adminUserId, StaffLeaveHalfDayPart? halfDayPart = null,
+        decimal? countedDays = null)
     {
-        var leave = new StaffLeaveRequest(id, clinicId, userId, type, startDate, endDate, halfDay, reason, days)
+        var leave = new StaffLeaveRequest(id, clinicId, userId, type, startDate, endDate, halfDay, reason, days, halfDayPart)
         {
             EnteredByAdmin = true,
         };
-        leave.Approve(adminUserId, days);
+        leave.Approve(adminUserId, countedDays ?? days);
         return leave;
     }
 
@@ -144,15 +158,28 @@ public class StaffLeaveRequest : AggregateRoot<Guid>
         return null;
     }
 
+    /// <summary>The French refusal for a withdrawal motif, or null — <paramref name="required"/> when it is someone else's.</summary>
+    public static string? CancelRefusalFor(string? reason, bool required)
+    {
+        if (required && string.IsNullOrWhiteSpace(reason))
+            return "Indiquez le motif de l'annulation.";
+        if (reason is not null && reason.Trim().Length > MaxReasonLength)
+            return $"Le motif de l'annulation ne peut pas dépasser {MaxReasonLength} caractères.";
+        return null;
+    }
+
     public bool CanMoveTo(StaffLeaveStatus next) => AllowedTransitions[Status].Contains(next);
 
-    /// <summary>Whether it may still be withdrawn on <paramref name="clinicToday"/>: waiting, or accepted and not begun.</summary>
+    /// <summary>Whether she may still withdraw it on <paramref name="clinicToday"/>: waiting, or accepted and not begun.</summary>
     public bool CanBeCancelledOn(DateOnly clinicToday) =>
         Status == StaffLeaveStatus.Pending || (Status == StaffLeaveStatus.Approved && clinicToday < StartDate);
 
-    /// <summary>An absence the admin recorded is withdrawn by an admin only; anything else by its owner too.</summary>
+    /// <summary>
+    /// An admin withdraws any waiting or accepted one, whatever its dates (a past absence entered under the wrong type
+    /// must stay correctable); its owner only by <see cref="CanBeCancelledOn"/>, and never one the admin recorded.
+    /// </summary>
     public bool CanBeCancelledBy(bool byAdmin, DateOnly clinicToday) =>
-        (byAdmin || !EnteredByAdmin) && CanBeCancelledOn(clinicToday);
+        byAdmin ? HoldsItsDays : !EnteredByAdmin && CanBeCancelledOn(clinicToday);
 
     public void Approve(string adminUserId, decimal countedDays)
     {
@@ -174,13 +201,18 @@ public class StaffLeaveRequest : AggregateRoot<Guid>
         DecidedAt = DateTime.UtcNow;
     }
 
-    public void Cancel(string byUserId, DateOnly clinicToday)
+    public void Cancel(string byUserId, DateOnly clinicToday, bool byAdmin = false, string? reason = null)
     {
-        if (!CanBeCancelledOn(clinicToday))
+        if (!byAdmin && !CanBeCancelledOn(clinicToday))
             throw new InvalidOperationException("Ce congé a commencé ou est passé : il ne peut plus être annulé.");
+        if (!byAdmin && EnteredByAdmin)
+            throw new InvalidOperationException("Cette absence a été saisie par l'administrateur : lui seul peut l'annuler.");
+        if (CancelRefusalFor(reason, required: byUserId != UserId) is { } refusal)
+            throw new ArgumentException(refusal, nameof(reason));
         MoveTo(StaffLeaveStatus.Cancelled);
         CancelledAt = DateTime.UtcNow;
         CancelledByUserId = byUserId;
+        CancelReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
     }
 
     private void MoveTo(StaffLeaveStatus next)

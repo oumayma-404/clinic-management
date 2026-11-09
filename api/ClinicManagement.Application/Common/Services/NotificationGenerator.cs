@@ -755,6 +755,43 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task<bool> AttendanceDepartureMissingAsync(
+        Guid clinicId, string targetUserId, string since, IReadOnlyList<string> bornes,
+        CancellationToken cancellationToken = default)
+    {
+        var written = false;
+        await SafelyAsync(clinicId, async () =>
+        {
+            await _notifications.AddAsync(
+                StaffNotification.ForDepartureMissing(
+                    Guid.NewGuid(), clinicId, Features.Team.AttendanceLockRules.ReminderTitle,
+                    Features.Team.AttendanceLockRules.ReminderMessage(since, bornes), targetUserId, DateTime.UtcNow),
+                cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            written = true;
+            return true;
+        }, cancellationToken);
+        return written;
+    }
+
+    public async Task<bool> AttendanceNoticeAsync(
+        Guid clinicId, NotificationCategory category, string title, string message, string? targetUserId,
+        string? actorUserId, CancellationToken cancellationToken = default)
+    {
+        var written = false;
+        await SafelyAsync(clinicId, async () =>
+        {
+            await _notifications.AddAsync(
+                StaffNotification.ForAttendance(
+                    Guid.NewGuid(), clinicId, category, title, message, targetUserId, actorUserId, DateTime.UtcNow),
+                cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            written = true;
+            return true;
+        }, cancellationToken);
+        return written;
+    }
+
     public async Task SecondFactorResetAsync(
         Guid clinicId,
         string targetUserId,

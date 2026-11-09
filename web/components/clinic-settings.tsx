@@ -45,6 +45,7 @@ import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { MoneyDiscreetCard } from "@/components/money-discreet-card"
 import { TeamModulesCard } from "@/components/team-modules-card"
+import { SETTINGS_HOURS_ANCHOR, SHOW_SETTINGS_HOURS_EVENT } from "@/components/team/attendance-settings-card"
 import { RelayCard } from "@/components/relay/relay-card"
 import { LetterheadCard } from "@/components/letterhead/letterhead-card"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
@@ -223,6 +224,18 @@ export default function ClinicSettings() {
   // Load clinic data on mount
   useEffect(() => {
     loadClinicData()
+  }, [])
+
+  // « Définir les horaires » in Équipe's setup: open the card and bring it into view.
+  useEffect(() => {
+    const reveal = () => {
+      setIsHoursCollapsed(false)
+      requestAnimationFrame(() =>
+        document.getElementById(SETTINGS_HOURS_ANCHOR)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      )
+    }
+    window.addEventListener(SHOW_SETTINGS_HOURS_EVENT, reveal)
+    return () => window.removeEventListener(SHOW_SETTINGS_HOURS_EVENT, reveal)
   }, [])
 
   // The loader is for the FIRST read only: on a later one it unmounted every card and reopened them all closed.
@@ -1275,7 +1288,7 @@ export default function ClinicSettings() {
         </Card>
 
         {/* Working Hours Card Collapsible */}
-        <Card>
+        <Card id={SETTINGS_HOURS_ANCHOR} className="scroll-mt-20">
           <CardHeader className="pb-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <button
@@ -1424,6 +1437,16 @@ export default function ClinicSettings() {
           )}
         </Card>
 
+        {/* « Équipe » beside « Horaires »: the pointage's first step is the hours above it. */}
+        {isClinicAdmin && (
+          <TeamModulesCard
+            onSaved={(version) => {
+              ownSwitchSavedAt.current = Date.now()
+              setClinicVersion(version)
+            }}
+          />
+        )}
+
         {/* Billing / note-d'honoraires settings */}
         <Card>
           <CardHeader className="pb-3">
@@ -1562,15 +1585,6 @@ export default function ClinicSettings() {
             </div>
           </CardContent>
         </Card>
-
-        {isClinicAdmin && (
-          <TeamModulesCard
-            onSaved={(version) => {
-              ownSwitchSavedAt.current = Date.now()
-              setClinicVersion(version)
-            }}
-          />
-        )}
 
         {/* « Mode discret » — last on the page, on the owner's call. */}
         {isClinicAdmin && <MoneyDiscreetCard />}

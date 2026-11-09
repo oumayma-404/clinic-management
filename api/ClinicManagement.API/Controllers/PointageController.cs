@@ -13,13 +13,14 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace ClinicManagement.API.Controllers;
 
 /// <summary>
-/// The borne (<c>pointage-borne</c>): a reception device nobody is signed in on. It proves what it is with an
-/// <c>HttpOnly</c> cookie an admin set from « Faire de cet appareil une borne »; each person proves who she is with
-/// her schéma. The class policy keeps any future action here closed; each anonymous one is on the reviewed list.
+/// The borne (<c>pointage-borne</c>): a reception device. It proves what it is with an <c>HttpOnly</c> cookie set by
+/// « Ajouter une borne » — on the admin's own device, or claimed by the signed-in device she chose; each person proves
+/// who she is with her schéma. The class policy keeps any future action here closed; each anonymous one is on the reviewed list.
 /// </summary>
 [ApiController]
 [Route("api/pointage")]
 [Authorize(Policy = AuthorizationPolicies.Authenticated)]
+[AllowsBeforeClockIn("The borne is how she clocks in; refusing it would leave the lock unliftable.")]
 public class PointageController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -51,6 +52,7 @@ public class PointageController : ApiControllerBase
             UserId = request.UserId ?? string.Empty,
             Pattern = request.Pattern,
             Expected = request.Expected,
+            DeclaredPreviousDeparture = request.DeclaredPreviousDeparture,
         }, cancellationToken);
         if (result.IsFailure)
             return HandleFailure(result, StatusFor(result.Code));
@@ -63,6 +65,9 @@ public class PointageController : ApiControllerBase
                 code = refused.Code,
                 attemptsLeft = refused.AttemptsLeft,
                 lockedUntil = refused.LockedUntil,
+                day = refused.PreviousDay?.Day,
+                arrival = refused.PreviousDay?.Arrival,
+                lastSaveAt = refused.PreviousDay?.LastSaveAt,
             });
         }
 
@@ -70,13 +75,45 @@ public class PointageController : ApiControllerBase
         return Ok(result.Value.Done);
     }
 
-    public sealed record PunchRequest(string? UserId, List<int>? Pattern, string? Expected = null);
+    public sealed record PunchRequest(
+        string? UserId, List<int>? Pattern, string? Expected = null, string? DeclaredPreviousDeparture = null);
+
+    /// <summary>
+    /// « Pointez votre arrivée » and « Pointer votre départ ? » for the signed-in account (<c>pointage-obligatoire</c>).
+    /// Under <c>/api/pointage</c> because the borne cookie is scoped there: only here can « this device is a borne »
+    /// be answered.
+    /// </summary>
+    [HttpGet("me/clock-status")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<ActionResult<ClockStatusDto>> MyClockStatus(CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetMyClockStatusQuery { Secret = BorneCookie.Read(Request) }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// The device an admin chose in « Ajouter une borne » picks it up and receives the borne's cookie. Under
+    /// <c>/api/pointage</c> because that is the cookie's path.
+    /// </summary>
+    [HttpPost("me/claim-borne")]
+    [Authorize(Policy = AuthorizationPolicies.AnyClinicRole)]
+    public async Task<ActionResult<AttendanceTerminalDto>> ClaimBorne(CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new ClaimBorneCommand { CurrentSecret = BorneCookie.Read(Request) }, cancellationToken);
+        if (result.IsFailure)
+            return HandleFailure(result, StatusFor(result.Code));
+
+        BorneCookie.Write(Response, Request.IsHttps, result.Value!.Secret);
+        return Ok(result.Value.Terminal);
+    }
 
     private static int StatusFor(string? code) => code switch
     {
+        AttendanceRules.BorneNotWaitingCode => StatusCodes.Status404NotFound,
         AttendanceRules.TerminalUnknownCode => StatusCodes.Status401Unauthorized,
         AttendanceRules.SchemaLockedCode => StatusCodes.Status423Locked,
         AttendanceRules.SchemaMissingCode or AttendanceRules.OnLeaveCode or AttendanceRules.PunchStateChangedCode
+            or AttendanceLockRules.PreviousDepartureMissingCode
             => StatusCodes.Status409Conflict,
         AttendanceRules.ModuleOffCode or AttendanceRules.PersonNotTrackedCode => StatusCodes.Status403Forbidden,
         SubscriptionRefusals.RequiredCode or SubscriptionRefusals.SuspendedCode or SubscriptionRefusals.MissingCode

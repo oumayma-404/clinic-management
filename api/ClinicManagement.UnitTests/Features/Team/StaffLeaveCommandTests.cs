@@ -27,6 +27,7 @@ public class StaffLeaveCommandTests
     private static readonly DateOnly Sun22Nov = new(2026, 11, 22);
 
     private readonly Mock<IStaffLeaveRequestRepository> _requests = new();
+    private readonly Mock<IStaffLeaveAllowanceRepository> _allowances = new();
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<IClinicContext> _context = new();
@@ -92,19 +93,16 @@ public class StaffLeaveCommandTests
         NullLogger<SubmitStaffLeaveRequestCommandHandler>.Instance);
 
     private DecideStaffLeaveRequestCommandHandler Decide() => new(
-        _requests.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object, _notifications.Object,
+        _requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object, _notifications.Object,
         _email.Object, _appUrl.Object, NullLogger<DecideStaffLeaveRequestCommandHandler>.Instance);
 
     private CancelStaffLeaveRequestCommandHandler Cancel() => new(
         _requests.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object, _notifications.Object,
-        NullLogger<CancelStaffLeaveRequestCommandHandler>.Instance);
+        _email.Object, _appUrl.Object, NullLogger<CancelStaffLeaveRequestCommandHandler>.Instance);
 
     private RecordStaffAbsenceCommandHandler RecordAbsence() => new(
         _requests.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object, _notifications.Object,
         NullLogger<RecordStaffAbsenceCommandHandler>.Instance);
-
-    private SetLeaveAllowanceCommandHandler SetAllowance() =>
-        new(_requests.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object);
 
     private static SubmitStaffLeaveRequestCommand Ask(DateOnly? start = null, DateOnly? end = null, string? type = "PaidLeave") => new()
     {
@@ -209,7 +207,7 @@ public class StaffLeaveCommandTests
 
         var result = await Submit().Handle(Ask(Mon16Nov.AddDays(1), Mon16Nov.AddDays(1)), default);
 
-        Assert.Equal("Vous avez déjà une demande du 16/11 au 18/11.", result.Error);
+        Assert.Equal("Vous avez déjà une demande en attente du 16 au 18 novembre 2026.", result.Error);
         VerifyNoWrite();
     }
 
@@ -265,9 +263,9 @@ public class StaffLeaveCommandTests
 
         _notifications.Verify(n => n.StaffLeaveAsync(
             ClinicId, NotificationCategory.StaffLeaveApproved, "Congé accepté",
-            It.Is<string>(m => m.Contains("du 16/11 au 18/11") && m.Contains("2,5 jours")),
+            "Votre congé du 16 au 18 novembre 2026 est accordé · 2,5 j retirés de votre solde.",
             _admin.Id, _ines.Id, It.IsAny<CancellationToken>()), Times.Once);
-        _email.Verify(e => e.SendAsync(_ines.Email!, "Congé accepté : du 16/11 au 18/11", It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Once);
+        _email.Verify(e => e.SendAsync(_ines.Email!, "Congé accepté : du 16 au 18 novembre 2026", It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -296,7 +294,7 @@ public class StaffLeaveCommandTests
         _notifications.Verify(n => n.StaffLeaveAsync(
             ClinicId, NotificationCategory.StaffLeaveRejected, "Congé refusé",
             It.Is<string>(m => m.Contains("Période chargée") && m.Contains("(3 jours)")), _admin.Id, _ines.Id, It.IsAny<CancellationToken>()), Times.Once);
-        _email.Verify(e => e.SendAsync(_ines.Email!, "Congé refusé : du 16/11 au 18/11", It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Once);
+        _email.Verify(e => e.SendAsync(_ines.Email!, "Congé refusé : du 16 au 18 novembre 2026", It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Theory]
@@ -410,17 +408,95 @@ public class StaffLeaveCommandTests
     }
 
     [Fact]
-    public async Task An_Admin_Withdrawing_Her_Congé_Tells_Her()
+    public async Task An_Admin_Withdrawing_Her_Congé_Tells_Her_Who_And_Why_In_The_Bell_And_By_Mail()
     {
         SignIn(_admin);
         var leave = Stored(_ines, Today.AddDays(10), Today.AddDays(12), StaffLeaveStatus.Approved);
 
-        var result = await Cancel().Handle(new CancelStaffLeaveRequestCommand { Id = leave.Id }, default);
+        var result = await Cancel().Handle(new CancelStaffLeaveRequestCommand { Id = leave.Id, Reason = "Fermeture du cabinet" }, default);
 
         Assert.True(result.IsSuccess, result.Error);
         _notifications.Verify(n => n.StaffLeaveAsync(
             ClinicId, NotificationCategory.StaffLeaveCancelled, "Congé annulé",
-            It.Is<string>(m => m.Contains("a été annulé par Dr Salma Ben Youssef")), _admin.Id, _ines.Id, It.IsAny<CancellationToken>()), Times.Once);
+            It.Is<string>(m => m.Contains("a été annulé par Dr Salma Ben Youssef") && m.Contains("Fermeture du cabinet")),
+            _admin.Id, _ines.Id, It.IsAny<CancellationToken>()), Times.Once);
+        _email.Verify(e => e.SendAsync(
+            _ines.Email!, It.Is<string>(s => s.StartsWith("Congé annulé : ")),
+            It.Is<EmailContent>(c => c.Details.Any(d => d.Label == "Motif" && d.Value == "Fermeture du cabinet")),
+            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal("Dr Salma Ben Youssef", result.Value!.CancelledByName);
+        Assert.False(result.Value.CancelledBySelf);
+        Assert.Equal("Fermeture du cabinet", result.Value.CancelReason);
+    }
+
+    [Theory]
+    [InlineData(StaffLeaveStatus.Pending)]
+    [InlineData(StaffLeaveStatus.Approved)]
+    public async Task An_Admin_Withdrawing_Someone_Elses_Gives_A_Motif(StaffLeaveStatus status)
+    {
+        SignIn(_admin);
+        var leave = Stored(_ines, Today.AddDays(10), Today.AddDays(12), status);
+
+        var result = await Cancel().Handle(new CancelStaffLeaveRequestCommand { Id = leave.Id, Reason = "  " }, default);
+
+        Assert.Equal(StaffLeaveRules.CancelReasonRequiredCode, result.Code);
+        Assert.Equal(status, leave.Status);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task An_Admin_Corrects_A_Past_Absence_Whatever_Its_Date()
+    {
+        SignIn(_admin);
+        var absence = Recorded(_ines, Today.AddDays(-12), Today.AddDays(-10));
+
+        var result = await Cancel().Handle(new CancelStaffLeaveRequestCommand { Id = absence.Id, Reason = "Saisie en congé payé : c'était une maladie" }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(StaffLeaveStatus.Cancelled, absence.Status);
+        Assert.Equal(_admin.Id, absence.CancelledByUserId);
+        Assert.Equal("Saisie en congé payé : c'était une maladie", absence.CancelReason);
+    }
+
+    [Fact]
+    public void An_Admin_Sees_Every_Waiting_Or_Accepted_Congé_As_Withdrawable_And_She_Does_Not()
+    {
+        var started = Stored(_ines, Today.AddDays(-2), Today.AddDays(2), StaffLeaveStatus.Approved);
+
+        Assert.True(StaffLeaveRules.ToDto(started, new Dictionary<string, User>(), Today, viewerIsAdmin: true).CanCancel);
+        Assert.False(StaffLeaveRules.ToDto(started, new Dictionary<string, User>(), Today, viewerIsAdmin: false).CanCancel);
+    }
+
+    [Fact]
+    public async Task An_Admin_Withdrawing_A_Waiting_Request_Says_It_Was_Withdrawn()
+    {
+        SignIn(_admin);
+        var leave = Stored(_ines, Today.AddDays(10), Today.AddDays(12));
+
+        var result = await Cancel().Handle(new CancelStaffLeaveRequestCommand { Id = leave.Id, Reason = "Période chargée" }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        _notifications.Verify(n => n.StaffLeaveAsync(
+            ClinicId, NotificationCategory.StaffLeaveCancelled, "Demande retirée",
+            It.Is<string>(m => m.Contains("a été retirée par Dr Salma Ben Youssef") && m.Contains("Période chargée")),
+            _admin.Id, _ines.Id, It.IsAny<CancellationToken>()), Times.Once);
+        _email.Verify(e => e.SendAsync(
+            _ines.Email!, It.Is<string>(s => s.StartsWith("Demande retirée : ")), It.IsAny<EmailContent>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Her_Own_Withdrawal_Needs_No_Motif_And_Says_It_Was_Hers()
+    {
+        SignIn(_ines);
+        var leave = Stored(_ines, Today.AddDays(10), Today.AddDays(12));
+
+        var result = await Cancel().Handle(new CancelStaffLeaveRequestCommand { Id = leave.Id }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.True(result.Value!.CancelledBySelf);
+        Assert.Null(result.Value.CancelReason);
+        _email.Verify(e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -479,7 +555,7 @@ public class StaffLeaveCommandTests
         SignIn(_admin);
         var absence = Recorded(_ines, Today.AddDays(10), Today.AddDays(12));
 
-        var result = await Cancel().Handle(new CancelStaffLeaveRequestCommand { Id = absence.Id }, default);
+        var result = await Cancel().Handle(new CancelStaffLeaveRequestCommand { Id = absence.Id, Reason = "Erreur de date" }, default);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal(StaffLeaveStatus.Cancelled, absence.Status);
@@ -597,7 +673,7 @@ public class StaffLeaveCommandTests
 
         var result = await RecordAbsence().Handle(Absence(_ines), default);
 
-        Assert.Equal("Ines Gharbi a déjà un congé accepté du 16/11 au 18/11.", result.Error);
+        Assert.Equal("Ines Gharbi a déjà un congé accepté du 16 au 18 novembre 2026.", result.Error);
         VerifyNoWrite();
     }
 
@@ -611,85 +687,105 @@ public class StaffLeaveCommandTests
 
         var result = await RecordAbsence().Handle(Absence(_ines), default);
 
-        Assert.Equal("Ines Gharbi a déjà une demande en attente du 16/11 au 18/11 : répondez-y plutôt.", result.Error);
+        Assert.Equal("Ines Gharbi a déjà une demande en attente du 16 au 18 novembre 2026 : répondez-y plutôt.", result.Error);
         VerifyNoWrite();
     }
 
-
     [Fact]
-    public async Task An_Admin_Sets_The_Yearly_Allowance_And_Reads_The_Balance_Back()
+    public async Task An_Absence_Takes_The_Count_The_Admin_Gives_For_A_Jour_Férié()
     {
         SignIn(_admin);
-        _requests.Setup(r => r.GetByUserAsync(ClinicId, _ines.Id, It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<StaffLeaveRequest>());
+        var command = Absence(_ines, new DateOnly(2026, 12, 30), new DateOnly(2027, 1, 2));
+        command.Type = "PaidLeave";
+        command.CountedDays = 3m;
 
-        var result = await SetAllowance().Handle(new SetLeaveAllowanceCommand { UserId = _ines.Id, AllowanceDays = 24m }, default);
+        var result = await RecordAbsence().Handle(command, default);
 
         Assert.True(result.IsSuccess, result.Error);
-        Assert.Equal(24m, _ines.AnnualLeaveAllowanceDays);
-        Assert.Equal(24m, result.Value!.Remaining);
-        _users.Verify(r => r.Update(_ines), Times.Once);
-        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(4m, result.Value!.RequestedDays);
+        Assert.Equal(3m, result.Value.CountedDays);
     }
 
-    [Fact]
-    public async Task An_Empty_Allowance_Clears_It()
+    [Theory]
+    [InlineData(0.25)]
+    [InlineData(-1)]
+    public async Task An_Absence_Count_Outside_Half_Days_Is_Refused(double counted)
     {
         SignIn(_admin);
-        _ines.SetAnnualLeaveAllowance(24m);
-        _requests.Setup(r => r.GetByUserAsync(ClinicId, _ines.Id, It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<StaffLeaveRequest>());
+        var command = Absence(_ines);
+        command.CountedDays = (decimal)counted;
 
-        var result = await SetAllowance().Handle(new SetLeaveAllowanceCommand { UserId = _ines.Id, AllowanceDays = null }, default);
-
-        Assert.True(result.IsSuccess, result.Error);
-        Assert.Null(_ines.AnnualLeaveAllowanceDays);
-        Assert.Null(result.Value!.Remaining);
-    }
-
-    [Fact]
-    public async Task An_Allowance_Outside_Half_Days_Is_Refused()
-    {
-        SignIn(_admin);
-
-        var result = await SetAllowance().Handle(new SetLeaveAllowanceCommand { UserId = _ines.Id, AllowanceDays = 24.25m }, default);
+        var result = await RecordAbsence().Handle(command, default);
 
         Assert.True(result.IsFailure);
-        Assert.Null(_ines.AnnualLeaveAllowanceDays);
-        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        VerifyNoWrite();
     }
 
     [Fact]
-    public async Task The_Allowance_Is_Refused_While_The_Module_Is_Off()
+    public async Task A_Range_With_No_Open_Day_Is_Refused_By_Code_At_Both_Doors()
     {
+        // The cabinet's default week is Monday–Saturday, so a Sunday alone counts 0.
+        SignIn(_ines);
+        var asked = await Submit().Handle(Ask(Sun22Nov, Sun22Nov), default);
         SignIn(_admin);
-        _clinic.SetLeaveRequestsEnabled(false);
+        var recorded = await RecordAbsence().Handle(Absence(_ines, Sun22Nov, Sun22Nov), default);
 
-        var result = await SetAllowance().Handle(new SetLeaveAllowanceCommand { UserId = _ines.Id, AllowanceDays = 24m }, default);
-
-        Assert.Equal(StaffLeaveRules.ModuleOff, result.Error);
-        Assert.Null(_ines.AnnualLeaveAllowanceDays);
+        Assert.Equal(StaffLeaveRules.NoOpenDayCode, asked.Code);
+        Assert.Equal(StaffLeaveRules.NoOpenDay, asked.Error);
+        Assert.Equal(StaffLeaveRules.NoOpenDayCode, recorded.Code);
+        VerifyNoWrite();
     }
 
-    [Fact]
-    public async Task The_Allowance_Of_Another_Clinics_Account_Reads_As_Not_Found()
-    {
-        SignIn(_admin);
-        var foreign = Account(User.RoleSecretary, "Secrétaire Ailleurs", OtherClinicId);
-
-        var result = await SetAllowance().Handle(new SetLeaveAllowanceCommand { UserId = foreign.Id, AllowanceDays = 24m }, default);
-
-        Assert.Equal(StaffLeaveRules.NotFoundCode, result.Code);
-        Assert.Null(foreign.AnnualLeaveAllowanceDays);
-    }
-
-    [Fact]
-    public async Task Only_An_Admin_Sets_An_Allowance()
+    [Theory]
+    [InlineData("Morning", "Morning", "le 16 novembre 2026 matin")]
+    [InlineData("afternoon", "Afternoon", "le 16 novembre 2026 après-midi")]
+    [InlineData(null, null, "le 16 novembre 2026 (demi-journée)")]
+    public async Task A_Half_Day_Keeps_Which_Half_And_The_Admins_Read_It(string? part, string? stored, string period)
     {
         SignIn(_ines);
+        var ask = Ask(Mon16Nov, Mon16Nov);
+        ask.HalfDay = true;
+        ask.HalfDayPart = part;
 
-        var result = await SetAllowance().Handle(new SetLeaveAllowanceCommand { UserId = _ines.Id, AllowanceDays = 30m }, default);
+        var result = await Submit().Handle(ask, default);
 
-        Assert.Equal(StaffLeaveRules.AdminOnly, result.Error);
-        Assert.Null(_ines.AnnualLeaveAllowanceDays);
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(stored, result.Value!.HalfDayPart);
+        _notifications.Verify(n => n.StaffLeaveAsync(
+            ClinicId, NotificationCategory.StaffLeaveRequested, "Demande de congé",
+            $"Ines Gharbi demande un congé {period} (0,5 jour).", _ines.Id, null, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_Half_Of_A_Whole_Day_Is_Not_Kept_And_An_Unknown_Half_Is_Refused()
+    {
+        SignIn(_ines);
+        var whole = Ask();
+        whole.HalfDayPart = "Morning";
+        var unknown = Ask(Mon16Nov.AddDays(7), Mon16Nov.AddDays(7));
+        unknown.HalfDay = true;
+        unknown.HalfDayPart = "Soir";
+
+        var kept = await Submit().Handle(whole, default);
+        var refused = await Submit().Handle(unknown, default);
+
+        Assert.Null(kept.Value!.HalfDayPart);
+        Assert.Equal(StaffLeaveRules.UnknownHalfDayPart, refused.Error);
+    }
+
+    [Fact]
+    public async Task An_Absence_Keeps_Which_Half_Too()
+    {
+        SignIn(_admin);
+        var command = Absence(_ines, Mon16Nov, Mon16Nov);
+        command.HalfDay = true;
+        command.HalfDayPart = "Afternoon";
+
+        var result = await RecordAbsence().Handle(command, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal("Afternoon", result.Value!.HalfDayPart);
+        Assert.Equal(0.5m, result.Value.CountedDays);
     }
 
 
@@ -763,5 +859,36 @@ public class StaffLeaveCommandTests
         Assert.True(result.IsSuccess, result.Error);
         Assert.False(_clinic.LeaveRequestsEnabled);
         Assert.True(_clinic.AttendanceEnabled);
+    }
+
+    [Fact]
+    public async Task The_Arrival_Lock_Is_On_By_Default_And_Turns_Off_Alone()
+    {
+        Assert.True(new Clinic(OtherClinicId, "Neuf", code: "CODE02").AttendanceLockEnabled);
+        _clinic.SetAttendanceEnabled(true);
+        SignIn(_admin);
+
+        var result = await Modules().Handle(new SetTeamModulesCommand { AttendanceLock = false, Version = 7 }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.False(_clinic.AttendanceLockEnabled);
+        Assert.False(result.Value!.AttendanceLockEnabled);
+        Assert.True(_clinic.AttendanceEnabled);
+        Assert.True(_clinic.LeaveRequestsEnabled);
+        _uow.Verify(u => u.SetExpectedVersion(_clinic, 7u), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task An_Omitted_Lock_Switch_Is_Left_As_It_Was()
+    {
+        _clinic.SetAttendanceLockEnabled(false);
+        SignIn(_admin);
+
+        var result = await Modules().Handle(new SetTeamModulesCommand { Attendance = true }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.False(_clinic.AttendanceLockEnabled);
+        Assert.False(result.Value!.AttendanceLockEnabled);
     }
 }

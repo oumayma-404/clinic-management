@@ -23,6 +23,9 @@ const ADMIN = { email: 'salma.benyoussef@cabinet-ibnkhaldoun.tn', totp: '4YRLT22
 const INES = { email: 'qa.secretary@ibnkhaldoun.test', id: 'local|22222222-2222-4222-8222-222222222222', name: 'Ines Gharbi' }
 const OTHER = { id: 'local|8592a31c-22fa-436f-92a5-67bd41e021cf', name: 'QA Secrétaire 991861' }
 const SHOTS = path.join(HERE, 'shots')
+const DB = process.env.QA_DB ?? 'clinic_staffleave_qa'
+// The two Chromes; another pair (QA_PORTS=9335,9336) leaves a demo's windows on 9333/9334 alone.
+const [A_PORT, S_PORT] = (process.env.QA_PORTS ?? '9333,9334').split(',').map(Number)
 fs.mkdirSync(SHOTS, { recursive: true })
 
 // ---------------------------------------------------------------- findings
@@ -44,7 +47,7 @@ async function scenario(id, fn) {
 // ---------------------------------------------------------------- helpers
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const psql = (sql) =>
-  execFileSync('docker', ['exec', 'clinic-postgres', 'psql', '-U', 'clinic_user', '-d', 'clinic_staffleave_qa', '-Atc', sql], { encoding: 'utf8' }).trim()
+  execFileSync('docker', ['exec', 'clinic-postgres', 'psql', '-U', 'clinic_user', '-d', DB, '-Atc', sql], { encoding: 'utf8' }).trim()
 
 function totp(secret) {
   const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
@@ -82,7 +85,9 @@ async function toast(page, re, timeout = 8000) {
 }
 const openDialog = (page) => page.locator('[role="dialog"]:visible, [role="alertdialog"]:visible').last()
 const shot = (page, name) => page.screenshot({ path: path.join(SHOTS, `${name}.png`) }).catch(() => {})
-const card = (page, re) => page.locator('li:visible').filter({ hasText: re }).first()
+// A relevé line (« solde 21,5 j ») is not a request card — the « Droit à congé » relevé shares the page (run 6).
+const RELEVE_LINE = /solde -?[\d,]+ j/
+const card = (page, re) => page.locator('li:visible').filter({ hasText: re }).filter({ hasNotText: RELEVE_LINE }).first()
 const sectionCards = (page, heading) =>
   page.locator('section', { has: page.locator(`h2:has-text("${heading}")`) }).locator('li')
 
@@ -174,16 +179,16 @@ async function askLeave(sec, data) {
 
 // ================================================================ run
 const runStart = new Date(Date.now() - 2000)
-if (!ONLY) console.log('Resetting this walk\'s own artefacts on clinic_staffleave_qa…')
+if (!ONLY) console.log(`Resetting this walk's own artefacts on ${DB}…`)
+if (!ONLY) psql(`delete from "StaffLeaveAllowanceEntries" where "ClinicId" = '${CLINIC}'`)
 if (!ONLY) psql(`delete from "NotificationReads" where "NotificationId" in (select "Id" from "StaffNotifications" where "Category" between 20 and 23);
       delete from "NotificationDismissals" where "NotificationId" in (select "Id" from "StaffNotifications" where "Category" between 20 and 23);
       delete from "StaffNotifications" where "Category" between 20 and 23;
       delete from "StaffLeaveRequests";
-      update "Clinics" set "LeaveRequestsEnabled" = false where "Id" = '${CLINIC}';
-      update "Users" set "AnnualLeaveAllowanceDays" = null where "ClinicId" = '${CLINIC}';`)
+      update "Clinics" set "LeaveRequestsEnabled" = false where "Id" = '${CLINIC}';`)
 
-const A = await chromeOn(9333, 'chrome-admin', 0, 0, 1000, 830)
-const S = await chromeOn(9334, 'chrome-secr', 990, 0, 560, 830)
+const A = await chromeOn(A_PORT, `chrome-admin-${A_PORT}`, 0, 0, 1000, 830)
+const S = await chromeOn(S_PORT, `chrome-secr-${S_PORT}`, 990, 0, 560, 830)
 const adm = A.page
 const sec = S.page
 // main's « Une semaine avec APEXA » corner card (fixed, bottom-right, after a minute) sits over whatever is beneath it.
@@ -199,9 +204,30 @@ console.log('Signed in — admin:', adm.url(), ' secretary:', sec.url())
 
 const inesFile = `${WEB}/users/${encodeURIComponent(INES.id)}`
 const otherFile = `${WEB}/users/${encodeURIComponent(OTHER.id)}`
+const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const NOW_D = new Date()
+const ABS_START_D = new Date(NOW_D.getFullYear(), NOW_D.getMonth(), NOW_D.getDate() - 2)
+const ABS_START = isoOf(ABS_START_D)
+const ABS_END = isoOf(NOW_D)
+const MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']
+const ABS_LABEL = ABS_START_D.getMonth() === NOW_D.getMonth()
+  ? `${ABS_START_D.getDate()} → ${NOW_D.getDate()} ${MONTHS_FR[NOW_D.getMonth()]}`
+  : `${ABS_START_D.getDate()} ${MONTHS_FR[ABS_START_D.getMonth()].slice(0, 4)}`
 const leaveId = (start) => psql(`select "Id" from "StaffLeaveRequests" where "UserId"='${INES.id}' and "StartDate"='${start}' order by "CreatedAt" desc limit 1`)
 
 // ---------------------------------------------------------------- Tier A
+// run 10: warm every route the walk opens — a fresh `next dev` compiles each on first visit, past a row's 8 s wait.
+if (!ONLY) {
+  for (const route of ['/', '/settings', '/users', '/users?onglet=conges', inesFile, otherFile]) {
+    await adm.goto(`${WEB}${route.startsWith('http') ? route.slice(WEB.length) : route}`, { waitUntil: 'load', timeout: 120000 }).catch(() => {})
+    await adm.waitForTimeout(1500)
+  }
+  for (const route of ['/conges', '/settings']) {
+    await sec.goto(`${WEB}${route}`, { waitUntil: 'load', timeout: 120000 }).catch(() => {})
+    await sec.waitForTimeout(1500)
+  }
+}
+
 await scenario('A1', async () => {
   await adm.goto(`${WEB}/settings`)
   const sw = adm.locator('#team-leave-requests')
@@ -243,10 +269,15 @@ await scenario('A3', async () => {
 await scenario('A4', async () => {
   await adm.goto(inesFile)
   await waitText(adm, /Ines Gharbi/, 15000)
-  await adm.locator('#staff-allowance').fill('24')
-  await adm.locator('form:has(#staff-allowance) button[type="submit"]').click()
-  check('A4', Boolean(await toast(adm, /Droit annuel enregistré/)), 'toast « Droit annuel enregistré »')
-  check('A4', await waitText(adm, /24\s*jours restants[\s\S]*Droit annuel\s*24 j[\s\S]*Pris\s*0 j/), 'file reads « 24 jours restants », Droit annuel 24 j, Pris 0 j')
+  // droit-conges-blueprint: « Droit annuel » is a rule now — 24 j par an from 1 January of this year.
+  await adm.getByRole('button', { name: 'Définir la règle' }).click()
+  const dlg = openDialog(adm)
+  await dlg.locator('#leave-rule-days').fill('24')
+  await dlg.locator('#leave-rule-since').click()
+  await adm.getByRole('option', { name: new RegExp(`^1er janvier ${new Date().getFullYear()}$`) }).click()
+  await dlg.getByRole('button', { name: 'Enregistrer la règle' }).click()
+  check('A4', Boolean(await toast(adm, /Règle enregistrée/)), 'toast « Règle enregistrée »')
+  check('A4', await waitText(adm, /24\s*jours restants[\s\S]*Acquis\s*24 j[\s\S]*Pris\s*0 j/), 'file reads « 24 jours restants », Acquis 24 j, Pris 0 j')
   check('A4', await waitText(sec, /24\s*jours restants/, 10000), "secretary's balance follows without a reload (24 jours restants)")
   await shot(adm, 'A4-file')
 })
@@ -381,6 +412,8 @@ await scenario('A11', async () => {
   const m = (await mails(INES.email, runStart)).filter((x) => /Congé accepté/.test(x.subject))
   check('A11', m.length === 1, 'one acceptance e-mail', `count=${m.length}`)
   if (m[0]) check('A11', /du 16\/11 au 18\/11/.test(m[0].subject) && /2,5 jours/.test(m[0].text), 'subject names the dates, body the 2,5 jours', `${m[0].subject}`)
+  // run 9: what is left, from the « Droit à congé » fold — 24 j par an − these 2,5 days
+  if (m[0]) check('A11', /Congé payé restant en 2026\s*:?\s*21,5 jours/.test(m[0].text), 'the e-mail states « Congé payé restant en 2026 : 21,5 jours »', m[0].text.replace(/\s+/g, ' ').slice(0, 400))
 })
 
 await scenario('B5', async () => {
@@ -460,7 +493,8 @@ await scenario('A16', async () => {
   await openDialog(adm).locator('#accept-leave-days').waitFor()
   await openDialog(adm).getByRole('button', { name: 'Accepter', exact: true }).click()
   await toast(adm, /Congé accepté/)
-  check('A16', await waitText(sec, /19,5\s*jours restants[\s\S]*Pris\s*4,5 j/, 10000), 'her 2026 balance: « 19,5 jours restants », Pris 4,5 j',
+  // Run 6: both congés are still to come today, so they read « Prévus », not « Pris ».
+  check('A16', await waitText(sec, /19,5\s*jours restants[\s\S]*Prévus\s*4,5 j/, 10000), 'her 2026 balance: « 19,5 jours restants », Prévus 4,5 j',
     ((await bodyText(sec)).match(/[\d,]+\s*jours? restants[\s\S]{0,80}/) ?? [''])[0].replace(/\s+/g, ' '))
 })
 
@@ -536,16 +570,16 @@ await scenario('A18', async () => {
   await waitText(adm, /Ines Gharbi/, 15000)
   await adm.getByRole('button', { name: 'Ajouter une absence' }).click()
   await openDialog(adm).locator('#staff-leave-start').waitFor()
-  await fillLeave(adm, { type: 'Sans solde', start: '2026-11-04', end: '2026-11-06', reason: 'Absence non prévenue' })
+  await fillLeave(adm, { type: 'Sans solde', start: ABS_START, end: ABS_END, reason: 'Absence non prévenue' })
   await openDialog(adm).getByRole('button', { name: "Enregistrer l'absence" }).click()
   check('A18', Boolean(await toast(adm, /Absence enregistrée/)), 'toast « Absence enregistrée »')
-  const c = card(sec, /4 → 6 novembre/)
+  const c = card(sec, new RegExp(ABS_LABEL))
   await c.waitFor({ timeout: 10000 })
   const t = (await c.innerText()).replace(/\s+/g, ' ')
   const cancels = await c.getByRole('button', { name: /Annuler/ }).count()
   check('A18', /Saisi par l'admin/.test(t) && cancels === 0, 'her card: « Saisi par l\'admin », no « Annuler » on a started congé', `${t} · cancel buttons=${cancels}`)
   const token = await apiToken(INES.email)
-  const id = leaveId('2026-11-04')
+  const id = leaveId(ABS_START)
   const r = await fetch(`${API}/team/leave-requests/${id}/cancel`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ version: 0 }) })
   const body = await r.text()
   check('A18', r.status >= 400 && /commencé/.test(body), 'the API refuses to cancel a started congé', `${r.status} ${body.slice(0, 120)}`)
@@ -566,8 +600,8 @@ await scenario('A19', async () => {
   const team = adm.locator('section', { has: adm.locator('h2:has-text("Équipe")') })
   await team.waitFor({ timeout: 15000 })
   const t = (await team.innerText()).replace(/\s+/g, ' ')
-  check('A19', /Ines Gharbi 19,5 \/ 24 j/.test(t) && /Prochain congé : 4 → 6 novembre/.test(t), 'team strip: Ines « 19,5 / 24 j », next congé named', t)
-  check('A19', /QA Secrétaire 991861 2 jours pris/.test(t) && /Prochain congé : 30 → 31 décembre/.test(t), 'team strip: a secretary with no allowance shows what she took', t)
+  check('A19', /Ines Gharbi 19,5 \/ 24 j/.test(t) && new RegExp(`Prochain congé : ${ABS_LABEL}`).test(t), 'team strip: Ines « 19,5 / 24 j », next congé named', t)
+  check('A19', /QA Secrétaire 991861 2 jours prévus/.test(t) && /Prochain congé : 30 → 31 décembre/.test(t), 'team strip: a secretary with no droit shows what she took or has planned', t)
   await shot(adm, 'A19-team')
 })
 
@@ -600,8 +634,10 @@ await scenario('A22', async () => {
   await cal.waitFor({ timeout: 15000 })
   const t = (await cal.innerText()).replace(/\s+/g, ' ')
   check('A22', /16 — congé accepté/.test(t) && /18 — congé accepté/.test(t) && !/25 — congé accepté/.test(t), 'month: accepted days marked, the refused 25 is not', t.slice(0, 200))
-  check('A22', /5 — congé accepté — aujourd'hui/.test(t), 'month: today ringed (and inside the started absence)', '')
-  check('A22', await waitText(sec, /Prochain congé\s*4 → 6 novembre · en cours/, 4000), '« Prochain congé » names the one under way')
+  // Run 6: today is read, not assumed (the walk was written on 5 November; the absence runs 4 → 6).
+  const day = new Date().getDate()
+  check('A22', new RegExp(`\\b${day} — congé accepté — aujourd'hui`).test(t), `month: today (${day}) ringed, inside the started absence`, t.slice(0, 260))
+  check('A22', await waitText(sec, new RegExp(`Prochain congé\\s*${ABS_LABEL} · en cours`), 4000), '« Prochain congé » names the one under way')
   await shot(sec, 'A22-conges')
 })
 
@@ -820,6 +856,8 @@ await scenario('D3', async () => {
 
 // ---------------------------------------------------------------- C5 — off and on again (AC-1)
 await scenario('C5', async () => {
+  // Standalone (ONLY=C5) her window starts elsewhere: the checks below read her /conges.
+  if (!sec.url().endsWith('/conges')) { await sec.goto(`${WEB}/conges`); await waitText(sec, /Demander un congé/, 15000) }
   await adm.goto(`${WEB}/settings`)
   const sw = adm.locator('#team-leave-requests')
   await sw.waitFor()
@@ -836,12 +874,21 @@ await scenario('C5', async () => {
   await adm.waitForTimeout(1500)
   check('C5', (await adm.getByRole('tab', { name: /Congés/ }).count()) === 0, 'off: /users has no tabs')
   await adm.goto(`${WEB}/settings`)
-  await adm.locator('#team-leave-requests').scrollIntoViewIfNeeded()
-  await adm.locator('#team-leave-requests').click()
-  await toast(adm, /activées/)
+  // Run 7: wait for the switch to be read (OFF) before pressing, and read its state back — « /activées/ » also
+  // matched the « désactivées » toast still on screen, so a click landing before hydration passed unnoticed.
+  const on = adm.locator('#team-leave-requests')
+  await on.waitFor({ timeout: 20000 })
+  await on.scrollIntoViewIfNeeded()
+  await adm.waitForFunction(() => document.querySelector('#team-leave-requests')?.getAttribute('aria-checked') === 'false', null, { timeout: 10000 }).catch(() => {})
+  await adm.waitForTimeout(500)
+  await on.click()
+  await adm.waitForFunction(() => document.querySelector('#team-leave-requests')?.getAttribute('aria-checked') === 'true', null, { timeout: 10000 }).catch(() => {})
+  await toast(adm, /congé activées/)
+  check('C5', psql(`select "LeaveRequestsEnabled"::text from "Clinics" where "Id" = '${CLINIC}'`) === 'true', 'on again: the switch is ON in the database')
   await waitText(sec, /Demander un congé/, 10000)
   await sec.waitForTimeout(1500)
-  const items = await sec.locator('main li').count()
+  // the balance card's two lines (« Droit : … », « Total pris depuis le début … ») are not congés either
+  const items = await sec.locator('main li').filter({ hasNotText: RELEVE_LINE }).filter({ hasNotText: /Droit :|Aucun droit à congé|Total pris depuis le début/ }).count()
   check('C5', items === 7 && psql('select count(*) from "StaffLeaveRequests"') === '8', 'on again: her 7 congés are all back (8 rows in the cabinet)', `cards=${items}`)
 })
 
@@ -851,6 +898,311 @@ await sec.goto(`${WEB}/conges`).catch(() => {})
 await adm.waitForTimeout(2000)
 await shot(adm, 'END-admin')
 await shot(sec, 'END-secretary')
+
+// ================================================================ « Droit à congé » (droit-conges-blueprint, 2026-11-06)
+// Ines carries 24 j par an since 1 January (A4) and 4,5 days of accepted congé payé after today (R1 + R3's 2026 share).
+const account = () => adm.locator('section[aria-labelledby="staff-leave-account"]')
+const relevé = (page) => page.locator('section[aria-labelledby="staff-leave-statement"], section[aria-labelledby="leave-statement"]').first()
+async function openFile() {
+  await adm.bringToFront().catch(() => {})
+  await adm.goto(inesFile)
+  await account().waitFor({ timeout: 20000 })
+  await account().scrollIntoViewIfNeeded().catch(() => {})
+}
+const remainingOn = async (page) =>
+  ((await bodyText(page)).match(/(-?[\d,]+)\s*jours? restants?/) ?? [null, ''])[1]
+const nextMonthFirst = (() => {
+  const d = new Date()
+  const y = d.getMonth() === 11 ? d.getFullYear() + 1 : d.getFullYear()
+  const m = (d.getMonth() + 1) % 12 + 1
+  return `${y}-${String(m).padStart(2, '0')}-01`
+})()
+
+await scenario('K5', async () => {
+  await openFile()
+  await account().getByRole('button', { name: /Modifier la règle|Définir la règle/ }).click()
+  const dlg = openDialog(adm)
+  await dlg.locator('#leave-rule-days').waitFor()
+  await dlg.getByRole('radio', { name: 'par mois' }).click()
+  await dlg.locator('#leave-rule-days').fill('40')
+  await dlg.getByRole('button', { name: 'Enregistrer la règle' }).click()
+  check('K5', await waitText(adm, /Par demi-journée, entre 0 et 31 jours\./, 4000), 'a monthly rule of 40 days is refused before sending')
+  check('K5', psql(`select count(*) from "StaffLeaveAllowanceEntries" where "UserId"='${INES.id}' and "Accrual"=2`) === '0', 'nothing written')
+  await dlg.getByRole('button', { name: 'Retour' }).click()
+  await openDialog(adm).getByRole('button', { name: /Quitter|Abandonner/ }).click().catch(() => {})
+  await adm.waitForTimeout(400)
+  await account().getByRole('button', { name: 'Ajouter ou retirer des jours' }).click()
+  const adj = openDialog(adm)
+  await adj.locator('#leave-adjust-days').fill('2')
+  await adj.getByRole('button', { name: 'Ajouter', exact: true }).click()
+  check('K5', await waitText(adm, /Indiquez le motif\./, 4000), 'days added with no motif → « Indiquez le motif. »')
+  await adj.getByRole('button', { name: 'Retour' }).click()
+  await openDialog(adm).getByRole('button', { name: /Quitter|Abandonner/ }).click().catch(() => {})
+  await adm.waitForTimeout(400)
+})
+
+await scenario('K1', async () => {
+  await openFile()
+  const before = await remainingOn(adm)
+  check('K1', before === '19,5', 'the file reads « 19,5 jours restants » (24 − 4,5 accepted after today)', String(before))
+  await account().getByRole('button', { name: 'Modifier la règle' }).click()
+  const dlg = openDialog(adm)
+  await dlg.locator('#leave-rule-days').waitFor()
+  await dlg.getByRole('radio', { name: 'par mois' }).click()
+  await dlg.locator('#leave-rule-days').fill('2')
+  const since = (await dlg.locator('#leave-rule-since').innerText()).trim()
+  check('K1', /^1er /.test(since), 'starts on « 1er … » of next month by default', since)
+  await shot(adm, 'K1-rule-dialog')
+  await dlg.getByRole('button', { name: 'Enregistrer la règle' }).click()
+  check('K1', Boolean(await toast(adm, /Règle enregistrée/)), 'toast « Règle enregistrée »')
+  await adm.waitForTimeout(1200)
+  const card = (await adm.locator('section[aria-label^="Congé payé"]').first().innerText()).replace(/\s+/g, ' ')
+  check('K1', /prochain : \+2 j le 1er /.test(card), 'the card announces the next credit « +2 j le 1er … »', card)
+  check('K1', (await remainingOn(adm)) === '19,5', 'nothing credited before its day — still 19,5')
+  const rows = psql(`select "Days" || '|' || "Accrual" || '|' || "OnDay" from "StaffLeaveAllowanceEntries" where "UserId"='${INES.id}' and "Kind"=1 order by "CreatedAt"`)
+  check('K1', rows.split('\n').length === 2 && rows.endsWith(`2.0|2|${nextMonthFirst}`), 'SQL: the yearly rule kept, the monthly one from next month appended', rows.replace(/\n/g, ' ; '))
+})
+
+await scenario('K2', async () => {
+  await openFile()
+  await account().getByRole('button', { name: 'Solde de départ' }).click()
+  const dlg = openDialog(adm)
+  await dlg.locator('#leave-opening-days').fill('10')
+  await dlg.getByRole('button', { name: 'Enregistrer', exact: true }).click()
+  check('K2', Boolean(await toast(adm, /Solde de départ enregistré/)), 'toast « Solde de départ enregistré »')
+  await adm.waitForTimeout(1200)
+  check('K2', (await remainingOn(adm)) === '5,5', 'opening 10 today − 4,5 accepted after today = « 5,5 jours restants »', String(await remainingOn(adm)))
+  const r = (await relevé(adm).innerText()).replace(/\s+/g, ' ')
+  check('K2', /Solde de départ/.test(r) && /Congé prévu/.test(r) && /solde 5,5 j$/.test(r.trim()), 'relevé: « Solde de départ », then « Congé prévu » lines, ending « solde 5,5 j »', r.slice(-200))
+  check('K2', !/Droit 2026/.test(r), 'the 1 January credit is inside the opening, not listed', r.slice(0, 120))
+  await shot(adm, 'K2-opening-releve')
+})
+
+await scenario('K3', async () => {
+  await openFile()
+  await account().getByRole('button', { name: 'Ajouter ou retirer des jours' }).click()
+  const dlg = openDialog(adm)
+  await dlg.getByRole('radio', { name: 'Retirer' }).click()
+  await dlg.locator('#leave-adjust-days').fill('1,5')
+  await dlg.locator('#leave-adjust-reason').fill('Rattrapage')
+  await dlg.getByRole('button', { name: 'Retirer', exact: true }).click()
+  check('K3', Boolean(await toast(adm, /Jours retirés/)), 'toast « Jours retirés »')
+  await adm.waitForTimeout(1200)
+  check('K3', (await remainingOn(adm)) === '4', '5,5 − 1,5 = « 4 jours restants »', String(await remainingOn(adm)))
+  const r = (await relevé(adm).innerText()).replace(/\s+/g, ' ')
+  check('K3', /Jours retirés · Rattrapage/.test(r) && /−1,5 j/.test(r), 'relevé line « Jours retirés · Rattrapage » −1,5 j', r.slice(0, 240))
+})
+
+await scenario('K4', async () => {
+  await openFile()
+  await relevé(adm).getByRole('button', { name: /^Annuler la ligne .*Jours retirés/ }).click()
+  const dlg = openDialog(adm)
+  await dlg.locator('#leave-cancel-reason').waitFor()
+  const title = (await dlg.locator('h2').first().innerText()).replace(/\s+/g, ' ')
+  check('K4', /Annuler « Jours retirés · Rattrapage » \?/.test(title), 'the confirm names the line', title)
+  await dlg.getByRole('button', { name: 'Annuler la ligne' }).click()
+  check('K4', await waitText(adm, /Indiquez le motif de l'annulation\./, 4000), 'no motif → « Indiquez le motif de l\'annulation. »')
+  await dlg.locator('#leave-cancel-reason').fill('Erreur de saisie')
+  await dlg.getByRole('button', { name: 'Annuler la ligne' }).click()
+  check('K4', Boolean(await toast(adm, /Ligne annulée/)), 'toast « Ligne annulée »')
+  await adm.waitForTimeout(1200)
+  check('K4', (await remainingOn(adm)) === '5,5', 'balance back to « 5,5 jours restants »', String(await remainingOn(adm)))
+  const struck = await relevé(adm).locator('p.line-through', { hasText: 'Jours retirés' }).count()
+  check('K4', struck >= 1 && /annulée : Erreur de saisie/.test(await relevé(adm).innerText()), 'the line stays, struck through, « annulée : Erreur de saisie »')
+  const lines = (await account().locator('ul li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '))
+  check('K4', lines.some((l) => /Retrait de 1,5 j · Rattrapage/.test(l) && /annulée par Dr Salma Ben Youssef : Erreur de saisie/.test(l)),
+    'the account lists it « annulée par Dr Salma Ben Youssef : Erreur de saisie »', lines.join(' | '))
+  await shot(adm, 'K4-cancelled')
+})
+
+await scenario('K6', async () => {
+  await sec.bringToFront().catch(() => {})
+  await sec.goto(`${WEB}/conges`)
+  await waitText(sec, /Demander un congé/, 15000)
+  check('K6', (await remainingOn(sec)) === '5,5', 'her /conges reads « 5,5 jours restants » — the same fold', String(await remainingOn(sec)))
+  const card = (await sec.locator('section[aria-label^="Congé payé"]').first().innerText()).replace(/\s+/g, ' ')
+  check('K6', /Total pris depuis le début/.test(card) && /prochain : \+2 j le 1er /.test(card), 'her card: « Total pris depuis le début » and the next credit', card)
+  check('K6', (await relevé(sec).count()) === 1 && (await relevé(sec).getByRole('button').count()) === 0, 'her relevé is read-only (no « Annuler »)')
+  await shot(sec, 'K6-secretary')
+})
+
+await scenario('K7', async () => {
+  // the rule dialog and the relevé at the edges
+  for (const [w, h] of [[320, 640], [1536, 730]]) {
+    await adm.setViewportSize({ width: w, height: h })
+    await openFile()
+    const scroller = await adm.evaluate(() => {
+      const main = document.querySelector('main')
+      return main ? main.scrollWidth - main.clientWidth : -1
+    })
+    check('K7', scroller <= 1, `${w}×${h}: the file does not scroll sideways`, String(scroller))
+    await account().getByRole('button', { name: /Modifier la règle|Définir la règle/ }).click()
+    const dlg = openDialog(adm)
+    await dlg.locator('#leave-rule-days').waitFor()
+    await adm.waitForTimeout(500)
+    const m = await dlg.evaluate((el) => ({
+      over: Math.max(0, ...[el, ...el.querySelectorAll('*')]
+        .filter((n) => n === el || ['auto', 'scroll'].includes(getComputedStyle(n).overflowX))
+        .map((n) => n.scrollWidth - n.clientWidth).filter((d) => d > 1)),
+    }))
+    const sb = await dlg.getByRole('button', { name: 'Enregistrer la règle' }).boundingBox()
+    check('K7', m.over <= 1, `${w}×${h}: the rule dialog has no sideways overflow`, JSON.stringify(m))
+    check('K7', Boolean(sb) && sb.y + sb.height <= h, `${w}×${h}: « Enregistrer la règle » on screen`, JSON.stringify(sb))
+    await shot(adm, `K7-rule-${w}x${h}`)
+    await dlg.getByRole('button', { name: 'Retour' }).click()
+    await adm.waitForTimeout(400)
+  }
+  await adm.setViewportSize({ width: 1000, height: 830 })
+})
+
+
+// ---------------------------------------------------------------- run 9: the paths a single day cannot show
+const months = new Date().getMonth() + 1 // monthly credits from 1 January up to this month's 1st
+const fileOf = async (userId, year) => adm.evaluate(async ({ api, userId, year }) => {
+  const t = await (await fetch('/bff/auth/token', { credentials: 'include' })).json()
+  const token = t.accessToken ?? t.token
+  const r = await fetch(`${api}/team/users/${encodeURIComponent(userId)}/file${year ? `?year=${year}` : ''}`, { headers: { Authorization: `Bearer ${token}` } })
+  return r.json()
+}, { api: API, userId, year })
+async function openOther() {
+  await adm.bringToFront().catch(() => {})
+  await adm.goto(otherFile)
+  await account().waitFor({ timeout: 20000 })
+  await account().scrollIntoViewIfNeeded().catch(() => {})
+}
+// the relevé's lines only (its heading « Relevé 2026 » is not a line)
+const releveLines = async (page) => (await relevé(page).locator('ul').first().innerText()).replace(/\s+/g, ' ').trim()
+const otherRemaining = async () => ((await adm.locator('section[aria-label^="Congé payé"]').first().innerText()).match(/(-?[\d,]+)\s*jours? restants?/) ?? [null, null])[1]
+const insertRule = (days, accrual, since, carry) => psql(`insert into "StaffLeaveAllowanceEntries"
+  ("Id","ClinicId","UserId","Kind","Days","Accrual","CarryOver","OnDay","CreatedByUserId","CreatedByName","CreatedAt")
+  values (gen_random_uuid(), '${CLINIC}', '${OTHER.id}', 1, ${days}, ${accrual}, ${carry}, '${since}', 'qa', 'QA', now()) returning "Id"`).split('\n')[0]
+const insertTaken2025 = (start, end, days) => psql(`insert into "StaffLeaveRequests"
+  ("Id","ClinicId","UserId","Type","StartDate","EndDate","HalfDay","Reason","Status","RequestedDays","CountedDays","DecidedByUserId","DecidedAt","EnteredByAdmin","CreatedAt")
+  values (gen_random_uuid(), '${CLINIC}', '${OTHER.id}', 0, '${start}', '${end}', false, 'QA 2025', 1, ${days}, ${days}, 'qa', now(), true, now()) returning "Id"`).split('\n')[0]
+
+await scenario('K8', async () => {
+  await openOther()
+  await account().getByRole('button', { name: 'Définir la règle' }).click()
+  const dlg = openDialog(adm)
+  await dlg.locator('#leave-rule-days').fill('2')
+  await dlg.getByRole('radio', { name: 'par mois' }).click()
+  await dlg.locator('#leave-rule-since').click()
+  await adm.getByRole('option', { name: new RegExp(`^1er janvier ${new Date().getFullYear()}$`) }).click()
+  await dlg.getByRole('button', { name: 'Enregistrer la règle' }).click()
+  check('K8', Boolean(await toast(adm, /Règle enregistrée/)), 'a monthly rule from 1 January is saved')
+  await adm.waitForTimeout(1500)
+  const card = (await adm.locator('section[aria-label^="Congé payé"]').first().innerText()).replace(/\s+/g, ' ')
+  check('K8', new RegExp(`Acquis ${2 * months} j`).test(card), `${months} credits already landed: « Acquis ${2 * months} j »`, card)
+  check('K8', (await otherRemaining()) === String(2 * months - 2), `minus her 30–31 Dec congé: « ${2 * months - 2} jours restants »`, String(await otherRemaining()))
+  const credits = await relevé(adm).locator('li', { hasText: /Acquis — / }).count()
+  check('K8', credits === months, `the relevé lists ${months} « Acquis — <mois> » lines`, String(credits))
+  await shot(adm, 'K8-monthly-from-january')
+})
+
+await scenario('K9', async () => {
+  await openOther()
+  await account().getByRole('button', { name: /^Annuler « Règle : 2 j par mois/ }).click()
+  const dlg = openDialog(adm)
+  await dlg.locator('#leave-cancel-reason').fill('Mauvaise règle')
+  await dlg.getByRole('button', { name: 'Annuler la ligne' }).click()
+  check('K9', Boolean(await toast(adm, /Ligne annulée/)), 'a rule is cancelled like any line')
+  await adm.waitForTimeout(1500)
+  const card = (await adm.locator('section[aria-label^="Congé payé"]').first().innerText()).replace(/\s+/g, ' ')
+  check('K9', /Aucun droit à congé défini/.test(card) && !/jours? restants?/.test(card), 'no droit left: the card claims no balance', card)
+  const struck = await account().locator('p.line-through', { hasText: 'Règle : 2 j par mois' }).count()
+  check('K9', struck === 1, 'the rule stays listed, struck through')
+})
+
+let rule2025 = null
+await scenario('K10', async () => {
+  // A year that has ended (own artefacts, by SQL): 20 j par an from 1 January 2025, 5 days taken in March 2025.
+  rule2025 = insertRule(20, 1, '2025-01-01', false)
+  insertTaken2025('2025-03-03', '2025-03-07', 5)
+  const y2025 = await fileOf(OTHER.id, 2025)
+  const b = y2025.balance ?? {}
+  check('K10', b.acquired === 20 && b.taken === 5 && b.expired === 15 && b.remaining === 0, '2025 read back: acquis 20, pris 5, perdus 15, reste 0', JSON.stringify(b))
+  const last = (y2025.statement ?? []).at(-1) ?? {}
+  check('K10', last.kind === 'Expired' && last.days === -15 && last.balance === 0, "2025's relevé ends « Non pris en 2025 : perdus » −15", JSON.stringify(last))
+  await openOther()
+  const r = await releveLines(adm)
+  check('K10', /^Droit 2026/.test(r.trim()) && !/Report de 2025/.test(r), '2026 starts at « Droit 2026 », nothing carried', r.slice(0, 160))
+  check('K10', (await otherRemaining()) === '18', '2026: 20 − her 2 planned days = 18', String(await otherRemaining()))
+})
+
+await scenario('K11', async () => {
+  psql(`update "StaffLeaveAllowanceEntries" set "CarryOver" = true where "Id" = '${rule2025}'`)
+  await openOther()
+  const r = await releveLines(adm)
+  check('K11', /^Report de 2025/.test(r.trim()) && /15 j/.test(r.slice(0, 60)), 'carried over: the relevé opens « Report de 2025 » 15 j', r.slice(0, 160))
+  check('K11', (await otherRemaining()) === '33', '15 carried + 20 − 2 planned = 33', String(await otherRemaining()))
+  await shot(adm, 'K11-carried')
+})
+
+await scenario('K12', async () => {
+  // Took more than she had in 2025: a debt is carried, never wiped by 31 December — even under « perdus ».
+  psql(`update "StaffLeaveAllowanceEntries" set "CarryOver" = false where "Id" = '${rule2025}'`)
+  insertTaken2025('2025-06-02', '2025-06-25', 18)
+  await openOther()
+  const r = await releveLines(adm)
+  check('K12', /^Dépassement reporté de 2025/.test(r.trim()) && /−3 j|-3 j/.test(r.slice(0, 80)), 'the relevé opens « Dépassement reporté de 2025 » −3 j', r.slice(0, 160))
+  check('K12', (await otherRemaining()) === '15', '−3 + 20 − 2 planned = 15', String(await otherRemaining()))
+  const y2025 = await fileOf(OTHER.id, 2025)
+  check('K12', (y2025.balance ?? {}).expired === 0, 'nothing « perdu » in 2025 when she ended it owing', JSON.stringify(y2025.balance))
+})
+
+await scenario('K13', async () => {
+  // Her screen follows a change made on the admin's, with no reload.
+  await sec.bringToFront().catch(() => {})
+  await sec.goto(`${WEB}/conges`)
+  await waitText(sec, /Demander un congé/, 15000)
+  const before = await remainingOn(sec)
+  const marker = await sec.evaluate(() => { window.__qaMark = Math.random(); return window.__qaMark })
+  await openFile()
+  await account().getByRole('button', { name: 'Ajouter ou retirer des jours' }).click()
+  const dlg = openDialog(adm)
+  await dlg.locator('#leave-adjust-days').fill('1')
+  await dlg.locator('#leave-adjust-reason').fill('Prime de fin d\'année')
+  await dlg.getByRole('button', { name: 'Ajouter', exact: true }).click()
+  await toast(adm, /Jours ajoutés/)
+  const expected = String(Number(String(before).replace(',', '.')) + 1).replace('.', ',')
+  const end = Date.now() + 10000
+  let now = before
+  while (Date.now() < end && (now = await remainingOn(sec)) !== expected) await sleep(300)
+  const same = await sec.evaluate((m) => window.__qaMark === m, marker).catch(() => false)
+  check('K13', now === expected && same, `her « jours restants » moves ${before} → ${expected} with no reload`, `${before} → ${now} · same page ${same}`)
+})
+
+await scenario('K14', async () => {
+  // A tablet held with a finger: every control of the droit ≥ 44 px under (pointer: coarse).
+  await adm.setViewportSize({ width: 820, height: 1180 })
+  // run 10: `setEmulatedMedia` does not move (pointer) — touch emulation does; and the run must prove it took.
+  const cdp = await adm.context().newCDPSession(adm)
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+  await openFile()
+  const coarse = await adm.evaluate(() => matchMedia('(pointer: coarse)').matches)
+  check('K14', coarse, 'the page really reads (pointer: coarse)', String(coarse))
+  // the tappable height: the control, or its `.touch-target` overlay where it has one (a 36 px Button carries a 44 px ::after)
+  const heights = async (loc) => loc.evaluateAll((els) => els.filter((e) => e.offsetParent).map((e) => {
+    const after = getComputedStyle(e, '::after')
+    const overlay = after.content && after.content !== 'none' ? Math.max(parseFloat(after.height) || 0, parseFloat(after.minHeight) || 0) : 0
+    return Math.round(Math.max(e.getBoundingClientRect().height, overlay))
+  }))
+  const buttons = await heights(account().getByRole('button'))
+  const xs = await heights(relevé(adm).getByRole('button'))
+  check('K14', buttons.length >= 3 && buttons.every((h) => h >= 44), 'account buttons ≥ 44 px', JSON.stringify(buttons))
+  check('K14', xs.every((h) => h >= 44), 'relevé « Annuler » buttons ≥ 44 px', JSON.stringify(xs))
+  await account().getByRole('button', { name: /Modifier la règle|Définir la règle/ }).click()
+  const dlg = openDialog(adm)
+  await dlg.locator('#leave-rule-days').waitFor()
+  await adm.waitForTimeout(400)
+  const controls = await heights(dlg.locator('input, [role="radio"], [data-slot="select-trigger"], button'))
+  check('K14', controls.length >= 6 && controls.every((h) => h >= 44), 'the rule dialog: fields, choices and buttons ≥ 44 px', JSON.stringify(controls))
+  await shot(adm, 'K14-touch-820')
+  await dlg.getByRole('button', { name: 'Retour' }).click()
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false })
+  await adm.setViewportSize({ width: 1000, height: 830 })
+})
+
 
 console.log('\n================ SUMMARY')
 const fails = results.filter((r) => r.outcome === 'fail')

@@ -35,6 +35,8 @@ public sealed class RelayLocalStatus : IRelayLocalStatus
 
     public bool IsRetired => Current()?.Released == true;
 
+    public bool IsPcDeSecours => _isRelay;
+
     public DateTime? RetiredAtUtc => Current() is { Released: true } state ? state.ReleasedAtUtc : null;
 
     /// <summary>The lease is in memory (one writer, under its own lock): no file is read on this, the gate's hot path.</summary>

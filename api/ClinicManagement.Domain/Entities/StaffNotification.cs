@@ -217,6 +217,37 @@ public class StaffNotification : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// A pointage setup event: for one person (<paramref name="targetUserId"/>, opening her pointage) or, when null, for
+    /// every admin (opening « Paramètres → Équipe »).
+    /// </summary>
+    public static StaffNotification ForAttendance(
+        Guid id, Guid clinicId, NotificationCategory category, string title, string message, string? targetUserId,
+        string? actorUserId, DateTime nowUtc)
+    {
+        if (category is not (NotificationCategory.AttendanceSchemaToCreate or NotificationCategory.AttendanceBorneInstalled
+            or NotificationCategory.AttendanceBorneNotReceived or NotificationCategory.AttendanceSchemaBlocked))
+            throw new ArgumentOutOfRangeException(nameof(category), category, "Not a pointage setup category.");
+        var notification = new StaffNotification(
+            id, clinicId, category, title, message, nowUtc,
+            targetUserId is null ? NotificationTargetKind.AttendanceSettings : NotificationTargetKind.Attendance,
+            actorUserId: actorUserId, targetUserId: targetUserId);
+        if (targetUserId is null)
+            notification.TargetRole = User.RoleAdmin;
+        return notification;
+    }
+
+    /// <summary>« Départ non pointé » (<c>pointage-obligatoire</c> AC-6): for her alone; nobody « did » it.</summary>
+    public static StaffNotification ForDepartureMissing(
+        Guid id, Guid clinicId, string title, string message, string targetUserId, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(targetUserId))
+            throw new ArgumentException("The reminder is for one person.", nameof(targetUserId));
+        return new StaffNotification(
+            id, clinicId, NotificationCategory.AttendanceDepartureMissing, title, message, nowUtc,
+            NotificationTargetKind.Attendance, targetUserId: targetUserId);
+    }
+
+    /// <summary>
     /// Repoints a pending reminder to a new due time (used when its appointment is rescheduled),
     /// refreshing the French title/message to reflect the new time.
     /// </summary>

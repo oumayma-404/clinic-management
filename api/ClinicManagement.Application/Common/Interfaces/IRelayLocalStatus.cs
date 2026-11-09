@@ -11,6 +11,9 @@ public interface IRelayLocalStatus
 {
     bool IsRetired { get; }
 
+    /// <summary>This install IS a cabinet's PC de secours — no borne reaches it, so nothing here waits on one.</summary>
+    bool IsPcDeSecours { get; }
+
     /// <summary>When this PC learned it was retired; null while it still follows its cabinet (or on older files).</summary>
     DateTime? RetiredAtUtc { get; }
 

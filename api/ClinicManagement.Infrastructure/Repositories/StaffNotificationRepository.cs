@@ -317,6 +317,15 @@ public class StaffNotificationRepository : IStaffNotificationRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<bool> ExistsForUserSinceAsync(
+        Guid clinicId, NotificationCategory category, string targetUserId, DateTime sinceUtc,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.StaffNotifications
+            .AnyAsync(n => n.ClinicId == clinicId && n.Category == category && n.TargetUserId == targetUserId
+                           && n.CreatedAt >= sinceUtc, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Guid>> GetClinicIdsWithRelayAlertsAsync(CancellationToken cancellationToken = default)
     {
         return await _context.StaffNotifications

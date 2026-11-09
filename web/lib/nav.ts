@@ -7,6 +7,7 @@ import {
   Clock,
   CreditCard,
   FileCheck,
+  Fingerprint,
   FlaskConical,
   FolderOpen,
   LayoutDashboard,
@@ -231,6 +232,9 @@ export function isNavItemVisible(href: string, role: string | null | undefined, 
 /** « Congés » — a secretary's own congés, while the cabinet has them switched on (`conges-secretaires`). */
 export const LEAVE_NAV_ITEM: NavItem = { name: "Congés", href: "/conges", icon: CalendarOff }
 
+/** « Mes présences » — her own pointage and schéma, for an account that pointe (`pointage-borne`). */
+export const MY_ATTENDANCE_NAV_ITEM: NavItem = { name: "Mes présences", href: "/mes-presences", icon: Fingerprint }
+
 /**
  * Every destination this role can reach, grouped.
  *
@@ -247,14 +251,20 @@ export function buildNavSections(
   moneyHidden = false,
   /** The cabinet has secretary congés switched on — adds {@link LEAVE_NAV_ITEM} for a secretary. */
   leaveRequests = false,
+  /** This account pointe (its clock status says `tracked`) — adds {@link MY_ATTENDANCE_NAV_ITEM}, whatever the role. */
+  attendanceTracked = false,
 ): NavSection[] {
+  const ownItems = [
+    ...(leaveRequests && role === "secretary" ? [LEAVE_NAV_ITEM] : []),
+    ...(attendanceTracked ? [MY_ATTENDANCE_NAV_ITEM] : []),
+  ]
   const visible = baseSections
     .map((section) => ({
       ...section,
       items: [
-        ...section.items.filter((i) => isNavItemVisible(i.href, role, moneyHidden)),
-        ...(section.title === DAILY_SECTION_TITLE && leaveRequests && role === "secretary" ? [LEAVE_NAV_ITEM] : []),
-      ],
+        ...section.items,
+        ...(section.title === DAILY_SECTION_TITLE ? ownItems : []),
+      ].filter((i) => isNavItemVisible(i.href, role, moneyHidden)),
     }))
     .filter((section) => section.items.length > 0)
 

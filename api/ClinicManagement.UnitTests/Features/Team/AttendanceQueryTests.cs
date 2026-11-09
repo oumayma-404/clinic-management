@@ -31,9 +31,11 @@ public class AttendanceQueryTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<IClinicContext> _context = new();
+    private readonly Mock<ISessionFamilyRepository> _sessions = new();
     private readonly List<User> _roster = new();
     private readonly List<AttendanceEntry> _lines = new();
     private readonly List<StaffLeaveRequest> _accepted = new();
+    private readonly List<AttendanceTerminal> _bornes = new();
     private readonly Clinic _clinic = new(ClinicId, "Cabinet Test", code: "CODE01");
     private readonly User _ines;
     private readonly User _leila;
@@ -50,6 +52,7 @@ public class AttendanceQueryTests
                 _lines.Where(e => e.LocalDay >= from && e.LocalDay <= to && (userId is null || e.UserId == userId)).ToList());
         _leaves.Setup(r => r.GetApprovedOverlappingAsync(ClinicId, It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => _accepted.ToList());
+        _terminals.Setup(r => r.ListAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(() => _bornes.ToList());
 
         _ines = Account(User.RoleSecretary, "Ines Gharbi");
         _leila = Account(User.RoleSecretary, "Leila Trabelsi");
@@ -87,10 +90,10 @@ public class AttendanceQueryTests
         new(_entries.Object, _leaves.Object, _users.Object, _clinics.Object, _context.Object);
 
     private GetTeamTodayQueryHandler TeamToday() =>
-        new(_entries.Object, _leaves.Object, _users.Object, _clinics.Object, _context.Object);
+        new(_entries.Object, _leaves.Object, _terminals.Object, _users.Object, _clinics.Object, _context.Object);
 
     private GetAttendanceSettingsQueryHandler Settings() =>
-        new(_terminals.Object, _users.Object, _clinics.Object, _context.Object);
+        new(_terminals.Object, _entries.Object, _leaves.Object, _users.Object, _clinics.Object, _context.Object, _sessions.Object);
 
     private void VerifyNothingRead() =>
         _entries.Verify(r => r.ListBetweenAsync(It.IsAny<Guid>(), It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -301,5 +304,126 @@ public class AttendanceQueryTests
         Assert.True(result.Value.People.Single(p => p.UserId == _ines.Id).Tracked);
         Assert.False(result.Value.People.Single(p => p.UserId == _admin.Id).Tracked);
         Assert.Null(result.Value.People.Single(p => p.UserId == _ines.Id).TrackedOverride);
+    }
+
+    // ---- where the setup stands (pinned to Thursday 8 October 2026) ---------------------------------------
+
+    private static readonly DateOnly Thu8Oct = new(2026, 10, 8);
+    private const string Weekdays = "["
+        + "{\"Day\":\"Monday\",\"Enabled\":true,\"From\":\"08:00\",\"To\":\"17:00\"},{\"Day\":\"Tuesday\",\"Enabled\":true,\"From\":\"08:00\",\"To\":\"17:00\"},"
+        + "{\"Day\":\"Wednesday\",\"Enabled\":true,\"From\":\"08:00\",\"To\":\"17:00\"},{\"Day\":\"Thursday\",\"Enabled\":true,\"From\":\"08:00\",\"To\":\"17:00\"},"
+        + "{\"Day\":\"Friday\",\"Enabled\":true,\"From\":\"08:00\",\"To\":\"17:00\"},{\"Day\":\"Saturday\",\"Enabled\":false,\"From\":\"08:00\",\"To\":\"13:00\"},"
+        + "{\"Day\":\"Sunday\",\"Enabled\":false,\"From\":\"08:00\",\"To\":\"17:00\"}]";
+
+    private static DateTime OnThu8Oct(string local) => AttendanceRules.ParseLocalTime(Thu8Oct, local)!.Value;
+
+    private AttendanceTerminal LiveBorne(DateTime activatedUtc)
+    {
+        var borne = AttendanceTerminal.Register(Guid.NewGuid(), ClinicId, "Accueil", $"hash-{Guid.NewGuid():N}", _admin.Id, activatedUtc);
+        _bornes.Add(borne);
+        return borne;
+    }
+
+    [Fact]
+    public async Task Today_Says_Left_At_After_A_Departure_And_Carries_The_Schema_Facts()
+    {
+        _ines.SetAttendanceSchema("HASH:0-1-2-5");
+        Line(_ines, Thu8Oct, "08:02", "12:05");
+        LiveBorne(OnThu8Oct("07:00").AddDays(-5));
+        SignIn(_admin);
+
+        var result = await TeamToday().Handle(new GetTeamTodayQuery { NowUtc = OnThu8Oct("13:00") }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        var ines = result.Value!.People.Single(p => p.UserId == _ines.Id);
+        var leila = result.Value.People.Single(p => p.UserId == _leila.Id);
+        Assert.Equal(AttendanceRules.StateLeft, ines.State);
+        Assert.Equal("12:05", ines.LeftAt);
+        Assert.False(ines.NeedsSchema);
+        Assert.True(leila.NeedsSchema);
+        Assert.Equal(new[] { _leila.Id, _ines.Id }, result.Value.People.Select(p => p.UserId));
+        Assert.True(result.Value.IsOpenDay);
+        Assert.Null(result.Value.SetupIssue);
+    }
+
+    [Fact]
+    public async Task Today_Names_A_Missing_Or_Waiting_Borne()
+    {
+        SignIn(_admin);
+        var none = await TeamToday().Handle(new GetTeamTodayQuery { NowUtc = OnThu8Oct("10:00") }, default);
+
+        _bornes.Add(AttendanceTerminal.AssignToDevice(Guid.NewGuid(), ClinicId, "Accueil", Guid.NewGuid(), null, _admin.Id, OnThu8Oct("09:00")));
+        var waiting = await TeamToday().Handle(new GetTeamTodayQuery { NowUtc = OnThu8Oct("10:00") }, default);
+
+        Assert.Equal(AttendanceSetupRules.IssueNoBorne, none.Value!.SetupIssue);
+        Assert.Equal(AttendanceSetupRules.IssueBornePending, waiting.Value!.SetupIssue);
+    }
+
+    [Fact]
+    public async Task Today_Flags_A_Silent_Borne_Half_An_Hour_Past_Opening()
+    {
+        _clinic.SetWorkingHours(Weekdays);
+        _ines.SetAttendanceSchema("HASH:0-1-2-5");
+        LiveBorne(OnThu8Oct("07:00").AddDays(-5));
+        SignIn(_admin);
+
+        var early = await TeamToday().Handle(new GetTeamTodayQuery { NowUtc = OnThu8Oct("08:20") }, default);
+        var silent = await TeamToday().Handle(new GetTeamTodayQuery { NowUtc = OnThu8Oct("09:00") }, default);
+        Line(_leila, Thu8Oct, "08:40", null);
+        var working = await TeamToday().Handle(new GetTeamTodayQuery { NowUtc = OnThu8Oct("09:00") }, default);
+
+        Assert.Null(early.Value!.SetupIssue);
+        Assert.Equal(AttendanceSetupRules.IssueNoPunchSinceOpening, silent.Value!.SetupIssue);
+        Assert.Null(working.Value!.SetupIssue);
+    }
+
+    [Fact]
+    public async Task A_Closed_Day_Is_Said_So()
+    {
+        _clinic.SetWorkingHours(Weekdays);
+        SignIn(_admin);
+
+        var saturday = await TeamToday().Handle(
+            new GetTeamTodayQuery { NowUtc = AttendanceRules.ParseLocalTime(new DateOnly(2026, 10, 10), "10:00") }, default);
+
+        Assert.False(saturday.Value!.IsOpenDay);
+    }
+
+    [Fact]
+    public async Task The_Reglages_Carry_The_Setup_The_Lock_Rule_Reads()
+    {
+        _clinic.SetWorkingHours(Weekdays);
+        _clinic.SetAttendanceEnabled(false, OnThu8Oct("07:00").AddDays(-10));
+        _clinic.SetAttendanceEnabled(true, OnThu8Oct("07:00").AddDays(-10));
+        _ines.SetAttendanceSchema("HASH:0-1-2-5");
+        LiveBorne(OnThu8Oct("10:30"));
+        SignIn(_admin);
+
+        var result = await Settings().Handle(new GetAttendanceSettingsQuery { NowUtc = OnThu8Oct("11:00") }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        var setup = result.Value!.Setup;
+        Assert.True(setup.HoursSet);
+        Assert.True(setup.BorneLive);
+        Assert.False(setup.BornePending);
+        Assert.False(setup.NoPunchSinceOpening);
+        Assert.Equal(2, setup.TrackedCount);
+        Assert.Equal(new[] { "Leila Trabelsi" }, setup.SchemasMissing);
+        Assert.Equal(AttendanceLockRules.LockStateFrom, setup.LockState);
+        Assert.Equal(AttendanceRules.ParseLocalTime(Thu8Oct.AddDays(1), "08:00"), setup.LockActiveFrom);
+        Assert.Equal(OnThu8Oct("10:30"), Assert.Single(result.Value.Terminals).ActivatedAt);
+    }
+
+    [Fact]
+    public async Task The_Reglages_Say_Why_The_Lock_Cannot_Lock()
+    {
+        SignIn(_admin);
+
+        var result = await Settings().Handle(new GetAttendanceSettingsQuery { NowUtc = OnThu8Oct("11:00") }, default);
+
+        Assert.False(result.Value!.Setup.HoursSet);
+        Assert.Equal(AttendanceLockRules.LockStateInactive, result.Value.Setup.LockState);
+        Assert.Equal(AttendanceLockRules.InactiveHoursUnset, result.Value.Setup.LockInactiveReason);
+        Assert.Null(result.Value.Setup.LockActiveFrom);
     }
 }

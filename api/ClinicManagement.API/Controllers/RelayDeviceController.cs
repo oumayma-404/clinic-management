@@ -68,6 +68,7 @@ public class RelayDeviceController : ApiControllerBase
     [OnlineOnly("Only the cloud is unlocked by the cabinet's devices; a PC in charge has nothing to learn from them.")]
     [HttpPost("report")]
     [AllowsWithoutSubscription("A device saying whether it reaches the PC de secours records no work of the cabinet's.")]
+    [AllowsBeforeClockIn("A device saying whether it reaches the PC de secours records no work of the cabinet's.")]
     public async Task<ActionResult<RelayDeviceReportDto>> Report(
         [FromBody] RelayDeviceReportRequest request, CancellationToken cancellationToken)
     {

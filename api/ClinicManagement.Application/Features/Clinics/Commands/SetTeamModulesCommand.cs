@@ -16,6 +16,9 @@ public class SetTeamModulesCommand : IRequest<Result<TeamModulesDto>>
     public bool? LeaveRequests { get; set; }
     public bool? Attendance { get; set; }
 
+    /// <summary>« Bloquer l'app tant que l'arrivée n'est pas pointée » (<c>pointage-obligatoire</c>); omitted = unchanged.</summary>
+    public bool? AttendanceLock { get; set; }
+
     /// <summary>The clinic version the client read; <c>0</c> means « not supplied ».</summary>
     public uint Version { get; set; }
 }
@@ -54,6 +57,8 @@ public class SetTeamModulesCommandHandler : IRequestHandler<SetTeamModulesComman
             if (clinic == null)
                 return Result<TeamModulesDto>.Failure("Clinique introuvable.");
 
+            // The pointage and its lock becoming both on stamps when, so the lock starts at the next opening, never mid-day.
+            var now = DateTime.UtcNow;
             var changed = false;
             if (request.LeaveRequests is { } leave && leave != clinic.LeaveRequestsEnabled)
             {
@@ -62,7 +67,12 @@ public class SetTeamModulesCommandHandler : IRequestHandler<SetTeamModulesComman
             }
             if (request.Attendance is { } attendance && attendance != clinic.AttendanceEnabled)
             {
-                clinic.SetAttendanceEnabled(attendance);
+                clinic.SetAttendanceEnabled(attendance, now);
+                changed = true;
+            }
+            if (request.AttendanceLock is { } attendanceLock && attendanceLock != clinic.AttendanceLockEnabled)
+            {
+                clinic.SetAttendanceLockEnabled(attendanceLock, now);
                 changed = true;
             }
 
@@ -77,6 +87,7 @@ public class SetTeamModulesCommandHandler : IRequestHandler<SetTeamModulesComman
             {
                 LeaveRequestsEnabled = clinic.LeaveRequestsEnabled,
                 AttendanceEnabled = clinic.AttendanceEnabled,
+                AttendanceLockEnabled = clinic.AttendanceLockEnabled,
                 Version = clinic.Version,
             });
         }

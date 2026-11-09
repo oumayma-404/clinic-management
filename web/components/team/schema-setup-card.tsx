@@ -5,35 +5,35 @@ import { toast } from "sonner"
 import { Fingerprint } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { FormErrorBanner } from "@/components/ui/form-error-banner"
-import { SchemaPad } from "@/components/team/schema-pad"
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AttendancePanel } from "@/components/team/attendance-panel"
-import {
-  SCHEMA_MAX_DOTS,
-  SCHEMA_MIN_DOTS,
-  pointageApi,
-  type AttendancePersonSettingDto,
-  type MyAttendanceDto,
-} from "@/lib/api/pointage"
-import { getErrorMessage } from "@/lib/errors"
+import { clockTime, useClockStatus, useFutureInstant } from "@/components/team/clock-in-gate"
+import { OPEN_SCHEMA_EVENT, SCHEMA_PARAM, SchemaSetter } from "@/components/team/schema-setter"
+import type { MyAttendanceDto } from "@/lib/api/pointage"
+import { replaceUrl } from "@/lib/history"
+import { useUrlFilterSeed } from "@/lib/hooks/use-url-filters"
 import { useUserStatus } from "@/lib/hooks/use-user-status"
 import { cn } from "@/lib/utils"
 import { ZONES, zoneChipClass } from "@/lib/zones"
 
 /**
- * « Schéma de pointage » and « Mes présences » in Mon profil (`pointage-borne` AC-5, AC-11): the person draws her
- * schéma twice, and reads her own month, read-only. Shown only to an account that pointe, while the cabinet has the
- * pointage on. In Mon profil rather than « Mes congés », which exists only while the congés are on.
+ * « Schéma de pointage » and « Mes présences » (`pointage-borne` AC-5, AC-11): the person draws her schéma twice, and
+ * reads her own month, read-only. In Mon profil and on « Mes présences »; the schéma card is decided from her clock
+ * status, so a failed month read never takes the button away.
  */
-export function SchemaSetupCard() {
-  const { data: status } = useUserStatus()
-  const enabled = status?.clinic?.attendanceEnabled === true
-  const [mine, setMine] = useState<{ tracked: boolean; hasSchema: boolean; hasLines: boolean } | null>(null)
+export function SchemaSetupCard({ page = false }: { page?: boolean }) {
+  const { data: userStatus } = useUserStatus()
+  const enabled = userStatus?.clinic?.attendanceEnabled === true
+  const { status: clock, refresh } = useClockStatus()
+  const tracked = clock?.tracked === true
+  const hasSchema = clock?.hasSchema === true
+  const blockedUntil = useFutureInstant(clock?.schemaLockedUntil)
+  const [hasLines, setHasLines] = useState(false)
   const [failed, setFailed] = useState(false)
   const [open, setOpen] = useState(false)
+  const seed = useUrlFilterSeed()
+  const [wantsOpen, setWantsOpen] = useState(() => seed.get(SCHEMA_PARAM) === "1")
 
-  // The panel is the one reader of « Mes présences »; its answer also says whether the schéma card applies.
   // A month with lines keeps her presences readable after she stops pointing.
   const onMine = useCallback((read: MyAttendanceDto | null) => {
     if (!read) {
@@ -41,45 +41,60 @@ export function SchemaSetupCard() {
       return
     }
     setFailed(false)
-    const hasLines = read.sheet.days.some((day) => day.entries.length > 0)
-    setMine((previous) => ({
-      tracked: read.tracked,
-      hasSchema: read.hasSchema,
-      hasLines: hasLines || previous?.hasLines === true,
-    }))
+    if (read.sheet.days.some((day) => day.entries.length > 0)) setHasLines(true)
   }, [])
 
+  useEffect(() => {
+    const ask = () => setWantsOpen(true)
+    window.addEventListener(OPEN_SCHEMA_EVENT, ask)
+    return () => window.removeEventListener(OPEN_SCHEMA_EVENT, ask)
+  }, [])
+
+  // The deep link opens the dialog once her status says she pointe, then leaves the address bar clean.
+  useEffect(() => {
+    if (!wantsOpen || !tracked) return
+    setWantsOpen(false)
+    setOpen(true)
+    const url = new URL(window.location.href)
+    if (url.searchParams.has(SCHEMA_PARAM)) {
+      url.searchParams.delete(SCHEMA_PARAM)
+      replaceUrl(url)
+    }
+  }, [wantsOpen, tracked])
+
   if (!enabled) return null
-  const showPresences = mine ? mine.tracked || mine.hasLines : failed
+  const showPresences = page || tracked || hasLines || failed
 
   return (
     <>
-      {mine?.tracked && (
+      {tracked && (
         <Card className="flex-row flex-wrap items-center gap-3 p-4 sm:p-6">
           <span aria-hidden="true" className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`}>
             <Fingerprint className="size-4" strokeWidth={1.75} />
           </span>
           <div className="min-w-0 flex-1">
             <p className="font-semibold">Schéma de pointage</p>
-            <p className={mine.hasSchema ? "text-sm text-muted-foreground" : "text-sm text-warning-ink"}>
-              {mine.hasSchema ? "Enregistré" : "À créer avant de pointer à la borne"}
+            <p className={cn("text-sm", !hasSchema ? "text-warning-ink" : blockedUntil ? "text-destructive" : "text-muted-foreground")}>
+              {!hasSchema ? "Schéma à créer" : blockedUntil ? `Bloqué jusqu'à ${clockTime(blockedUntil)}` : "Enregistré"}
             </p>
           </div>
-          <Button variant={mine.hasSchema ? "outline" : "default"} onClick={() => setOpen(true)}>
-            {mine.hasSchema ? "Changer de schéma" : "Créer mon schéma"}
+          <Button variant={hasSchema ? "outline" : "default"} onClick={() => setOpen(true)}>
+            {hasSchema ? "Changer votre schéma" : "Créer votre schéma"}
           </Button>
         </Card>
       )}
       <Card className={cn("space-y-4 p-4 sm:p-6", !showPresences && "hidden")}>
-        <h2 className="font-semibold">Mes présences</h2>
+        {!page && <h2 className="font-semibold">Mes présences</h2>}
         <AttendancePanel scope={{ kind: "mine" }} onMine={onMine} />
       </Card>
       <SchemaDialog
         open={open}
+        hasSchema={hasSchema}
         onOpenChange={setOpen}
-        onSaved={(saved) => {
+        onSaved={() => {
           setOpen(false)
-          setMine((previous) => (previous ? { ...previous, hasSchema: saved.hasSchema } : previous))
+          toast.success("Schéma enregistré.")
+          void refresh()
         }}
       />
     </>
@@ -88,78 +103,40 @@ export function SchemaSetupCard() {
 
 function SchemaDialog({
   open,
+  hasSchema,
   onOpenChange,
   onSaved,
 }: {
   open: boolean
+  hasSchema: boolean
   onOpenChange: (open: boolean) => void
-  onSaved: (saved: AttendancePersonSettingDto) => void
+  onSaved: () => void
 }) {
-  const [first, setFirst] = useState<number[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    setFirst(null)
-    setError(null)
-  }, [open])
-
-  const drawn = async (pattern: number[]) => {
-    if (saving) return
-    if (!first) {
-      if (pattern.length < SCHEMA_MIN_DOTS) {
-        setError(`Reliez au moins ${SCHEMA_MIN_DOTS} points.`)
-        return
-      }
-      setError(null)
-      setFirst(pattern)
-      return
-    }
-    if (pattern.join("-") !== first.join("-")) {
-      setFirst(null)
-      setError("Les deux schémas ne correspondent pas. Recommencez.")
-      return
-    }
-    setSaving(true)
-    try {
-      const saved = await pointageApi.setMySchema(pattern)
-      toast.success("Schéma de pointage enregistré.")
-      onSaved(saved)
-    } catch (err) {
-      setFirst(null)
-      setError(getErrorMessage(err, "Le schéma n'a pas pu être enregistré."))
-    } finally {
-      setSaving(false)
-    }
-  }
+  const [busy, setBusy] = useState(false)
+  const [dirty, setDirty] = useState(false)
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
       <DialogContent
         className="md:max-w-sm"
-        onEscapeKeyDown={(e) => first && e.preventDefault()}
-        onInteractOutside={(e) => first && e.preventDefault()}
+        aria-describedby={undefined}
+        onEscapeKeyDown={(e) => dirty && e.preventDefault()}
+        onInteractOutside={(e) => dirty && e.preventDefault()}
       >
         <DialogHeader>
-          <DialogTitle>{first ? "Tracez-le à nouveau" : "Tracez votre schéma"}</DialogTitle>
-          <DialogDescription>
-            {first ? "Pour confirmer." : `De ${SCHEMA_MIN_DOTS} à ${SCHEMA_MAX_DOTS} points, chaque point une seule fois.`}
-          </DialogDescription>
+          <DialogTitle>{hasSchema ? "Changer votre schéma" : "Créer votre schéma"}</DialogTitle>
         </DialogHeader>
-        <DialogBody className="flex flex-col items-center gap-3">
-          <SchemaPad
-            key={first ? "confirm" : "first"}
-            label="Votre schéma de pointage"
-            onComplete={(pattern) => void drawn(pattern)}
-            disabled={saving}
-            error={error !== null}
-            autoFocus={first !== null}
+        <DialogBody className="flex flex-col items-center">
+          <SchemaSetter
+            hasSchema={hasSchema}
+            onSaved={onSaved}
+            onBusyChange={setBusy}
+            onDirtyChange={setDirty}
+            padClassName="max-w-[min(18rem,40dvh)]"
           />
-          <FormErrorBanner message={error} className="w-full" />
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Retour
           </Button>
         </DialogFooter>

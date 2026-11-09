@@ -179,6 +179,21 @@ public class Clinic : AggregateRoot<Guid>
     /// <summary>Secretaries clock in and out at the cabinet's borne. Off until an admin turns it on.</summary>
     public bool AttendanceEnabled { get; private set; }
 
+    /// <summary>
+    /// While the pointage is on, a secretary's app stays locked during opening hours until she has clocked in.
+    /// On by default; it means nothing while <see cref="AttendanceEnabled"/> is off.
+    /// </summary>
+    public bool AttendanceLockEnabled { get; private set; } = true;
+
+    /// <summary>
+    /// When the pointage and its lock last both became on: the lock waits for the next opening after it. Null = armed
+    /// before this was recorded, i.e. long ago.
+    /// </summary>
+    public DateTime? AttendanceLockArmedAtUtc { get; private set; }
+
+    /// <summary>The pointage and its lock are both on.</summary>
+    public bool IsAttendanceLockArmed => AttendanceEnabled && AttendanceLockEnabled;
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -330,10 +345,30 @@ public class Clinic : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
-    public void SetAttendanceEnabled(bool enabled)
+    public void SetAttendanceEnabled(bool enabled) => SetAttendanceEnabled(enabled, DateTime.UtcNow);
+
+    public void SetAttendanceEnabled(bool enabled, DateTime nowUtc)
     {
+        var wasArmed = IsAttendanceLockArmed;
         AttendanceEnabled = enabled;
-        UpdatedAt = DateTime.UtcNow;
+        NoteLockArming(wasArmed, nowUtc);
+    }
+
+    public void SetAttendanceLockEnabled(bool enabled) => SetAttendanceLockEnabled(enabled, DateTime.UtcNow);
+
+    public void SetAttendanceLockEnabled(bool enabled, DateTime nowUtc)
+    {
+        var wasArmed = IsAttendanceLockArmed;
+        AttendanceLockEnabled = enabled;
+        NoteLockArming(wasArmed, nowUtc);
+    }
+
+    // Both switches on from not-both: the lock starts at the next opening, never mid-day.
+    private void NoteLockArming(bool wasArmed, DateTime nowUtc)
+    {
+        if (!wasArmed && IsAttendanceLockArmed)
+            AttendanceLockArmedAtUtc = nowUtc;
+        UpdatedAt = nowUtc;
     }
 
     public void SetCode(string code)

@@ -94,9 +94,26 @@ public class StaffLeaveRequestRepository : IStaffLeaveRequestRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<StaffLeaveRequest>> GetHoldingOverlappingAsync(
+        Guid clinicId, DateOnly fromDay, DateOnly toDay, CancellationToken cancellationToken = default)
+    {
+        return await Touching(clinicId, fromDay, toDay)
+            .Where(l => l.Status == StaffLeaveStatus.Pending || l.Status == StaffLeaveStatus.Approved)
+            .OrderBy(l => l.StartDate)
+            .ThenBy(l => l.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     /// <summary>The one overlap rule: both ends are inclusive days.</summary>
     private IQueryable<StaffLeaveRequest> Touching(Guid clinicId, DateOnly fromDay, DateOnly toDay) =>
         _context.StaffLeaveRequests.Where(l => l.ClinicId == clinicId && l.StartDate <= toDay && fromDay <= l.EndDate);
+
+    public async Task<bool> HasApprovedCoveringAsync(
+        Guid clinicId, string userId, DateOnly day, CancellationToken cancellationToken = default)
+    {
+        return await Touching(clinicId, day, day)
+            .AnyAsync(l => l.UserId == userId && l.Status == StaffLeaveStatus.Approved, cancellationToken);
+    }
 
     public async Task AddAsync(StaffLeaveRequest request, CancellationToken cancellationToken = default)
     {

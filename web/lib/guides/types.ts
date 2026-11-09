@@ -12,8 +12,8 @@
  * mark a guide names is on a control, and every `data-guide` on a control is named by a guide.
  */
 
-/** The five guided steps of « Premiers pas ». */
-export type GuideKey = "secretary" | "patients" | "appointment" | "dentalRecord" | "letterhead"
+/** The five guided steps of « Premiers pas », and the tours a screen offers on its own (`pointage`, `conges`). */
+export type GuideKey = "secretary" | "patients" | "appointment" | "dentalRecord" | "letterhead" | "pointage" | "conges"
 
 /** When a step is over. The guide checks it on every frame; nothing here needs the page's cooperation. */
 export type GuideAdvance =
@@ -80,4 +80,6 @@ export interface Guide {
   continueLabel?: string
   /** The way out, when it is not « Quitter le guide » (« Plus tard »). */
   quitLabel?: string
+  /** Not a « Premiers pas » step: « Terminer » ticks nothing and stays on the page, with `doneText` as a toast. */
+  standalone?: true
 }

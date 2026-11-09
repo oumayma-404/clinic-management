@@ -38,6 +38,28 @@ public class AttendanceTerminalRepository : IAttendanceTerminalRepository
             .ToListAsync(cancellationToken);
     }
 
+    // The predicate is AttendanceTerminal.IsLive, which EF cannot translate.
+    public async Task<LiveBornes> GetLiveBornesAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        var activations = await _context.AttendanceTerminals
+            .AsNoTracking()
+            .Where(t => t.ClinicId == clinicId && t.RevokedAt == null && t.SecretHash != null)
+            .Select(t => t.ActivatedAtUtc)
+            .ToListAsync(cancellationToken);
+        return LiveBornes.From(activations);
+    }
+
+    public async Task<AttendanceTerminal?> FindPendingForSessionAsync(
+        Guid clinicId, Guid sessionFamilyId, CancellationToken cancellationToken = default)
+    {
+        return await _context.AttendanceTerminals
+            .Where(t => t.ClinicId == clinicId && t.PendingSessionFamilyId == sessionFamilyId
+                        && t.RevokedAt == null && t.SecretHash == null)
+            .OrderByDescending(t => t.CreatedAt)
+            .ThenBy(t => t.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task AddAsync(AttendanceTerminal terminal, CancellationToken cancellationToken = default)
     {
         await _context.AttendanceTerminals.AddAsync(terminal, cancellationToken);

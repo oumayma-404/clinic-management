@@ -64,9 +64,6 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     public int FailedLoginAttempts { get; private set; }
     public DateTime? LockoutEnd { get; private set; }
 
-    /// <summary>Congé payé days a year, typed by an admin; null means none is tracked for this account.</summary>
-    public decimal? AnnualLeaveAllowanceDays { get; private set; }
-
     /// <summary>Her « schéma de pointage », hashed like a password; null until she draws one.</summary>
     public string? AttendanceSchemaHash { get; private set; }
 
@@ -655,23 +652,6 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     public void ClearPasswordChangeRequirement()
     {
         MustChangePassword = false;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    public const decimal MaxAnnualLeaveAllowanceDays = StaffLeaveRequest.MaxDays;
-
-    /// <summary>The French refusal for a yearly allowance, or null — steps of 0.5, never negative; null clears it.</summary>
-    public static string? AllowanceRefusalFor(decimal? days) =>
-        days is { } value && (value < 0 || value > MaxAnnualLeaveAllowanceDays || value * 2 != decimal.Truncate(value * 2))
-            ? $"Le droit annuel se compte par demi-journée, entre 0 et {MaxAnnualLeaveAllowanceDays} jours."
-            : null;
-
-    /// <summary>Sets or clears the yearly congé payé allowance — steps of 0.5, never negative.</summary>
-    public void SetAnnualLeaveAllowance(decimal? days)
-    {
-        if (AllowanceRefusalFor(days) is { } refusal)
-            throw new ArgumentException(refusal, nameof(days));
-        AnnualLeaveAllowanceDays = days;
         UpdatedAt = DateTime.UtcNow;
     }
 

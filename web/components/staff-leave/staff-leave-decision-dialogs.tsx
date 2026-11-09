@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useEffect, useState } from "react"
-import { Check, Minus, Plus } from "lucide-react"
+import { Check } from "lucide-react"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -28,23 +28,28 @@ import {
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { teamApi, type StaffLeaveRequestDto } from "@/lib/api/team"
 import { showErrorToast } from "@/lib/errors"
+import { todayLocalIso } from "@/lib/format"
 import { useConflict } from "@/lib/hooks/use-conflict"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import {
-  MAX_STAFF_DAYS,
   MAX_STAFF_LEAVE_REASON,
   balanceAfterLabel,
+  firstOfLabel,
   formatStaffDays,
+  isOverdrawn,
   parseStaffDays,
+  staffBalanceLabel,
   staffDaysLabel,
+  staffLeaveCancelWording,
   staffLeavePeriodLabel,
   staffLeaveShortPeriod,
 } from "@/lib/staff-leave"
+import { StaffDaysStepper } from "./staff-leave-bits"
+import { cn } from "@/lib/utils"
 
 interface DecisionDialogProps {
   request: StaffLeaveRequestDto | null
@@ -65,8 +70,9 @@ function useLeaveDecision(
   open: boolean,
   onOpenChange: (open: boolean) => void,
   onChanged?: () => void,
+  alsoDirty = false,
 ) {
-  const guard = useDirtyGuard(open, onOpenChange)
+  const guard = useDirtyGuard(open, onOpenChange, alsoDirty)
   const conflict = useConflict()
   const [saving, setSaving] = useState(false)
   const resetConflict = conflict.reset
@@ -137,22 +143,19 @@ function balanceAfterCounting(request: StaffLeaveRequestDto, counted: number | n
   return sameYear ? request.balanceAfter + request.requestedDays - counted : null
 }
 
-const STEPPER_BUTTON =
-  "flex w-11 items-center justify-center bg-muted/50 text-foreground transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-
 /** « Accepter » — « Jours à décompter » prefilled with the counted days, in half days, editable for a jour férié. */
 export function AcceptLeaveDialog({ request, open, onOpenChange, onChanged }: DecisionDialogProps) {
-  const { guard, conflict, saving, decide, reload } = useLeaveDecision(request, open, onOpenChange, onChanged)
   const [days, setDays] = useState("")
+  const [seed, setSeed] = useState("")
+  // « − » / « + » fire no input event: a count moved off the prefill is an edit the guard must ask about.
+  const { guard, conflict, saving, decide, reload } = useLeaveDecision(request, open, onOpenChange, onChanged, days !== seed)
 
   useEffect(() => {
-    if (open && request) setDays(formatStaffDays(request.requestedDays))
+    if (!open || !request) return
+    const prefill = formatStaffDays(request.requestedDays)
+    setDays(prefill)
+    setSeed(prefill)
   }, [open, request])
-
-  const step = (delta: number) => {
-    const current = parseStaffDays(days) ?? request?.requestedDays ?? 0
-    setDays(formatStaffDays(Math.min(MAX_STAFF_DAYS, Math.max(0, current + delta))))
-  }
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
@@ -182,40 +185,26 @@ export function AcceptLeaveDialog({ request, open, onOpenChange, onChanged }: De
               <div className="space-y-2">
                 <Label htmlFor="accept-leave-days">Jours à décompter</Label>
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="inline-flex items-stretch overflow-hidden rounded-lg border">
-                    <button
-                      type="button"
-                      aria-label="Une demi-journée de moins"
-                      onClick={() => step(-0.5)}
-                      className={STEPPER_BUTTON}
-                    >
-                      <Minus className="size-4" aria-hidden="true" />
-                    </button>
-                    <Input
-                      id="accept-leave-days"
-                      inputMode="decimal"
-                      value={days}
-                      onChange={(e) => setDays(e.target.value)}
-                      className="h-11 w-20 rounded-none border-0 border-x text-center font-semibold tabular-nums shadow-none md:text-base"
-                    />
-                    <button
-                      type="button"
-                      aria-label="Une demi-journée de plus"
-                      onClick={() => step(0.5)}
-                      className={STEPPER_BUTTON}
-                    >
-                      <Plus className="size-4" aria-hidden="true" />
-                    </button>
-                  </div>
+                  <StaffDaysStepper
+                    id="accept-leave-days"
+                    value={days}
+                    onChange={setDays}
+                    fallback={request?.requestedDays ?? 0}
+                  />
                   {request && (
                     <span className="text-sm text-muted-foreground">sur {staffDaysLabel(request.requestedDays)} demandés</span>
                   )}
                 </div>
               </div>
               {request && after !== null && (
-                <div className="flex items-center justify-between gap-3 border-t pt-3 text-sm">
-                  <span className="text-muted-foreground">{balanceAfterLabel(request.startDate)}</span>
-                  <span className="font-semibold tabular-nums">{staffDaysLabel(after)}</span>
+                <div role="status" className="flex items-baseline justify-between gap-3 border-t pt-3 text-sm">
+                  <span className="text-muted-foreground">
+                    {balanceAfterLabel(request.startDate)}
+                    {request.balanceAfterOn && request.balanceAfterOn > todayLocalIso() && ` au ${firstOfLabel(request.balanceAfterOn)}`}
+                  </span>
+                  <span className={cn("font-semibold tabular-nums", isOverdrawn(after) && "text-destructive")}>
+                    {staffBalanceLabel(after)}
+                  </span>
                 </div>
               )}
               <FormErrorBanner
@@ -317,22 +306,40 @@ export function RejectLeaveDialog({ request, open, onOpenChange, onChanged }: De
   )
 }
 
-/** « Annuler le congé de Ines Gharbi du 16 au 18 novembre » for the admin; without the name on her own page. */
+/** A waiting request is withdrawn; an accepted congé is cancelled. */
+const isWaiting = (request: StaffLeaveRequestDto) => request.status === "Pending"
+const wording = (request: StaffLeaveRequestDto | null) => staffLeaveCancelWording(request?.status ?? "Approved")
+
+/**
+ * « le congé de Ines Gharbi du 16 au 18 novembre » for the admin, « la demande du … » on her own page — the object of
+ * « Annuler » / « Retirer » and of the row menu's name.
+ */
 export function leaveCancelSubject(request: StaffLeaveRequestDto, showName: boolean): string {
+  const what = isWaiting(request) ? "la demande" : "le congé"
   return showName
-    ? `le congé de ${request.userName} ${staffLeavePeriodLabel(request)}`
-    : `le congé ${staffLeavePeriodLabel(request)}`
+    ? `${what} de ${request.userName} ${staffLeavePeriodLabel(request)}`
+    : `${what} ${staffLeavePeriodLabel(request)}`
 }
 
-/** Withdraws a waiting request, or an accepted congé not yet begun. Names what — and whose — it withdraws. */
-export function CancelLeaveConfirm({
-  request,
-  open,
-  onOpenChange,
-  onChanged,
-  showName = false,
-}: DecisionDialogProps & { showName?: boolean }) {
+/** « Retirer » a waiting request, « Annuler » an accepted congé. */
+export function leaveCancelVerb(request: StaffLeaveRequestDto): string {
+  return isWaiting(request) ? "Retirer" : "Annuler"
+}
+
+/** What cancelling an accepted congé does: a congé payé's days come back; any other type just says what it was. */
+function cancelConsequence(request: StaffLeaveRequestDto, whose: "votre" | "son"): string {
+  const days = request.countedDays ?? request.requestedDays
+  if (request.type !== "PaidLeave") return `${request.typeLabel} · ${staffDaysLabel(days)}`
+  return `${staffDaysLabel(days)} ${days > 1 ? "reviennent" : "revient"} sur ${whose} solde.`
+}
+
+/**
+ * The secretary withdraws her own waiting request, or cancels her accepted congé not yet begun. Names what it
+ * withdraws; nothing is said in the past tense before it happens.
+ */
+export function CancelLeaveConfirm({ request, open, onOpenChange, onChanged }: DecisionDialogProps) {
   const [cancelling, setCancelling] = useState(false)
+  const waiting = request ? isWaiting(request) : false
 
   const handleCancel = async () => {
     if (!request || cancelling) return
@@ -346,28 +353,28 @@ export function CancelLeaveConfirm({
         return
       }
       await teamApi.cancel(request.id, fresh.version)
-      toast.success("Congé annulé", {
-        description: showName ? `${request.userName} — ${staffLeavePeriodLabel(request)}` : staffLeavePeriodLabel(request),
-      })
+      toast.success(wording(request).done, { description: staffLeavePeriodLabel(request) })
       onOpenChange(false)
       onChanged?.()
     } catch (err) {
-      showErrorToast(err, "Le congé n'a pas pu être annulé.")
+      showErrorToast(err, waiting ? "La demande n'a pas pu être retirée." : "Le congé n'a pas pu être annulé.")
       onChanged?.()
     } finally {
       setCancelling(false)
     }
   }
 
+  const { action } = wording(request)
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            {request ? `Annuler ${leaveCancelSubject(request, showName)} ?` : "Annuler le congé ?"}
+            {request ? `${leaveCancelVerb(request)} ${leaveCancelSubject(request, false)} ?` : `${action} ?`}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {request?.status === "Approved" ? "Ce congé était accepté." : "La demande est retirée."}
+            {request ? (waiting ? `${request.typeLabel} · ${staffDaysLabel(request.requestedDays)}` : cancelConsequence(request, "votre")) : ""}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -380,10 +387,122 @@ export function CancelLeaveConfirm({
               void handleCancel()
             }}
           >
-            {cancelling ? "Annulation…" : "Annuler le congé"}
+            {cancelling ? (waiting ? "Retrait…" : "Annulation…") : action}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+/**
+ * The admin cancels a secretary's accepted congé or absence — whatever its date, so a wrong type or a past day can be
+ * corrected. The motif is required: she reads it on her congé and in the notification.
+ */
+export function AdminCancelLeaveDialog({ request, open, onOpenChange, onChanged }: DecisionDialogProps) {
+  const guard = useDirtyGuard(open, onOpenChange)
+  const conflict = useConflict()
+  const resetConflict = conflict.reset
+  const [reason, setReason] = useState("")
+  const [reasonError, setReasonError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setReason("")
+    setReasonError(null)
+    resetConflict()
+  }, [open, resetConflict])
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!request || saving) return
+    if (!reason.trim()) {
+      setReasonError("Indiquez le motif de l'annulation.")
+      return
+    }
+    setSaving(true)
+    conflict.clearMessage()
+    try {
+      const fresh = await teamApi.getLeaveRequest(request.id)
+      if (fresh.status !== request.status) {
+        conflict.raise("Ce congé a changé entre-temps.")
+        return
+      }
+      await teamApi.cancel(request.id, fresh.version, reason.trim())
+      toast.success(wording(request).done, {
+        description: `${request.userName} — ${staffLeavePeriodLabel(request)}`,
+      })
+      guard.markClean()
+      onOpenChange(false)
+      onChanged?.()
+    } catch (err) {
+      conflict.capture(err, "Le congé n'a pas pu être annulé.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const reload = () => {
+    guard.markClean()
+    onOpenChange(false)
+    onChanged?.()
+  }
+
+  const { action } = wording(request)
+  const returnsDays = Boolean(request && !isWaiting(request) && request.type === "PaidLeave")
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={guard.onOpenChange}>
+        <DialogContent className="md:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{request ? `${leaveCancelVerb(request)} ${leaveCancelSubject(request, true)} ?` : `${action} ?`}</DialogTitle>
+            {/* Said aloud only when it adds to the recap below: the days a congé payé gives back. */}
+            <DialogDescription className={returnsDays ? undefined : "sr-only"}>
+              {request ? (returnsDays ? cancelConsequence(request, "son") : `${request.typeLabel} · ${staffLeavePeriodLabel(request)}`) : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <form id="cancel-leave-form" noValidate onSubmit={handleSubmit} className="space-y-5">
+              {request && <LeaveRecap request={request} />}
+              <div className="space-y-2">
+                <Label htmlFor="cancel-leave-reason">Motif</Label>
+                <Textarea
+                  id="cancel-leave-reason"
+                  value={reason}
+                  rows={3}
+                  maxLength={MAX_STAFF_LEAVE_REASON}
+                  aria-invalid={Boolean(reasonError)}
+                  aria-describedby={reasonError ? "cancel-leave-reason-error" : undefined}
+                  onChange={(e) => {
+                    setReason(e.target.value)
+                    setReasonError(null)
+                  }}
+                />
+                {reasonError && (
+                  <p id="cancel-leave-reason-error" className="text-xs text-destructive">
+                    {reasonError}
+                  </p>
+                )}
+              </div>
+              <FormErrorBanner
+                message={conflict.error}
+                action={conflict.isConflict ? { label: "Recharger", onClick: reload, disabled: saving } : undefined}
+              />
+            </form>
+          </DialogBody>
+          <DialogFooter className="flex-col-reverse gap-2 md:flex-row">
+            <Button type="button" variant="outline" onClick={() => guard.onOpenChange(false)} disabled={saving}>
+              Retour
+            </Button>
+            <Button type="submit" form="cancel-leave-form" variant="destructive" disabled={saving}>
+              {saving ? "Annulation…" : action}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <DiscardChangesDialog guard={guard} />
+    </>
   )
 }

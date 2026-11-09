@@ -93,8 +93,8 @@ Gains `attendanceLock?`.
 - **Touch:** nothing hover-only. The reminder is a push notification, not a banner she has to be looking at.
 
 ## Out of Scope
-- A borne that works during an internet cut. The lock lifts during the cut and the hours are declared the next
-  morning.
+- A borne that works during an internet cut. The lock lifts during the cut; an arrival already pointed has its
+  departure declared the next morning, and a day with no arrival pointed stays without a line.
 - Locking a shared session: the lock is on **her** account.
 - Lateness against planned hours.
 

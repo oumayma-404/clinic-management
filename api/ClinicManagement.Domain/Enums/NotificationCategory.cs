@@ -201,5 +201,26 @@ public enum NotificationCategory
     StaffLeaveRejected = 22,
 
     /// <summary>An accepted congé was withdrawn before it began — for the cabinet's admins.</summary>
-    StaffLeaveCancelled = 23
+    StaffLeaveCancelled = 23,
+
+    /// <summary>
+    /// 15 min after closing, a secretary is still « présente » on today's line (<c>pointage-obligatoire</c> AC-6) —
+    /// for her alone, pushed to her phone. Once per line; the reminder writes no pointage row.
+    /// </summary>
+    AttendanceDepartureMissing = 24,
+
+    /// <summary>A borne went live and this tracked person has no schéma yet — for her alone, pushed to her phone.</summary>
+    AttendanceSchemaToCreate = 25,
+
+    /// <summary>
+    /// The device an admin chose picked its borne up: one row for the admins (<c>TargetRole</c>) and one for the
+    /// device's owner. In-app only.
+    /// </summary>
+    AttendanceBorneInstalled = 26,
+
+    /// <summary>The session a waiting borne was chosen for ended before it picked the borne up — for the admins.</summary>
+    AttendanceBorneNotReceived = 27,
+
+    /// <summary>A fifth wrong schéma blocked someone's tile for 15 min — for the admins, who can lift it.</summary>
+    AttendanceSchemaBlocked = 28
 }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react"
 import { DashboardSection } from "@/components/dashboard/dashboard-section"
 import { TeamTodayList } from "@/components/team/team-today-list"
 import { pointageApi, type TeamTodayDto } from "@/lib/api/pointage"
+import { usePendingLeaveCount } from "@/lib/hooks/use-staff-leave"
 import { USERS_ATTENDANCE_TAB, USERS_LEAVE_TAB } from "@/lib/staff-leave"
 import { getErrorMessage } from "@/lib/errors"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -49,17 +50,33 @@ export function TeamTodayBlock() {
     >
       {data && (
         <div className="space-y-2">
-          <TeamTodayList people={data.people} />
-          {pending > 0 && (
-            <Link
-              href={`/users?onglet=${USERS_LEAVE_TAB}`}
-              className="inline-flex items-center text-sm font-medium text-primary hover:underline coarse:min-h-11"
-            >
-              {pending} demande{pending > 1 ? "s" : ""} de congé en attente
-            </Link>
-          )}
+          <TeamTodayList today={data} onChanged={() => void load()} />
+          {pending > 0 && <PendingLeaveLink count={pending} />}
         </div>
       )}
+    </DashboardSection>
+  )
+}
+
+/** « 2 demandes de congé en attente », to the Congés tab. */
+function PendingLeaveLink({ count }: { count: number }) {
+  return (
+    <Link
+      href={`/users?onglet=${USERS_LEAVE_TAB}`}
+      className="inline-flex items-center text-sm font-medium text-primary hover:underline coarse:min-h-11"
+    >
+      {count} demande{count > 1 ? "s" : ""} de congé en attente
+    </Link>
+  )
+}
+
+/** The same block with the congés on and the pointage off: only the requests waiting, and nothing while none is. */
+export function PendingLeaveBlock() {
+  const pending = usePendingLeaveCount(true)
+  if (pending === 0) return null
+  return (
+    <DashboardSection title="Équipe aujourd'hui" href={`/users?onglet=${USERS_LEAVE_TAB}`} action="Ouvrir les congés">
+      <PendingLeaveLink count={pending} />
     </DashboardSection>
   )
 }

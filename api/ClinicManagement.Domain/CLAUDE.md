@@ -153,6 +153,17 @@
   `PcMustConfirmNumbers` is always false — a sleeping laptop holding an « armé » ack blocked the cloud's billing all
   night — and a PC holding a cut numbers provisionally (`Services/ProvisionalNumber`, `AAAA-P…`), renumbered at the return.
   The lossy-line « never both writable » simulation went with the automatic takeover it tested.
+- **`StaffLeaveLedger`** (`Services/StaffLeaveLedger.cs`) — a secretary's « Droit à congé », folded from her
+  `StaffLeaveAllowanceEntry` lines (append-only aggregate: a rule « N j par an / par mois » from a 1st, a starting
+  balance, days ± with a motif; cancelled with a motif, never deleted) and her congé payé. **Pure and clock-free**
+  (`asOf` is a parameter): one running balance walked day by day — an opening resets it (everything before is inside
+  the figure), the rule in force on each 1st credits, accepted congés take their days on their first day, and on 31
+  December a positive remainder expires under a rule that does not carry over (a debt carries). ⚠️ Her account
+  **begins on its first line**: a congé before it is history (`Absorbed`), never a debt — and an opening keeps the
+  congés it absorbs listed the same way, so « Pris » counts every accepted day while `TakenInOpening` is the part that
+  moved nothing. With **no rule in force on 31/12 the next rule's carry choice decides**, and a year a yearly rule
+  already credited earns no monthly credit until the next 1 January. The relevé's last balance equals the year's
+  `Remaining` — `StaffLeaveLedgerTests` holds it.
 - **`ConditionTreatments`** (`Services/ConditionTreatments.cs`) — **what treats what**: the one place the product
   states that a carie is answered by an obturation before a dévitalisation, and a racine résiduelle by an extraction.
   ⚠️ It is the **inverse** of `ProcedureType.ResultingCondition` and could not be derived from it — that field names

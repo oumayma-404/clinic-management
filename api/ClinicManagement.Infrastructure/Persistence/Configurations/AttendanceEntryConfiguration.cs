@@ -30,6 +30,7 @@ public class AttendanceEntryConfiguration : IEntityTypeConfiguration<AttendanceE
         builder.Property(e => e.ArrivalUtc).IsRequired();
         builder.Property(e => e.DepartureUtc);
         builder.Property(e => e.DepartureSource).HasConversion<int?>();
+        builder.Property(e => e.DeclaredLastSaveUtc);
 
         builder.Property(e => e.CorrectedByUserId).HasMaxLength(255);
         builder.Property(e => e.CorrectionReason).HasMaxLength(AttendanceEntry.MaxReasonLength);

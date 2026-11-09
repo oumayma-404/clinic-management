@@ -95,6 +95,37 @@ R5 Autre 14 déc · absence Ines Sans solde 4→6 nov (already started) · absen
 
 ⚠️ Every « no horizontal scroll » row now measures `<main id="contenu-principal">` as well as the document: `<main>` is the scroller, so the old probe could not see the 320 px overflow review #2 found.
 
+## Added for « Droit à congé » (2026-11-06, droit-conges-blueprint) — nothing removed
+
+A4 now sets the rule « 24 j par an » from 1 January through « Définir la règle »; A16 reads « Prévus 4,5 j » (both
+congés are still to come on the day of the run); A19's no-droit secretary reads « 2 jours prévus ».
+
+| ID | Case | Steps | Expected (observable) | Layer | Widths |
+|----|------|-------|-----------------------|-------|--------|
+| K5 | refusals | rule 40 j par mois; days added with no motif | « Par demi-journée, entre 0 et 31 jours. », nothing written; « Indiquez le motif. » | browser + sql | 1000 |
+| K1 | a monthly rule from next month | Modifier la règle → 2 j par mois, default « 1er … » | toast « Règle enregistrée »; card « prochain : +2 j le 1er … »; still 19,5; SQL keeps the yearly rule and appends the monthly one | browser + sql | 1000 |
+| K2 | starting balance | Solde de départ 10 today | « 5,5 jours restants » (10 − 4,5 planned); relevé « Solde de départ » … « Congé prévu », ending « solde 5,5 j »; no « Droit 2026 » line | browser | 1000 |
+| K3 | days removed | Retirer 1,5 · Rattrapage | « 4 jours restants »; relevé « Jours retirés · Rattrapage » −1,5 j | browser | 1000 |
+| K4 | a line cancelled | the relevé's ✕ on it, motif « Erreur de saisie » | confirm names the line; empty motif refused; back to 5,5; the line stays struck through with the motif, in the relevé and the account list | browser | 1000 |
+| K6 | her own page | secretary `/conges` | « 5,5 jours restants », « Total pris depuis le début », next credit; relevé with no button | browser | 560 |
+| K7 | edges | the file and the rule dialog at 320×640 and 1536×730 | no sideways scroll; « Enregistrer la règle » on screen | browser | 320 · 1536×730 |
+
+### Run 9 — the paths one day cannot show (nothing removed)
+
+A11 also reads the e-mail's « Congé payé restant en 2026 : 21,5 jours ». A18's absence is now « the two days before
+today and today » (it was pinned to 4 → 6 November, so A19/A22 broke on the 7th).
+
+| ID | Case | Steps | Expected (observable) | Layer | Widths |
+|----|------|-------|-----------------------|-------|--------|
+| K8 | a monthly rule that started in January | « 2 j par mois » from « 1er janvier » on the no-droit secretary | Acquis = 2 × months so far; one « Acquis — <mois> » line per month; minus her 2 planned days | browser | 1000 |
+| K9 | cancelling a rule | ✕ on « Règle : 2 j par mois » + motif | toast; card back to « Aucun droit à congé défini » with no balance; the rule struck through | browser | 1000 |
+| K10 | 31 December, « perdus » | SQL: 20 j par an from 1 Jan 2025 + 5 days taken in March 2025 | 2025 read back: acquis 20 · pris 5 · perdus 15 · reste 0, relevé ends « perdus » −15; 2026 opens at « Droit 2026 », 18 left | api + browser | 1000 |
+| K11 | 31 December, « reportés » | SQL: the same rule carries over | 2026 relevé opens « Report de 2025 » 15 j; 33 left | browser | 1000 |
+| K12 | ended 2025 owing | SQL: 18 more days in June 2025, « perdus » again | « Dépassement reporté de 2025 » −3 j; 15 left; nothing « perdu » in 2025 | browser + api | 1000 |
+| K13 | live update | her `/conges` open; admin adds 1 day | her « jours restants » +1, same page (no reload) | browser | 560 |
+| K14 | tablet with a finger | `(pointer: coarse)` at 820×1180 | account buttons, relevé ✕, rule dialog fields / choices / buttons ≥ 44 px tappable | browser | 820 |
+| M1 | the database update with real values | throwaway copy: back down to the previous migration, give 3 accounts a « droit annuel » (24 · 0 · none), up again; `verify-schema` | one rule each for 24 and 0, « par an, perdus », from 1 January, `Droit annuel (repris)`; the column gone; down restores 24; `verify-schema` clean | console + sql | — |
+
 ## Not covered, and why
 
 | Area | Why not |

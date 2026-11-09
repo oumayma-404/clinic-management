@@ -30,6 +30,7 @@ public class StaffLeaveRequestConfiguration : IEntityTypeConfiguration<StaffLeav
         builder.Property(l => l.EndDate).IsRequired().HasColumnType("date");
 
         builder.Property(l => l.HalfDay).IsRequired();
+        builder.Property(l => l.HalfDayPart).HasConversion<int>();
         builder.Property(l => l.Reason).IsRequired().HasMaxLength(StaffLeaveRequest.MaxReasonLength);
         builder.Property(l => l.RequestedDays).IsRequired();
         builder.Property(l => l.CountedDays);
@@ -39,6 +40,7 @@ public class StaffLeaveRequestConfiguration : IEntityTypeConfiguration<StaffLeav
         builder.Property(l => l.RejectionReason).HasMaxLength(StaffLeaveRequest.MaxReasonLength);
         builder.Property(l => l.CancelledAt);
         builder.Property(l => l.CancelledByUserId).HasMaxLength(255);
+        builder.Property(l => l.CancelReason).HasMaxLength(StaffLeaveRequest.MaxReasonLength);
 
         builder.Property(l => l.EnteredByAdmin).IsRequired();
         builder.Property(l => l.CreatedAt).IsRequired();

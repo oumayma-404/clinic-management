@@ -172,6 +172,76 @@ public class StaffLeaveRequestTests
         Assert.True(asked.CanBeCancelledBy(byAdmin: false, before));
     }
 
+    [Fact]
+    public void A_Half_Day_Keeps_Which_Half_And_A_Whole_Day_Keeps_None()
+    {
+        var morning = new StaffLeaveRequest(
+            Guid.NewGuid(), ClinicId, Secretary, StaffLeaveType.PaidLeave, Nov16, Nov16, true, "Médecin", 0.5m,
+            StaffLeaveHalfDayPart.Morning);
+        var whole = new StaffLeaveRequest(
+            Guid.NewGuid(), ClinicId, Secretary, StaffLeaveType.PaidLeave, Nov16, Nov18, false, "Mariage", 3m,
+            StaffLeaveHalfDayPart.Afternoon);
+
+        Assert.Equal(StaffLeaveHalfDayPart.Morning, morning.HalfDayPart);
+        Assert.Null(whole.HalfDayPart);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new StaffLeaveRequest(
+            Guid.NewGuid(), ClinicId, Secretary, StaffLeaveType.PaidLeave, Nov16, Nov16, true, "Médecin", 0.5m,
+            (StaffLeaveHalfDayPart)3));
+    }
+
+    [Fact]
+    public void An_Admin_Withdraws_An_Accepted_Congé_Whatever_Its_Date_With_A_Motif()
+    {
+        var leave = Pending();
+        leave.Approve(Admin, 3m);
+        var during = Nov16.AddDays(1);
+
+        Assert.True(leave.CanBeCancelledBy(byAdmin: true, during));
+        Assert.False(leave.CanBeCancelledBy(byAdmin: false, during));
+        Assert.Throws<ArgumentException>(() => leave.Cancel(Admin, during, byAdmin: true, reason: " "));
+        Assert.Equal(StaffLeaveStatus.Approved, leave.Status);
+
+        leave.Cancel(Admin, during, byAdmin: true, reason: "  Erreur de type  ");
+
+        Assert.Equal(StaffLeaveStatus.Cancelled, leave.Status);
+        Assert.Equal(Admin, leave.CancelledByUserId);
+        Assert.Equal("Erreur de type", leave.CancelReason);
+    }
+
+    [Fact]
+    public void She_Withdraws_Her_Own_Without_A_Motif_And_Never_One_The_Admin_Recorded()
+    {
+        var own = Pending();
+        own.Cancel(Secretary, Nov16.AddDays(-3));
+        var absence = StaffLeaveRequest.RecordByAdmin(
+            Guid.NewGuid(), ClinicId, Secretary, StaffLeaveType.Unpaid, Nov16, Nov18, false, "Absence", 3m, Admin);
+
+        Assert.Null(own.CancelReason);
+        Assert.Throws<InvalidOperationException>(() => absence.Cancel(Secretary, Nov16.AddDays(-3)));
+        Assert.True(absence.CanBeCancelledBy(byAdmin: true, Nov16.AddDays(-3)));
+    }
+
+    [Fact]
+    public void Refused_And_Withdrawn_Requests_Cannot_Be_Withdrawn_Even_By_An_Admin()
+    {
+        var rejected = Pending();
+        rejected.Reject(Admin, "Non");
+
+        Assert.False(rejected.CanBeCancelledBy(byAdmin: true, Nov16));
+        Assert.Throws<InvalidOperationException>(() => rejected.Cancel(Admin, Nov16, byAdmin: true, reason: "Motif"));
+    }
+
+    [Fact]
+    public void An_Absence_Is_Counted_As_The_Admin_Says_When_She_Takes_A_Jour_Férié_Out()
+    {
+        var absence = StaffLeaveRequest.RecordByAdmin(
+            Guid.NewGuid(), ClinicId, Secretary, StaffLeaveType.PaidLeave, Nov16, Nov18, false, "Absence", 3m, Admin,
+            countedDays: 2m);
+
+        Assert.Equal(3m, absence.RequestedDays);
+        Assert.Equal(2m, absence.CountedDays);
+    }
+
     [Theory]
     [InlineData(null, "Indiquez le motif du refus.")]
     [InlineData("  ", "Indiquez le motif du refus.")]
@@ -186,16 +256,5 @@ public class StaffLeaveRequestTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => StaffNotification.ForStaffLeave(
             Guid.NewGuid(), ClinicId, NotificationCategory.AppointmentCreated, "Titre", "Message", Admin, Secretary));
-    }
-
-    [Theory]
-    [InlineData(24.5, null)]
-    [InlineData(-1, "Le droit annuel se compte par demi-journée, entre 0 et 366 jours.")]
-    [InlineData(24.25, "Le droit annuel se compte par demi-journée, entre 0 et 366 jours.")]
-    [InlineData(367, "Le droit annuel se compte par demi-journée, entre 0 et 366 jours.")]
-    public void A_Yearly_Allowance_Is_Counted_In_Half_Days_Up_To_A_Year(double days, string? expected)
-    {
-        Assert.Equal(expected, User.AllowanceRefusalFor((decimal)days));
-        Assert.Null(User.AllowanceRefusalFor(null));
     }
 }

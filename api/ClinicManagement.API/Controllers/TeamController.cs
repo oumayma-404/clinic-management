@@ -3,6 +3,7 @@ using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
+using ClinicManagement.Application.Features.Auth;
 using ClinicManagement.Application.Features.Team;
 using ClinicManagement.Application.Features.Team.Commands;
 using ClinicManagement.Application.Features.Team.Queries;
@@ -81,6 +82,7 @@ public class TeamController : ApiControllerBase
 
     // Open to every role: the owner withdraws her own; the handler lets an admin withdraw anyone's.
     [HttpPost("leave-requests/{id:guid}/cancel")]
+    [AllowsBeforeClockIn("AC-3 — « Congés » stays open: withdrawing her own congé is not the day's clinic work.")]
     public async Task<ActionResult<StaffLeaveRequestDto>> Cancel(
         Guid id, [FromBody] CancelStaffLeaveRequestCommand command, CancellationToken cancellationToken)
     {
@@ -98,6 +100,7 @@ public class TeamController : ApiControllerBase
 
     // Open to every role so the refusal is the handler's French sentence (secretary accounts only).
     [HttpPost("me/leave-requests")]
+    [AllowsBeforeClockIn("AC-3 — « Congés » stays open: asking for a congé is not the day's clinic work.")]
     public async Task<ActionResult<StaffLeaveRequestDto>> Submit(
         [FromBody] SubmitStaffLeaveRequestCommand command, CancellationToken cancellationToken)
     {
@@ -145,12 +148,79 @@ public class TeamController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
     }
 
-    [HttpPut("users/{userId}/leave-allowance")]
+    /// <summary>« Modifier la règle »'s live result: her balance as if this rule were saved. Writes nothing.</summary>
+    [HttpGet("users/{userId}/leave-rule-preview")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
-    public async Task<ActionResult<StaffLeaveBalanceDto>> SetAllowance(
-        string userId, [FromBody] SetLeaveAllowanceCommand command, CancellationToken cancellationToken)
+    public async Task<ActionResult<StaffLeaveBalanceDto>> PreviewLeaveRule(
+        string userId,
+        [FromQuery] decimal days,
+        [FromQuery] string? accrual,
+        [FromQuery] bool carryOver,
+        [FromQuery] DateOnly since,
+        CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new PreviewLeaveRuleQuery
+        {
+            UserId = userId,
+            Days = days,
+            Accrual = accrual,
+            CarryOver = carryOver,
+            Since = since,
+        }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
+    }
+
+    /// <summary>« Fixer le solde »'s live result: her balance as if this « Solde de départ » were saved. Writes nothing.</summary>
+    [HttpGet("users/{userId}/leave-opening-preview")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<StaffLeaveBalanceDto>> PreviewOpeningLeaveBalance(
+        string userId, [FromQuery] decimal days, [FromQuery] DateOnly onDay, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new PreviewOpeningLeaveBalanceQuery { UserId = userId, Days = days, OnDay = onDay }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
+    }
+
+    /// <summary>« Droit à congé » → « Modifier la règle »: a later rule supersedes the earlier one from its own day.</summary>
+    [HttpPut("users/{userId}/leave-rule")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<StaffLeaveBalanceDto>> SetLeaveRule(
+        string userId, [FromBody] SetLeaveRuleCommand command, CancellationToken cancellationToken)
     {
         command.UserId = userId;
+        var result = await _mediator.Send(command, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
+    }
+
+    /// <summary>« Solde de départ »: what she has left on a day; everything before it is inside the figure.</summary>
+    [HttpPost("users/{userId}/leave-opening")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<StaffLeaveBalanceDto>> SetOpeningLeaveBalance(
+        string userId, [FromBody] SetOpeningLeaveBalanceCommand command, CancellationToken cancellationToken)
+    {
+        command.UserId = userId;
+        var result = await _mediator.Send(command, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
+    }
+
+    /// <summary>« Ajouter ou retirer des jours », with a motif.</summary>
+    [HttpPost("users/{userId}/leave-adjustments")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<StaffLeaveBalanceDto>> AdjustLeaveBalance(
+        string userId, [FromBody] AdjustLeaveBalanceCommand command, CancellationToken cancellationToken)
+    {
+        command.UserId = userId;
+        var result = await _mediator.Send(command, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
+    }
+
+    /// <summary>Strikes a « Droit à congé » line through, with a motif; it stays listed.</summary>
+    [HttpPost("leave-allowance-entries/{id:guid}/cancel")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<StaffLeaveBalanceDto>> CancelLeaveAllowanceEntry(
+        Guid id, [FromBody] CancelLeaveAllowanceEntryCommand command, CancellationToken cancellationToken)
+    {
+        command.EntryId = id;
         var result = await _mediator.Send(command, cancellationToken);
         return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
     }
@@ -164,9 +234,19 @@ public class TeamController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
     }
 
+    /// <summary>« Ajouter une borne »: the cabinet's signed-in devices an admin may choose from.</summary>
+    [HttpGet("terminals/devices")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<List<BorneDeviceDto>>> BorneDevices(CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetBorneDevicesQuery(), cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
+    }
+
     /// <summary>
-    /// « Faire de cet appareil une borne ». Spends a step-up confirmation before the mediator, then puts the borne's
-    /// secret in an <c>HttpOnly</c> cookie — the body carries the borne, never the secret.
+    /// « Ajouter une borne ». Spends a step-up confirmation before the mediator. For this device it puts the borne's
+    /// secret in an <c>HttpOnly</c> cookie — the body carries the borne, never the secret; for another device the borne
+    /// waits for that device to claim it, and no cookie is set here.
     /// </summary>
     [HttpPost("terminals")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
@@ -186,11 +266,13 @@ public class TeamController : ApiControllerBase
         {
             Name = request.Name,
             ReplacingTerminalId = request.ReplacingTerminalId,
+            DeviceSessionId = request.DeviceSessionId,
         }, cancellationToken);
         if (result.IsFailure)
             return HandleFailure(result, StatusFor(result));
 
-        BorneCookie.Write(Response, Request.IsHttps, result.Value!.Secret);
+        if (!string.IsNullOrEmpty(result.Value!.Secret))
+            BorneCookie.Write(Response, Request.IsHttps, result.Value.Secret);
         return Ok(result.Value.Terminal);
     }
 
@@ -203,8 +285,9 @@ public class TeamController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
     }
 
-    /// <summary>« Schéma de pointage » in Mon profil: her own, drawn twice on the client.</summary>
+    /// <summary>« Schéma de pointage » in Mon profil or on the lock: her own, drawn twice; replacing one asks her password.</summary>
     [HttpPut("me/schema")]
+    [AllowsBeforeClockIn("AC-3 — her schéma is what the borne needs to lift the lock; refusing it would lock her for good.")]
     public async Task<ActionResult<AttendancePersonSettingDto>> SetMySchema(
         [FromBody] SetMyAttendanceSchemaCommand command, CancellationToken cancellationToken)
     {
@@ -218,6 +301,15 @@ public class TeamController : ApiControllerBase
     public async Task<ActionResult<AttendancePersonSettingDto>> ResetSchema(string userId, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new ResetAttendanceSchemaCommand { UserId = userId }, cancellationToken);
+        return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
+    }
+
+    /// <summary>« Débloquer »: lifts a 5-wrong-schémas block and keeps the schéma.</summary>
+    [HttpPost("users/{userId}/schema/unlock")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<ActionResult<AttendancePersonSettingDto>> UnlockSchema(string userId, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new UnlockAttendanceSchemaCommand { UserId = userId }, cancellationToken);
         return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
     }
 
@@ -289,13 +381,19 @@ public class TeamController : ApiControllerBase
         return result.IsFailure ? HandleFailure(result, StatusFor(result)) : Ok(result.Value);
     }
 
-    public sealed record RegisterTerminalRequest(string? Name, string? StepUpToken, Guid? ReplacingTerminalId = null);
+    public sealed record RegisterTerminalRequest(
+        string? Name, string? StepUpToken, Guid? ReplacingTerminalId = null, Guid? DeviceSessionId = null);
 
-    // « Introuvable » is a 404, the pointage switched off a 403; every other refusal is a 400 carrying its sentence.
+    // « Introuvable » is a 404, the pointage switched off a 403, a clash with what is there a 409, the sign-in lockout a
+    // 429; every other refusal is a 400 carrying its sentence.
     private static int StatusFor(Result result) => result.Code switch
     {
         StaffLeaveRules.NotFoundCode or AttendanceRules.NotFoundCode => StatusCodes.Status404NotFound,
         AttendanceRules.ModuleOffCode => StatusCodes.Status403Forbidden,
+        StaffLeaveAllowanceWrites.EntryCancelledCode => StatusCodes.Status409Conflict,
+        AttendanceRules.DeviceGoneCode or AttendanceRules.BorneNameTakenCode or AttendanceRules.BorneLastWhilePresentCode
+            => StatusCodes.Status409Conflict,
+        ClinicAuthRefusals.TooManyAttempts => StatusCodes.Status429TooManyRequests,
         _ => StatusCodes.Status400BadRequest,
     };
 }

@@ -60,7 +60,7 @@ public class GetPointageStatusQueryHandler : IRequestHandler<GetPointageStatusQu
                 .Where(u => u.IsActive && u.IsAttendanceTracked)
                 .Select(u =>
                 {
-                    var day = TeamTodayRules.PersonToday(u, entries, leaves, today);
+                    var day = TeamTodayRules.PersonToday(u, entries, leaves, now);
                     return new PointagePersonDto
                     {
                         UserId = u.Id,
@@ -68,8 +68,9 @@ public class GetPointageStatusQueryHandler : IRequestHandler<GetPointageStatusQu
                         Initials = AttendanceRules.Initials(day.FullName),
                         State = day.State,
                         Since = day.Since,
-                        NeedsSchema = !u.HasAttendanceSchema,
-                        LockedUntil = u.IsSchemaLocked(now) ? u.SchemaLockedUntilUtc : null,
+                        NeedsSchema = day.NeedsSchema,
+                        LockedUntil = day.SchemaLockedUntil,
+                        LeftAt = day.LeftAt,
                     };
                 })
                 .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)

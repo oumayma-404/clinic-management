@@ -8,7 +8,10 @@ using MediatR;
 
 namespace ClinicManagement.Application.Features.Team.Commands;
 
-/// <summary>« Retirer »: the borne stops being one at its next punch. Its lines keep its name.</summary>
+/// <summary>
+/// « Retirer »: the borne stops being one at its next punch. Its lines keep its name. Refused for the last live borne
+/// while someone's line of today is still open — she could never pointer her departure.
+/// </summary>
 public class RevokeAttendanceTerminalCommand : IRequest<Result<AttendanceTerminalDto>>
 {
     public Guid Id { get; set; }
@@ -17,16 +20,18 @@ public class RevokeAttendanceTerminalCommand : IRequest<Result<AttendanceTermina
 public class RevokeAttendanceTerminalCommandHandler : IRequestHandler<RevokeAttendanceTerminalCommand, Result<AttendanceTerminalDto>>
 {
     private readonly IAttendanceTerminalRepository _terminals;
+    private readonly IAttendanceEntryRepository _entries;
     private readonly IUserRepository _users;
     private readonly IClinicRepository _clinics;
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
 
     public RevokeAttendanceTerminalCommandHandler(
-        IAttendanceTerminalRepository terminals, IUserRepository users, IClinicRepository clinics,
-        IClinicContext clinicContext, IUnitOfWork unitOfWork)
+        IAttendanceTerminalRepository terminals, IAttendanceEntryRepository entries, IUserRepository users,
+        IClinicRepository clinics, IClinicContext clinicContext, IUnitOfWork unitOfWork)
     {
         _terminals = terminals;
+        _entries = entries;
         _users = users;
         _clinics = clinics;
         _clinicContext = clinicContext;
@@ -46,7 +51,24 @@ public class RevokeAttendanceTerminalCommandHandler : IRequestHandler<RevokeAtte
             if (terminal == null || terminal.ClinicId != clinic.Id)
                 return Result<AttendanceTerminalDto>.Failure(AttendanceRules.TerminalNotFound, AttendanceRules.NotFoundCode);
 
-            terminal.Revoke(DateTime.UtcNow);
+            var now = DateTime.UtcNow;
+            if (terminal.IsLive
+                && !(await _terminals.ListAsync(clinic.Id, cancellationToken)).Any(t => t.IsLive && t.Id != terminal.Id))
+            {
+                var open = await _entries.ListOpenOnAsync(clinic.Id, AttendanceRules.Today(now), cancellationToken);
+                if (open.Count > 0)
+                {
+                    var roster = await StaffLeaveRules.RosterAsync(_users, clinic.Id, cancellationToken);
+                    var names = open.Select(e => e.UserId).Distinct()
+                        .Select(id => roster.TryGetValue(id, out var person) ? StaffLeaveRules.DisplayName(person) : "Compte supprimé")
+                        .OrderBy(n => n, StringComparer.CurrentCultureIgnoreCase)
+                        .ToList();
+                    return Result<AttendanceTerminalDto>.Failure(
+                        AttendanceRules.BorneLastWhilePresent(names), AttendanceRules.BorneLastWhilePresentCode);
+                }
+            }
+
+            terminal.Revoke(now);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return Result<AttendanceTerminalDto>.Success(AttendanceRules.ToDto(terminal));
         }
@@ -100,6 +122,53 @@ public class ResetAttendanceSchemaCommandHandler : IRequestHandler<ResetAttendan
         catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<AttendancePersonSettingDto>.Failure("Erreur lors de la réinitialisation du schéma.", ex);
+        }
+    }
+}
+
+/// <summary>« Débloquer »: lifts a block from 5 wrong schémas and keeps the schéma, so she can pointer at once.</summary>
+public class UnlockAttendanceSchemaCommand : IRequest<Result<AttendancePersonSettingDto>>
+{
+    public string UserId { get; set; } = string.Empty;
+}
+
+public class UnlockAttendanceSchemaCommandHandler : IRequestHandler<UnlockAttendanceSchemaCommand, Result<AttendancePersonSettingDto>>
+{
+    private readonly IUserRepository _users;
+    private readonly IClinicRepository _clinics;
+    private readonly IClinicContext _clinicContext;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public UnlockAttendanceSchemaCommandHandler(
+        IUserRepository users, IClinicRepository clinics, IClinicContext clinicContext, IUnitOfWork unitOfWork)
+    {
+        _users = users;
+        _clinics = clinics;
+        _clinicContext = clinicContext;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<Result<AttendancePersonSettingDto>> Handle(UnlockAttendanceSchemaCommand request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var resolved = await AttendanceRules.ResolveAsync(_clinicContext, _users, _clinics, adminOnly: true, cancellationToken);
+            if (resolved.IsFailure)
+                return Result<AttendancePersonSettingDto>.FailureFrom(resolved);
+            var (_, clinic) = resolved.Value;
+
+            var target = await _users.GetByIdAsync(request.UserId, cancellationToken);
+            if (target == null || target.ClinicId != clinic.Id)
+                return Result<AttendancePersonSettingDto>.Failure(StaffLeaveRules.AccountNotFound, StaffLeaveRules.NotFoundCode);
+
+            target.ClearSchemaFailures();
+            _users.Update(target);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<AttendancePersonSettingDto>.Success(AttendanceRules.ToSetting(target, DateTime.UtcNow));
+        }
+        catch (Exception ex) when (ex is not ConflictException)
+        {
+            return Result<AttendancePersonSettingDto>.Failure("Erreur lors du déblocage du schéma.", ex);
         }
     }
 }

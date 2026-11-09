@@ -240,6 +240,35 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         string? targetUserId, CancellationToken cancellationToken = default) =>
         _inner.StaffLeaveAsync(clinicId, category, title, message, actorUserId, targetUserId, cancellationToken);
 
+    // Pushed: the reminder exists for the moment she has already left the desk (AC-6).
+    // Pushed only once the bell row exists: the job dedupes on that row, so a push without it would repeat every 5 minutes.
+    public async Task<bool> AttendanceDepartureMissingAsync(
+        Guid clinicId, string targetUserId, string since, IReadOnlyList<string> bornes,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await _inner.AttendanceDepartureMissingAsync(clinicId, targetUserId, since, bornes, cancellationToken))
+            return false;
+
+        await FanOutAsync(
+            clinicId, NotificationCategory.AttendanceDepartureMissing, actorUserId: null, targetUserId,
+            appointmentId: null, DateTime.UtcNow, cancellationToken);
+        return true;
+    }
+
+    // Pushed only for a row addressed to one person and a category that reaches a lock screen (« Créez votre schéma »);
+    // the admins' setup rows stay in-app.
+    public async Task<bool> AttendanceNoticeAsync(
+        Guid clinicId, NotificationCategory category, string title, string message, string? targetUserId,
+        string? actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (!await _inner.AttendanceNoticeAsync(clinicId, category, title, message, targetUserId, actorUserId, cancellationToken))
+            return false;
+
+        if (targetUserId is not null)
+            await FanOutAsync(clinicId, category, actorUserId, targetUserId, appointmentId: null, DateTime.UtcNow, cancellationToken);
+        return true;
+    }
+
     // Pass-through: the export has already completed by the time this is written, so there is nothing a banner
     // could let anybody intervene in.
     // Pass-through: ArchiveStale is in-app only (StaffNotificationRules.ReachesALockedPhone answers false), and

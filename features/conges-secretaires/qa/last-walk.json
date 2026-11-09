@@ -1,10 +1,735 @@
 {
-  "at": "2026-11-05T15:54:12.242Z",
+  "at": "2026-11-07T16:51:57.131Z",
   "results": [
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "switch « Demandes de congé des secrétaires » is off by default"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "no « Congés » menu entry for the secretary while off"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "/conges says the module is off"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "/users has no « Congés » tab while off"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "toast « Demandes de congé activées. »"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "secretary menu gains « Congés » without a reload"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "secretary /conges turns into her page without a reload"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "toast « Règle enregistrée »"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "file reads « 24 jours restants », Acquis 24 j, Pris 0 j"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "secretary's balance follows without a reload (24 jours restants)"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "« Demi-journée » only when Du = Au"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "« Au » before « Du » refused on the field"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "more than 366 days refused"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "empty motif refused, dialog stays open"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "form states « 3 jours … Il restera 21 jours » before sending"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "toast « Demande envoyée »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "her row reads « 16 → 18 novembre · En attente »"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "exactly one admin-role notification, worded as AC-5"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "« Utilisateurs » rail entry carries the pending count 1"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "bell row « Demande de congé » with the request sentence"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "clicking it lands on /users?onglet=conges"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "« Congés » tab selected, badge 1"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "decision card: name, type, « Jours 3 jours », motif, « Solde après 21 jours »"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "« Décompter » prefilled with 3"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "toast « Congé accepté »"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "moved to « Toutes les demandes » with 2,5 décomptés and who decided"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "stored CountedDays = 2.5"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "her card turns « Accepté » without a reload"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "balance « 21,5 jours restants »"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "her bell has « Congé accepté »"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "one acceptance e-mail"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "subject names the dates, body the 2,5 jours"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "the e-mail states « Congé payé restant en 2026 : 21,5 jours »"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "overlap refused naming the other request"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "half day states « 0,5 jour … demi-journée »"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "empty refusal motif refused on the field"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "toast « Demande refusée »"
+    },
+    {
+      "id": "A13",
+      "outcome": "pass",
+      "m": "her card « Refusé » quoting the motif"
+    },
+    {
+      "id": "A13",
+      "outcome": "pass",
+      "m": "refusal e-mail quotes the motif word for word"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "toast « Absence enregistrée »"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "her file: « Accepté » + « Saisi par l'admin »"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "she is notified (one row addressed to her)"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "form states « 4 jours » for 30 déc → 2 janv"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "balance after counts only the 2026 share (24 − 2,5 − 2 = 19,5), per AC-12"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "admin card names who else is off"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "admin card « Solde après » counts only the 2026 share"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "her 2026 balance: « 19,5 jours restants », Prévus 4,5 j"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "banner « Cette demande a déjà reçu une réponse. » with « Recharger »"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "« Recharger » closes and R4 reads « Annulé »"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "stored status Cancelled, no decision written"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "confirm names the congé and says it was accepted"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "toast « Congé annulé »"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "her row reads « Lundi 14 décembre · Annulé »"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "admins notified of the cancellation"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "admin bell shows « Congé annulé »"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "toast « Absence enregistrée »"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "her card: « Saisi par l'admin », no « Annuler » on a started congé"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "the API refuses to cancel a started congé"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "she is notified of the absence"
+    },
+    {
+      "id": "setup-R6",
+      "outcome": "pass",
+      "m": "R6 (21 déc) left pending for the device checks"
+    },
+    {
+      "id": "A19",
+      "outcome": "pass",
+      "m": "team strip: Ines « 19,5 / 24 j », next congé named"
+    },
+    {
+      "id": "A19",
+      "outcome": "pass",
+      "m": "team strip: a secretary with no droit shows what she took or has planned"
+    },
+    {
+      "id": "A20",
+      "outcome": "pass",
+      "m": "« Refusées » lists only the refused request (server-side filter)"
+    },
+    {
+      "id": "A20",
+      "outcome": "pass",
+      "m": "« Toutes » brings every decided request back"
+    },
+    {
+      "id": "A21",
+      "outcome": "pass",
+      "m": "file: accepted absences by type for 2026 (refused and cancelled ones not counted)"
+    },
+    {
+      "id": "A22",
+      "outcome": "pass",
+      "m": "month: accepted days marked, the refused 25 is not"
+    },
+    {
+      "id": "A22",
+      "outcome": "pass",
+      "m": "month: today (7) ringed, inside the started absence"
+    },
+    {
+      "id": "A22",
+      "outcome": "pass",
+      "m": "« Prochain congé » names the one under way"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "coarse pointer emulated"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "no horizontal scroll at 320"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "« Annuler » on a card ≥ 44 px on a coarse pointer"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "request form is a bottom sheet at 320"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "« Envoyer la demande » inside the viewport"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "admin congés tab: no horizontal scroll at 320"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "Accepter / Refuser visible, ≥ 44 px"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "« Refuser la demande » inside a 730 px tall window"
+    },
+    {
+      "id": "F1",
+      "outcome": "pass",
+      "m": "at 820: Annuler / Refuser / Accepter inside the card, no sideways scroll"
+    },
+    {
+      "id": "F2",
+      "outcome": "pass",
+      "m": "Escape on a typed motif asks « Abandonner les modifications ? »"
+    },
+    {
+      "id": "F2",
+      "outcome": "pass",
+      "m": "the motif is still there after « Continuer la saisie »"
+    },
+    {
+      "id": "F3",
+      "outcome": "pass",
+      "m": "scrolled to the bottom, the last block ends above the fixed button"
+    },
     {
       "id": "F4",
       "outcome": "pass",
       "m": "the « refusée » bell row names the days once"
+    },
+    {
+      "id": "G1",
+      "outcome": "skip",
+      "m": "« Premiers pas » shows no « Votre secrétaire » step for this cabinet (already done or card hidden)"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "« Comptes » at 1440: accounts listed, Ines's file reachable, no horizontal scroll"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "« Comptes » at 820: accounts listed, Ines's file reachable, no horizontal scroll"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "« Équipe » card fits at 1440"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "« Équipe » card fits at 390"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "rail badge on « Utilisateurs » (expanded)"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "rail badge on « Utilisateurs » (collapsed)"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "badge in the phone drawer at 390"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "off: the secretary loses « Congés » without a reload"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "off: her /conges says the module is off"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "off: /users has no tabs"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "on again: the switch is ON in the database"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "on again: her 7 congés are all back (8 rows in the cabinet)"
+    },
+    {
+      "id": "K5",
+      "outcome": "pass",
+      "m": "a monthly rule of 40 days is refused before sending"
+    },
+    {
+      "id": "K5",
+      "outcome": "pass",
+      "m": "nothing written"
+    },
+    {
+      "id": "K5",
+      "outcome": "pass",
+      "m": "days added with no motif → « Indiquez le motif. »"
+    },
+    {
+      "id": "K1",
+      "outcome": "pass",
+      "m": "the file reads « 19,5 jours restants » (24 − 4,5 accepted after today)"
+    },
+    {
+      "id": "K1",
+      "outcome": "pass",
+      "m": "starts on « 1er … » of next month by default"
+    },
+    {
+      "id": "K1",
+      "outcome": "pass",
+      "m": "toast « Règle enregistrée »"
+    },
+    {
+      "id": "K1",
+      "outcome": "pass",
+      "m": "the card announces the next credit « +2 j le 1er … »"
+    },
+    {
+      "id": "K1",
+      "outcome": "pass",
+      "m": "nothing credited before its day — still 19,5"
+    },
+    {
+      "id": "K1",
+      "outcome": "pass",
+      "m": "SQL: the yearly rule kept, the monthly one from next month appended"
+    },
+    {
+      "id": "K2",
+      "outcome": "pass",
+      "m": "toast « Solde de départ enregistré »"
+    },
+    {
+      "id": "K2",
+      "outcome": "pass",
+      "m": "opening 10 today − 4,5 accepted after today = « 5,5 jours restants »"
+    },
+    {
+      "id": "K2",
+      "outcome": "pass",
+      "m": "relevé: « Solde de départ », then « Congé prévu » lines, ending « solde 5,5 j »"
+    },
+    {
+      "id": "K2",
+      "outcome": "pass",
+      "m": "the 1 January credit is inside the opening, not listed"
+    },
+    {
+      "id": "K3",
+      "outcome": "pass",
+      "m": "toast « Jours retirés »"
+    },
+    {
+      "id": "K3",
+      "outcome": "pass",
+      "m": "5,5 − 1,5 = « 4 jours restants »"
+    },
+    {
+      "id": "K3",
+      "outcome": "pass",
+      "m": "relevé line « Jours retirés · Rattrapage » −1,5 j"
+    },
+    {
+      "id": "K4",
+      "outcome": "pass",
+      "m": "the confirm names the line"
+    },
+    {
+      "id": "K4",
+      "outcome": "pass",
+      "m": "no motif → « Indiquez le motif de l'annulation. »"
+    },
+    {
+      "id": "K4",
+      "outcome": "pass",
+      "m": "toast « Ligne annulée »"
+    },
+    {
+      "id": "K4",
+      "outcome": "pass",
+      "m": "balance back to « 5,5 jours restants »"
+    },
+    {
+      "id": "K4",
+      "outcome": "pass",
+      "m": "the line stays, struck through, « annulée : Erreur de saisie »"
+    },
+    {
+      "id": "K4",
+      "outcome": "pass",
+      "m": "the account lists it « annulée par Dr Salma Ben Youssef : Erreur de saisie »"
+    },
+    {
+      "id": "K6",
+      "outcome": "pass",
+      "m": "her /conges reads « 5,5 jours restants » — the same fold"
+    },
+    {
+      "id": "K6",
+      "outcome": "pass",
+      "m": "her card: « Total pris depuis le début » and the next credit"
+    },
+    {
+      "id": "K6",
+      "outcome": "pass",
+      "m": "her relevé is read-only (no « Annuler »)"
+    },
+    {
+      "id": "K7",
+      "outcome": "pass",
+      "m": "320×640: the file does not scroll sideways"
+    },
+    {
+      "id": "K7",
+      "outcome": "pass",
+      "m": "320×640: the rule dialog has no sideways overflow"
+    },
+    {
+      "id": "K7",
+      "outcome": "pass",
+      "m": "320×640: « Enregistrer la règle » on screen"
+    },
+    {
+      "id": "K7",
+      "outcome": "pass",
+      "m": "1536×730: the file does not scroll sideways"
+    },
+    {
+      "id": "K7",
+      "outcome": "pass",
+      "m": "1536×730: the rule dialog has no sideways overflow"
+    },
+    {
+      "id": "K7",
+      "outcome": "pass",
+      "m": "1536×730: « Enregistrer la règle » on screen"
+    },
+    {
+      "id": "K8",
+      "outcome": "pass",
+      "m": "a monthly rule from 1 January is saved"
+    },
+    {
+      "id": "K8",
+      "outcome": "pass",
+      "m": "11 credits already landed: « Acquis 22 j »"
+    },
+    {
+      "id": "K8",
+      "outcome": "pass",
+      "m": "minus her 30–31 Dec congé: « 20 jours restants »"
+    },
+    {
+      "id": "K8",
+      "outcome": "pass",
+      "m": "the relevé lists 11 « Acquis — <mois> » lines"
+    },
+    {
+      "id": "K9",
+      "outcome": "pass",
+      "m": "a rule is cancelled like any line"
+    },
+    {
+      "id": "K9",
+      "outcome": "pass",
+      "m": "no droit left: the card claims no balance"
+    },
+    {
+      "id": "K9",
+      "outcome": "pass",
+      "m": "the rule stays listed, struck through"
+    },
+    {
+      "id": "K10",
+      "outcome": "pass",
+      "m": "2025 read back: acquis 20, pris 5, perdus 15, reste 0"
+    },
+    {
+      "id": "K10",
+      "outcome": "pass",
+      "m": "2025's relevé ends « Non pris en 2025 : perdus » −15"
+    },
+    {
+      "id": "K10",
+      "outcome": "pass",
+      "m": "2026 starts at « Droit 2026 », nothing carried"
+    },
+    {
+      "id": "K10",
+      "outcome": "pass",
+      "m": "2026: 20 − her 2 planned days = 18"
+    },
+    {
+      "id": "K11",
+      "outcome": "pass",
+      "m": "carried over: the relevé opens « Report de 2025 » 15 j"
+    },
+    {
+      "id": "K11",
+      "outcome": "pass",
+      "m": "15 carried + 20 − 2 planned = 33"
+    },
+    {
+      "id": "K12",
+      "outcome": "pass",
+      "m": "the relevé opens « Dépassement reporté de 2025 » −3 j"
+    },
+    {
+      "id": "K12",
+      "outcome": "pass",
+      "m": "−3 + 20 − 2 planned = 15"
+    },
+    {
+      "id": "K12",
+      "outcome": "pass",
+      "m": "nothing « perdu » in 2025 when she ended it owing"
+    },
+    {
+      "id": "K13",
+      "outcome": "pass",
+      "m": "her « jours restants » moves 5,5 → 6,5 with no reload"
+    },
+    {
+      "id": "K14",
+      "outcome": "pass",
+      "m": "the page really reads (pointer: coarse)"
+    },
+    {
+      "id": "K14",
+      "outcome": "pass",
+      "m": "account buttons ≥ 44 px"
+    },
+    {
+      "id": "K14",
+      "outcome": "pass",
+      "m": "relevé « Annuler » buttons ≥ 44 px"
+    },
+    {
+      "id": "K14",
+      "outcome": "pass",
+      "m": "the rule dialog: fields, choices and buttons ≥ 44 px"
     }
   ]
 }

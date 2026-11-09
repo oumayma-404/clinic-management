@@ -266,6 +266,13 @@ public static class WorkingHoursSerializer
         return TimeSpan.TryParseExact(value.Trim(), @"hh\:mm", CultureInfo.InvariantCulture, out time);
     }
 
+    /// <summary>The entry for <paramref name="dayOfWeek"/>, matched on its English key as stored, or null.</summary>
+    public static WorkingDayDto? DayOf(IEnumerable<WorkingDayDto> days, DayOfWeek dayOfWeek)
+    {
+        var name = Weekdays[(int)dayOfWeek];
+        return days.FirstOrDefault(d => string.Equals(d.Day?.Trim(), name, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>French weekday label for a message. Display-only; the stored key stays English.</summary>
     public static string FrenchDay(string englishDay) => englishDay?.Trim().ToLowerInvariant() switch
     {

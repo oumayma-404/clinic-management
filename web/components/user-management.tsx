@@ -68,6 +68,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useUrlFilterSeed } from "@/lib/hooks/use-url-filters"
 import { replaceUrl } from "@/lib/history"
 import { showErrorToast } from "@/lib/errors"
+import { pointageApi } from "@/lib/api/pointage"
 
 /** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code du cabinet ». */
 const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
@@ -85,9 +86,15 @@ type PendingAction =
 export function UserManagement() {
   const { user: currentUser, mode } = useSession()
   const { data: clinicStatus } = useUserStatus()
-  // The secretary's file holds her congés and her présences, so it opens while either module is on.
+  // A file holds a secretary's congés and anyone's présences: it opens for a secretary with congés on, and for
+  // every tracked account with the pointage on.
   const leaveRequestsEnabled = clinicStatus?.clinic?.leaveRequestsEnabled === true
-  const staffFileEnabled = leaveRequestsEnabled || clinicStatus?.clinic?.attendanceEnabled === true
+  const attendanceEnabled = clinicStatus?.clinic?.attendanceEnabled === true
+  const trackedIds = useTrackedIds(attendanceEnabled)
+  const hasStaffFile = (u: ClinicUserDto) =>
+    (leaveRequestsEnabled && u.role === "secretary") || (attendanceEnabled && trackedIds.has(u.id))
+  const staffFileLabel = (u: ClinicUserDto) =>
+    leaveRequestsEnabled && u.role === "secretary" ? "Voir sa fiche et ses congés" : "Voir sa fiche"
   /**
    * AC-P2.29: « Réinitialiser le mot de passe » only exists for password-backed accounts —
    * `ResetUserPasswordCommand` refuses anything else with « Ce compte n'utilise pas de mot de passe local. »
@@ -421,11 +428,11 @@ export function UserManagement() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {staffFileEnabled && u.role === "secretary" && (
+          {hasStaffFile(u) && (
             <DropdownMenuItem asChild>
               <Link href={`/users/${encodeURIComponent(u.id)}`}>
                 <CalendarOff className="size-4" aria-hidden="true" />
-                {leaveRequestsEnabled ? "Voir sa fiche et ses congés" : "Voir sa fiche"}
+                {staffFileLabel(u)}
               </Link>
             </DropdownMenuItem>
           )}
@@ -766,10 +773,10 @@ export function UserManagement() {
                       users.map((user) => (
                         <TableRow key={user.id}>
                           <TableCell className="font-medium text-foreground">
-                            {staffFileEnabled && user.role === "secretary" ? (
+                            {hasStaffFile(user) ? (
                               <Link
                                 href={`/users/${encodeURIComponent(user.id)}`}
-                                aria-label={`${leaveRequestsEnabled ? "Fiche et congés" : "Fiche"} de ${user.fullName || user.email}`}
+                                aria-label={`${leaveRequestsEnabled && user.role === "secretary" ? "Fiche et congés" : "Fiche"} de ${user.fullName || user.email}`}
                                 className="underline-offset-2 hover:underline"
                               >
                                 {user.fullName || user.email}
@@ -1186,4 +1193,23 @@ export function UserManagement() {
       </Dialog>
     </div>
   )
+}
+
+/** The accounts that pointe, while the pointage is on — each has a file to open. A failed read links none. */
+function useTrackedIds(enabled: boolean): ReadonlySet<string> {
+  const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set())
+  const load = useCallback(async () => {
+    if (!enabled) return setIds(new Set())
+    try {
+      const settings = await pointageApi.settings()
+      setIds(new Set(settings.people.filter((p) => p.tracked).map((p) => p.userId)))
+    } catch {
+      // Only the extra links are missing; secretaries with congés keep theirs.
+    }
+  }, [enabled])
+  useEffect(() => {
+    void load()
+  }, [load])
+  useClinicRealtime(RealtimeResource.Team, () => void load())
+  return ids
 }

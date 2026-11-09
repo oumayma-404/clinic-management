@@ -17,6 +17,10 @@ public class SubmitStaffLeaveRequestCommand : IRequest<Result<StaffLeaveRequestD
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }
     public bool HalfDay { get; set; }
+
+    /// <summary>« Morning » / « Afternoon » for a half day; absent when not said.</summary>
+    public string? HalfDayPart { get; set; }
+
     public string? Reason { get; set; }
 }
 
@@ -69,14 +73,14 @@ public class SubmitStaffLeaveRequestCommandHandler
 
             var valid = await StaffLeaveRules.ValidateNewAsync(
                 _requests, clinic, caller, request.Type, request.StartDate, request.EndDate, request.HalfDay,
-                request.Reason, StaffLeaveRules.OwnOverlapSentence, cancellationToken);
+                request.HalfDayPart, request.Reason, StaffLeaveRules.OwnOverlapSentence, cancellationToken);
             if (valid.IsFailure)
                 return Result<StaffLeaveRequestDto>.FailureFrom(valid);
 
-            var (type, days) = valid.Value;
+            var (type, days, part) = valid.Value;
             leave = new StaffLeaveRequest(
                 Guid.NewGuid(), clinic.Id, caller.Id, type, request.StartDate, request.EndDate, request.HalfDay,
-                request.Reason!, days);
+                request.Reason!, days, part);
             await _requests.AddAsync(leave, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }

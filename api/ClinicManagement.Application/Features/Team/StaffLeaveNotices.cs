@@ -12,20 +12,32 @@ public static class StaffLeaveNotices
 {
     private const string NoBreakSpace = " ";
 
+    /// <summary>« du 16 au 18 novembre », « le 16 novembre matin », « le 16 novembre (demi-journée) » for an unqualified half.</summary>
     public static string Period(StaffLeaveRequest leave) =>
-        FrenchDayPeriod.Format(leave.StartDate, leave.EndDate) + (leave.HalfDay ? " (demi-journée)" : string.Empty);
+        FrenchDayPeriod.Words(leave.StartDate, leave.EndDate) + (leave.HalfDay
+            ? leave.HalfDayPart switch
+            {
+                StaffLeaveHalfDayPart.Morning => " matin",
+                StaffLeaveHalfDayPart.Afternoon => " après-midi",
+                _ => " (demi-journée)",
+            }
+            : string.Empty);
 
-    private static string Quote(string text) => $"«{NoBreakSpace}{text}{NoBreakSpace}»";
+    /// <summary>A quoted value between French quotes and no-break spaces — congés and pointage alike.</summary>
+    internal static string Quote(string text) => $"«{NoBreakSpace}{text}{NoBreakSpace}»";
 
     public static (string Title, string Message) Requested(string requesterName, StaffLeaveRequest leave) =>
         ("Demande de congé",
             $"{requesterName} demande un congé {Period(leave)} ({FrenchDayPeriod.Days(leave.RequestedDays)}).");
 
+    // Every date is granted; only a congé payé takes days off her balance, and those are what is named.
     public static (string Title, string Message) Approved(StaffLeaveRequest leave) =>
         ("Congé accepté",
-            $"Votre congé {Period(leave)} est accepté ({FrenchDayPeriod.Days(leave.CountedDays ?? leave.RequestedDays)}).");
+            leave.Type == StaffLeaveType.PaidLeave
+                ? $"Votre congé {Period(leave)} est accordé · {Withdrawn(leave.CountedDays ?? leave.RequestedDays)}."
+                : $"Votre congé {Period(leave)} est accordé.");
 
-    // A half day's period already says « (demi-journée) », so the count would only repeat it.
+    // A half day's period already says which half, so the count would only repeat it.
     public static (string Title, string Message) Rejected(StaffLeaveRequest leave) =>
         ("Congé refusé",
             $"Votre demande de congé {Period(leave)}{(leave.HalfDay ? string.Empty : $" ({FrenchDayPeriod.Days(leave.RequestedDays)})")} est refusée : {Quote(leave.RejectionReason ?? string.Empty)}.");
@@ -33,8 +45,11 @@ public static class StaffLeaveNotices
     public static (string Title, string Message) CancelledByOwner(string requesterName, StaffLeaveRequest leave) =>
         ("Congé annulé", $"{requesterName} a annulé son congé {Period(leave)}.");
 
-    public static (string Title, string Message) CancelledByAdmin(string adminName, StaffLeaveRequest leave) =>
-        ("Congé annulé", $"Votre congé {Period(leave)} a été annulé par {adminName}.");
+    /// <summary>An admin withdrew hers: a waiting request is « retirée », an accepted congé « annulé » — with the motif.</summary>
+    public static (string Title, string Message) CancelledByAdmin(string adminName, StaffLeaveRequest leave, bool wasApproved) =>
+        wasApproved
+            ? ("Congé annulé", $"Votre congé {Period(leave)} a été annulé par {adminName}{Motif(leave)}.")
+            : ("Demande retirée", $"Votre demande de congé {Period(leave)} a été retirée par {adminName}{Motif(leave)}.");
 
     public static (string Title, string Message) RecordedByAdmin(StaffLeaveRequest leave) =>
         ("Absence enregistrée",
@@ -55,13 +70,14 @@ public static class StaffLeaveNotices
         {
             new("Cabinet", clinicName),
             new("Type", type),
-            new("Dates", Period(leave)),
+            new("Dates", Capitalized(Period(leave))),
         };
         if (approved)
         {
-            details.Add(new EmailDetail("Jours décomptés", FrenchDayPeriod.Days(leave.CountedDays ?? leave.RequestedDays)));
+            if (leave.Type == StaffLeaveType.PaidLeave)
+                details.Add(new EmailDetail("Retirés de votre solde", FrenchDayPeriod.Days(leave.CountedDays ?? leave.RequestedDays)));
             if (remaining is { } left)
-                details.Add(new EmailDetail($"Congé payé restant en {leave.StartDate.Year}", FrenchDayPeriod.Days(left)));
+                details.Add(new EmailDetail($"Congé payé restant en {leave.StartDate.Year}", FrenchDayPeriod.Balance(left)));
         }
         else
         {
@@ -73,7 +89,7 @@ public static class StaffLeaveNotices
         {
             Title = approved ? "Congé accepté" : "Congé refusé",
             Preheader = approved
-                ? $"Votre congé {Period(leave)} est accepté."
+                ? $"Votre congé {Period(leave)} est accordé."
                 : $"Votre demande de congé {Period(leave)} n'est pas acceptée.",
             Greeting = $"Bonjour {recipientName},",
             Intro =
@@ -87,8 +103,44 @@ public static class StaffLeaveNotices
         };
     }
 
+    public static string CancellationSubject(StaffLeaveRequest leave, bool wasApproved) =>
+        wasApproved ? $"Congé annulé : {Period(leave)}" : $"Demande retirée : {Period(leave)}";
+
+    /// <summary>The e-mail she gets when an admin withdraws her waiting request or her accepted congé.</summary>
+    public static EmailContent CancellationEmail(
+        StaffLeaveRequest leave, bool wasApproved, string clinicName, string recipientName, string adminName, string? link)
+    {
+        var type = StaffLeaveRules.TypeLabel(leave.Type);
+        var details = new List<EmailDetail>
+        {
+            new("Cabinet", clinicName),
+            new("Type", type),
+            new("Dates", Capitalized(Period(leave))),
+        };
+        if (!string.IsNullOrWhiteSpace(leave.CancelReason))
+            details.Add(new EmailDetail("Motif", leave.CancelReason));
+
+        var (title, _) = CancelledByAdmin(adminName, leave, wasApproved);
+        return new EmailContent
+        {
+            Title = title,
+            Preheader = wasApproved
+                ? $"Votre congé {Period(leave)} a été annulé."
+                : $"Votre demande de congé {Period(leave)} a été retirée.",
+            Greeting = $"Bonjour {recipientName},",
+            Intro =
+            [
+                wasApproved
+                    ? $"{adminName} a annulé votre congé ({type.ToLowerInvariant()}) {Period(leave)}."
+                    : $"{adminName} a retiré votre demande ({type.ToLowerInvariant()}) {Period(leave)}."
+            ],
+            Details = details,
+            Action = link is null ? null : new EmailAction("Voir mes congés", link),
+        };
+    }
+
     /// <summary>Best-effort, after the commit: a failed e-mail is logged and never undoes the decision.</summary>
-    public static async Task SendDecisionAsync(
+    public static Task SendDecisionAsync(
         ITransactionalEmailSender emailSender,
         IPublicAppUrlProvider appUrl,
         ILogger logger,
@@ -97,24 +149,27 @@ public static class StaffLeaveNotices
         string clinicName,
         string deciderName,
         decimal? remaining,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(recipient.Email) || !emailSender.IsConfigured)
-            return;
-        try
-        {
-            var link = appUrl.IsConfigured ? $"{appUrl.BaseUrl}/conges" : null;
-            var content = Email(leave, clinicName, StaffLeaveRules.DisplayName(recipient), deciderName, remaining, link);
-            var sent = await emailSender.SendAsync(recipient.Email!, EmailSubject(leave), content, cancellationToken);
-            if (sent.Outcome != TransactionalEmailOutcome.Sent)
-                logger.LogWarning(
-                    "Congé decision e-mail not sent to user {UserId}: {Outcome} {Reason}", recipient.Id, sent.Outcome, sent.Error);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Congé decision e-mail failed for user {UserId}.", recipient.Id);
-        }
-    }
+        CancellationToken cancellationToken) =>
+        SendAsync(
+            emailSender, appUrl, logger, recipient, EmailSubject(leave),
+            link => Email(leave, clinicName, StaffLeaveRules.DisplayName(recipient), deciderName, remaining, link),
+            cancellationToken);
+
+    /// <summary>Best-effort, after the commit: a failed e-mail is logged and never undoes the withdrawal.</summary>
+    public static Task SendCancellationAsync(
+        ITransactionalEmailSender emailSender,
+        IPublicAppUrlProvider appUrl,
+        ILogger logger,
+        StaffLeaveRequest leave,
+        bool wasApproved,
+        User recipient,
+        string clinicName,
+        string adminName,
+        CancellationToken cancellationToken) =>
+        SendAsync(
+            emailSender, appUrl, logger, recipient, CancellationSubject(leave, wasApproved),
+            link => CancellationEmail(leave, wasApproved, clinicName, StaffLeaveRules.DisplayName(recipient), adminName, link),
+            cancellationToken);
 
     /// <summary>Best-effort, after the commit: the bell row never undoes the save it announces.</summary>
     public static async Task NotifyAsync(
@@ -137,4 +192,38 @@ public static class StaffLeaveNotices
             logger.LogError(ex, "Congé notification failed for clinic {ClinicId}.", clinicId);
         }
     }
+
+    private static async Task SendAsync(
+        ITransactionalEmailSender emailSender,
+        IPublicAppUrlProvider appUrl,
+        ILogger logger,
+        User recipient,
+        string subject,
+        Func<string?, EmailContent> content,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(recipient.Email) || !emailSender.IsConfigured)
+            return;
+        try
+        {
+            var link = appUrl.IsConfigured ? $"{appUrl.BaseUrl}/conges" : null;
+            var sent = await emailSender.SendAsync(recipient.Email!, subject, content(link), cancellationToken);
+            if (sent.Outcome != TransactionalEmailOutcome.Sent)
+                logger.LogWarning(
+                    "Congé e-mail not sent to user {UserId}: {Outcome} {Reason}", recipient.Id, sent.Outcome, sent.Error);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Congé e-mail failed for user {UserId}.", recipient.Id);
+        }
+    }
+
+    /// <summary>« 2,5 j retirés de votre solde », « 1 j retiré de votre solde ».</summary>
+    private static string Withdrawn(decimal days) =>
+        $"{FrenchDayPeriod.Short(days)} {(Math.Abs(days) > 1 ? "retirés" : "retiré")} de votre solde";
+
+    private static string Motif(StaffLeaveRequest leave) =>
+        string.IsNullOrWhiteSpace(leave.CancelReason) ? string.Empty : $" : {Quote(leave.CancelReason)}";
+
+    private static string Capitalized(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 }

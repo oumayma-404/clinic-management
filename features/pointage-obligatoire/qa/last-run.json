@@ -1,0 +1,805 @@
+{
+  "at": "2026-11-06T12:22:20.169Z",
+  "results": [
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "sub-switch label"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "sub-switch ON by default"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "borne « Accueil » registered"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "full-screen « Pointez votre arrivée »"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "no schéma yet: « Créer mon schéma » + « Se déconnecter »"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "« Mon profil » is not covered while she has no schéma"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "toast « Schéma de pointage enregistré. » (exempt write)"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "lock names « Borne : Accueil »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "its only button is « Se déconnecter »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "one link « Demander un congé » (congés on)"
+    },
+    {
+      "id": "C7",
+      "outcome": "pass",
+      "m": "focus on the title, not « Se déconnecter »"
+    },
+    {
+      "id": "C7",
+      "outcome": "pass",
+      "m": "body[data-scroll-locked] set — the other popups see a modal"
+    },
+    {
+      "id": "C7",
+      "outcome": "pass",
+      "m": "Enter does not sign her out"
+    },
+    {
+      "id": "B13",
+      "outcome": "pass",
+      "m": "« Demander un congé » lands on /conges"
+    },
+    {
+      "id": "B13",
+      "outcome": "pass",
+      "m": "« Mes congés » shown"
+    },
+    {
+      "id": "B13",
+      "outcome": "pass",
+      "m": "no lock over « Mes congés »"
+    },
+    {
+      "id": "B13",
+      "outcome": "pass",
+      "m": "the lock returns on /patients"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "423 clock_in_required on a write"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "French sentence"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "no patient written"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "clock-status: locked, bornes [Accueil], not a borne here"
+    },
+    {
+      "id": "B14",
+      "outcome": "pass",
+      "m": "no active borne: not locked, a write is not 423"
+    },
+    {
+      "id": "B14",
+      "outcome": "pass",
+      "m": "borne restored (SQL, own artefact) → locked again"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "PUT /team/me/schema passes"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "PUT /notifications/read-all passes"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "POST /team/me/leave-requests reaches its handler (not 423)"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "reads stay open"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "user-status carries attendanceLockEnabled"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "« Arrivée enregistrée » at the borne (D1)"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "Ines's lock closes on its own"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "…with no reload"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "prompt « Pointer votre départ ? »"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "« présente depuis 13:18 » + « Borne : Accueil »"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "« Se déconnecter sans pointer » offered"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "« Annuler » keeps her signed in"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "« Départ enregistré » (D1)"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "after her departure: not locked, not present"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "no lock after reload"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "lock back once her line is gone"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "no scroll at 320×568"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "« Se déconnecter » fully on screen"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "title not clipped at 380 px tall"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "« Se déconnecter » reachable"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "Ines locked before"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "toast « Pointage ajouté. »"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "Ines's lock lifts on its own"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "…with no reload"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "locked (no line today)"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "toast « L'app n'attend plus l'arrivée pointée. »"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "stored off"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "not locked, a write is not refused 423"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "the open screen unlocks within a minute, no reload"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "…at once, on the `clinics` broadcast (3 s)"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "no lock after reload with the switch off"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "switch back on"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "locked again"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "before opening (13:18 < 14:18): not locked"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "no lock on screen"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "hours restored → locked again"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "closed day: not locked"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "accepted half-day congé today: not locked (DEV-7)"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "congé removed → locked"
+    },
+    {
+      "id": "B8",
+      "outcome": "pass",
+      "m": "admin tracked by override"
+    },
+    {
+      "id": "B8",
+      "outcome": "pass",
+      "m": "admin tracked, no line today: no lock (DEV-9)"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "/pointage renders the borne for a signed-in, locked secretary"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "no lock over /pointage (chrome-less)"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "locked on the borne device"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "the pad is inside the lock"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "toast « Arrivée enregistrée à HH:mm. » (cycle 1 fix)"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "punching from the lock closes it"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "one open line today"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "prompt carries the pad"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "no second headline under the title"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "« Annuler » + « Se déconnecter sans pointer » in the footer"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "« Se déconnecter sans pointer » on screen at 1536×730"
+    },
+    {
+      "id": "C8",
+      "outcome": "pass",
+      "m": "both footer buttons held while the departure is in flight"
+    },
+    {
+      "id": "C8",
+      "outcome": "pass",
+      "m": "Escape does not close it mid-flight"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "« Départ enregistré · À HH:mm. » readable before sign-out"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "the header no longer asks or says « présente »"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "then signed out"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "today's line closed"
+    },
+    {
+      "id": "B12",
+      "outcome": "pass",
+      "m": "not present: « Se déconnecter » signs out at once"
+    },
+    {
+      "id": "D5",
+      "outcome": "pass",
+      "m": "/login renders, no lock"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "toast « Pointage ajouté. »"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "2026-11-05: « 08:00 – Départ non pointé »"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "step « Votre départ d'hier n'a pas été pointé »"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "arrival 08:00 shown"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "last save « aucune » (journal)"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "nothing written yet (schéma alone)"
+    },
+    {
+      "id": "B9",
+      "outcome": "pass",
+      "m": "refusal « … après l'arrivée (08:00) »"
+    },
+    {
+      "id": "B9",
+      "outcome": "pass",
+      "m": "« Valider » disabled"
+    },
+    {
+      "id": "B9",
+      "outcome": "pass",
+      "m": "nothing written"
+    },
+    {
+      "id": "B10",
+      "outcome": "pass",
+      "m": "back to the pad"
+    },
+    {
+      "id": "B10",
+      "outcome": "pass",
+      "m": "nothing written"
+    },
+    {
+      "id": "B10",
+      "outcome": "pass",
+      "m": "schéma again → the step again"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "field + « Valider » on screen at 820×600 (keyboard open)"
+    },
+    {
+      "id": "A13",
+      "outcome": "pass",
+      "m": "« Arrivée enregistrée »"
+    },
+    {
+      "id": "A13",
+      "outcome": "pass",
+      "m": "yesterday closed at 17:30, DeclaredBySelf, last save stored as shown"
+    },
+    {
+      "id": "A13",
+      "outcome": "pass",
+      "m": "today's arrival opened"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "« 08:00 – 17:30 » + « Déclaré »"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "« Aucune action dans l'app ce jour » beside it"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "17:30 in amber (text-warning-ink)"
+    },
+    {
+      "id": "C9",
+      "outcome": "pass",
+      "m": "« Corrigé » then « Déclaré » side by side, before the motif"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "total says « 1 départ déclaré »"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "declared hours counted (08:00–17:30 = 570 min)"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "one reminder row for Ines"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "title, message, target « Attendance »"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "nobody else reminded"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "the reminder wrote no pointage row (xmin unchanged)"
+    },
+    {
+      "id": "B11",
+      "outcome": "pass",
+      "m": "second pass: still one reminder (once per line)"
+    },
+    {
+      "id": "D4",
+      "outcome": "pass",
+      "m": "the bell lists « Départ non pointé »"
+    },
+    {
+      "id": "D4",
+      "outcome": "pass",
+      "m": "clicking it lands on « Mon profil »"
+    },
+    {
+      "id": "C6",
+      "outcome": "pass",
+      "m": "toast « Pointage corrigé. »"
+    },
+    {
+      "id": "C6",
+      "outcome": "pass",
+      "m": "reads « Corrigé », « Déclaré » gone"
+    },
+    {
+      "id": "C6",
+      "outcome": "pass",
+      "m": "total no longer counts it as declared"
+    },
+    {
+      "id": "C6",
+      "outcome": "pass",
+      "m": "DepartureSource 2 (corrected)"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "congés off"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "congés on"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "lock switch untouched"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "2026-11-03 added open (08:10)"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "2026-11-04 added open (08:20)"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "asked for « du mardi 3 novembre » first (the oldest)"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "then « du mercredi 4 novembre »"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "no arrival yet while a day is still open"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "« Valider » enabled on « 930 » before the field commits"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "« 930 » + Enter → « Arrivée enregistrée »"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "both days closed as declared (17:00, 09:30)"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "today's arrival opened"
+    },
+    {
+      "id": "B17",
+      "outcome": "pass",
+      "m": "no device picked → « Choisissez l'appareil qui sera la borne. »"
+    },
+    {
+      "id": "B17",
+      "outcome": "pass",
+      "m": "no step-up asked"
+    },
+    {
+      "id": "A19",
+      "outcome": "pass",
+      "m": "the secretary page's session id read"
+    },
+    {
+      "id": "A19",
+      "outcome": "pass",
+      "m": "« Cet appareil » offered"
+    },
+    {
+      "id": "A19",
+      "outcome": "pass",
+      "m": "her device listed « Ines Gharbi · Chrome sur Windows · actif il y a … »"
+    },
+    {
+      "id": "A19",
+      "outcome": "pass",
+      "m": "the admin's own session is « Cet appareil », not a second row"
+    },
+    {
+      "id": "A19",
+      "outcome": "pass",
+      "m": "toast « Borne « Accueil 2 » envoyée à l'appareil de Ines Gharbi. »"
+    },
+    {
+      "id": "A19",
+      "outcome": "pass",
+      "m": "SQL: stored waiting for her session (or already claimed)"
+    },
+    {
+      "id": "A20",
+      "outcome": "pass",
+      "m": "her screen says « Cet appareil est maintenant la borne « Accueil 2 » »"
+    },
+    {
+      "id": "A20",
+      "outcome": "pass",
+      "m": "SQL: claimed (secret set, no longer waiting), description kept"
+    },
+    {
+      "id": "A20",
+      "outcome": "pass",
+      "m": "her device holds the HttpOnly borne cookie (path /api/pointage)"
+    },
+    {
+      "id": "A20",
+      "outcome": "pass",
+      "m": "admin list updates by itself: no longer « En attente »"
+    },
+    {
+      "id": "A20",
+      "outcome": "pass",
+      "m": "her device opens as « Borne Accueil 2 »"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "a second session of hers (« Firefox sur Windows »)"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "toast for « Salle 3 »"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "list: « En attente de l'appareil · Ines Gharbi · Firefox sur Windows »"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "SQL: no secret while waiting"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "a waiting borne is not offered as a place to pointer"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "another session of hers is not told it was chosen"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "the chosen session is told « Salle 3 » waits"
+    },
+    {
+      "id": "B16",
+      "outcome": "pass",
+      "m": "only a waiting borne → not locked, no borne named"
+    },
+    {
+      "id": "B16",
+      "outcome": "pass",
+      "m": "a write is not refused 423 while the only borne waits"
+    },
+    {
+      "id": "B16",
+      "outcome": "pass",
+      "m": "claimed bornes restored → locked again"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "signed out before claiming → « Appareil déconnecté … » in red"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "the signed-out device is no longer offered"
+    },
+    {
+      "id": "B15",
+      "outcome": "pass",
+      "m": "« Retirer » clears it"
+    },
+    {
+      "id": "C10",
+      "outcome": "pass",
+      "m": "320×568: no sideways overflow"
+    },
+    {
+      "id": "C10",
+      "outcome": "pass",
+      "m": "320×568: « Enregistrer la borne » on screen"
+    },
+    {
+      "id": "C10",
+      "outcome": "pass",
+      "m": "320×568: each device row is a whole-row target"
+    },
+    {
+      "id": "C10",
+      "outcome": "pass",
+      "m": "1536×730: no sideways overflow"
+    },
+    {
+      "id": "C10",
+      "outcome": "pass",
+      "m": "1536×730: « Enregistrer la borne » on screen"
+    },
+    {
+      "id": "C10",
+      "outcome": "pass",
+      "m": "1536×730: each device row is a whole-row target"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import {
   type MyStaffLeaveDto,
   type StaffFileDto,
   type StaffLeaveListFilter,
+  type StaffLeaveMovementDto,
   type StaffLeaveRequestsPageDto,
   type TeamLeaveOverviewDto,
 } from "@/lib/api/team"
@@ -72,9 +73,12 @@ function useTeamRead<T>(key: string | null, read: () => Promise<T>): KeyedTeamRe
   return { data, loading, failed, refetch, dataKey }
 }
 
-/** The signed-in secretary's balance and requests. */
-export function useMyStaffLeave(enabled: boolean): TeamReadState<MyStaffLeaveDto> {
-  return useTeamRead(enabled ? "me" : null, () => teamApi.myLeave())
+/** The signed-in secretary's balance and requests — this year's, or `year`'s. */
+export function useMyStaffLeave(enabled: boolean, year?: number): TeamReadState<MyStaffLeaveDto> {
+  const key = enabled ? `me|${year ?? ""}` : null
+  const { dataKey, ...state } = useTeamRead(key, () => teamApi.myLeave(year))
+  // Another year's figures are not this year's: nothing is shown until the asked year lands.
+  return dataKey === key ? state : { ...state, data: null }
 }
 
 /** The cabinet's requests for the admin — `pending` unpaged, `decided` one page at a time. */
@@ -96,9 +100,59 @@ export function useTeamLeaveOverview(enabled: boolean): TeamReadState<TeamLeaveO
   return useTeamRead(enabled ? "overview" : null, () => teamApi.overview())
 }
 
-/** One secretary's file for the admin. */
-export function useStaffFile(userId: string | null): TeamReadState<StaffFileDto> {
-  return useTeamRead(userId, () => teamApi.staffFile(userId as string))
+/** One secretary's file for the admin — this year's, or `year`'s. */
+export function useStaffFile(userId: string | null, year?: number): TeamReadState<StaffFileDto> {
+  const { dataKey, ...state } = useTeamRead(userId && `${userId}|${year ?? ""}`, () =>
+    teamApi.staffFile(userId as string, year),
+  )
+  // Another person's file may stay while the next one loads; another year of the same file may not.
+  return year === undefined || dataKey === `${userId}|${year}` ? state : { ...state, data: null }
+}
+
+/** Whose relevé: the signed-in secretary's own, or one secretary's for the admin. */
+export type LeaveStatementOwner = { kind: "me" } | { kind: "user"; userId: string }
+
+/** What `StaffLeaveStatement` takes to step through the years — spread it onto the component. */
+export interface LeaveStatementYear {
+  movements: StaffLeaveMovementDto[]
+  year: number
+  maxYear: number
+  onYearChange: (year: number) => void
+  loading: boolean
+  failed: boolean
+  onRetry: () => void
+}
+
+/**
+ * The relevé's year stepper. The page's own year comes with the page's read (`current`); another year is read on its
+ * own, so the balance card above keeps today's figures while the relevé shows 2025.
+ */
+export function useLeaveStatementYear(
+  owner: LeaveStatementOwner | null,
+  current: { balance: { year: number }; statement: StaffLeaveMovementDto[] } | null,
+): LeaveStatementYear {
+  const ownerKey = owner ? (owner.kind === "me" ? "me" : `user:${owner.userId}`) : null
+  const currentYear = current?.balance.year ?? new Date().getFullYear()
+  const [picked, setPicked] = useState<{ ownerKey: string | null; year: number } | null>(null)
+  const year = picked && picked.ownerKey === ownerKey ? Math.min(picked.year, currentYear) : currentYear
+  const other = owner && current && year !== currentYear ? year : null
+  const key = other !== null ? `statement|${ownerKey}|${other}` : null
+  const { dataKey, data, loading, failed, refetch } = useTeamRead(key, () =>
+    owner?.kind === "user"
+      ? teamApi.staffFile(owner.userId, other ?? undefined).then((file) => file.statement)
+      : teamApi.myLeave(other ?? undefined).then((mine) => mine.statement),
+  )
+  const otherMovements = key !== null && dataKey === key ? data : null
+
+  return {
+    movements: (other === null ? current?.statement : otherMovements) ?? [],
+    year,
+    maxYear: currentYear,
+    onYearChange: (next) => setPicked({ ownerKey, year: next }),
+    loading: other !== null && otherMovements === null && (loading || !failed),
+    failed: other !== null && otherMovements === null && failed && !loading,
+    onRetry: refetch,
+  }
 }
 
 /** The « 1 » beside « Utilisateurs »: requests waiting for an admin; 0 while unknown or switched off. */

@@ -11,6 +11,9 @@ namespace ClinicManagement.Application.Features.Team.Queries;
 /// <summary>A secretary's file for the admin: who she is, the year's balance, every request.</summary>
 public class GetStaffFileQuery : IRequest<Result<StaffFileDto>>
 {
+    /// <summary>The clinic day judged; today when absent. Tests pin it, so a balance never depends on when the suite runs.</summary>
+    public DateOnly? Today { get; init; }
+
     public string UserId { get; set; } = string.Empty;
     public int? Year { get; set; }
 }
@@ -18,17 +21,20 @@ public class GetStaffFileQuery : IRequest<Result<StaffFileDto>>
 public class GetStaffFileQueryHandler : IRequestHandler<GetStaffFileQuery, Result<StaffFileDto>>
 {
     private readonly IStaffLeaveRequestRepository _requests;
+    private readonly IStaffLeaveAllowanceRepository _allowances;
     private readonly IUserRepository _users;
     private readonly IClinicRepository _clinics;
     private readonly IClinicContext _clinicContext;
 
     public GetStaffFileQueryHandler(
         IStaffLeaveRequestRepository requests,
+        IStaffLeaveAllowanceRepository allowances,
         IUserRepository users,
         IClinicRepository clinics,
         IClinicContext clinicContext)
     {
         _requests = requests;
+        _allowances = allowances;
         _users = users;
         _clinics = clinics;
         _clinicContext = clinicContext;
@@ -54,8 +60,10 @@ public class GetStaffFileQueryHandler : IRequestHandler<GetStaffFileQuery, Resul
                 return Result<StaffFileDto>.Failure(StaffLeaveRules.AccountNotFound, StaffLeaveRules.NotFoundCode);
 
             var all = await _requests.GetByUserAsync(admin.ClinicId, target.Id, cancellationToken);
-            var today = StaffLeaveRules.ClinicToday();
-            var year = request.Year ?? ClinicClock.ClinicYear();
+            var entries = await _allowances.GetForUserAsync(admin.ClinicId, target.Id, cancellationToken);
+            var today = request.Today ?? StaffLeaveRules.ClinicToday();
+            var year = request.Year ?? today.Year;
+            var account = StaffLeaveAccounts.Fold(entries, all, clinic.WorkingHoursJson, today, year);
 
             return Result<StaffFileDto>.Success(new StaffFileDto
             {
@@ -64,7 +72,12 @@ public class GetStaffFileQueryHandler : IRequestHandler<GetStaffFileQuery, Resul
                 Email = target.Email,
                 Role = target.Role,
                 IsActive = target.IsActive,
-                Balance = StaffLeaveRules.Balance(year, target.AnnualLeaveAllowanceDays, all, clinic.WorkingHoursJson),
+                Balance = StaffLeaveAccounts.Balance(account, year),
+                Statement = StaffLeaveAccounts.Statement(account, year, all, entries),
+                Entries = entries
+                    .OrderByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id)
+                    .Select(StaffLeaveAccounts.ToDto)
+                    .ToList(),
                 AcceptedByType = StaffLeaveRules.AcceptedByType(year, all, clinic.WorkingHoursJson),
                 Items = all.Select(r => StaffLeaveRules.ToDto(r, roster, today)).ToList(),
             });

@@ -26,6 +26,7 @@ public class StaffLeaveQueryTests
     private static readonly DateOnly Sat2Jan = new(2027, 1, 2);
 
     private readonly Mock<IStaffLeaveRequestRepository> _requests = new();
+    private readonly Mock<IStaffLeaveAllowanceRepository> _allowances = new();
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IClinicRepository> _clinics = new();
     private readonly Mock<IClinicContext> _context = new();
@@ -42,7 +43,7 @@ public class StaffLeaveQueryTests
         _clinics.Setup(r => r.GetByIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(_clinic);
         _users.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<string?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => PagedResult<User>.Unpaged(_roster.ToList()));
-        _requests.Setup(r => r.GetApprovedOverlappingAsync(ClinicId, It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
+        _requests.Setup(r => r.GetHoldingOverlappingAsync(ClinicId, It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<StaffLeaveRequest>());
         _requests.Setup(r => r.GetByUserAsync(ClinicId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<StaffLeaveRequest>());
@@ -50,7 +51,13 @@ public class StaffLeaveQueryTests
         _ines = Account(User.RoleSecretary, "Ines Gharbi");
         _amira = Account(User.RoleSecretary, "Amira Ben Salah");
         _admin = Account(User.RoleAdmin, "Dr Salma Ben Youssef");
-        _ines.SetAnnualLeaveAllowance(24m);
+        // Her « Droit à congé »: 24 j par an since 1 January 2026, lost on 31 December — what « droit annuel » used to say.
+        var rule = StaffLeaveAllowanceEntry.Rule(Guid.NewGuid(), ClinicId, _ines.Id, 24m, StaffLeaveAccrual.Year, false,
+            new DateOnly(2026, 1, 1), _admin.Id, "Dr Salma", new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc));
+        _allowances.Setup(r => r.GetForUserAsync(ClinicId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, string userId, CancellationToken _) =>
+                userId == _ines.Id ? new[] { rule } : Array.Empty<StaffLeaveAllowanceEntry>());
+        _allowances.Setup(r => r.GetForClinicAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(new[] { rule });
     }
 
     private User Account(string role, string name, Guid? clinicId = null)
@@ -80,7 +87,10 @@ public class StaffLeaveQueryTests
 
     private static DateOnly Today => StaffLeaveRules.ClinicToday();
 
-    private ListStaffLeaveRequestsQueryHandler List() => new(_requests.Object, _users.Object, _clinics.Object, _context.Object);
+    /// <summary>The day the 2026 cases are read on: after the 16–18 November congé, before the one across the new year.</summary>
+    private static readonly DateOnly Fri20Nov = new(2026, 11, 20);
+
+    private ListStaffLeaveRequestsQueryHandler List() => new(_requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object);
 
     [Fact]
     public async Task A_Waiting_Request_Shows_The_Balance_After_And_Who_Else_Is_Off()
@@ -92,16 +102,42 @@ public class StaffLeaveQueryTests
         var amirasCongé = Leave(_amira, Wed30Dec, Thu31Dec, 2m, StaffLeaveStatus.Approved);
         _requests.Setup(r => r.ListAsync(ClinicId, true, null, It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(PagedResult<StaffLeaveRequest>.Unpaged(new[] { waiting }));
-        _requests.Setup(r => r.GetApprovedOverlappingAsync(ClinicId, Wed30Dec, Sat2Jan, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new[] { amirasCongé, Leave(_ines, Thu31Dec, Thu31Dec, 1m, StaffLeaveStatus.Approved) });
+        _requests.Setup(r => r.GetHoldingOverlappingAsync(ClinicId, Wed30Dec, Sat2Jan, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { amirasCongé, Leave(_ines, Thu31Dec, Thu31Dec, 1m, StaffLeaveStatus.Approved), waiting });
 
-        var result = await List().Handle(new ListStaffLeaveRequestsQuery { Status = "pending" }, default);
+        var result = await List().Handle(new ListStaffLeaveRequestsQuery { Status = "pending", Today = Fri20Nov }, default);
 
         Assert.True(result.IsSuccess, result.Error);
         var item = Assert.Single(result.Value!.Items);
         Assert.Equal("Ines Gharbi", item.UserName);
         Assert.Equal(19.5m, item.BalanceAfter);
+        Assert.Equal(Wed30Dec, item.BalanceAfterOn);
+        Assert.Null(item.BalanceAfterWithPending);
         Assert.Equal(new[] { "Amira Ben Salah" }, item.OthersOff);
+        Assert.Empty(item.OthersPending);
+    }
+
+    [Fact]
+    public async Task A_Waiting_Request_Names_The_Colleagues_Asking_For_The_Same_Days_And_Her_Other_Waiting_Ones()
+    {
+        SignIn(_admin);
+        var first = Leave(_ines, Mon16Nov, Wed18Nov, 3m);
+        var second = Leave(_ines, Wed30Dec, Thu31Dec, 2m);
+        History(_ines, first, second);
+        var amirasRequest = Leave(_amira, Wed18Nov, Wed18Nov, 1m);
+        _requests.Setup(r => r.ListAsync(ClinicId, true, null, It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PagedResult<StaffLeaveRequest>.Unpaged(new[] { first }));
+        _requests.Setup(r => r.GetHoldingOverlappingAsync(ClinicId, Mon16Nov, Wed18Nov, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { first, amirasRequest });
+
+        var result = await List().Handle(new ListStaffLeaveRequestsQuery { Status = "pending", Today = Fri20Nov }, default);
+
+        var item = Assert.Single(result.Value!.Items);
+        Assert.Equal(new[] { "Amira Ben Salah" }, item.OthersPending);
+        Assert.Empty(item.OthersOff);
+        // 24 − 3 = 21, and 19 if her 2 waiting days of December are accepted too.
+        Assert.Equal(21m, item.BalanceAfter);
+        Assert.Equal(19m, item.BalanceAfterWithPending);
     }
 
     [Fact]
@@ -118,7 +154,7 @@ public class StaffLeaveQueryTests
         Assert.Null(item.BalanceAfter);
         Assert.Empty(item.OthersOff);
         Assert.Equal("Dr Salma Ben Youssef", item.DecidedByName);
-        _requests.Verify(r => r.GetApprovedOverlappingAsync(It.IsAny<Guid>(), It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()), Times.Never);
+        _requests.Verify(r => r.GetHoldingOverlappingAsync(It.IsAny<Guid>(), It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     public static TheoryData<string?, bool?, StaffLeaveStatus?> Filters => new()
@@ -163,14 +199,14 @@ public class StaffLeaveQueryTests
         _clinic.SetLeaveRequestsEnabled(false);
 
         SignIn(_admin);
-        var list = await List().Handle(new ListStaffLeaveRequestsQuery { Status = "pending" }, default);
+        var list = await List().Handle(new ListStaffLeaveRequestsQuery { Status = "pending", Today = Fri20Nov }, default);
         var team = await Overview().Handle(new GetTeamLeaveOverviewQuery(), default);
-        var file = await new GetStaffFileQueryHandler(_requests.Object, _users.Object, _clinics.Object, _context.Object)
+        var file = await new GetStaffFileQueryHandler(_requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object)
             .Handle(new GetStaffFileQuery { UserId = _ines.Id }, default);
         SignIn(_ines);
-        var own = await new GetMyStaffLeaveQueryHandler(_requests.Object, _users.Object, _clinics.Object, _context.Object)
+        var own = await new GetMyStaffLeaveQueryHandler(_requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object)
             .Handle(new GetMyStaffLeaveQuery(), default);
-        var preview = await Preview().Handle(new PreviewStaffLeaveQuery { Type = "PaidLeave", StartDate = Mon16Nov, EndDate = Wed18Nov }, default);
+        var preview = await Preview().Handle(new PreviewStaffLeaveQuery { Today = Fri20Nov, Type = "PaidLeave", StartDate = Mon16Nov, EndDate = Wed18Nov }, default);
 
         Assert.All(new[] { list.Error, team.Error, file.Error, own.Error, preview.Error }, e => Assert.Equal(StaffLeaveRules.ModuleOff, e));
     }
@@ -180,7 +216,7 @@ public class StaffLeaveQueryTests
     {
         SignIn(_ines);
 
-        var result = await List().Handle(new ListStaffLeaveRequestsQuery { Status = "pending" }, default);
+        var result = await List().Handle(new ListStaffLeaveRequestsQuery { Status = "pending", Today = Fri20Nov }, default);
 
         Assert.Equal(StaffLeaveRules.AdminOnly, result.Error);
         _requests.Verify(r => r.ListAsync(It.IsAny<Guid>(), It.IsAny<bool?>(), It.IsAny<StaffLeaveStatus?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -220,11 +256,11 @@ public class StaffLeaveQueryTests
             Leave(_ines, Mon16Nov, Wed18Nov, 3m, StaffLeaveStatus.Approved, counted: 2.5m),
             Leave(_ines, Wed30Dec, Sat2Jan, 4m));
 
-        var result = await new GetMyStaffLeaveQueryHandler(_requests.Object, _users.Object, _clinics.Object, _context.Object)
-            .Handle(new GetMyStaffLeaveQuery { Year = 2026 }, default);
+        var result = await new GetMyStaffLeaveQueryHandler(_requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object)
+            .Handle(new GetMyStaffLeaveQuery { Year = 2026, Today = Fri20Nov }, default);
 
         Assert.True(result.IsSuccess, result.Error);
-        Assert.Equal(24m, result.Value!.Balance.Allowance);
+        Assert.Equal(24m, result.Value!.Balance.Acquired);
         Assert.Equal(2.5m, result.Value.Balance.Taken);
         Assert.Equal(21.5m, result.Value.Balance.Remaining);
         Assert.Equal(2m, result.Value.Balance.Pending);
@@ -240,8 +276,8 @@ public class StaffLeaveQueryTests
             Leave(_ines, Mon16Nov.AddDays(-12), Mon16Nov.AddDays(-10), 3m, StaffLeaveStatus.Approved, StaffLeaveType.Unpaid),
             Leave(_ines, Mon16Nov.AddDays(9), Mon16Nov.AddDays(9), 1m, StaffLeaveStatus.Rejected, StaffLeaveType.Sick));
 
-        var result = await new GetStaffFileQueryHandler(_requests.Object, _users.Object, _clinics.Object, _context.Object)
-            .Handle(new GetStaffFileQuery { UserId = _ines.Id, Year = 2026 }, default);
+        var result = await new GetStaffFileQueryHandler(_requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object)
+            .Handle(new GetStaffFileQuery { UserId = _ines.Id, Year = 2026, Today = Fri20Nov }, default);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal("Ines Gharbi", result.Value!.FullName);
@@ -257,13 +293,13 @@ public class StaffLeaveQueryTests
         SignIn(_admin);
         var foreign = Account(User.RoleSecretary, "Secrétaire Ailleurs", OtherClinicId);
 
-        var result = await new GetStaffFileQueryHandler(_requests.Object, _users.Object, _clinics.Object, _context.Object)
+        var result = await new GetStaffFileQueryHandler(_requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object)
             .Handle(new GetStaffFileQuery { UserId = foreign.Id }, default);
 
         Assert.Equal(StaffLeaveRules.NotFoundCode, result.Code);
     }
 
-    private PreviewStaffLeaveQueryHandler Preview() => new(_requests.Object, _users.Object, _clinics.Object, _context.Object);
+    private PreviewStaffLeaveQueryHandler Preview() => new(_requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object);
 
     [Fact]
     public async Task The_Preview_Counts_The_Days_And_Only_This_Years_Share()
@@ -272,12 +308,65 @@ public class StaffLeaveQueryTests
         History(_ines, Leave(_ines, Mon16Nov, Wed18Nov, 3m, StaffLeaveStatus.Approved, counted: 2.5m));
 
         var result = await Preview().Handle(new PreviewStaffLeaveQuery
-        {
+        { Today = Fri20Nov,
             Type = "PaidLeave", StartDate = Wed30Dec, EndDate = Sat2Jan,
         }, default);
 
         Assert.Equal(4m, result.Value!.Days);
+        Assert.False(result.Value.NoOpenDay);
         Assert.Equal(19.5m, result.Value.BalanceAfter);
+        Assert.Equal(Wed30Dec, result.Value.BalanceAfterOn);
+        Assert.Null(result.Value.Overlap);
+    }
+
+    [Theory]
+    [InlineData(StaffLeaveStatus.Pending, "Pending")]
+    [InlineData(StaffLeaveStatus.Approved, "Approved")]
+    public async Task The_Preview_Names_Her_Own_Request_Already_On_These_Dates(StaffLeaveStatus status, string expected)
+    {
+        SignIn(_ines);
+        var existing = Leave(_ines, Mon16Nov, Wed18Nov, 3m, status);
+        _requests.Setup(r => r.FindHoldingOverlapAsync(ClinicId, _ines.Id, Wed18Nov, Wed18Nov, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+
+        var result = await Preview().Handle(new PreviewStaffLeaveQuery
+        {
+            Today = Fri20Nov, Type = "Sick", StartDate = Wed18Nov, EndDate = Wed18Nov,
+        }, default);
+
+        Assert.Equal(Mon16Nov, result.Value!.Overlap!.StartDate);
+        Assert.Equal(Wed18Nov, result.Value.Overlap.EndDate);
+        Assert.Equal(expected, result.Value.Overlap.Status);
+    }
+
+    [Fact]
+    public async Task The_Preview_Says_When_The_Cabinet_Is_Closed_Every_Day()
+    {
+        SignIn(_ines);
+        var sunday = new DateOnly(2026, 11, 22);
+
+        var result = await Preview().Handle(new PreviewStaffLeaveQuery
+        {
+            Today = Fri20Nov, Type = "PaidLeave", StartDate = sunday, EndDate = sunday,
+        }, default);
+
+        Assert.Equal(0m, result.Value!.Days);
+        Assert.True(result.Value.NoOpenDay);
+    }
+
+    [Fact]
+    public async Task The_Preview_Says_What_Her_Other_Waiting_Congés_Would_Leave()
+    {
+        SignIn(_ines);
+        History(_ines, Leave(_ines, Wed30Dec, Thu31Dec, 2m));
+
+        var result = await Preview().Handle(new PreviewStaffLeaveQuery
+        {
+            Today = Fri20Nov, Type = "PaidLeave", StartDate = Mon16Nov, EndDate = Wed18Nov,
+        }, default);
+
+        Assert.Equal(21m, result.Value!.BalanceAfter);
+        Assert.Equal(19m, result.Value.BalanceAfterWithPending);
     }
 
     [Fact]
@@ -285,7 +374,7 @@ public class StaffLeaveQueryTests
     {
         SignIn(_ines);
 
-        var result = await Preview().Handle(new PreviewStaffLeaveQuery { Type = "Sick", StartDate = Mon16Nov, EndDate = Mon16Nov, HalfDay = true }, default);
+        var result = await Preview().Handle(new PreviewStaffLeaveQuery { Today = Fri20Nov, Type = "Sick", StartDate = Mon16Nov, EndDate = Mon16Nov, HalfDay = true }, default);
 
         Assert.Equal(0.5m, result.Value!.Days);
         Assert.Null(result.Value.BalanceAfter);
@@ -297,7 +386,7 @@ public class StaffLeaveQueryTests
         SignIn(_amira);
 
         var result = await Preview().Handle(new PreviewStaffLeaveQuery
-        {
+        { Today = Fri20Nov,
             UserId = _ines.Id, Type = "PaidLeave", StartDate = Mon16Nov, EndDate = Wed18Nov,
         }, default);
 
@@ -310,7 +399,7 @@ public class StaffLeaveQueryTests
         SignIn(_admin);
 
         var result = await Preview().Handle(new PreviewStaffLeaveQuery
-        {
+        { Today = Fri20Nov,
             UserId = _ines.Id, Type = "PaidLeave", StartDate = Mon16Nov, EndDate = Wed18Nov,
         }, default);
 
@@ -356,7 +445,7 @@ public class StaffLeaveQueryTests
         Assert.Equal(StaffLeaveRules.NotFoundCode, result.Code);
     }
 
-    private GetTeamLeaveOverviewQueryHandler Overview() => new(_requests.Object, _users.Object, _clinics.Object, _context.Object);
+    private GetTeamLeaveOverviewQueryHandler Overview() => new(_requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object);
 
     [Fact]
     public async Task The_Team_Strip_Lists_Active_Secretaries_With_Their_Next_Accepted_Congé()
@@ -379,10 +468,128 @@ public class StaffLeaveQueryTests
         var ines = result.Value.Members.Single(m => m.UserId == _ines.Id);
         Assert.Equal(next.StartDate, ines.NextStartDate);
         Assert.Equal(next.EndDate, ines.NextEndDate);
-        Assert.Equal(24m, ines.Balance.Allowance);
+        Assert.Equal(24m, ines.Balance.Acquired);
         var amira = result.Value.Members.Single(m => m.UserId == _amira.Id);
         Assert.Null(amira.NextStartDate);
         Assert.Null(amira.Balance.Remaining);
+        Assert.Equal(1m, ines.PendingDays);
+        Assert.Equal(0m, amira.PendingDays);
+    }
+
+    [Fact]
+    public async Task The_Team_Strip_Says_Which_Half_Of_Her_Next_Day_She_Is_Away()
+    {
+        SignIn(_admin);
+        var half = new StaffLeaveRequest(
+            Guid.NewGuid(), ClinicId, _ines.Id, StaffLeaveType.PaidLeave, Today.AddDays(5), Today.AddDays(5), true, "Rendez-vous",
+            0.5m, StaffLeaveHalfDayPart.Afternoon);
+        half.Approve(_admin.Id, 0.5m);
+        _requests.Setup(r => r.ListAsync(ClinicId, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PagedResult<StaffLeaveRequest>.Unpaged(new[] { half }));
+
+        var result = await Overview().Handle(new GetTeamLeaveOverviewQuery(), default);
+
+        var ines = result.Value!.Members.Single(m => m.UserId == _ines.Id);
+        Assert.True(ines.NextHalfDay);
+        Assert.Equal("Afternoon", ines.NextHalfDayPart);
+    }
+
+    private PreviewLeaveRuleQueryHandler RulePreview() =>
+        new(_allowances.Object, _requests.Object, _users.Object, _clinics.Object, _context.Object);
+
+    private PreviewOpeningLeaveBalanceQueryHandler OpeningPreview() =>
+        new(_allowances.Object, _requests.Object, _users.Object, _clinics.Object, _context.Object);
+
+    [Fact]
+    public async Task The_Rule_Preview_Reads_Her_Balance_As_If_The_Rule_Were_Saved_And_Writes_Nothing()
+    {
+        // Amira has nothing set: « 2 j par mois » from 1 January, read on 20 November → 22 acquired, +2 on 1 December.
+        SignIn(_admin);
+
+        var result = await RulePreview().Handle(new PreviewLeaveRuleQuery
+        {
+            Today = Fri20Nov, UserId = _amira.Id, Days = 2, Accrual = "Month", CarryOver = false, Since = new DateOnly(2026, 1, 1),
+        }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(22m, result.Value!.Remaining);
+        Assert.Equal(new DateOnly(2026, 12, 1), result.Value.NextCredit!.Day);
+        Assert.Equal("Month", result.Value.Rule!.Accrual);
+        _allowances.Verify(r => r.AddAsync(It.IsAny<StaffLeaveAllowanceEntry>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task The_Rule_Preview_Shows_A_Later_Rule_Beside_The_One_In_Force()
+    {
+        SignIn(_admin);
+
+        var result = await RulePreview().Handle(new PreviewLeaveRuleQuery
+        {
+            Today = Fri20Nov, UserId = _ines.Id, Days = 2, Accrual = "Month", Since = new DateOnly(2026, 12, 1),
+        }, default);
+
+        Assert.Equal("Year", result.Value!.Rule!.Accrual);
+        Assert.Equal(new DateOnly(2026, 12, 1), result.Value.NextRule!.Since);
+        // The year a yearly rule already credited earns no December credit.
+        Assert.Equal(24m, result.Value.Remaining);
+        Assert.Equal(0m, result.Value.Upcoming);
+        Assert.Equal(new DateOnly(2027, 1, 1), result.Value.NextCredit!.Day);
+    }
+
+    [Fact]
+    public async Task The_Rule_Preview_Refuses_What_The_Save_Would_Refuse_And_Is_For_An_Admin()
+    {
+        SignIn(_admin);
+        var misaligned = await RulePreview().Handle(new PreviewLeaveRuleQuery
+        {
+            Today = Fri20Nov, UserId = _ines.Id, Days = 20, Accrual = "Year", Since = new DateOnly(2026, 11, 1),
+        }, default);
+        SignIn(_ines);
+        var notAdmin = await RulePreview().Handle(new PreviewLeaveRuleQuery
+        {
+            Today = Fri20Nov, UserId = _ines.Id, Days = 20, Accrual = "Year", Since = new DateOnly(2027, 1, 1),
+        }, default);
+
+        Assert.Equal("Un droit par an commence un 1er janvier.", misaligned.Error);
+        Assert.Equal(StaffLeaveRules.AdminOnly, notAdmin.Error);
+    }
+
+    [Fact]
+    public async Task The_Opening_Preview_Takes_Off_The_Congés_Already_Accepted_For_Later()
+    {
+        // « Il lui reste 10 j au 20 novembre », with a 4-day congé accepted for December: the fold reads 6.
+        SignIn(_admin);
+        History(_amira, Leave(_amira, new DateOnly(2026, 12, 21), new DateOnly(2026, 12, 24), 4m, StaffLeaveStatus.Approved));
+
+        var result = await OpeningPreview().Handle(new PreviewOpeningLeaveBalanceQuery
+        {
+            Today = Fri20Nov, UserId = _amira.Id, Days = 10, OnDay = Fri20Nov,
+        }, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(10m, result.Value!.Opening);
+        Assert.Equal(4m, result.Value.Planned);
+        Assert.Equal(6m, result.Value.Remaining);
+        _allowances.Verify(r => r.AddAsync(It.IsAny<StaffLeaveAllowanceEntry>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task The_Opening_Preview_Refuses_A_Future_Day_And_A_Colleague_Of_Another_Cabinet()
+    {
+        SignIn(_admin);
+        var foreign = Account(User.RoleSecretary, "Secrétaire Ailleurs", OtherClinicId);
+
+        var future = await OpeningPreview().Handle(new PreviewOpeningLeaveBalanceQuery
+        {
+            Today = Fri20Nov, UserId = _ines.Id, Days = 10, OnDay = Fri20Nov.AddDays(1),
+        }, default);
+        var elsewhere = await OpeningPreview().Handle(new PreviewOpeningLeaveBalanceQuery
+        {
+            Today = Fri20Nov, UserId = foreign.Id, Days = 10, OnDay = Fri20Nov,
+        }, default);
+
+        Assert.Equal("La date ne peut pas être dans le futur.", future.Error);
+        Assert.Equal(StaffLeaveRules.NotFoundCode, elsewhere.Code);
     }
 
     [Fact]

@@ -31,5 +31,13 @@ public interface IStaffLeaveRequestRepository
     Task<IReadOnlyList<StaffLeaveRequest>> GetApprovedOverlappingAsync(
         Guid clinicId, DateOnly fromDay, DateOnly toDay, CancellationToken cancellationToken = default);
 
+    /// <summary>Waiting or accepted requests of anyone in the cabinet touching the inclusive window.</summary>
+    Task<IReadOnlyList<StaffLeaveRequest>> GetHoldingOverlappingAsync(
+        Guid clinicId, DateOnly fromDay, DateOnly toDay, CancellationToken cancellationToken = default);
+
+    /// <summary>Whether an accepted congé of the account covers <paramref name="day"/>, whole or half day. Untracked.</summary>
+    Task<bool> HasApprovedCoveringAsync(
+        Guid clinicId, string userId, DateOnly day, CancellationToken cancellationToken = default);
+
     Task AddAsync(StaffLeaveRequest request, CancellationToken cancellationToken = default);
 }

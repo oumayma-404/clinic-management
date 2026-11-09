@@ -55,6 +55,7 @@ public static class AuditLabels
         nameof(Doctor) => "Praticien",
         nameof(DoctorLeave) => "Congé du praticien",
         nameof(StaffLeaveRequest) => "Demande de congé",
+        nameof(StaffLeaveAllowanceEntry) => "Droit à congé",
         nameof(AttendanceEntry) => "Pointage",
         nameof(AttendanceTerminal) => "Borne de pointage",
         nameof(Clinic) => "Cabinet",

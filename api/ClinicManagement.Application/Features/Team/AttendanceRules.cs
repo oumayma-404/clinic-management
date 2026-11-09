@@ -27,15 +27,33 @@ public static class AttendanceRules
     public const string SchemaInvalidCode = "schema_invalid";
     public const string PunchStateChangedCode = "punch_state_changed";
     public const string NotFoundCode = "attendance_not_found";
+    public const string DeviceGoneCode = "borne_device_gone";
+    public const string BorneNotWaitingCode = "borne_not_waiting";
+    public const string BorneNameTakenCode = "borne_name_taken";
+    public const string BorneDevicePhoneCode = "borne_device_phone";
+    public const string BorneLastWhilePresentCode = "borne_last_while_present";
+    public const string SchemaPasswordRequiredCode = "schema_password_required";
+    public const string SchemaPasswordWrongCode = "schema_password_wrong";
 
     /// <summary>Today's state of a person, on the borne's tiles and in « Équipe aujourd'hui ».</summary>
     public const string StateIn = "in";
     public const string StateOut = "out";
+    public const string StateLeft = "left";
     public const string StateLeave = "leave";
+
+    /// <summary>What a device label says the device is, for « Ajouter une borne ».</summary>
+    public const string DeviceKindPc = "pc";
+    public const string DeviceKindTablet = "tablet";
+    public const string DeviceKindPhone = "phone";
+    public const string DeviceKindUnknown = "unknown";
 
     public const string ModuleOff = "Le pointage n'est pas activé pour ce cabinet.";
     public const string TerminalUnknown = "Cet appareil n'est pas une borne du cabinet.";
-    public const string SchemaMissing = "Schéma à créer dans « Mon profil » avant de pointer.";
+    public const string SchemaMissing = "Créez votre schéma dans « Mon profil » avant de pointer.";
+    public const string BorneDevicePhone =
+        "Le téléphone d'une personne qui pointe ne peut pas être une borne : choisissez un ordinateur ou une tablette du cabinet.";
+    public const string SchemaPasswordRequired = "Saisissez votre mot de passe pour changer de schéma.";
+    public const string SchemaPasswordWrong = "Mot de passe incorrect.";
     public const string PersonNotTracked = "Cette personne ne pointe pas sur cette borne.";
     public const string OnLeave = "Vous êtes en congé aujourd'hui.";
     public const string EntryNotFound = "Pointage introuvable.";
@@ -43,6 +61,9 @@ public static class AttendanceRules
     public const string MonthInvalid = "Mois invalide (format attendu : 2026-11).";
     public const string AdminOnly = "Seul un administrateur du cabinet peut gérer les présences.";
     public const string NotTrackedSelf = "Votre compte ne pointe pas : demandez à l'administrateur.";
+    public const string DeviceGone = "Cet appareil n'est plus connecté. Choisissez-en un autre.";
+    public const string BorneNotWaiting = "Aucune borne n'attend cet appareil.";
+    public const string UnnamedDevice = "appareil sans nom";
     public const string TerminalNotFound = "Borne introuvable.";
     public const string InFuture = "Une heure à venir ne peut pas être enregistrée.";
     public const string DayInFuture = "Choisissez un jour passé ou aujourd'hui.";
@@ -78,6 +99,40 @@ public static class AttendanceRules
     {
         var minutes = Math.Max(1, (int)Math.Ceiling((lockedUntilUtc - nowUtc).TotalMinutes));
         return $"Trop d'essais. Réessayez dans {minutes} min, ou demandez à l'administrateur de réinitialiser votre schéma.";
+    }
+
+    /// <summary>« Une autre borne s'appelle déjà « Accueil » … » — two bornes of one name cannot be told apart in any list.</summary>
+    public static string BorneNameTaken(string name) =>
+        $"Une autre borne s'appelle déjà {StaffLeaveNotices.Quote(name.Trim())} : choisissez un autre nom.";
+
+    /// <summary>Retiring the last borne would leave whoever is still in unable to pointer their departure.</summary>
+    public static string BorneLastWhilePresent(IReadOnlyList<string> names) =>
+        names.Count == 1
+            ? $"{names[0]} n'a pas encore pointé son départ : gardez une borne active jusqu'à son départ."
+            : $"{string.Join(", ", names.Take(names.Count - 1))} et {names[^1]} n'ont pas encore pointé leur départ : gardez une borne active jusqu'à leur départ.";
+
+    /// <summary>Two live or waiting bornes of the cabinet with one name, the one being replaced left out.</summary>
+    public static bool IsNameTaken(string name, IEnumerable<AttendanceTerminal> cabinetBornes, IReadOnlyCollection<Guid> replacing) =>
+        cabinetBornes.Any(t => t.IsActive && !replacing.Contains(t.Id)
+            && string.Equals(t.Name.Trim(), name.Trim(), StringComparison.CurrentCultureIgnoreCase));
+
+    /// <summary>
+    /// « pc », « tablet », « phone » or « unknown » from what the sign-in named the device — « Chrome sur Windows »,
+    /// « Safari sur iOS », « Application android ». An Android or iOS label is a phone: the label cannot tell a tablet.
+    /// </summary>
+    public static string DeviceKindOf(string? deviceLabel)
+    {
+        if (string.IsNullOrWhiteSpace(deviceLabel))
+            return DeviceKindUnknown;
+        var words = deviceLabel.ToLowerInvariant()
+            .Split(new[] { ' ', '(', ')', '/', ',', '·', '-' }, StringSplitOptions.RemoveEmptyEntries);
+        if (words.Any(w => w is "ipad" or "tablette" or "tablet"))
+            return DeviceKindTablet;
+        if (words.Any(w => w is "android" or "ios" or "iphone"))
+            return DeviceKindPhone;
+        if (words.Any(w => w is "windows" or "mac" or "macos" or "linux"))
+            return DeviceKindPc;
+        return DeviceKindUnknown;
     }
 
     /// <summary>The signed-in account and its cabinet, refused unless the pointage is on (and, if asked, an admin calls).</summary>
@@ -118,8 +173,19 @@ public static class AttendanceRules
         CreatedAt = terminal.CreatedAt,
         LastUsedAt = terminal.LastUsedAt,
         IsActive = terminal.IsActive,
+        IsPending = terminal.IsPending,
+        DeviceDescription = terminal.DeviceDescription,
+        ActivatedAt = terminal.ActivatedAtUtc,
         Version = terminal.Version,
     };
+
+    /// <summary>« Ines Gharbi · Chrome sur Windows » — who uses a signed-in device, and what it is.</summary>
+    public static string DescribeDevice(User owner, SessionFamily session) =>
+        $"{StaffLeaveRules.DisplayName(owner)} · {session.DeviceLabel ?? UnnamedDevice}";
+
+    /// <summary>A session a borne can still be handed to: not signed out, not lapsed.</summary>
+    public static bool IsSignedIn(SessionFamily? session, DateTime nowUtc) =>
+        session is { IsLive: true } && session.ExpiresAtUtc > nowUtc;
 
     /// <summary>« 08:02 » — a UTC instant on the cabinet's 24-hour clock.</summary>
     public static string LocalTime(DateTime utc) =>
@@ -178,6 +244,8 @@ public static class AttendanceRules
         Departure = entry.DepartureUtc is { } departure ? LocalTime(departure) : null,
         IsPresent = entry.IsOpen && entry.LocalDay == today,
         DepartureMissing = entry.IsOpen && entry.LocalDay < today,
+        DepartureDeclared = entry.IsDeclared,
+        DeclaredLastSave = entry.IsDeclared && entry.DeclaredLastSaveUtc is { } lastSave ? LocalTime(lastSave) : null,
         IsCorrected = entry.IsCorrected,
         CorrectionReason = entry.CorrectionReason,
         CorrectedByName = entry.CorrectedByUserId is { } correctorId && roster.TryGetValue(correctorId, out var corrector)
@@ -201,6 +269,7 @@ public static class AttendanceRules
             Days = own.Select(e => e.LocalDay).Distinct().Count(),
             Minutes = own.Sum(e => Minutes(e) ?? 0),
             MissingDepartures = own.Count(e => e.IsOpen && e.LocalDay < today),
+            DeclaredDepartures = own.Count(e => e.IsDeclared),
             OpenToday = own.Any(e => e.IsOpen && e.LocalDay == today),
         };
     }
@@ -217,7 +286,7 @@ public static class AttendanceRules
     public static bool IsOpenDay(DateOnly day, string? workingHoursJson) =>
         StaffLeaveRules.CountDays(day, day, false, workingHoursJson) > 0;
 
-    /// <summary>The step-up action « Faire de cet appareil une borne » spends.</summary>
+    /// <summary>The step-up action « Ajouter une borne » spends.</summary>
     public const string RegisterTerminalStepUpAction = "register-attendance-terminal";
 
     public const string ArrivalAction = "arrival";
@@ -251,6 +320,22 @@ public static class AttendanceRules
     public static StaffLeaveRequest? LeaveCovering(string userId, IEnumerable<StaffLeaveRequest> acceptedLeaves, DateOnly day) =>
         acceptedLeaves.FirstOrDefault(l => l.UserId == userId && l.Status == StaffLeaveStatus.Approved
             && l.StartDate <= day && day <= l.EndDate);
+
+    /// <summary>The sheet's « État » for a line, in words — the CSV export's column.</summary>
+    /// <remarks>A closed line can be both: an arrival an admin added (« Corrigé ») and a departure she declared.</remarks>
+    public static string StateLabel(AttendanceEntryDto entry)
+    {
+        if (entry.DepartureMissing)
+            return "Départ non pointé";
+        if (entry.IsPresent)
+            return "En cours";
+        var parts = new List<string>();
+        if (entry.IsCorrected)
+            parts.Add("Corrigé");
+        if (entry.DepartureDeclared)
+            parts.Add(entry.DeclaredLastSave is { } lastSave ? $"Déclaré · dernière action {lastSave}" : "Déclaré · aucune action ce jour");
+        return string.Join(" · ", parts);
+    }
 
     /// <summary>A whole-day accepted congé covers today; a half day still lets her pointer the other half.</summary>
     public static bool IsOnFullDayLeave(string userId, IEnumerable<StaffLeaveRequest> acceptedLeaves, DateOnly today) =>

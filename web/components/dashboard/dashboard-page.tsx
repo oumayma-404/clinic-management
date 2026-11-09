@@ -32,7 +32,7 @@ import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { DashboardSection } from "@/components/dashboard/dashboard-section"
 import { DashboardCustomizer } from "@/components/dashboard/dashboard-customizer"
 import { GettingStartedBlock } from "@/components/dashboard/getting-started-card"
-import { TeamTodayBlock } from "@/components/dashboard/team-today-block"
+import { PendingLeaveBlock, TeamTodayBlock } from "@/components/dashboard/team-today-block"
 import { useUserStatus } from "@/lib/hooks/use-user-status"
 import { useGuide } from "@/components/guide/guide-provider"
 import { SHOW_PREMIERS_PAS_EVENT, takeShowPremiersPasRequest } from "@/lib/getting-started-celebration"
@@ -91,7 +91,7 @@ const PERIODS: DashboardPeriodKey[] = ["Today", "Week", "Month"]
 
 /** « Premiers pas » left out of « Personnaliser » whenever the card does not apply to this reader. */
 const GETTING_STARTED_OMITTED: readonly DashboardBlockKey[] = ["gettingStarted"]
-/** « Équipe aujourd'hui » left out unless an admin reads a cabinet with the pointage on. */
+/** « Équipe aujourd'hui » left out unless an admin reads a cabinet with the pointage or the congés on. */
 const TEAM_TODAY_OMITTED: readonly DashboardBlockKey[] = ["teamToday"]
 
 /** How often the day zones re-read the clock. A minute is the finest unit anything here displays. */
@@ -199,7 +199,8 @@ function DashboardContent() {
   const gettingStarted = useGettingStarted(isAdmin)
   const gettingStartedApplies = isAdmin && gettingStarted.data?.visible === true
   const { data: userStatus } = useUserStatus()
-  const teamTodayApplies = isAdmin && userStatus?.clinic?.attendanceEnabled === true
+  const attendanceOn = userStatus?.clinic?.attendanceEnabled === true
+  const teamTodayApplies = isAdmin && (attendanceOn || userStatus?.clinic?.leaveRequestsEnabled === true)
   const omittedBlocks = useMemo(
     () => [
       ...(gettingStartedApplies ? [] : GETTING_STARTED_OMITTED),
@@ -580,7 +581,7 @@ function DashboardContent() {
           </DashboardSection>
         )}
 
-        {teamTodayApplies && !prefsLoading && isVisible("teamToday") && <TeamTodayBlock />}
+        {teamTodayApplies && !prefsLoading && isVisible("teamToday") && (attendanceOn ? <TeamTodayBlock /> : <PendingLeaveBlock />)}
 
         {/*
           ZONE 6 — la prochaine journée ouvrée.

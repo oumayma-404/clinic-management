@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, Check, MoreHorizontal } from "lucide-react"
+import { AlertTriangle, Check, MoreHorizontal, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CARDS_ONLY_LG, CardList, TABLE_ONLY_LG } from "@/components/ui/card-list"
 import {
@@ -14,20 +14,26 @@ import {
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { StaffLeaveRequestDto } from "@/lib/api/team"
-import { formatDateFr, quoteFr } from "@/lib/format"
+import { formatDateFr, quoteFr, todayLocalIso } from "@/lib/format"
 import {
   balanceAfterLabel,
+  firstOfLabel,
+  isOverdrawn,
   isUpcomingLeave,
+  staffBalanceLabel,
   staffDaysLabel,
+  staffLeaveCancelWording,
   staffLeaveDaysText,
   staffLeaveShortPeriod,
 } from "@/lib/staff-leave"
 import { cn } from "@/lib/utils"
 import {
   AcceptLeaveDialog,
+  AdminCancelLeaveDialog,
   CancelLeaveConfirm,
   RejectLeaveDialog,
   leaveCancelSubject,
+  leaveCancelVerb,
 } from "./staff-leave-decision-dialogs"
 import { StaffLeaveDateTile, StaffLeaveStatusPill, staffLeaveDecisionLine } from "./staff-leave-bits"
 
@@ -36,9 +42,10 @@ export type OpenLeaveDialog = (kind: LeaveDialogKind, request: StaffLeaveRequest
 
 /**
  * The three decisions, mounted once by the PAGE — never by a list, so a refresh that empties the list (another admin
- * answered the last request) cannot unmount a dialog somebody is typing in. `showName` names whose congé it is.
+ * answered the last request) cannot unmount a dialog somebody is typing in. `admin`: the admin's pages, where a
+ * cancellation names whose congé it is and asks a motif; otherwise the secretary withdraws her own.
  */
-export function useLeaveDialogs(onChanged?: () => void, { showName = false }: { showName?: boolean } = {}) {
+export function useLeaveDialogs(onChanged?: () => void, { admin = false }: { admin?: boolean } = {}) {
   const [dialog, setDialog] = useState<{ kind: LeaveDialogKind; request: StaffLeaveRequestDto } | null>(null)
   const open: OpenLeaveDialog = (kind, request) => setDialog({ kind, request })
   const close = (next: boolean) => {
@@ -48,13 +55,16 @@ export function useLeaveDialogs(onChanged?: () => void, { showName = false }: { 
     <>
       <AcceptLeaveDialog request={dialog?.request ?? null} open={dialog?.kind === "accept"} onOpenChange={close} onChanged={onChanged} />
       <RejectLeaveDialog request={dialog?.request ?? null} open={dialog?.kind === "reject"} onOpenChange={close} onChanged={onChanged} />
-      <CancelLeaveConfirm
-        request={dialog?.request ?? null}
-        open={dialog?.kind === "cancel"}
-        onOpenChange={close}
-        onChanged={onChanged}
-        showName={showName}
-      />
+      {admin ? (
+        <AdminCancelLeaveDialog
+          request={dialog?.request ?? null}
+          open={dialog?.kind === "cancel"}
+          onOpenChange={close}
+          onChanged={onChanged}
+        />
+      ) : (
+        <CancelLeaveConfirm request={dialog?.request ?? null} open={dialog?.kind === "cancel"} onOpenChange={close} onChanged={onChanged} />
+      )}
     </>
   )
   return { open, dialogs }
@@ -70,6 +80,13 @@ function RefusalNote({ request }: { request: StaffLeaveRequestDto }) {
       Motif du refus : {quoteFr(request.rejectionReason)}
     </p>
   )
+}
+
+/** Who decided, entered or cancelled it (« Annulé par … · « motif » »), then a refusal's motif, quoted. */
+function decisionText(request: StaffLeaveRequestDto): string | null {
+  const line = staffLeaveDecisionLine(request, "other")
+  if (request.status !== "Rejected" || !request.rejectionReason) return line
+  return `${line ? `${line} · ` : ""}${quoteFr(request.rejectionReason)}`
 }
 
 // ─── A secretary's own requests ──────────────────────────────────────────────────────────────────────────────
@@ -88,7 +105,7 @@ export function StaffLeaveRows({
     <ul className="divide-y overflow-hidden rounded-xl border bg-card">
       {items.map((request) => {
         const period = staffLeaveShortPeriod(request)
-        const decision = staffLeaveDecisionLine(request)
+        const decision = staffLeaveDecisionLine(request, "self")
         return (
           <li key={request.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
             <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
@@ -99,7 +116,7 @@ export function StaffLeaveRows({
                   <StaffLeaveStatusPill status={request.status} label={request.statusLabel} />
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {request.typeLabel} · {staffLeaveDaysText(request)}
+                  {request.typeLabel} · {staffLeaveDaysText(request, "self")}
                 </p>
                 <p className="text-sm break-words">{quoteFr(request.reason)}</p>
                 <RefusalNote request={request} />
@@ -112,10 +129,10 @@ export function StaffLeaveRows({
                   variant="outline"
                   size="sm"
                   className="coarse:h-11"
-                  aria-label={`Annuler ${leaveCancelSubject(request, false)}`}
+                  aria-label={`${leaveCancelVerb(request)} ${leaveCancelSubject(request, false)}`}
                   onClick={() => onOpen("cancel", request)}
                 >
-                  Annuler
+                  {staffLeaveCancelWording(request.status).action}
                 </Button>
               </div>
             )}
@@ -128,10 +145,31 @@ export function StaffLeaveRows({
 
 // ─── The admin's requests to decide ──────────────────────────────────────────────────────────────────────────
 
-/** « Solde après » on a waiting card: only a congé payé with an allowance counts against one. */
-function balanceAfterValue(request: StaffLeaveRequestDto): string {
-  if (request.balanceAfter !== null) return staffDaysLabel(request.balanceAfter)
-  return request.type === "PaidLeave" ? "Non suivi" : "Ne compte pas"
+/**
+ * « Solde après » on a waiting card: only a congé payé with an allowance counts against one, read on the day the
+ * server names (a monthly rule credits until then); no droit links to her file.
+ */
+function BalanceAfterValue({ request, todayKey }: { request: StaffLeaveRequestDto; todayKey: string }) {
+  if (request.balanceAfter !== null) {
+    return (
+      <>
+        <span className={cn(isOverdrawn(request.balanceAfter) && "text-destructive")}>{staffBalanceLabel(request.balanceAfter)}</span>
+        {request.balanceAfterOn && request.balanceAfterOn > todayKey && (
+          <span className="block text-xs font-normal text-muted-foreground">au {firstOfLabel(request.balanceAfterOn)}</span>
+        )}
+      </>
+    )
+  }
+  if (request.type !== "PaidLeave") return <>Ne compte pas</>
+  return (
+    <Link
+      href={userHref(request)}
+      className="inline-flex items-center text-primary underline-offset-2 hover:underline coarse:min-h-11"
+      aria-label={`Droit non défini : ouvrir la fiche de ${request.userName}`}
+    >
+      Droit non défini
+    </Link>
+  )
 }
 
 /**
@@ -145,6 +183,7 @@ export function StaffLeaveDecisionCards({
   items: StaffLeaveRequestDto[]
   onOpen: OpenLeaveDialog
 }) {
+  const todayKey = todayLocalIso()
   return (
     <div className="@container">
       <ul className="grid gap-3 @3xl:grid-cols-2">
@@ -179,7 +218,9 @@ export function StaffLeaveDecisionCards({
                 </div>
                 <div className="px-3 py-2">
                   <dt className="text-xs text-muted-foreground">{balanceAfterLabel(request.startDate)}</dt>
-                  <dd className="font-semibold tabular-nums">{balanceAfterValue(request)}</dd>
+                  <dd className="font-semibold tabular-nums">
+                    <BalanceAfterValue request={request} todayKey={todayKey} />
+                  </dd>
                 </div>
               </dl>
 
@@ -189,21 +230,16 @@ export function StaffLeaveDecisionCards({
                   <span>Déjà en congé sur ces dates : {request.othersOff.join(", ")}</span>
                 </p>
               )}
+              {request.othersPending.length > 0 && (
+                <p className="flex items-start gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm">
+                  <Users className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span>Demande aussi ces dates : {request.othersPending.map((name) => `${name} (en attente)`).join(", ")}</span>
+                </p>
+              )}
             </div>
 
-            {/* Narrow card: the decision side by side and « Annuler » under it; a wide one: one row, « Annuler » apart. */}
+            {/* « Refuser » covers withdrawing a waiting request, with the motif she is owed. */}
             <div className="grid grid-cols-2 gap-2 rounded-b-xl border-t bg-muted/30 px-4 py-3 @sm:flex @sm:items-center @sm:justify-end">
-              {request.canCancel && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="order-last col-span-2 coarse:h-11 @sm:order-none @sm:me-auto"
-                  aria-label={`Annuler ${leaveCancelSubject(request, true)}`}
-                  onClick={() => onOpen("cancel", request)}
-                >
-                  Annuler
-                </Button>
-              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -232,10 +268,11 @@ export function StaffLeaveDecisionCards({
 
 // ─── Every request, as a table from `lg:` and as cards below ─────────────────────────────────────────────────
 
-/** The admin's row menu: decide a waiting request, withdraw what can still be withdrawn. Names whose congé it is. */
+/** The admin's row menu: decide a waiting request, cancel an accepted congé (with a motif). Names whose congé it is. */
 function RowActions({ request, onOpen }: { request: StaffLeaveRequestDto; onOpen: OpenLeaveDialog }) {
   const decidable = request.status === "Pending"
-  if (!decidable && !request.canCancel) return null
+  const cancellable = request.status === "Approved" && request.canCancel
+  if (!decidable && !cancellable) return null
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -259,7 +296,7 @@ function RowActions({ request, onOpen }: { request: StaffLeaveRequestDto; onOpen
             </DropdownMenuItem>
           </>
         )}
-        {request.canCancel && (
+        {cancellable && (
           <DropdownMenuItem className="coarse:py-3" onSelect={() => onOpen("cancel", request)}>
             Annuler le congé
           </DropdownMenuItem>
@@ -269,7 +306,7 @@ function RowActions({ request, onOpen }: { request: StaffLeaveRequestDto; onOpen
   )
 }
 
-/** « 2,5 jours décomptés » over « (3 jours demandés) » — the figure stays on one line, the note may wrap. */
+/** « 2,5 j retirés du solde » over « (3 jours demandés) » when the admin counted differently. */
 function DaysCell({ request }: { request: StaffLeaveRequestDto }) {
   const counted = request.countedDays
   if (counted === null || counted === request.requestedDays) {
@@ -277,7 +314,7 @@ function DaysCell({ request }: { request: StaffLeaveRequestDto }) {
   }
   return (
     <>
-      <span className="block whitespace-nowrap">{staffDaysLabel(counted)} décomptés</span>
+      <span className="block">{staffLeaveDaysText(request)}</span>
       <span className="block text-xs text-muted-foreground">({staffDaysLabel(request.requestedDays)} demandés)</span>
     </>
   )
@@ -295,14 +332,6 @@ export function StaffLeaveHistory({
   onOpen: OpenLeaveDialog
   ariaLabel: string
 }) {
-  const decisionText = (request: StaffLeaveRequestDto) => {
-    const line = staffLeaveDecisionLine(request)
-    if (request.status === "Rejected" && request.rejectionReason) {
-      return `${line ? `${line} · ` : ""}${quoteFr(request.rejectionReason)}`
-    }
-    return line
-  }
-
   return (
     <>
       <div className={cn(TABLE_ONLY_LG, "overflow-hidden rounded-xl border bg-card")}>
@@ -327,7 +356,7 @@ export function StaffLeaveHistory({
                   <TableCell className="ps-5">
                     <Link
                       href={userHref(request)}
-                      className="inline-flex items-center gap-2.5 font-medium underline-offset-2 hover:underline"
+                      className="inline-flex items-center gap-2.5 font-medium underline-offset-2 hover:underline coarse:min-h-11"
                     >
                       <InitialsAvatar name={request.userName} className="size-7" />
                       {request.userName}

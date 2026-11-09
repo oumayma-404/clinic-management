@@ -5,6 +5,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Team;
 
@@ -30,15 +31,25 @@ public static class StaffLeaveRules
     public const string NotASecretary = "Une absence ne peut être saisie que pour un compte secrétaire.";
     public const string UnknownType = "Type de congé inconnu.";
     public const string UnknownStatusFilter = "Filtre de statut inconnu.";
+    public const string UnknownHalfDayPart = "Choisissez le matin ou l'après-midi.";
     public const string SessionInvalid = "Session invalide, veuillez vous reconnecter.";
 
+    /// <summary>Every day of the range is closed at the cabinet: a request would count 0.</summary>
+    public const string NoOpenDayCode = "leave_no_open_day";
+    public const string NoOpenDay = "Le cabinet est fermé ces jours-là.";
+
+    /// <summary>An admin withdrawing someone else's request or congé gives the motif she will read.</summary>
+    public const string CancelReasonRequiredCode = "cancel_reason_required";
+
     public static string OwnOverlapSentence(StaffLeaveRequest existing) =>
-        $"Vous avez déjà une demande {FrenchDayPeriod.Format(existing.StartDate, existing.EndDate)}.";
+        existing.Status == StaffLeaveStatus.Pending
+            ? $"Vous avez déjà une demande en attente {FrenchDayPeriod.Words(existing.StartDate, existing.EndDate)}."
+            : $"Vous avez déjà un congé accepté {FrenchDayPeriod.Words(existing.StartDate, existing.EndDate)}.";
 
     public static string OverlapSentence(string name, StaffLeaveRequest existing) =>
         existing.Status == StaffLeaveStatus.Pending
-            ? $"{name} a déjà une demande en attente {FrenchDayPeriod.Format(existing.StartDate, existing.EndDate)} : répondez-y plutôt."
-            : $"{name} a déjà un congé accepté {FrenchDayPeriod.Format(existing.StartDate, existing.EndDate)}.";
+            ? $"{name} a déjà une demande en attente {FrenchDayPeriod.Words(existing.StartDate, existing.EndDate)} : répondez-y plutôt."
+            : $"{name} a déjà un congé accepté {FrenchDayPeriod.Words(existing.StartDate, existing.EndDate)}.";
 
     public static string TypeLabel(StaffLeaveType type) => type switch
     {
@@ -61,6 +72,20 @@ public static class StaffLeaveRules
     /// <summary>The member a client sent, by name; null for anything else.</summary>
     public static StaffLeaveType? ParseType(string? value) =>
         Enum.TryParse<StaffLeaveType>(value, ignoreCase: true, out var type) && Enum.IsDefined(type) ? type : null;
+
+    /// <summary>« Morning » / « Afternoon » by name; blank is « not said » (a whole day, or an older client).</summary>
+    public static bool TryParseHalfDayPart(string? value, out StaffLeaveHalfDayPart? part)
+    {
+        part = null;
+        if (string.IsNullOrWhiteSpace(value))
+            return true;
+        if (int.TryParse(value, out _)
+            || !Enum.TryParse<StaffLeaveHalfDayPart>(value.Trim(), ignoreCase: true, out var parsed)
+            || !Enum.IsDefined(parsed))
+            return false;
+        part = parsed;
+        return true;
+    }
 
     /// <summary>
     /// The cabinet's open days between the two dates (« Horaires » in Paramètres), ½ for a demi-journée;
@@ -86,23 +111,6 @@ public static class StaffLeaveRules
         requests
             .Where(r => r.Status == StaffLeaveStatus.Approved && r.Type == StaffLeaveType.PaidLeave)
             .Sum(r => DaysInYear(r, year, workingHoursJson));
-
-    public static StaffLeaveBalanceDto Balance(
-        int year, decimal? allowance, IEnumerable<StaffLeaveRequest> requests, string? workingHoursJson)
-    {
-        var list = requests as IReadOnlyCollection<StaffLeaveRequest> ?? requests.ToList();
-        var taken = TakenIn(year, list, workingHoursJson);
-        return new StaffLeaveBalanceDto
-        {
-            Year = year,
-            Allowance = allowance,
-            Taken = taken,
-            Remaining = allowance is { } a ? a - taken : null,
-            Pending = list
-                .Where(r => r.Status == StaffLeaveStatus.Pending && r.Type == StaffLeaveType.PaidLeave)
-                .Sum(r => DaysInYear(r, year, workingHoursJson)),
-        };
-    }
 
     /// <summary>Accepted days in <paramref name="year"/> per type, every type listed (0 included).</summary>
     public static List<StaffLeaveTypeTotalDto> AcceptedByType(
@@ -141,33 +149,30 @@ public static class StaffLeaveRules
     }
 
     /// <summary>
-    /// What is left of the start year's allowance once this congé is taken. Only that year's share counts — the same
-    /// split <see cref="Balance"/> applies after acceptance, so the form and the balance never disagree.
+    /// A new request's type, day count and half, or the refusal: type, dates, half and motif, at least one open day, then
+    /// no overlap with one she holds.
     /// </summary>
-    public static decimal BalanceAfter(
-        decimal allowance, IEnumerable<StaffLeaveRequest> history, DateOnly start, DateOnly end, decimal days,
-        string? workingHoursJson) =>
-        allowance
-        - TakenIn(start.Year, history, workingHoursJson)
-        - ShareInYear(start, end, days, start.Year, workingHoursJson);
-
-    /// <summary>A new request's type and day count, or the refusal: type, dates and motif, then no overlap with one she holds.</summary>
-    public static async Task<Result<(StaffLeaveType Type, decimal Days)>> ValidateNewAsync(
+    public static async Task<Result<(StaffLeaveType Type, decimal Days, StaffLeaveHalfDayPart? Part)>> ValidateNewAsync(
         IStaffLeaveRequestRepository requests, Clinic clinic, User owner, string? type, DateOnly startDate,
-        DateOnly endDate, bool halfDay, string? reason, Func<StaffLeaveRequest, string> overlapSentence,
+        DateOnly endDate, bool halfDay, string? halfDayPart, string? reason, Func<StaffLeaveRequest, string> overlapSentence,
         CancellationToken cancellationToken)
     {
         if (ParseType(type) is not { } parsed)
-            return Result<(StaffLeaveType, decimal)>.Failure(UnknownType);
+            return Result<(StaffLeaveType, decimal, StaffLeaveHalfDayPart?)>.Failure(UnknownType);
         if (StaffLeaveRequest.RefusalFor(startDate, endDate, halfDay, reason) is { } refusal)
-            return Result<(StaffLeaveType, decimal)>.Failure(refusal);
+            return Result<(StaffLeaveType, decimal, StaffLeaveHalfDayPart?)>.Failure(refusal);
+        if (!TryParseHalfDayPart(halfDayPart, out var part))
+            return Result<(StaffLeaveType, decimal, StaffLeaveHalfDayPart?)>.Failure(UnknownHalfDayPart);
+
+        var days = CountDays(startDate, endDate, halfDay, clinic.WorkingHoursJson);
+        if (days == 0)
+            return Result<(StaffLeaveType, decimal, StaffLeaveHalfDayPart?)>.Failure(NoOpenDay, NoOpenDayCode);
 
         var overlap = await requests.FindHoldingOverlapAsync(clinic.Id, owner.Id, startDate, endDate, cancellationToken);
         if (overlap != null)
-            return Result<(StaffLeaveType, decimal)>.Failure(overlapSentence(overlap));
+            return Result<(StaffLeaveType, decimal, StaffLeaveHalfDayPart?)>.Failure(overlapSentence(overlap));
 
-        return Result<(StaffLeaveType, decimal)>.Success(
-            (parsed, CountDays(startDate, endDate, halfDay, clinic.WorkingHoursJson)));
+        return Result<(StaffLeaveType, decimal, StaffLeaveHalfDayPart?)>.Success((parsed, days, halfDay ? part : null));
     }
 
     /// <summary>The account's display name — full name, else e-mail.</summary>
@@ -207,9 +212,10 @@ public static class StaffLeaveRules
         StaffLeaveRequest request,
         IReadOnlyDictionary<string, User> roster,
         DateOnly clinicToday,
-        decimal? balanceAfter = null,
+        StaffLeaveBalanceAfter? balanceAfter = null,
         IEnumerable<string>? othersOff = null,
-        bool viewerIsAdmin = true) => new()
+        bool viewerIsAdmin = true,
+        IEnumerable<string>? othersPending = null) => new()
     {
         Id = request.Id,
         UserId = request.UserId,
@@ -219,6 +225,7 @@ public static class StaffLeaveRules
         StartDate = request.StartDate,
         EndDate = request.EndDate,
         HalfDay = request.HalfDay,
+        HalfDayPart = request.HalfDayPart?.ToString(),
         Reason = request.Reason,
         Status = request.Status.ToString(),
         StatusLabel = StatusLabel(request.Status),
@@ -230,8 +237,16 @@ public static class StaffLeaveRules
         DecidedAt = request.DecidedAt,
         RejectionReason = request.RejectionReason,
         EnteredByAdmin = request.EnteredByAdmin,
-        BalanceAfter = balanceAfter,
+        BalanceAfter = balanceAfter?.Balance,
+        BalanceAfterOn = balanceAfter?.On,
+        BalanceAfterWithPending = balanceAfter?.WithPending,
         OthersOff = othersOff?.ToList() ?? new List<string>(),
+        OthersPending = othersPending?.ToList() ?? new List<string>(),
+        CancelledByName = request.CancelledByUserId is { } cancellerId && roster.TryGetValue(cancellerId, out var canceller)
+            ? DisplayName(canceller)
+            : null,
+        CancelledBySelf = request.CancelledByUserId is { } byId && byId == request.UserId,
+        CancelReason = request.CancelReason,
         CanCancel = request.CanBeCancelledBy(viewerIsAdmin, clinicToday),
         CreatedAt = request.CreatedAt,
         Version = request.Version,

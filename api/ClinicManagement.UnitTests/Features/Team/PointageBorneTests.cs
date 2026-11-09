@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common.Behaviors;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Services;
+using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Auth;
 using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Application.Features.Team;
@@ -38,12 +39,16 @@ public class PointageBorneTests
     private readonly Mock<ISubscriptionPolicy> _policy = new();
     private readonly Mock<ILocalAuthService> _hasher = new();
     private readonly Mock<IAuditActorProvider> _audit = new();
+    private readonly Mock<IAuditEntryRepository> _journal = new();
     private readonly Mock<IRealtimeNotifier> _realtime = new();
+    private readonly Mock<INotificationGenerator> _bell = new();
     private readonly Mock<IUnitOfWork> _uow = new();
     private readonly Mock<IClinicContext> _context = new();
+    private readonly Mock<ISessionFamilyRepository> _sessions = new();
     private readonly TenantScope _scope = new(NullLogger<TenantScope>.Instance);
     private readonly List<User> _roster = new();
     private readonly List<AttendanceEntry> _todayLines = new();
+    private readonly List<AttendanceEntry> _earlierOpen = new();
     private readonly List<StaffLeaveRequest> _acceptedLeaves = new();
     private readonly Clinic _clinic = new(ClinicId, "Cabinet Test", code: "CODE01");
     private readonly AttendanceTerminal _borne;
@@ -58,6 +63,9 @@ public class PointageBorneTests
             .ReturnsAsync(() => PagedResult<User>.Unpaged(_roster.ToList()));
         _entries.Setup(r => r.ListBetweenAsync(ClinicId, It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => _todayLines.ToList());
+        _entries.Setup(r => r.ListOpenBeforeAsync(ClinicId, It.IsAny<string>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, string userId, DateOnly day, CancellationToken _) => (IReadOnlyList<AttendanceEntry>)_earlierOpen
+                .Where(l => l.UserId == userId && l.LocalDay < day && l.IsOpen).OrderBy(l => l.LocalDay).ToList());
         _leaves.Setup(r => r.GetApprovedOverlappingAsync(ClinicId, It.IsAny<DateOnly>(), It.IsAny<DateOnly>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => _acceptedLeaves.ToList());
         _hasher.Setup(h => h.HashPassword(It.IsAny<string>())).Returns<string>(text => $"HASH:{text}");
@@ -65,6 +73,7 @@ public class PointageBorneTests
             .Returns<string, string>((hash, text) => hash == $"HASH:{text}" ? PasswordVerificationOutcome.Success : PasswordVerificationOutcome.Failed);
 
         _borne = Borne(ClinicId, "Accueil", Secret);
+        _terminals.Setup(r => r.ListAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync(() => new List<AttendanceTerminal> { _borne });
         _ines = Account(User.RoleSecretary, "Ines Gharbi", withSchema: true);
         _admin = Account(User.RoleAdmin, "Dr Salma Ben Youssef");
     }
@@ -97,8 +106,24 @@ public class PointageBorneTests
             Guid.NewGuid(), ClinicId, owner.Id, day, _borne.Id, _borne.Name, DateTime.UtcNow.AddHours(-2));
         _entries.Setup(r => r.FindLatestOpenAsync(ClinicId, owner.Id, It.IsAny<CancellationToken>())).ReturnsAsync(line);
         if (day == Today) _todayLines.Add(line);
+        else if (day < Today) _earlierOpen.Add(line);
         return line;
     }
+
+    /// <summary>An earlier day's line opened at a cabinet-local hour, left open.</summary>
+    private AttendanceEntry OpenLineAt(User owner, DateOnly day, string arrival)
+    {
+        var line = AttendanceEntry.Arrive(
+            Guid.NewGuid(), ClinicId, owner.Id, day, _borne.Id, _borne.Name, AttendanceRules.ParseLocalTime(day, arrival)!.Value);
+        _entries.Setup(r => r.FindLatestOpenAsync(ClinicId, owner.Id, It.IsAny<CancellationToken>())).ReturnsAsync(line);
+        _earlierOpen.Add(line);
+        return line;
+    }
+
+    private void LastSaveOn(DateTime? lastSaveUtc) =>
+        _journal.Setup(j => j.GetLastSaveAtAsync(ClinicId, _ines.Id, It.IsAny<DateTime>(), It.IsAny<DateTime>(),
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(lastSaveUtc);
 
     private StaffLeaveRequest AcceptedLeave(User owner, DateOnly start, DateOnly end, bool halfDay = false)
     {
@@ -110,14 +135,17 @@ public class PointageBorneTests
 
     private PunchCommandHandler Punch() => new(
         _terminals.Object, _entries.Object, _leaves.Object, _users.Object, _clinics.Object, _subscriptions.Object,
-        _policy.Object, _scope, _hasher.Object, _audit.Object, _realtime.Object, _uow.Object,
-        NullLogger<PunchCommandHandler>.Instance);
+        _policy.Object, _scope, _hasher.Object, _audit.Object, _journal.Object, _realtime.Object, Notifier(),
+        _uow.Object, NullLogger<PunchCommandHandler>.Instance);
+
+    private AttendanceNotifier Notifier() =>
+        new(_bell.Object, _users.Object, _terminals.Object, _scope, NullLogger<AttendanceNotifier>.Instance);
 
     private GetPointageStatusQueryHandler Status() => new(
         _terminals.Object, _entries.Object, _leaves.Object, _users.Object, _clinics.Object, _scope);
 
     private RegisterAttendanceTerminalCommandHandler Register() =>
-        new(_terminals.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object);
+        new(_terminals.Object, _users.Object, _clinics.Object, _context.Object, _sessions.Object, Notifier(), _uow.Object);
 
     private static PunchCommand Tap(User person, List<int>? pattern = null, string? secret = Secret) =>
         new() { Secret = secret, UserId = person.Id, Pattern = pattern ?? RightPattern };
@@ -182,17 +210,162 @@ public class PointageBorneTests
     }
 
     [Fact]
-    public async Task A_Line_Left_Open_Yesterday_Is_Never_Closed_The_Arrival_Opens_A_New_One()
+    public async Task A_Line_Left_Open_Yesterday_Asks_For_Its_Departure_Before_The_Arrival_Lands()
     {
-        var yesterday = OpenLine(_ines, Today.AddDays(-1));
+        var yesterday = OpenLineAt(_ines, Today.AddDays(-1), "08:02");
 
         var result = await Punch().Handle(Tap(_ines), default);
 
         Assert.True(result.IsSuccess, result.Error);
-        Assert.Equal(AttendanceRules.ArrivalAction, result.Value!.Done!.Action);
+        var refused = result.Value!.Refused!;
+        Assert.Null(result.Value.Done);
+        Assert.Equal(AttendanceLockRules.PreviousDepartureMissingCode, refused.Code);
+        Assert.Equal(AttendanceLockRules.PreviousDepartureMissing(Today.AddDays(-1), Today), refused.Error);
+        Assert.Contains("d'hier", refused.Error);
+        Assert.Equal(new PreviousDayDto(AttendanceLockRules.DayKey(Today.AddDays(-1)), "08:02", null), refused.PreviousDay);
         Assert.True(yesterday.IsOpen);
-        Assert.Null(yesterday.DepartureUtc);
+        VerifyNoLineWritten();
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task The_Declaration_Step_Names_Her_Last_Save_Of_That_Day_From_The_Journal()
+    {
+        var day = Today.AddDays(-1);
+        OpenLineAt(_ines, day, "08:02");
+        var lastSave = AttendanceRules.ParseLocalTime(day, "17:46")!.Value;
+        LastSaveOn(lastSave);
+
+        var result = await Punch().Handle(Tap(_ines), default);
+
+        Assert.Equal("17:46", result.Value!.Refused!.PreviousDay!.LastSaveAt);
+        var (from, to) = ClinicManagement.Application.Common.ClinicClock.LocalDayRangeUtc(day.ToDateTime(TimeOnly.MinValue));
+        _journal.Verify(j => j.GetLastSaveAtAsync(ClinicId, _ines.Id, from, to,
+            It.Is<IReadOnlyCollection<string>>(t => t.SequenceEqual(AttendanceLockRules.NotWorkInTheJournal)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_Wrong_Schema_Is_Counted_Before_Anything_Of_The_Previous_Day_Is_Shown()
+    {
+        OpenLineAt(_ines, Today.AddDays(-1), "08:02");
+
+        var result = await Punch().Handle(Tap(_ines, new List<int> { 8, 7, 6, 3 }), default);
+
+        var refused = result.Value!.Refused!;
+        Assert.Equal(AttendanceRules.SchemaWrongCode, refused.Code);
+        Assert.Null(refused.PreviousDay);
+        Assert.Equal(1, _ines.SchemaFailedAttempts);
+        _journal.Verify(j => j.GetLastSaveAtAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+            It.IsAny<DateTime>(), It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task The_Declared_Hour_Closes_Yesterday_As_Declared_And_The_Arrival_Then_Opens_Today()
+    {
+        var day = Today.AddDays(-1);
+        var yesterday = OpenLineAt(_ines, day, "08:02");
+        var lastSave = AttendanceRules.ParseLocalTime(day, "17:46")!.Value;
+        LastSaveOn(lastSave);
+
+        var tap = Tap(_ines);
+        tap.DeclaredPreviousDeparture = "17:30";
+        var result = await Punch().Handle(tap, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(AttendanceRules.ArrivalAction, result.Value!.Done!.Action);
+        Assert.Equal(AttendanceRules.ParseLocalTime(day, "17:30"), yesterday.DepartureUtc);
+        Assert.Equal(AttendanceDepartureSource.DeclaredBySelf, yesterday.DepartureSource);
+        Assert.True(yesterday.IsDeclared);
+        Assert.Equal(lastSave, yesterday.DeclaredLastSaveUtc);
+        Assert.Null(yesterday.PunchedDepartureUtc);
         _entries.Verify(r => r.AddAsync(It.Is<AttendanceEntry>(e => e.LocalDay == Today && e.IsOpen), It.IsAny<CancellationToken>()), Times.Once);
+        _audit.Verify(a => a.AuthenticatedAs(_ines.Id, _ines.Email), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("07:30")]
+    [InlineData("08:02")]
+    public Task A_Declared_Hour_Not_After_The_Arrival_Is_Refused_By_Name_And_Nothing_Is_Written(string declared) =>
+        AssertDeclarationRefused(declared);
+
+    [Theory]
+    [InlineData("8h30")]
+    [InlineData("24:10")]
+    public Task An_Unreadable_Declared_Hour_Is_Refused_The_Same_Way_And_Nothing_Is_Written(string declared) =>
+        AssertDeclarationRefused(declared);
+
+    private async Task AssertDeclarationRefused(string declared)
+    {
+        var yesterday = OpenLineAt(_ines, Today.AddDays(-1), "08:02");
+
+        var tap = Tap(_ines);
+        tap.DeclaredPreviousDeparture = declared;
+        var result = await Punch().Handle(tap, default);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(AttendanceLockRules.DeclaredDepartureInvalidCode, result.Code);
+        Assert.Equal(AttendanceLockRules.DeclaredDepartureInvalid("08:02"), result.Error);
+        Assert.True(yesterday.IsOpen);
+        VerifyNoLineWritten();
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_Right_Schema_Resets_Her_Counter_Even_When_The_Arrival_Waits_For_A_Declaration()
+    {
+        OpenLineAt(_ines, Today.AddDays(-1), "08:02");
+        for (var i = 0; i < 3; i++) _ines.RegisterSchemaFailure(DateTime.UtcNow);
+
+        var result = await Punch().Handle(Tap(_ines), default);
+
+        Assert.Equal(AttendanceLockRules.PreviousDepartureMissingCode, result.Value!.Refused!.Code);
+        Assert.Equal(0, _ines.SchemaFailedAttempts);
+        _users.Verify(r => r.Update(_ines), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _entries.Verify(r => r.AddAsync(It.IsAny<AttendanceEntry>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Two_Forgotten_Days_Are_Declared_Oldest_First_Before_The_Arrival_Lands()
+    {
+        var older = OpenLineAt(_ines, Today.AddDays(-3), "08:00");
+        var newer = OpenLineAt(_ines, Today.AddDays(-1), "08:02");
+
+        var asked = await Punch().Handle(Tap(_ines), default);
+        Assert.Equal(AttendanceLockRules.DayKey(Today.AddDays(-3)), asked.Value!.Refused!.PreviousDay!.Day);
+        Assert.StartsWith("Votre départ du ", asked.Value.Refused.Error);
+
+        var first = Tap(_ines);
+        first.DeclaredPreviousDeparture = "17:00";
+        var next = await Punch().Handle(first, default);
+
+        Assert.True(older.IsDeclared);
+        Assert.True(newer.IsOpen);
+        Assert.Equal(AttendanceLockRules.DayKey(Today.AddDays(-1)), next.Value!.Refused!.PreviousDay!.Day);
+        _entries.Verify(r => r.AddAsync(It.IsAny<AttendanceEntry>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        var second = Tap(_ines);
+        second.DeclaredPreviousDeparture = "17:30";
+        var arrived = await Punch().Handle(second, default);
+
+        Assert.Equal(AttendanceRules.ArrivalAction, arrived.Value!.Done!.Action);
+        Assert.True(newer.IsDeclared);
+        _entries.Verify(r => r.AddAsync(It.Is<AttendanceEntry>(e => e.LocalDay == Today), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_Line_Open_Today_Still_Departs_Without_Any_Declaration()
+    {
+        var today = OpenLine(_ines, Today);
+
+        var result = await Punch().Handle(Tap(_ines), default);
+
+        Assert.Equal(AttendanceRules.DepartureAction, result.Value!.Done!.Action);
+        Assert.Equal(AttendanceDepartureSource.Borne, today.DepartureSource);
+        _journal.Verify(j => j.GetLastSaveAtAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<DateTime>(),
+            It.IsAny<DateTime>(), It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -509,6 +682,42 @@ public class PointageBorneTests
     }
 
     [Fact]
+    public async Task A_Wrong_Schema_Reaches_Open_Screens_Too()
+    {
+        await Punch().Handle(Tap(_ines, new List<int> { 8, 7, 6, 3 }), default);
+
+        _realtime.Verify(r => r.NotifyEntityChangedAsync(
+            ClinicId, RealtimeResourceResolver.Resolve(typeof(PunchCommand))!, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Only_The_Fifth_Wrong_Schema_Tells_The_Admins_Until_When_She_Is_Blocked()
+    {
+        for (var i = 0; i < User.MaxSchemaFailures - 1; i++)
+            await Punch().Handle(Tap(_ines, new List<int> { 8, 7, 6, 3 }), default);
+        _bell.Verify(b => b.AttendanceNoticeAsync(It.IsAny<Guid>(), NotificationCategory.AttendanceSchemaBlocked, It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        await Punch().Handle(Tap(_ines, new List<int> { 8, 7, 6, 3 }), default);
+
+        var until = AttendanceRules.LocalTime(_ines.SchemaLockedUntilUtc!.Value);
+        _bell.Verify(b => b.AttendanceNoticeAsync(ClinicId, NotificationCategory.AttendanceSchemaBlocked, "Schéma bloqué",
+            $"Le schéma de Ines Gharbi est bloqué jusqu'à {until} après 5 essais.", null, null, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_Tap_On_An_Already_Locked_Tile_Tells_Nobody_Again()
+    {
+        for (var i = 0; i < User.MaxSchemaFailures; i++)
+            _ines.RegisterSchemaFailure(DateTime.UtcNow);
+
+        await Punch().Handle(Tap(_ines, new List<int> { 8, 7, 6, 3 }), default);
+
+        _bell.Verify(b => b.AttendanceNoticeAsync(It.IsAny<Guid>(), It.IsAny<NotificationCategory>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task A_Locked_Tile_Refuses_Even_The_Right_Schema_Without_Checking_It()
     {
         for (var i = 0; i < User.MaxSchemaFailures; i++)
@@ -545,7 +754,7 @@ public class PointageBorneTests
         Assert.Equal("NEWHASH", _ines.AttendanceSchemaHash);
     }
 
-    // ---- « Faire de cet appareil une borne » ---------------------------------------------------------------
+    // ---- « Ajouter une borne » : cet appareil ---------------------------------------------------------------------
 
     [Fact]
     public async Task An_Admin_Registers_A_Borne_And_Only_The_Secrets_Hash_Is_Stored()
@@ -587,7 +796,7 @@ public class PointageBorneTests
         _context.Setup(c => c.GetUserId()).Returns(_admin.Id);
         var foreign = Borne(OtherClinicId, "Ailleurs", "foreign-secret");
 
-        var result = await Register().Handle(new RegisterAttendanceTerminalCommand { Name = "Accueil", ReplacingTerminalId = foreign.Id }, default);
+        var result = await Register().Handle(new RegisterAttendanceTerminalCommand { Name = "Salle 2", ReplacingTerminalId = foreign.Id }, default);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.True(foreign.IsActive);
@@ -691,5 +900,25 @@ public class PointageBorneTests
         var nourTile = people.Single(p => p.UserId == nour.Id);
         Assert.Equal("out", nourTile.State);
         Assert.NotNull(nourTile.LockedUntil);
+    }
+
+    [Fact]
+    public async Task After_Her_Departure_Her_Tile_Reads_Left_And_A_Tap_Is_A_New_Arrival()
+    {
+        var left = DateTime.UtcNow.AddHours(-3);
+        var morning = AttendanceEntry.Arrive(Guid.NewGuid(), ClinicId, _ines.Id, Today, _borne.Id, "Accueil", left.AddHours(-2));
+        morning.Depart(left, Today);
+        _todayLines.Add(morning);
+
+        var tile = (await Status().Handle(new GetPointageStatusQuery { Secret = Secret }, default)).Value!.People.Single(p => p.UserId == _ines.Id);
+        var punch = await Punch().Handle(new PunchCommand
+        {
+            Secret = Secret, UserId = _ines.Id, Pattern = RightPattern, Expected = AttendanceRules.ArrivalAction,
+        }, default);
+
+        Assert.Equal(AttendanceRules.StateLeft, tile.State);
+        Assert.Equal(AttendanceRules.LocalTime(left), tile.LeftAt);
+        Assert.Null(tile.Since);
+        Assert.Equal(AttendanceRules.ArrivalAction, punch.Value!.Done!.Action);
     }
 }
