@@ -507,6 +507,11 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
    * why « Encaisser » disappears from its échéancier. Here both documents are live and both collect.</p>
    */
   const carried = useMemo(() => plan.carriedInvoices ?? [], [plan.carriedInvoices])
+  /** The fiche whose note carries an act of this devis — the séance 1 of a continuation. */
+  const carriedFicheId = (invoiceId: string): string | null => {
+    const item = plan.items.find((i) => i.billedOnInvoiceId === invoiceId)
+    return item?.linkedDentalRecordId ?? item?.steps?.find((s) => s.linkedDentalRecordId)?.linkedDentalRecordId ?? null
+  }
   /** Served, never derived — see `treatmentTotal`. Null/absent means « nothing carried », not « zero ». */
   const treatmentMoney =
     carried.length > 0 && plan.treatmentOutstanding != null
@@ -2504,6 +2509,17 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
                     <Button asChild size="sm" variant="outline" className="h-auto whitespace-normal coarse:min-h-11">
                       <Link href={patientOutstandingHref(plan.patientId, note.invoiceId)}>
                         Encaisser sur la note
+                      </Link>
+                    </Button>
+                  )}
+                  {/* A wrong « payé » on séance 1 is corrected on its fiche, where the fiche and its note move together. */}
+                  {carriedFicheId(note.invoiceId) && (
+                    <Button asChild size="sm" variant="outline" className="h-auto whitespace-normal coarse:min-h-11">
+                      <Link
+                        href={`/patients/${plan.patientId}?tab=medical-records&editRecord=${carriedFicheId(note.invoiceId)}`}
+                        aria-label={note.number ? `Corriger la séance 1 (note n° ${note.number})` : "Corriger la séance 1"}
+                      >
+                        Corriger
                       </Link>
                     </Button>
                   )}

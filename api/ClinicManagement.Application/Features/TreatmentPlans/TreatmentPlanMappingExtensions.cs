@@ -81,10 +81,9 @@ public static class TreatmentPlanMappingExtensions
                     Collected = note.AmountCollected,
                     Outstanding = note.Outstanding,
                     BilledActAmount = billedActAmount,
-                    // A millime of tolerance rather than `>`: both sides are already millime-precise, and a
-                    // strict comparison on decimals is the kind of thing that reports « facture aussi d'autres
-                    // actes » about a rounding artefact.
-                    BillsOtherWork = note.TotalTtc - billedActAmount > 0.0005m,
+                    // Counted in LINES, never inferred from money: the replaced-note 0 above, a re-priced act and a
+                    // timbre fiscal all made « TTC − share > 0 » read as « avec d'autres actes » (QA 07/11/2026, F-3).
+                    BillsOtherWork = note.LineCount > g.Count(),
                 };
             })
             .OrderBy(c => c.Number ?? string.Empty)

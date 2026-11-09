@@ -166,7 +166,8 @@ export function CaisseRowActions({ movement, onChanged }: CaisseRowActionsProps)
           preview={{
             invoiceNumber: movement.reference,
             previousTotal: movement.amount,
-            nextTotal: movement.amount,
+            // A draft copy: the new figure is not written yet (`CorrectionPreview.nextTotal`).
+            nextTotal: null,
           }}
           onConfirm={async () => {
             await invoicesApi.correct(invoiceId, DEFAULT_CORRECTION_REASON)

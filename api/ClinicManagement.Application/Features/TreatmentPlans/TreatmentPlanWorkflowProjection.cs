@@ -282,7 +282,7 @@ public static class TreatmentPlanWorkflowProjection
                 .ToDictionary(
                     r => r.InvoiceId,
                     r => new PlanCarriedInvoice(
-                        r.InvoiceId, r.Number, r.Status, r.TotalTtc, r.AmountCollected, r.Outstanding));
+                        r.InvoiceId, r.Number, r.Status, r.TotalTtc, r.AmountCollected, r.Outstanding, r.LineCount));
 
         var carriedInvoiceByItemId = carriedInvoiceIdByItemId
             .Where(kv => carriedInvoiceById.ContainsKey(kv.Value))
@@ -376,4 +376,5 @@ public sealed record PlanCarriedInvoice(
     InvoiceStatus Status,
     decimal TotalTtc,
     decimal AmountCollected,
-    decimal Outstanding);
+    decimal Outstanding,
+    int LineCount);
