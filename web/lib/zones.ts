@@ -1,6 +1,6 @@
 import {
   ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react"
-import { buildNavSections } from "@/lib/nav"
+import { buildNavSections, NEWS_NAV_ITEM } from "@/lib/nav"
 
 /**
  * The app's five **zones**, and the one place their colour is decided.
@@ -163,6 +163,7 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/abonnement", "config"],
   // This account's own second factor — administration of oneself, not of the clinic's money or its records.
   ["/securite", "config"],
+  ["/nouveautes", "config"],
 ]
 
 /**
@@ -212,6 +213,7 @@ const NAV_ICONS: Array<[string, LucideIcon]> = buildNavSections("admin").flatMap
 const EXTRA_ICONS: Array<[string, LucideIcon]> = [
   ["/mon-profil", UserRound],
   ["/securite", ShieldCheck],
+  [NEWS_NAV_ITEM.href, NEWS_NAV_ITEM.icon],
   ["/patients", Users],
 ]
 

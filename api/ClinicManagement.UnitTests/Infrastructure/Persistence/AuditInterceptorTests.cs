@@ -447,12 +447,13 @@ public class AuditInterceptorTests
         //                   at it as a mutation of its own data.
         //   ClinicRelay   — the PC de secours's heartbeat rewrites it every 10 s; its lifecycle steps (pairing,
         //                   retirement) write explicit journal rows instead (clinic-pc-copy).
+        //   PlatformNewsBroadcast — the vendor's news e-mail (console-news-broadcast): no cabinet, PlatformAccount's reason.
         Assert.True(
             excluded.SetEquals(new[]
             {
                 nameof(AuditEntry), nameof(Notification), nameof(ClinicSignup),
                 nameof(PlatformAccount), nameof(PlatformRecoveryCode), nameof(PlatformAccessEntry),
-                nameof(ClinicRelay)
+                nameof(ClinicRelay), nameof(PlatformNewsBroadcast)
             }),
             "The audit exclusion list changed to [" + string.Join(", ", excluded.OrderBy(x => x))
             + "]. Every entry here is structural — self-audit recursion, a minutely-rewritten outbox, and a row "

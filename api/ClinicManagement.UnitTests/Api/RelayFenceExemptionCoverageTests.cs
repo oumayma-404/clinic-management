@@ -21,6 +21,7 @@ public class RelayFenceExemptionCoverageTests
         "Relay",      // managing the PC de secours — retiring it is how an admin frees a cabinet whose PC fell silent
         "RelayPeer",  // the PC's own channel: how a silent PC comes back, confirms its acks and stands down
         "RelayDevice", // the cabinet's devices saying they reach the cloud but not a silent PC — how its lock ends (AC-6.2)
+        "News",       // an admin's read marker on the vendor's news — never carried to the PC, so nothing to disagree about
     };
 
     private static IEnumerable<Type> ProductionControllers() =>

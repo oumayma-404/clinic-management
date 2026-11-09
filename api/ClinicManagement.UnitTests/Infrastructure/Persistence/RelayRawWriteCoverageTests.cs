@@ -41,6 +41,7 @@ public class RelayRawWriteCoverageTests
         ["ClinicRelayRowStore.Handback.cs"] =
             "the return (D18): the cloud applies a cut AND appends its ClinicChanges in the same transaction; the PC drops its own log",
         ["IdempotencyStore.cs"] = "IdempotencyRecord only — the replay keys are each side's own and never carried (D17)",
+        ["PlatformNewsRepository.cs"] = "PlatformNewsReadMarker only — an admin's read marker on the vendor's news, never carried",
     };
 
     private static readonly Regex BulkWrite = new(@"\.Execute(Delete|Update)(Async)?\s*\(", RegexOptions.Compiled);

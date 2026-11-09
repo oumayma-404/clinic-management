@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { USER_ROLE_LABELS_FR, type UserRole } from "@/lib/api/users"
-import { buildNavSections, type NavItem, type NavSection } from "@/lib/nav"
+import { buildNavSections, NEWS_NAV_ITEM, type NavItem, type NavSection } from "@/lib/nav"
 import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
-import { zoneForSectionTitle, type Zone } from "@/lib/zones"
+import { zoneForPath, zoneForSectionTitle, type Zone } from "@/lib/zones"
+import { useNewsBadge } from "@/lib/hooks/use-news-badge"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
@@ -38,6 +39,7 @@ export function DashboardSidebar() {
   const brandName = status?.clinic?.name?.trim() || PRODUCT_NAME
 
   const isAdmin = user?.role === "admin"
+  const news = useNewsBadge(isAdmin)
 
   /*
    * The foot's identity line. `USER_ROLE_LABELS_FR` is the same map `/users` renders, so the rail and the admin
@@ -85,8 +87,11 @@ export function DashboardSidebar() {
    */
   const isActivePath = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href))
 
-  const renderItem = (item: NavItem, collapsed: boolean, zone: Zone) => {
+  const renderItem = (item: NavItem, collapsed: boolean, zone: Zone, unread = 0) => {
     const isActive = isActivePath(item.href)
+    const unreadLabel = unread > 0 ? ` — ${unread} non lue${unread > 1 ? "s" : ""}` : ""
+    // The bell's cap: a pill wider than « 99+ » pushes the row's name out of a 256 px rail.
+    const unreadPill = unread > 99 ? "99+" : String(unread)
     const linkContent = (
       <Link
         href={item.href}
@@ -143,7 +148,28 @@ export function DashboardSidebar() {
           icon against eighteen grey ones is the whole effect, and it costs the reader nothing to learn.
         */}
         <item.icon className={cn("h-5 w-5 shrink-0 transition-colors", isActive && zone.text)} />
-        {collapsed ? <span className="sr-only">{item.name}</span> : <span className="truncate">{item.name}</span>}
+        {collapsed ? (
+          <span className="sr-only">{item.name + unreadLabel}</span>
+        ) : (
+          <span className={cn("truncate", unread > 0 && "min-w-0 flex-1")}>
+            {item.name}
+            {unreadLabel && <span className="sr-only">{unreadLabel}</span>}
+          </span>
+        )}
+        {unread > 0 &&
+          (collapsed ? (
+            <span
+              aria-hidden="true"
+              className="absolute end-2.5 top-1.5 size-2 rounded-full bg-primary ring-2 ring-sidebar"
+            />
+          ) : (
+            <span
+              aria-hidden="true"
+              className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-2xs font-semibold tabular-nums text-primary-foreground"
+            >
+              {unreadPill}
+            </span>
+          ))}
       </Link>
     )
 
@@ -152,7 +178,7 @@ export function DashboardSidebar() {
         <Tooltip key={item.href} delayDuration={0}>
           <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
           <TooltipContent side="right">
-            <p>{item.name}</p>
+            <p>{unread > 0 ? `${item.name} · ${unreadPill} non lue${unread > 1 ? "s" : ""}` : item.name}</p>
           </TooltipContent>
         </Tooltip>
       )
@@ -219,6 +245,15 @@ export function DashboardSidebar() {
   // and two both called « Navigation principale » are indistinguishable in that list — the user has to enter one
   // to find out which it is. Only one is exposed at a time today (the rail is `display:none` below `md:`, the
   // drawer unmounted above it), but P2 adds a third nav that IS concurrent with the rail.
+  // « Nouveautés » sits apart from the sections: it is the vendor's news, not a place in the cabinet's own work.
+  // `px-1` on the foot's `p-2` lines its icon up with the nav's `px-3` rows above.
+  const newsRow = (collapsed: boolean) =>
+    news.shown ? (
+      <div className="px-1 pb-1">
+        <TooltipProvider>{renderItem(NEWS_NAV_ITEM, collapsed, zoneForPath(NEWS_NAV_ITEM.href), news.unread)}</TooltipProvider>
+      </div>
+    ) : null
+
   const navigation = (collapsed: boolean, label: string) => (
     /*
      * `scrollbar-thin` matters on a short viewport. The nav is bounded, so on a 13" laptop nineteen destinations
@@ -313,6 +348,7 @@ export function DashboardSidebar() {
           session does can reach `toggleSidebar` and overwrite the persisted desktop preference.
         */}
         <div className="border-t border-sidebar-border p-2">
+          {newsRow(isCollapsed)}
           {isCollapsed ? (
             <Button
               variant="ghost"
@@ -382,6 +418,11 @@ export function DashboardSidebar() {
           <div className="flex h-full flex-col overflow-hidden">
             {brandHeader(false)}
             {navigation(false, "Navigation du menu")}
+            {news.shown && (
+              <div className="border-t border-sidebar-border px-2 pt-2 pb-[env(safe-area-inset-bottom,0px)]">
+                {newsRow(false)}
+              </div>
+            )}
           </div>
         </SheetContent>
       </Sheet>
