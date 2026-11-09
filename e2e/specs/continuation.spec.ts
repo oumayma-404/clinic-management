@@ -202,9 +202,11 @@ test.describe("HP-8 · la suite d'un acte @mutating @t0", () => {
       "a Draft note contributes nothing; the devis owes its own 10 and the note will owe its 30 when issued",
     ).toBe(mil(10))
 
-    // And the devis names the Draft as a Draft rather than printing a blank where its number would be.
+    // No note number in the devis text (a correction would make it stale, QA 07/11/2026 F-2) — so no blank either.
     expect(draft.number, "a Draft has no number").toBeNull()
-    expect(plan.notes ?? "", `plan notes: ${plan.notes}`).toContain("brouillon de note d'honoraires")
+    expect(plan.notes ?? "", `plan notes: ${plan.notes}`).toContain("sa propre note d'honoraires")
+    expect(plan.notes ?? "", `plan notes: ${plan.notes}`).not.toContain("note n°")
+    expect(plan.notes ?? "", `plan notes: ${plan.notes}`).not.toMatch(/ {2}/)
   })
 
   test("CONT-05b · ISSUING that draft does NOT make the remaining work invisible", async ({

@@ -311,7 +311,8 @@ public class InvoiceRepository : IInvoiceRepository
         InvoiceStatus Status,
         decimal TotalTtc,
         decimal AmountCollected,
-        decimal Outstanding)>>
+        decimal Outstanding,
+        int LineCount)>>
         GetMoneyByIdsAsync(
             Guid clinicId,
             IReadOnlyCollection<Guid> invoiceIds,
@@ -319,7 +320,7 @@ public class InvoiceRepository : IInvoiceRepository
     {
         if (invoiceIds.Count == 0)
         {
-            return Array.Empty<(Guid, string?, InvoiceStatus, decimal, decimal, decimal)>();
+            return Array.Empty<(Guid, string?, InvoiceStatus, decimal, decimal, decimal, int)>();
         }
 
         var ids = invoiceIds.Distinct().ToArray();
@@ -329,7 +330,7 @@ public class InvoiceRepository : IInvoiceRepository
         // already in the projected row.
         var rows = await _context.Invoices
             .Where(i => i.ClinicId == clinicId && ids.Contains(i.Id))
-            .Select(i => new { i.Id, i.Number, i.Status, i.TotalTtc, i.AmountCollected })
+            .Select(i => new { i.Id, i.Number, i.Status, i.TotalTtc, i.AmountCollected, LineCount = i.Lines.Count() })
             .ToListAsync(cancellationToken);
 
         return rows
@@ -339,7 +340,8 @@ public class InvoiceRepository : IInvoiceRepository
                 r.Status,
                 r.TotalTtc,
                 r.AmountCollected,
-                Math.Max(0m, r.TotalTtc - r.AmountCollected)))
+                Math.Max(0m, r.TotalTtc - r.AmountCollected),
+                r.LineCount))
             .ToList();
     }
 
