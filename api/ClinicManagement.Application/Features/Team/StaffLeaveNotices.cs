@@ -10,6 +10,10 @@ namespace ClinicManagement.Application.Features.Team;
 /// <summary>What the bell and the e-mail say about a congé — one wording for both, so they cannot drift.</summary>
 public static class StaffLeaveNotices
 {
+    // Her « Mes congés », and the admin's « Utilisateurs → Congés » tab (web/lib/staff-leave.ts USERS_LEAVE_TAB).
+    private const string SecretaryPath = "/conges";
+    private const string AdminPath = "/users?onglet=conges";
+
     private const string NoBreakSpace = " ";
 
     /// <summary>« du 16 au 18 novembre », « le 16 novembre matin », « le 16 novembre (demi-journée) » for an unqualified half.</summary>
@@ -103,6 +107,33 @@ public static class StaffLeaveNotices
         };
     }
 
+    public static string RequestSubject(string requesterName, StaffLeaveRequest leave) =>
+        $"Demande de congé : {requesterName}, {Period(leave)}";
+
+    /// <summary>The e-mail each admin gets when a secretary asks — the request card's facts, and a way to it.</summary>
+    public static EmailContent RequestEmail(
+        StaffLeaveRequest leave, string clinicName, string recipientName, string requesterName, string? link)
+    {
+        var type = StaffLeaveRules.TypeLabel(leave.Type);
+        return new EmailContent
+        {
+            Title = "Demande de congé",
+            Preheader = $"{requesterName} demande un congé {Period(leave)}.",
+            Greeting = $"Bonjour {recipientName},",
+            Intro = [$"{requesterName} demande un congé ({type.ToLowerInvariant()}) {Period(leave)}."],
+            Details =
+            [
+                new("Cabinet", clinicName),
+                new("Secrétaire", requesterName),
+                new("Type", type),
+                new("Dates", Capitalized(Period(leave))),
+                new("Jours demandés", FrenchDayPeriod.Days(leave.RequestedDays)),
+                new("Motif", leave.Reason),
+            ],
+            Action = link is null ? null : new EmailAction("Voir la demande", link),
+        };
+    }
+
     public static string CancellationSubject(StaffLeaveRequest leave, bool wasApproved) =>
         wasApproved ? $"Congé annulé : {Period(leave)}" : $"Demande retirée : {Period(leave)}";
 
@@ -151,9 +182,29 @@ public static class StaffLeaveNotices
         decimal? remaining,
         CancellationToken cancellationToken) =>
         SendAsync(
-            emailSender, appUrl, logger, recipient, EmailSubject(leave),
+            emailSender, appUrl, logger, recipient, EmailSubject(leave), SecretaryPath,
             link => Email(leave, clinicName, StaffLeaveRules.DisplayName(recipient), deciderName, remaining, link),
             cancellationToken);
+
+    /// <summary>Best-effort, after the commit: one e-mail per active admin; a failed one never undoes the request.</summary>
+    public static async Task SendRequestAsync(
+        ITransactionalEmailSender emailSender,
+        IPublicAppUrlProvider appUrl,
+        ILogger logger,
+        StaffLeaveRequest leave,
+        IEnumerable<User> roster,
+        string requesterName,
+        string clinicName,
+        CancellationToken cancellationToken)
+    {
+        foreach (var admin in roster.Where(u => u.IsAdmin() && u.IsActive && u.Id != leave.UserId))
+        {
+            await SendAsync(
+                emailSender, appUrl, logger, admin, RequestSubject(requesterName, leave), AdminPath,
+                link => RequestEmail(leave, clinicName, StaffLeaveRules.DisplayName(admin), requesterName, link),
+                cancellationToken);
+        }
+    }
 
     /// <summary>Best-effort, after the commit: a failed e-mail is logged and never undoes the withdrawal.</summary>
     public static Task SendCancellationAsync(
@@ -167,7 +218,7 @@ public static class StaffLeaveNotices
         string adminName,
         CancellationToken cancellationToken) =>
         SendAsync(
-            emailSender, appUrl, logger, recipient, CancellationSubject(leave, wasApproved),
+            emailSender, appUrl, logger, recipient, CancellationSubject(leave, wasApproved), SecretaryPath,
             link => CancellationEmail(leave, wasApproved, clinicName, StaffLeaveRules.DisplayName(recipient), adminName, link),
             cancellationToken);
 
@@ -199,6 +250,7 @@ public static class StaffLeaveNotices
         ILogger logger,
         User recipient,
         string subject,
+        string path,
         Func<string?, EmailContent> content,
         CancellationToken cancellationToken)
     {
@@ -206,7 +258,7 @@ public static class StaffLeaveNotices
             return;
         try
         {
-            var link = appUrl.IsConfigured ? $"{appUrl.BaseUrl}/conges" : null;
+            var link = appUrl.IsConfigured ? $"{appUrl.BaseUrl}{path}" : null;
             var sent = await emailSender.SendAsync(recipient.Email!, subject, content(link), cancellationToken);
             if (sent.Outcome != TransactionalEmailOutcome.Sent)
                 logger.LogWarning(

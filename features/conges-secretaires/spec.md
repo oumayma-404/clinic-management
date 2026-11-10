@@ -46,6 +46,9 @@ It is off by default, per cabinet. Doctors keep their own congés (`DoctorLeave`
   other one (« Vous avez déjà une demande du 10/11 au 12/11 »).
 - **AC-5:** Every admin of the cabinet is notified (« Amira Ben Salah demande un congé : 10 → 12 nov. (3 j) »)
   through one notification with `TargetRole = admin`, never one row per admin.
+  - Each **active** admin with an address also gets an e-mail (added 2026-11-10, owner's request): who, type,
+    dates, days asked, her motif, and « Voir la demande » → Utilisateurs → Congés. Same rules as AC-9: none when the
+    sender is not configured, and a failed e-mail never fails the request.
 - **AC-6:** The admin's request card shows the name, type, dates, days and motif. It also shows the balance after
   (Congé payé with an allowance set) and **who else is already on an accepted congé** on any of those days.
 - **AC-7:** « Accepter »:

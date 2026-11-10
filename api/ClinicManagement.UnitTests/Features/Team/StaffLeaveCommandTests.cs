@@ -15,8 +15,8 @@ namespace ClinicManagement.UnitTests.Features.Team;
 
 /// <summary>
 /// A secretary asks, an admin answers, either withdraws: who may do each, what is refused by name, what is stored,
-/// and who is told — one admin-role row for a request, the secretary herself for an answer, and an e-mail that can
-/// never fail the decision it reports.
+/// and who is told — one admin-role row plus an e-mail to each active admin for a request, the secretary herself for an
+/// answer, and e-mails that can never fail the request or the decision they report.
 /// </summary>
 public class StaffLeaveCommandTests
 {
@@ -90,7 +90,7 @@ public class StaffLeaveCommandTests
 
     private SubmitStaffLeaveRequestCommandHandler Submit() => new(
         _requests.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object, _notifications.Object,
-        NullLogger<SubmitStaffLeaveRequestCommandHandler>.Instance);
+        _email.Object, _appUrl.Object, NullLogger<SubmitStaffLeaveRequestCommandHandler>.Instance);
 
     private DecideStaffLeaveRequestCommandHandler Decide() => new(
         _requests.Object, _allowances.Object, _users.Object, _clinics.Object, _context.Object, _uow.Object, _notifications.Object,
@@ -223,6 +223,73 @@ public class StaffLeaveCommandTests
         var result = await Submit().Handle(Ask(), default);
 
         Assert.True(result.IsSuccess, result.Error);
+    }
+
+    private const string RequestSubject = "Demande de congé : Ines Gharbi, du 16 au 18 novembre 2026";
+
+    [Fact]
+    public async Task Every_Active_Admin_Is_Mailed_The_Request_And_Nobody_Else()
+    {
+        var partner = Account(User.RoleAdmin, "Dr Karim Mansour");
+        var former = Account(User.RoleAdmin, "Dr Ancien Associé");
+        former.Deactivate();
+        Account(User.RoleDoctor, "Dr Nadia Trabelsi");
+        Account(User.RoleSecretary, "Amira Ben Ali");
+        SignIn(_ines);
+
+        var result = await Submit().Handle(Ask(), default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        _email.Verify(e => e.SendAsync(_admin.Email!, RequestSubject, It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Once);
+        _email.Verify(e => e.SendAsync(partner.Email!, RequestSubject, It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Once);
+        _email.Verify(e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task The_Request_Mail_Carries_The_Cards_Facts_And_Opens_The_Congés_Tab()
+    {
+        SignIn(_ines);
+        EmailContent? sent = null;
+        _email.Setup(e => e.SendAsync(_admin.Email!, RequestSubject, It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, EmailContent, CancellationToken>((_, _, content, _) => sent = content)
+            .ReturnsAsync(TransactionalEmailResult.Sent);
+
+        await Submit().Handle(Ask(), default);
+
+        Assert.NotNull(sent);
+        Assert.Equal("Bonjour Dr Salma Ben Youssef,", sent!.Greeting);
+        Assert.Equal("Ines Gharbi demande un congé (congé payé) du 16 au 18 novembre 2026.", Assert.Single(sent.Intro));
+        Assert.Equal("https://app.apexa.tn/users?onglet=conges", sent.Action!.Url);
+        Assert.Contains(sent.Details, d => d.Label == "Secrétaire" && d.Value == "Ines Gharbi");
+        Assert.Contains(sent.Details, d => d.Label == "Jours demandés" && d.Value == "3 jours");
+        Assert.Contains(sent.Details, d => d.Label == "Motif" && d.Value == "Mariage de ma sœur");
+    }
+
+    [Fact]
+    public async Task A_Failed_Mail_Never_Fails_The_Request_Nor_Stops_The_Next_Admins()
+    {
+        var partner = Account(User.RoleAdmin, "Dr Karim Mansour");
+        SignIn(_ines);
+        _email.Setup(e => e.SendAsync(_admin.Email!, It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("smtp down"));
+
+        var result = await Submit().Handle(Ask(), default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        _email.Verify(e => e.SendAsync(partner.Email!, RequestSubject, It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task No_Request_Mail_Is_Attempted_When_The_Sender_Is_Not_Configured()
+    {
+        _email.SetupGet(e => e.IsConfigured).Returns(false);
+        SignIn(_ines);
+
+        var result = await Submit().Handle(Ask(), default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        _email.Verify(e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()), Times.Never);
+        _users.Verify(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<string?>(), It.IsAny<PageRequest?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
 

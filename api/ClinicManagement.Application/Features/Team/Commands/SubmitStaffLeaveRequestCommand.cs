@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Application.Features.Team.Commands;
 
-/// <summary>A secretary asks for a congé; every admin of the cabinet is told.</summary>
+/// <summary>A secretary asks for a congé; every admin of the cabinet is told in the app and by e-mail.</summary>
 public class SubmitStaffLeaveRequestCommand : IRequest<Result<StaffLeaveRequestDto>>
 {
     public string? Type { get; set; }
@@ -33,6 +33,8 @@ public class SubmitStaffLeaveRequestCommandHandler
     private readonly IClinicContext _clinicContext;
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notifications;
+    private readonly ITransactionalEmailSender _emailSender;
+    private readonly IPublicAppUrlProvider _appUrl;
     private readonly ILogger<SubmitStaffLeaveRequestCommandHandler> _logger;
 
     public SubmitStaffLeaveRequestCommandHandler(
@@ -42,6 +44,8 @@ public class SubmitStaffLeaveRequestCommandHandler
         IClinicContext clinicContext,
         IUnitOfWork unitOfWork,
         INotificationGenerator notifications,
+        ITransactionalEmailSender emailSender,
+        IPublicAppUrlProvider appUrl,
         ILogger<SubmitStaffLeaveRequestCommandHandler> logger)
     {
         _requests = requests;
@@ -50,6 +54,8 @@ public class SubmitStaffLeaveRequestCommandHandler
         _clinicContext = clinicContext;
         _unitOfWork = unitOfWork;
         _notifications = notifications;
+        _emailSender = emailSender;
+        _appUrl = appUrl;
         _logger = logger;
     }
 
@@ -58,6 +64,7 @@ public class SubmitStaffLeaveRequestCommandHandler
     {
         StaffLeaveRequest leave;
         User caller;
+        Clinic clinic;
         try
         {
             var resolved = await StaffLeaveRules.ResolveCallerAsync(_clinicContext, _users, cancellationToken);
@@ -67,9 +74,10 @@ public class SubmitStaffLeaveRequestCommandHandler
             if (!caller.IsSecretary())
                 return Result<StaffLeaveRequestDto>.Failure(StaffLeaveRules.SecretaryOnly);
 
-            var clinic = await _clinics.GetByIdAsync(caller.ClinicId, cancellationToken);
-            if (clinic is not { LeaveRequestsEnabled: true })
+            var found = await _clinics.GetByIdAsync(caller.ClinicId, cancellationToken);
+            if (found is not { LeaveRequestsEnabled: true })
                 return Result<StaffLeaveRequestDto>.Failure(StaffLeaveRules.ModuleOff);
+            clinic = found;
 
             var valid = await StaffLeaveRules.ValidateNewAsync(
                 _requests, clinic, caller, request.Type, request.StartDate, request.EndDate, request.HalfDay,
@@ -93,9 +101,28 @@ public class SubmitStaffLeaveRequestCommandHandler
             _notifications, _logger, leave.ClinicId, NotificationCategory.StaffLeaveRequested,
             StaffLeaveNotices.Requested(StaffLeaveRules.DisplayName(caller), leave), caller.Id, targetUserId: null,
             cancellationToken);
+        await MailAdminsAsync(leave, caller, clinic, cancellationToken);
 
         var roster = new Dictionary<string, User> { [caller.Id] = caller };
         return Result<StaffLeaveRequestDto>.Success(
             StaffLeaveRules.ToDto(leave, roster, StaffLeaveRules.ClinicToday(), viewerIsAdmin: false));
+    }
+
+    // After the commit: the roster read and every send are best-effort, so the request she sent always stands.
+    private async Task MailAdminsAsync(StaffLeaveRequest leave, User caller, Clinic clinic, CancellationToken cancellationToken)
+    {
+        if (!_emailSender.IsConfigured)
+            return;
+        try
+        {
+            var roster = await StaffLeaveRules.RosterAsync(_users, clinic.Id, cancellationToken);
+            await StaffLeaveNotices.SendRequestAsync(
+                _emailSender, _appUrl, _logger, leave, roster.Values, StaffLeaveRules.DisplayName(caller), clinic.Name,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Congé request e-mails failed for clinic {ClinicId}.", clinic.Id);
+        }
     }
 }
