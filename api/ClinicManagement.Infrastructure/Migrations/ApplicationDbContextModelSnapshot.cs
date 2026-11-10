@@ -6409,6 +6409,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                             b1.Property<Guid>("BroadcastId")
                                 .HasColumnType("uuid");
 
+                            b1.Property<string>("Description")
+                                .HasMaxLength(400)
+                                .HasColumnType("character varying(400)");
+
                             b1.Property<string>("Emoji")
                                 .IsRequired()
                                 .HasMaxLength(16)
@@ -6416,6 +6420,10 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                             b1.Property<int>("SortOrder")
                                 .HasColumnType("integer");
+
+                            b1.Property<string>("Steps")
+                                .IsRequired()
+                                .HasColumnType("text");
 
                             b1.Property<string>("Text")
                                 .IsRequired()

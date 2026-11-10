@@ -24,17 +24,20 @@ public class PreviewPlatformNewsQueryHandler
     private readonly IPlatformAccountRepository _accounts;
     private readonly IPlatformSessionContext _session;
     private readonly IPublicAppUrlProvider _appUrl;
+    private readonly ISubscriptionPricing _pricing;
     private readonly ILogger<PreviewPlatformNewsQueryHandler> _logger;
 
     public PreviewPlatformNewsQueryHandler(
         IPlatformAccountRepository accounts,
         IPlatformSessionContext session,
         IPublicAppUrlProvider appUrl,
+        ISubscriptionPricing pricing,
         ILogger<PreviewPlatformNewsQueryHandler> logger)
     {
         _accounts = accounts;
         _session = session;
         _appUrl = appUrl;
+        _pricing = pricing;
         _logger = logger;
     }
 
@@ -46,7 +49,11 @@ public class PreviewPlatformNewsQueryHandler
             var account = await _accounts.GetByIdAsync(PlatformAccessLedger.RequireAccountId(_session), cancellationToken);
             var draft = PlatformNewsRules.ForPreview(request.Subject, request.Items);
             var content = PlatformNewsEmail.Compose(
-                draft, account?.FullName, PlatformNewsEmail.SampleClinicName, PlatformNewsEmail.AppLink(_appUrl));
+                draft,
+                account?.FullName,
+                PlatformNewsEmail.SampleClinicName,
+                PlatformNewsEmail.AppLink(_appUrl),
+                PlatformNewsContact.From(_pricing));
 
             return Result<PlatformNewsPreviewDto>.Success(
                 new PlatformNewsPreviewDto(PlatformNewsEmail.PreviewHtml(content)));

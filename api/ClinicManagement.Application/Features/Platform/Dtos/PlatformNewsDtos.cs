@@ -1,7 +1,11 @@
 namespace ClinicManagement.Application.Features.Platform.Dtos;
 
-/// <summary>One row of the news form as the console sends it. Blank rows are dropped server-side.</summary>
-public record PlatformNewsItemRequest(string? Emoji, string? Text);
+/// <summary>
+/// One row of the news form as the console sends it. Blank rows are dropped server-side. <c>Description</c> and
+/// <c>Steps</c> are the row's optional guide — omitted by an older console, which then sends a row without one.
+/// </summary>
+public record PlatformNewsItemRequest(
+    string? Emoji, string? Text, string? Description = null, IReadOnlyList<string?>? Steps = null);
 
 /// <summary>
 /// Who a send would reach right now: the counts the confirm states, and the very rows the send records —

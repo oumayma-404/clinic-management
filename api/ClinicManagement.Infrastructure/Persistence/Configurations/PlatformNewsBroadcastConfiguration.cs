@@ -36,6 +36,22 @@ public class PlatformNewsBroadcastConfiguration : IEntityTypeConfiguration<Platf
             items.Property(i => i.Emoji).IsRequired().HasMaxLength(PlatformNewsItem.EmojiMaxLength);
             items.Property(i => i.Text).IsRequired().HasMaxLength(PlatformNewsItem.TextMaxLength);
             items.Property(i => i.SortOrder);
+
+            // The guide under a row (2026-11-10). Additive: an older row reads as « no guide » — a null description
+            // and "" for the steps, which the converter reads back as an empty list (PonticToothNumbers' shape).
+            items.Property(i => i.Description).HasMaxLength(PlatformNewsItem.DescriptionMaxLength);
+            items.Property(i => i.Steps)
+                .HasConversion(
+                    v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null!),
+                    v => string.IsNullOrWhiteSpace(v)
+                        ? new List<string>()
+                        : System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null!) ?? new List<string>(),
+                    new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<IReadOnlyList<string>>(
+                        (c1, c2) => c1 != null && c2 != null && c1.SequenceEqual(c2),
+                        c => c != null ? c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())) : 0,
+                        c => c != null ? c.ToList() : new List<string>()))
+                .HasColumnType("text")
+                .IsRequired();
         });
 
         builder.HasMany(b => b.Recipients)

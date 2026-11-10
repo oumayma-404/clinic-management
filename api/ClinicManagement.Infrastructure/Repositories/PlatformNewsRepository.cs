@@ -106,7 +106,7 @@ public class PlatformNewsRepository : IPlatformNewsRepository
                 b.Id,
                 b.Subject,
                 b.CreatedAtUtc,
-                b.OrderedItems().Select(i => new PlatformNewsAppItem(i.Emoji, i.Text)).ToList()))
+                b.OrderedItems().Select(i => new PlatformNewsAppItem(i.Emoji, i.Text, i.Description, i.Steps.ToList())).ToList()))
             .ToList();
     }
 

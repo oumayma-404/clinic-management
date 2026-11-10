@@ -29,6 +29,7 @@ public class PlatformNewsDispatcher : IPlatformNewsDispatcher
     private readonly IPlatformNewsRepository _news;
     private readonly ITransactionalEmailSender _email;
     private readonly IPublicAppUrlProvider _appUrl;
+    private readonly ISubscriptionPricing _pricing;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<PlatformNewsDispatcher> _logger;
 
@@ -36,12 +37,14 @@ public class PlatformNewsDispatcher : IPlatformNewsDispatcher
         IPlatformNewsRepository news,
         ITransactionalEmailSender email,
         IPublicAppUrlProvider appUrl,
+        ISubscriptionPricing pricing,
         IUnitOfWork unitOfWork,
         ILogger<PlatformNewsDispatcher> logger)
     {
         _news = news;
         _email = email;
         _appUrl = appUrl;
+        _pricing = pricing;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -81,6 +84,7 @@ public class PlatformNewsDispatcher : IPlatformNewsDispatcher
 
         var draft = PlatformNewsDraft.From(broadcast);
         var appLink = PlatformNewsEmail.AppLink(_appUrl);
+        var whatsApp = PlatformNewsContact.From(_pricing);
 
         foreach (var recipient in broadcast.PendingRecipients())
         {
@@ -98,7 +102,7 @@ public class PlatformNewsDispatcher : IPlatformNewsDispatcher
                 return;
             }
 
-            var content = PlatformNewsEmail.Compose(draft, recipient.FullName, recipient.ClinicName, appLink);
+            var content = PlatformNewsEmail.Compose(draft, recipient.FullName, recipient.ClinicName, appLink, whatsApp);
             TransactionalEmailResult sent;
             try
             {

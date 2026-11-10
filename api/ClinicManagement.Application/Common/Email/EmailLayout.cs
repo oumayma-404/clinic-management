@@ -194,6 +194,11 @@ public static class EmailLayout
             sb.Append(StepList(content.StepsTitle, content.Steps));
         }
 
+        if (content.Contact is { } contact)
+        {
+            sb.Append(ContactBlock(contact));
+        }
+
         foreach (var paragraph in content.Outro)
         {
             sb.Append(Paragraph(paragraph, top: 18));
@@ -271,9 +276,20 @@ public static class EmailLayout
             sb.Append(paragraph).Append("\n\n");
         }
 
-        foreach (var bullet in content.Bullets)
+        for (var i = 0; i < content.Bullets.Count; i++)
         {
+            var bullet = content.Bullets[i];
             sb.Append(bullet.Marker).Append(' ').Append(bullet.Text).Append('\n');
+
+            // A guide sits under its line, indented; a blank line then separates it from the next bullet.
+            if (HasGuide(bullet))
+            {
+                AppendGuideText(sb, bullet);
+                if (i < content.Bullets.Count - 1)
+                {
+                    sb.Append('\n');
+                }
+            }
         }
 
         if (content.Bullets.Count > 0)
@@ -315,6 +331,14 @@ public static class EmailLayout
             }
 
             sb.Append('\n');
+        }
+
+        // The link on its own line, unpunctuated — the action's rule, for the same auto-linking reason.
+        if (content.Contact is { } contact)
+        {
+            sb.Append(contact.Prompt).Append('\n')
+              .Append(contact.Label).Append(" :\n")
+              .Append(contact.Url).Append("\n\n");
         }
 
         foreach (var paragraph in content.Outro)
@@ -363,7 +387,7 @@ public static class EmailLayout
                 <tr>
                   <td width="34" valign="top" style="width:34px;padding:{top}px 0 0 0;font-family:{Font};font-size:20px;line-height:1.3;">{Escape(bullets[i].Marker)}</td>
                   <td valign="top" style="padding:{top}px 0 0 0;">
-                    <p style="margin:0;font-family:{Font};font-size:15px;line-height:1.55;color:{Ink};word-break:break-word;">{Escape(bullets[i].Text)}</p>
+                    <p style="margin:0;font-family:{Font};font-size:15px;line-height:1.55;color:{Ink};word-break:break-word;">{Escape(bullets[i].Text)}</p>{BulletGuide(bullets[i])}
                   </td>
                 </tr>
 
@@ -382,6 +406,96 @@ public static class EmailLayout
 
             """;
     }
+
+    private static bool HasGuide(EmailBullet bullet) =>
+        !string.IsNullOrWhiteSpace(bullet.Description) || bullet.Steps is { Count: > 0 };
+
+    /// <summary>
+    /// What sits under a bullet's line: its paragraph, then its numbered steps under their heading.
+    ///
+    /// <para>⚠️ <b>Empty for a bullet with no guide, and that is load-bearing</b>: it is spliced in right after the
+    /// line's <c>&lt;/p&gt;</c>, so a guide-less bullet produces the very bytes it always did (news spec AC-10).
+    /// The steps are a table with a fixed number cell, not an <c>&lt;ol&gt;</c>, for <see cref="StepList"/>'s
+    /// Outlook reason — and plain « 1. » rather than that list's brand discs, since they sit inside a panel row.</para>
+    /// </summary>
+    private static string BulletGuide(EmailBullet bullet)
+    {
+        if (!HasGuide(bullet))
+        {
+            return string.Empty;
+        }
+
+        var guide = new StringBuilder();
+
+        if (!string.IsNullOrWhiteSpace(bullet.Description))
+        {
+            guide.Append(
+                $"\n                    <p style=\"margin:6px 0 0 0;font-family:{Font};font-size:14px;line-height:1.55;color:{InkMuted};word-break:break-word;\">{Escape(bullet.Description)}</p>");
+        }
+
+        var steps = bullet.Steps ?? [];
+        if (steps.Count > 0)
+        {
+            if (!string.IsNullOrWhiteSpace(bullet.StepsTitle))
+            {
+                guide.Append(
+                    $"\n                    <p style=\"margin:10px 0 0 0;font-family:{Font};font-size:13px;line-height:1.5;font-weight:700;color:{Ink};\">{Escape(bullet.StepsTitle)}</p>");
+            }
+
+            guide.Append(
+                "\n                    <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">");
+            for (var i = 0; i < steps.Count; i++)
+            {
+                guide.Append(
+                    $"\n                      <tr><td width=\"22\" valign=\"top\" style=\"width:22px;padding:4px 0 0 0;font-family:{Font};font-size:14px;line-height:1.5;font-weight:700;color:{BrandDeep};\">{i + 1}.</td><td valign=\"top\" style=\"padding:4px 0 0 0;font-family:{Font};font-size:14px;line-height:1.5;color:{Ink};word-break:break-word;\">{Escape(steps[i])}</td></tr>");
+            }
+
+            guide.Append("\n                    </table>");
+        }
+
+        return guide.ToString();
+    }
+
+    /// <summary>The plain-text twin of <see cref="BulletGuide"/>, indented under its line like a step's detail.</summary>
+    private static void AppendGuideText(StringBuilder sb, EmailBullet bullet)
+    {
+        if (!string.IsNullOrWhiteSpace(bullet.Description))
+        {
+            sb.Append("   ").Append(bullet.Description).Append('\n');
+        }
+
+        var steps = bullet.Steps ?? [];
+        if (steps.Count == 0)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(bullet.StepsTitle))
+        {
+            sb.Append("   ").Append(bullet.StepsTitle).Append('\n');
+        }
+
+        for (var i = 0; i < steps.Count; i++)
+        {
+            sb.Append("   ").Append(i + 1).Append(". ").Append(steps[i]).Append('\n');
+        }
+    }
+
+    /// <summary>
+    /// The closing « write to us » line: a hairline, the sentence, then the link as text — <b>not</b> a second
+    /// button, which <see cref="EmailContent.Action"/> forbids. Underlined brand ink, like the footer's address.
+    /// </summary>
+    private static string ContactBlock(EmailContact contact) =>
+        $"""
+        <tr><td class="px" style="padding:24px 32px 0 32px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td height="1" bgcolor="{Hairline}" style="height:1px;font-size:0;line-height:0;mso-line-height-rule:exactly;background-color:{Hairline};">&#8203;</td>
+          </tr></table>
+          <p style="margin:16px 0 0 0;font-family:{Font};font-size:15px;line-height:1.55;font-weight:600;color:{Ink};">{Escape(contact.Prompt)}</p>
+          <p style="margin:6px 0 0 0;font-family:{Font};font-size:15px;line-height:1.55;"><a href="{Escape(contact.Url)}" style="color:{BrandDeep};font-weight:600;text-decoration:underline;">{Escape(contact.Label)}</a></p>
+        </td></tr>
+
+        """;
 
     private static string Paragraph(string text, int top, string weight = "400") =>
         $"""

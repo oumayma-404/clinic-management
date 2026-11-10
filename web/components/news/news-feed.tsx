@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
-import { ChevronDown, Sparkles } from "lucide-react"
+import { ChevronDown, MessageCircle, Sparkles } from "lucide-react"
 
-import { newsApi, type NewsEntryDto, type NewsFeedDto } from "@/lib/api/news"
+import { newsApi, type NewsEntryDto, type NewsFeedDto, type NewsItemDto } from "@/lib/api/news"
 import { setNewsBadge } from "@/lib/hooks/use-news-badge"
 import { getErrorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
+import { EXTERNAL_LINK_REL } from "@/lib/whatsapp"
+import { useHelpContact } from "@/components/help-menu"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -33,8 +35,13 @@ const monthLabel = (sentOn: string) => {
 }
 const anchorOf = (id: string) => `nouveaute-${id}`
 
+/** The vendor's WhatsApp line closing every card — the « Aide » menu's own number and link, or none. */
+type NewsContact = { url: string; number: string } | null
+
 /** « Nouveautés » — what the vendor e-mailed the cabinet, kept as a page. Opening it is what marks it read. */
 export function NewsFeed() {
+  const { whatsapp, whatsappNumber } = useHelpContact()
+  const contact: NewsContact = whatsapp && whatsappNumber ? { url: whatsapp, number: whatsappNumber } : null
   const [state, setState] = useState<FeedState>({ kind: "loading" })
   const [visible, setVisible] = useState(PAGE_SIZE)
   const [pendingFocus, setPendingFocus] = useState<string | null>(null)
@@ -166,7 +173,7 @@ export function NewsFeed() {
             />
             <ol className="space-y-6">
               {entries.slice(0, visible).map((entry) => (
-                <NewsTimelineEntry key={entry.id} entry={entry} />
+                <NewsTimelineEntry key={entry.id} entry={entry} contact={contact} />
               ))}
             </ol>
           </div>
@@ -186,7 +193,7 @@ export function NewsFeed() {
   )
 }
 
-function NewsTimelineEntry({ entry }: { entry: NewsEntryDto }) {
+function NewsTimelineEntry({ entry, contact }: { entry: NewsEntryDto; contact: NewsContact }) {
   const count = entry.items.length
   return (
     <li className="relative md:grid md:grid-cols-[5rem_minmax(0,1fr)] md:gap-x-8">
@@ -249,12 +256,52 @@ function NewsTimelineEntry({ entry }: { entry: NewsEntryDto }) {
               >
                 {item.emoji}
               </span>
-              <p className="min-w-0 break-words pt-1.5 text-sm leading-relaxed text-foreground/90 sm:text-base">{item.text}</p>
+              <div className="min-w-0 flex-1 pt-1.5">
+                <p className="break-words text-sm leading-relaxed text-foreground/90 sm:text-base">{item.text}</p>
+                <NewsItemGuide item={item} />
+              </div>
             </li>
           ))}
         </ul>
+        {contact && (
+          <footer className="flex flex-col items-start gap-2 border-t px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-6">
+            <p className="text-sm text-muted-foreground">Une question&nbsp;? Écrivez-nous sur WhatsApp</p>
+            <Button asChild variant="outline" className="h-auto min-h-9 whitespace-normal bg-card text-start">
+              <a href={contact.url} target="_blank" rel={EXTERNAL_LINK_REL}>
+                <MessageCircle aria-hidden="true" className="text-success" />
+                WhatsApp {contact.number}
+              </a>
+            </Button>
+          </footer>
+        )}
       </article>
     </li>
+  )
+}
+
+/** A row's guide under its line: the paragraph, then « Comment ça marche » and the numbered steps. Nothing without one. */
+function NewsItemGuide({ item }: { item: NewsItemDto }) {
+  const steps = item.steps ?? []
+  if (!item.description && steps.length === 0) return null
+
+  return (
+    <div className="mt-2 space-y-2">
+      {item.description && (
+        <p className="break-words text-sm leading-relaxed text-muted-foreground">{item.description}</p>
+      )}
+      {steps.length > 0 && (
+        <div>
+          <p className="text-sm font-medium text-foreground">Comment ça marche&nbsp;:</p>
+          <ol className="mt-1 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-foreground/90 marker:font-semibold marker:text-primary">
+            {steps.map((step, index) => (
+              <li key={index} className="break-words ps-1">
+                {step}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
   )
 }
 

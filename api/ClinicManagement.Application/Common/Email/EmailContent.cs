@@ -15,8 +15,29 @@ public sealed record EmailDetail(string Label, string Value, bool IsLink = false
 /// <param name="Detail">What to expect, or the thing that trips people up. Optional.</param>
 public sealed record EmailStep(string Title, string? Detail = null);
 
-/// <summary>One bullet of a list: a short marker (an emoji) and one line of text.</summary>
-public sealed record EmailBullet(string Marker, string Text);
+/// <summary>
+/// One bullet of a list: a short marker (an emoji) and one line of text — plus, optionally, a small guide under
+/// it: a paragraph, and numbered steps under their own heading. A bullet with neither renders exactly as a
+/// two-field one always has, which is what keeps every other e-mail byte-identical (news spec AC-10).
+/// </summary>
+/// <param name="Description">One paragraph under the line. Optional.</param>
+/// <param name="StepsTitle">The heading over <paramref name="Steps"/> (« Comment ça marche : »). Only read with steps.</param>
+/// <param name="Steps">The numbered steps, in order. Optional.</param>
+public sealed record EmailBullet(
+    string Marker,
+    string Text,
+    string? Description = null,
+    string? StepsTitle = null,
+    IReadOnlyList<string>? Steps = null);
+
+/// <summary>
+/// A closing « write to us » line with its link — the news e-mail's WhatsApp contact. Deliberately <b>not</b> a
+/// second <see cref="EmailAction"/>: it renders as a sentence and a link, never as a competing button.
+/// </summary>
+/// <param name="Prompt">The sentence (« Une question ? Écrivez-nous sur WhatsApp »).</param>
+/// <param name="Label">The link's text (« 💬 WhatsApp +216 51 230 456 »).</param>
+/// <param name="Url">Where it goes. Escaped into the <c>href</c> like every other value.</param>
+public sealed record EmailContact(string Prompt, string Label, string Url);
 
 /// <summary>The call to action. One per e-mail, never two — see <see cref="EmailContent.Action"/>.</summary>
 public sealed record EmailAction(string Label, string Url);
@@ -84,6 +105,12 @@ public sealed record EmailContent
 
     /// <summary>The numbered walkthrough, after the button.</summary>
     public IReadOnlyList<EmailStep> Steps { get; init; } = [];
+
+    /// <summary>
+    /// A « write to us » line closing the content, after the button and the steps, before <see cref="Outro"/>.
+    /// Optional; absent renders nothing, so every message that does not set it is unchanged.
+    /// </summary>
+    public EmailContact? Contact { get; init; }
 
     /// <summary>The paragraphs after everything else — « si vous n'êtes pas à l'origine de cette demande… ».</summary>
     public IReadOnlyList<string> Outro { get; init; } = [];

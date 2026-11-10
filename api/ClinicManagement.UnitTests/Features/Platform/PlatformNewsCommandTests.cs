@@ -30,6 +30,7 @@ public class PlatformNewsCommandTests
     private readonly Mock<IPlatformAccountRepository> _accounts = new();
     private readonly Mock<ITransactionalEmailSender> _email = new();
     private readonly Mock<IPublicAppUrlProvider> _appUrl = new();
+    private readonly Mock<ISubscriptionPricing> _pricing = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly PlatformAccount _account = PlatformAccount.Create("oumayma@apexa.tn", "Oumayma", "hash");
     private readonly List<PlatformNewsBroadcast> _added = [];
@@ -41,6 +42,8 @@ public class PlatformNewsCommandTests
             .ReturnsAsync(TransactionalEmailResult.Sent);
         _appUrl.SetupGet(a => a.IsConfigured).Returns(true);
         _appUrl.SetupGet(a => a.BaseUrl).Returns("https://app.apexa.tn");
+        _pricing.SetupGet(p => p.ContactPhone).Returns("+216 53 218 664");
+        _pricing.SetupGet(p => p.WhatsAppPhone).Returns("+216 51 230 456");
         _accounts.Setup(a => a.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(_account);
         _news.Setup(n => n.AddAsync(It.IsAny<PlatformNewsBroadcast>(), It.IsAny<CancellationToken>()))
             .Callback<PlatformNewsBroadcast, CancellationToken>((b, _) => _added.Add(b))
@@ -199,7 +202,8 @@ public class PlatformNewsCommandTests
     }
 
     private SendPlatformNewsTestCommandHandler Test() =>
-        new(_accounts.Object, Session, _email.Object, _appUrl.Object, NullLogger<SendPlatformNewsTestCommandHandler>.Instance);
+        new(_accounts.Object, Session, _email.Object, _appUrl.Object, _pricing.Object,
+            NullLogger<SendPlatformNewsTestCommandHandler>.Instance);
 
     [Fact]
     public async Task The_Test_Goes_To_The_Signed_In_Account_Only_With_A_Test_Subject()
@@ -237,8 +241,7 @@ public class PlatformNewsCommandTests
     [Fact]
     public async Task The_Preview_Greets_The_Console_Account_And_Inlines_The_Logo()
     {
-        var handler = new PreviewPlatformNewsQueryHandler(
-            _accounts.Object, Session, _appUrl.Object, NullLogger<PreviewPlatformNewsQueryHandler>.Instance);
+        var handler = Preview();
 
         var result = await handler.Handle(
             new PreviewPlatformNewsQuery { Subject = "Objet", Items = [new PlatformNewsItemRequest("🚀", "Agenda")] }, CancellationToken.None);
@@ -248,6 +251,9 @@ public class PlatformNewsCommandTests
         Assert.DoesNotContain("cid:", result.Value.NewsHtml);
     }
 
+    private PreviewPlatformNewsQueryHandler Preview() =>
+        new(_accounts.Object, Session, _appUrl.Object, _pricing.Object, NullLogger<PreviewPlatformNewsQueryHandler>.Instance);
+
     private PlatformNewsBroadcast Pending(params string[] emails) =>
         PlatformNewsBroadcast.Create(Guid.NewGuid(), "Les nouveautés", [new PlatformNewsItemInput("🚀", "Agenda")],
             emails.Select(e => new PlatformNewsRecipientInput(Essai, "Cabinet " + e[0], e, "Dr " + e[0])), _account.Id, "Oumayma", At);
@@ -255,8 +261,81 @@ public class PlatformNewsCommandTests
     private PlatformNewsDispatcher Dispatcher(PlatformNewsBroadcast broadcast)
     {
         _news.Setup(n => n.GetWithRecipientsAsync(broadcast.Id, It.IsAny<CancellationToken>())).ReturnsAsync(broadcast);
-        return new PlatformNewsDispatcher(_news.Object, _email.Object, _appUrl.Object, _unitOfWork.Object,
+        return new PlatformNewsDispatcher(_news.Object, _email.Object, _appUrl.Object, _pricing.Object, _unitOfWork.Object,
             NullLogger<PlatformNewsDispatcher>.Instance);
+    }
+
+    // [2026-11-10 guide] PlatformNewsDraft.From is a COPY of the stored rows: a resumed or queued send composes from it,
+    // so a copy that stopped at the text would mail every guide bare while the preview and the test showed it.
+    [Fact]
+    public async Task The_Sent_Email_Carries_Each_Rows_Guide_As_Stored_With_The_Broadcast()
+    {
+        var broadcast = PlatformNewsBroadcast.Create(Guid.NewGuid(), "Les nouveautés",
+            [
+                new PlatformNewsItemInput("🌴", "Congés des secrétaires", "La secrétaire demande, vous décidez.",
+                    ["Paramètres → Équipe : activez « Congés »", "Elle demande depuis « Mes congés »"]),
+                new PlatformNewsItemInput("🚀", "Agenda plus rapide."),
+            ],
+            [new PlatformNewsRecipientInput(Essai, "Cabinet Essai", "a@cab.tn", "Dr A")], _account.Id, "Oumayma", At);
+        EmailContent? content = null;
+        _email.Setup(e => e.SendAsync("a@cab.tn", It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, EmailContent, CancellationToken>((_, _, c, _) => content = c)
+            .ReturnsAsync(TransactionalEmailResult.Sent);
+
+        await Dispatcher(broadcast).DispatchAsync(broadcast.Id, CancellationToken.None);
+
+        var guided = content!.Bullets[0];
+        Assert.Equal("La secrétaire demande, vous décidez.", guided.Description);
+        Assert.Equal(PlatformNewsEmail.GuideHeading, guided.StepsTitle);
+        Assert.Equal(new[] { "Paramètres → Équipe : activez « Congés »", "Elle demande depuis « Mes congés »" }, guided.Steps!);
+        var bare = content.Bullets[1];
+        Assert.Equal((null, null, 0), (bare.Description, bare.StepsTitle, bare.Steps?.Count ?? 0));
+    }
+
+    // [2026-11-10 contact] One composer, so the preview, the test and the real send all close on the same line — the
+    // configured WhatsApp number (WhatsAppPhone over ContactPhone), pre-filled with the cabinet that writes.
+    [Fact]
+    public async Task Every_Door_Closes_On_The_Configured_WhatsApp_Line()
+    {
+        var preview = await Preview().Handle(
+            new PreviewPlatformNewsQuery { Subject = "Objet", Items = [new PlatformNewsItemRequest("🚀", "Agenda")] }, CancellationToken.None);
+
+        EmailContent? test = null;
+        _email.Setup(e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, EmailContent, CancellationToken>((_, _, c, _) => test = c)
+            .ReturnsAsync(TransactionalEmailResult.Sent);
+        await Test().Handle(
+            new SendPlatformNewsTestCommand { Subject = "Objet", Items = [new PlatformNewsItemRequest("🚀", "x")] }, CancellationToken.None);
+        var sentTest = test;
+
+        var broadcast = Pending("a@cab.tn");
+        await Dispatcher(broadcast).DispatchAsync(broadcast.Id, CancellationToken.None);
+        var sent = test;
+
+        Assert.Contains("https://wa.me/21651230456?text=", preview.Value!.NewsHtml);
+        Assert.Contains(System.Net.WebUtility.HtmlEncode(PlatformNewsEmail.ContactPrompt), preview.Value.NewsHtml);
+        Assert.Equal("💬 WhatsApp +216 51 230 456", sentTest!.Contact!.Label);
+        Assert.Equal(
+            "https://wa.me/21651230456?text=" + Uri.EscapeDataString("Bonjour, ici Cabinet a."), sent!.Contact!.Url);
+    }
+
+    [Fact]
+    public async Task With_No_WhatsApp_Number_Configured_The_News_Carries_No_Contact_And_No_Dead_Link()
+    {
+        _pricing.SetupGet(p => p.ContactPhone).Returns((string?)null);
+        _pricing.SetupGet(p => p.WhatsAppPhone).Returns((string?)null);
+
+        var preview = await Preview().Handle(
+            new PreviewPlatformNewsQuery { Subject = "Objet", Items = [new PlatformNewsItemRequest("🚀", "Agenda")] }, CancellationToken.None);
+        EmailContent? content = null;
+        _email.Setup(e => e.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<EmailContent>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, EmailContent, CancellationToken>((_, _, c, _) => content = c)
+            .ReturnsAsync(TransactionalEmailResult.Sent);
+        var broadcast = Pending("a@cab.tn");
+        await Dispatcher(broadcast).DispatchAsync(broadcast.Id, CancellationToken.None);
+
+        Assert.DoesNotContain("wa.me", preview.Value!.NewsHtml);
+        Assert.Null(content!.Contact);
     }
 
     [Fact]

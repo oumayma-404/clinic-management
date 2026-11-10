@@ -49,7 +49,7 @@ public class InAppNewsTests
     }
 
     private static PlatformNewsAppRow Row(string subject, DateTime sentAtUtc) =>
-        new(Guid.NewGuid(), subject, sentAtUtc, [new PlatformNewsAppItem("🚀", "Agenda plus rapide.")]);
+        new(Guid.NewGuid(), subject, sentAtUtc, [new PlatformNewsAppItem("🚀", "Agenda plus rapide.", null, [])]);
 
     private GetNewsQueryHandler Feed() =>
         new(_context.Object, _users.Object, _news.Object, NullLogger<GetNewsQueryHandler>.Instance);
@@ -83,6 +83,28 @@ public class InAppNewsTests
 
         Assert.Equal(new[] { true, false }, feed.Entries.Select(e => e.IsUnread));
         Assert.Equal(1, summary.Unread);
+    }
+
+    // [2026-11-10 guide] The page shows each row's guide, so the feed must carry it — and a row without one reads as
+    // a null description and an empty list, never as missing fields.
+    [Fact]
+    public async Task Each_Row_Carries_Its_Guide_Onto_The_Page()
+    {
+        _rows =
+        [
+            new(Guid.NewGuid(), "Congés", Joined.AddDays(1),
+            [
+                new PlatformNewsAppItem("🌴", "Congés des secrétaires", "La secrétaire demande, vous décidez.",
+                    ["Paramètres → Équipe : activez « Congés »", "Elle demande depuis « Mes congés »"]),
+                new PlatformNewsAppItem("🚀", "Agenda plus rapide.", null, []),
+            ]),
+        ];
+
+        var items = Assert.Single((await Feed().Handle(new GetNewsQuery(), CancellationToken.None)).Value!.Entries).Items;
+
+        Assert.Equal("La secrétaire demande, vous décidez.", items[0].Description);
+        Assert.Equal(new[] { "Paramètres → Équipe : activez « Congés »", "Elle demande depuis « Mes congés »" }, items[0].Steps);
+        Assert.Equal((null, 0), (items[1].Description, items[1].Steps.Count));
     }
 
     [Fact]

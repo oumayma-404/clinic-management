@@ -17,7 +17,9 @@ public sealed record NewsEntryDto(
     bool IsUnread,
     IReadOnlyList<NewsItemDto> Items);
 
-public sealed record NewsItemDto(string Emoji, string Text);
+/// <param name="Description">The row's guide paragraph, or null.</param>
+/// <param name="Steps">The guide's numbered steps (« Comment ça marche »), empty when it has none.</param>
+public sealed record NewsItemDto(string Emoji, string Text, string? Description, IReadOnlyList<string> Steps);
 
 /// <summary>The sidebar's badge: how many news this admin has not seen yet.</summary>
 public sealed record NewsSummaryDto(int Unread);
@@ -47,5 +49,5 @@ public static class NewsReading
         row.CreatedAtUtc,
         ClinicClock.ToClinicLocal(row.CreatedAtUtc).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         IsUnread(row.CreatedAtUtc, readUpTo),
-        row.Items.Select(i => new NewsItemDto(i.Emoji, i.Text)).ToList());
+        row.Items.Select(i => new NewsItemDto(i.Emoji, i.Text, i.Description, i.Steps)).ToList());
 }
