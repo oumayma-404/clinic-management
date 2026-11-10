@@ -37,6 +37,7 @@ namespace ClinicManagement.API.Controllers;
 // change-password is authenticated, clinic-scoped and non-GET, i.e. genuinely refused without this.
 [AllowsWithoutSubscription("AC-4.7, EC-2 — a cabinet locked out of its own account cannot even read its records.")]
 [AllowedWhileCloudFenced("FR-11 — signing in and a person's own credentials stay on the cloud during a cut.")]
+[AllowsBeforeClockIn("Signing in and out, and keeping a session alive, is not clinic work.")]
 public class AuthController : ApiControllerBase
 {
     private readonly IMediator _mediator;

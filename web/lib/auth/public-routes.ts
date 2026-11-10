@@ -34,6 +34,8 @@ export const PUBLIC_ROUTES = [
   '/pc-de-secours',
   // demo-cabinet: the public demo's entry screen — a visitor has no account, by design.
   '/demo',
+  // pointage-borne: the reception borne — nobody is signed in on it; the device's own cookie proves it.
+  '/pointage',
 ] as const;
 
 /**

@@ -19,7 +19,8 @@ export type DashboardBlockKey =
   | 'appointmentStatusMix'
   | 'appointmentTrend'
   | 'trend'
-  | 'todayAppointments';
+  | 'todayAppointments'
+  | 'teamToday';
 
 /**
  * The groups the customiser lists blocks under, **in the order the page renders them**.
@@ -94,6 +95,7 @@ export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   // `omitKeys` whenever the card does not apply, so nobody else is offered a switch that commands nothing.
   gettingStarted: { section: 'journee', form: 'card', label: 'Premiers pas' },
   todayAppointments: { section: 'journee', form: 'list', label: 'Les rendez-vous du jour' },
+  teamToday: { section: 'journee', form: 'card', label: 'Équipe aujourd’hui' },
   // First, and shown by default: it is the only entry here about work the practice has already DONE, so it is the
   // one whose neglect quietly costs the clinic money and leaves the record incomplete.
   visitsToClose: { section: 'journee', form: 'chip', label: 'Séances à clôturer' },

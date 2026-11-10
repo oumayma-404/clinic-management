@@ -57,6 +57,17 @@ public class SessionFamilyRepository : ISessionFamilyRepository
             .ThenBy(f => f.Id)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SessionFamily>> GetLiveForClinicAsync(
+        Guid clinicId, DateTime nowUtc, int take, CancellationToken cancellationToken = default) =>
+        await _context.SessionFamilies
+            .AsNoTracking()
+            .Include(f => f.User)
+            .Where(f => f.User.ClinicId == clinicId && f.User.IsActive && f.EndedAtUtc == null && f.ExpiresAtUtc > nowUtc)
+            .OrderByDescending(f => f.LastRotatedAt)
+            .ThenBy(f => f.Id)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
     public async Task AddAsync(SessionFamily family, CancellationToken cancellationToken = default) =>
         await _context.SessionFamilies.AddAsync(family, cancellationToken);
 

@@ -27,7 +27,7 @@ const StaffChatContext = createContext<StaffChatContextValue | null>(null)
 
 const OPEN_MODAL =
   '[data-slot="dialog-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], ' +
-  '[data-slot="sheet-content"][data-state="open"]'
+  '[data-slot="sheet-content"][data-state="open"], [data-clock-in-gate]'
 
 /**
  * « Messages » state for the whole tab (staff-chat). It lives above the pages because the header remounts on every

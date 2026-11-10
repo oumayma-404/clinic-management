@@ -153,4 +153,9 @@ public interface IStaffNotificationRepository
 
     /// <summary>Every cabinet carrying one — so the rows of a PC retired or deleted since are withdrawn too.</summary>
     Task<IReadOnlyList<Guid>> GetClinicIdsWithRelayAlertsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Whether a row of <paramref name="category"/> for <paramref name="targetUserId"/> was written since the instant.</summary>
+    Task<bool> ExistsForUserSinceAsync(
+        Guid clinicId, Enums.NotificationCategory category, string targetUserId, DateTime sinceUtc,
+        CancellationToken cancellationToken = default);
 }

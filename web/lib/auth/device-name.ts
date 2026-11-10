@@ -45,10 +45,12 @@ function browserName(ua: string): string | undefined {
 
 function platformName(ua: string): string | undefined {
   if (/Windows/.test(ua)) return "Windows"
-  if (/Android/.test(ua)) return "Android"
-  // Before « Mac », because an iPad reports a Mac-like user-agent in desktop mode.
-  if (/iPhone|iPad|iPod/.test(ua)) return "iOS"
-  if (/Mac OS X|Macintosh/.test(ua)) return "Mac"
+  // « iPad » / « tablette » are what the server reads as a tablet (`AttendanceRules.DeviceKindOf`); an Android tablet omits « Mobile ».
+  if (/Android/.test(ua)) return /Mobile/.test(ua) ? "Android" : "tablette Android"
+  if (/iPad/.test(ua)) return "iPad"
+  if (/iPhone|iPod/.test(ua)) return "iOS"
+  // An iPad in desktop mode reports « Macintosh »; only its touch screen tells it apart.
+  if (/Mac OS X|Macintosh/.test(ua)) return navigator.maxTouchPoints > 1 ? "iPad" : "Mac"
   if (/Linux/.test(ua)) return "Linux"
   return undefined
 }

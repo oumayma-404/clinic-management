@@ -114,6 +114,23 @@ public class AuditEntryRepository : IAuditEntryRepository
         return rows.Select(r => new AuditActorRow(r.UserId, r.Email)).ToList();
     }
 
+    public async Task<DateTime?> GetLastSaveAtAsync(
+        Guid clinicId,
+        string userId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        IReadOnlyCollection<string> excludingEntityTypes,
+        CancellationToken cancellationToken = default)
+    {
+        var excluded = excludingEntityTypes.ToList();
+        return await _context.AuditEntries
+            .AsNoTracking()
+            .Where(a => a.ClinicId == clinicId && a.UserId == userId
+                        && a.OccurredAt >= fromUtc && a.OccurredAt <= toUtc
+                        && !excluded.Contains(a.EntityType))
+            .MaxAsync(a => (DateTime?)a.OccurredAt, cancellationToken);
+    }
+
     public async Task AddRangeAsync(
         IReadOnlyCollection<AuditEntry> entries,
         CancellationToken cancellationToken = default)

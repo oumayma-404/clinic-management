@@ -12,7 +12,9 @@ import { useNewsBadge } from "@/lib/hooks/use-news-badge"
 import { useSidebar } from "@/contexts/sidebar-context"
 import { useSession } from "@/lib/auth/session"
 import { useClinicAccess } from "@/lib/hooks/use-clinic-access"
+import { usePendingLeaveCount } from "@/lib/hooks/use-staff-leave"
 import { useSubscription } from "@/lib/subscription/subscription-context"
+import { useClockStatus } from "@/components/team/clock-in-gate"
 import { PRODUCT_NAME } from "@/lib/brand"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -69,7 +71,19 @@ export function DashboardSidebar() {
   // The ROLE, not `isAdmin`: a secretary sees fewer destinations than a doctor (I1 — « Tableau de bord » and the
   // whole « Finances » group are `AdminOrDoctor` server-side), and an admin/not-admin boolean cannot say that.
   const { moneyHidden } = useMoneyVisibility()
-  const sections: NavSection[] = buildNavSections(user?.role, subscriptionEnforced, moneyHidden)
+  const leaveEnabled = status?.clinic?.leaveRequestsEnabled === true
+  // « Mes présences » for an account that pointe — its clock status is the one answer.
+  const attendanceTracked = useClockStatus().status?.tracked === true
+  const sections: NavSection[] = buildNavSections(
+    user?.role,
+    subscriptionEnforced,
+    moneyHidden,
+    leaveEnabled,
+    attendanceTracked,
+  )
+  // Requests waiting for an admin, beside « Utilisateurs » (`conges-secretaires`).
+  const pendingLeave = usePendingLeaveCount(user?.role === "admin" && leaveEnabled)
+  const badgeFor = (href: string) => (href === "/users" ? pendingLeave : 0)
 
   // `collapsed` is passed rather than read from context: inside the mobile drawer the rail is always
   // expanded (there is room, and a phone has no hover for the collapsed tooltips), while the desktop rail
@@ -89,9 +103,17 @@ export function DashboardSidebar() {
 
   const renderItem = (item: NavItem, collapsed: boolean, zone: Zone, unread = 0) => {
     const isActive = isActivePath(item.href)
-    const unreadLabel = unread > 0 ? ` — ${unread} non lue${unread > 1 ? "s" : ""}` : ""
+    // One pill per row: the news count, or the congés waiting for a decision on « Utilisateurs ».
+    const pending = badgeFor(item.href)
+    const count = unread > 0 ? unread : pending
+    const unreadLabel =
+      unread > 0
+        ? ` — ${unread} non lue${unread > 1 ? "s" : ""}`
+        : pending > 0
+          ? ` — ${pending} ${pending > 1 ? "demandes de congé en attente" : "demande de congé en attente"}`
+          : ""
     // The bell's cap: a pill wider than « 99+ » pushes the row's name out of a 256 px rail.
-    const unreadPill = unread > 99 ? "99+" : String(unread)
+    const unreadPill = count > 99 ? "99+" : String(count)
     const linkContent = (
       <Link
         href={item.href}
@@ -151,12 +173,12 @@ export function DashboardSidebar() {
         {collapsed ? (
           <span className="sr-only">{item.name + unreadLabel}</span>
         ) : (
-          <span className={cn("truncate", unread > 0 && "min-w-0 flex-1")}>
+          <span className={cn("truncate", count > 0 && "min-w-0 flex-1")}>
             {item.name}
             {unreadLabel && <span className="sr-only">{unreadLabel}</span>}
           </span>
         )}
-        {unread > 0 &&
+        {count > 0 &&
           (collapsed ? (
             <span
               aria-hidden="true"
@@ -178,7 +200,7 @@ export function DashboardSidebar() {
         <Tooltip key={item.href} delayDuration={0}>
           <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
           <TooltipContent side="right">
-            <p>{unread > 0 ? `${item.name} · ${unreadPill} non lue${unread > 1 ? "s" : ""}` : item.name}</p>
+            <p>{count > 0 ? `${item.name} ·${unreadLabel.slice(2)}` : item.name}</p>
           </TooltipContent>
         </Tooltip>
       )

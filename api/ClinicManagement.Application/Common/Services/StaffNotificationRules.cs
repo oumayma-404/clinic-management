@@ -67,6 +67,20 @@ public static class StaffNotificationRules
         NotificationCategory.RelayAttention => false,
         // « La patiente est arrivée » is time-critical to the person it rings, and the push waits to see it unread first.
         NotificationCategory.StaffChatMessage => true,
+        // A congé request or answer waits for the next opening of the app; the decision also goes by e-mail.
+        NotificationCategory.StaffLeaveRequested => false,
+        NotificationCategory.StaffLeaveApproved => false,
+        NotificationCategory.StaffLeaveRejected => false,
+        NotificationCategory.StaffLeaveCancelled => false,
+        // « Départ non pointé » is read after she has left the desk — a banner on her phone is the whole point (AC-6).
+        NotificationCategory.AttendanceDepartureMissing => true,
+        // A borne went live and she has no schéma: she may not open the app before she needs it at the borne.
+        NotificationCategory.AttendanceSchemaToCreate => true,
+        // Setup facts read at the next opening of the app — by the admins, or by the device's owner on that very device.
+        NotificationCategory.AttendanceBorneInstalled => false,
+        NotificationCategory.AttendanceBorneNotReceived => false,
+        // The admin lifts it from « Paramètres → Équipe » or « Équipe aujourd'hui », both at a keyboard.
+        NotificationCategory.AttendanceSchemaBlocked => false,
         // A new category does not silently start pushing. Deciding is the point — a default of `true` would put
         // an unreviewed message on a lock screen, and `false` would look like a decision nobody made.
         _ => throw new ArgumentOutOfRangeException(
@@ -91,6 +105,8 @@ public static class StaffNotificationRules
         NotificationCategory.PostVisitReview => "Compte rendu de visite",
         // No feed row to match: the message's own text is free text and never leaves the app (AC-47).
         NotificationCategory.StaffChatMessage => "Nouveau message",
+        NotificationCategory.AttendanceDepartureMissing => Features.Team.AttendanceLockRules.ReminderTitle,
+        NotificationCategory.AttendanceSchemaToCreate => Features.Team.AttendanceNotices.SchemaToCreateTitle,
         _ => throw new ArgumentOutOfRangeException(
             nameof(category), category, "Cette catégorie ne produit pas de notification système.")
     };

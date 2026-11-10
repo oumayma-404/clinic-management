@@ -4,7 +4,10 @@ using ClinicManagement.Domain.ValueObjects;
 
 namespace ClinicManagement.Domain.Entities;
 
-public sealed record PlatformNewsItemInput(string Emoji, string Text);
+/// <summary>One cleaned row: its line and, optionally, its guide (a description and numbered steps).</summary>
+/// <remarks>⚠️ A copy must pass all four — a re-listed copy that stops at <c>Text</c> silently drops the guide.</remarks>
+public sealed record PlatformNewsItemInput(
+    string Emoji, string Text, string? Description = null, IReadOnlyList<string>? Steps = null);
 
 /// <summary>
 /// One news e-mail the vendor sent from the console, and every address it went to. No ClinicId: it belongs to the
@@ -75,7 +78,8 @@ public class PlatformNewsBroadcast : AggregateRoot<Guid>
 
         for (var i = 0; i < itemList.Count; i++)
         {
-            broadcast._items.Add(new PlatformNewsItem(itemList[i].Emoji, itemList[i].Text, i));
+            var item = itemList[i];
+            broadcast._items.Add(new PlatformNewsItem(item.Emoji, item.Text, i, item.Description, item.Steps));
         }
 
         foreach (var recipient in recipients)

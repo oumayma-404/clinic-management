@@ -24,6 +24,7 @@ public class SendPlatformNewsTestCommandHandler
     private readonly IPlatformSessionContext _session;
     private readonly ITransactionalEmailSender _email;
     private readonly IPublicAppUrlProvider _appUrl;
+    private readonly ISubscriptionPricing _pricing;
     private readonly ILogger<SendPlatformNewsTestCommandHandler> _logger;
 
     public SendPlatformNewsTestCommandHandler(
@@ -31,12 +32,14 @@ public class SendPlatformNewsTestCommandHandler
         IPlatformSessionContext session,
         ITransactionalEmailSender email,
         IPublicAppUrlProvider appUrl,
+        ISubscriptionPricing pricing,
         ILogger<SendPlatformNewsTestCommandHandler> logger)
     {
         _accounts = accounts;
         _session = session;
         _email = email;
         _appUrl = appUrl;
+        _pricing = pricing;
         _logger = logger;
     }
 
@@ -65,7 +68,11 @@ public class SendPlatformNewsTestCommandHandler
 
             var draft = drafted.Value!;
             var content = PlatformNewsEmail.Compose(
-                draft, account.FullName, PlatformNewsEmail.SampleClinicName, PlatformNewsEmail.AppLink(_appUrl));
+                draft,
+                account.FullName,
+                PlatformNewsEmail.SampleClinicName,
+                PlatformNewsEmail.AppLink(_appUrl),
+                PlatformNewsContact.From(_pricing));
 
             var sent = await _email.SendAsync(
                 account.Email, PlatformNewsEmail.TestSubjectPrefix + draft.Subject, content, cancellationToken);

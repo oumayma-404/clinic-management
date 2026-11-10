@@ -294,6 +294,16 @@ public class ClinicsController : ApiControllerBase
         return Ok(result);
     }
 
+    /// <summary>Paramètres → « Équipe »: the secretary congés switch (tri-state, a version round-tripped).</summary>
+    [HttpPut("team-modules")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    public async Task<IActionResult> SetTeamModules([FromBody] SetTeamModulesCommand command)
+    {
+        var result = await _mediator.Send(command);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     /// <summary>« Masquer l'argent » — one click, no code. Refused (400 <c>totp_not_enrolled</c>) to an admin who could not show it again.</summary>
     [HttpPost("money/hide")]
     [Authorize(Policy = AuthorizationPolicies.AdminOnly)]

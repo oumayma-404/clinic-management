@@ -46,7 +46,8 @@ public sealed record PlatformNewsAppRow(
     DateTime CreatedAtUtc,
     IReadOnlyList<PlatformNewsAppItem> Items);
 
-public sealed record PlatformNewsAppItem(string Emoji, string Text);
+/// <summary>One row as the app shows it, with its guide (empty steps and a null description when it has none).</summary>
+public sealed record PlatformNewsAppItem(string Emoji, string Text, string? Description, IReadOnlyList<string> Steps);
 
 /// <summary>One line of the console's history of sends.</summary>
 public sealed record PlatformNewsSummaryRow(

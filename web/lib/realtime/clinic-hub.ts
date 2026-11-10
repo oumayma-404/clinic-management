@@ -38,6 +38,7 @@ export const RealtimeResource = {
   // set are EQUAL in both directions, so neither side can grow alone again.
   Doctors: "doctors",         // « Mon profil » / Paramètres → Médecins (profile, cachet, working hours)
   DoctorLeaves: "doctorleaves", // congés — its own key so a congé saved at the desk never reloads « Mon profil »
+  Team: "team",               // congés des secrétaires — requests, decisions, yearly allowance
   LabOrders: "laborders",     // /lab-orders — bons de prothèse, a two-user status lifecycle
   // Recall commands (snooze / « contacté » / send) still exist server-side, so they still BROADCAST this key —
   // which is why it must stay declared here even though /recalls was removed and nothing subscribes to it right

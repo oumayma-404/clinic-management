@@ -191,5 +191,36 @@ public enum NotificationCategory
     /// because the message itself is the record. Its push is queued for whoever the message rings
     /// (<c>StaffConversation.AlertsFor</c>) and sent only if they have not read it by then.
     /// </summary>
-    StaffChatMessage = 19
+    StaffChatMessage = 19,
+
+    /// <summary>A secretary asked for a congé — for the cabinet's admins (<c>TargetRole</c>).</summary>
+    StaffLeaveRequested = 20,
+
+    StaffLeaveApproved = 21,
+
+    StaffLeaveRejected = 22,
+
+    /// <summary>An accepted congé was withdrawn before it began — for the cabinet's admins.</summary>
+    StaffLeaveCancelled = 23,
+
+    /// <summary>
+    /// 15 min after closing, a secretary is still « présente » on today's line (<c>pointage-obligatoire</c> AC-6) —
+    /// for her alone, pushed to her phone. Once per line; the reminder writes no pointage row.
+    /// </summary>
+    AttendanceDepartureMissing = 24,
+
+    /// <summary>A borne went live and this tracked person has no schéma yet — for her alone, pushed to her phone.</summary>
+    AttendanceSchemaToCreate = 25,
+
+    /// <summary>
+    /// The device an admin chose picked its borne up: one row for the admins (<c>TargetRole</c>) and one for the
+    /// device's owner. In-app only.
+    /// </summary>
+    AttendanceBorneInstalled = 26,
+
+    /// <summary>The session a waiting borne was chosen for ended before it picked the borne up — for the admins.</summary>
+    AttendanceBorneNotReceived = 27,
+
+    /// <summary>A fifth wrong schéma blocked someone's tile for 15 min — for the admins, who can lift it.</summary>
+    AttendanceSchemaBlocked = 28
 }

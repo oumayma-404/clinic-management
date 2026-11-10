@@ -63,6 +63,18 @@ public interface IAuditEntryRepository
     Task AddRangeAsync(IReadOnlyCollection<AuditEntry> entries, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// When <paramref name="userId"/> last saved something in the inclusive window, ignoring the entity types named —
+    /// or null when the journal holds nothing of hers there.
+    /// </summary>
+    Task<DateTime?> GetLastSaveAtAsync(
+        Guid clinicId,
+        string userId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        IReadOnlyCollection<string> excludingEntityTypes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The four columns the vendor console's counter pass measures a cabinet's activity from, over an inclusive
     /// UTC window (<c>platform-console</c> AC-2.1/AC-2.2).
     ///

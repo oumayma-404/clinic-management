@@ -14,7 +14,9 @@ export class ApiError extends Error {
      * and a behaviour that hinges on it breaks silently. Undefined for the vast majority of failures, which are
      * only ever displayed. See `Result.Code` on the backend for the same reasoning.
      */
-    public code?: string
+    public code?: string,
+    /** The rest of a refusal's JSON body, for the few that carry facts beside `{ error, code }`. */
+    public details?: Readonly<Record<string, unknown>>
   ) {
     super(message);
     this.name = 'ApiError';
@@ -167,6 +169,12 @@ export const ApiErrorCode = {
   /** 422 (D17): a replay key reused on another request — a client fault; the server records nothing. */
   IdempotencyKeyReused: 'idempotency_key_reused',
   /**
+   * 423 (`pointage-obligatoire` AC-3): a tracked secretary has not clocked in yet, so her saves wait. The sentence
+   * travels on; {@link onClockInRequired} tells the arrival gate to re-read, which raises the lock with no reload.
+   * Emitted by `AttendanceLockRules.ClockInRequiredCode` (`AttendanceLockMiddleware`).
+   */
+  ClockInRequired: 'clock_in_required',
+  /**
    * 403 (demo-cabinet FR-2): the public demo saves nothing. The message is replaced by the client constant so the
    * banner and the toast recognise it by identity and render a notice, never an error. Emitted by
    * `DemoReadOnlyMiddleware`; no other deployment sends it.
@@ -282,6 +290,17 @@ export function onMoneyHidden(listener: MoneyHiddenListener): () => void {
   moneyHiddenListeners.add(listener);
   return () => {
     moneyHiddenListeners.delete(listener);
+  };
+}
+
+type ClockInRequiredListener = () => void;
+const clockInRequiredListeners = new Set<ClockInRequiredListener>();
+
+/** Subscribe to « this save waits for her arrival at the borne » (423 + `clock_in_required`). */
+export function onClockInRequired(listener: ClockInRequiredListener): () => void {
+  clockInRequiredListeners.add(listener);
+  return () => {
+    clockInRequiredListeners.delete(listener);
   };
 }
 
@@ -544,10 +563,14 @@ async function throwIfNotOk(response: Response): Promise<void> {
     let errorMessage = rawStatusLine;
     // The backend's optional machine-readable failure tag (`{ error, code }`) — see ApiErrorCode.
     let errorCode: string | undefined;
+    let errorDetails: Record<string, unknown> | undefined;
     try {
       const errorData = await response.json();
       if (errorData && typeof errorData.code === 'string' && errorData.code) {
         errorCode = errorData.code;
+      }
+      if (errorData && typeof errorData === 'object' && !Array.isArray(errorData)) {
+        errorDetails = errorData as Record<string, unknown>;
       }
       // Some endpoints return the failure reason as a bare JSON string (e.g. BadRequest(result.Error)).
       // Surface it instead of falling back to the generic "HTTP 400: ..." message.
@@ -634,6 +657,11 @@ async function throwIfNotOk(response: Response): Promise<void> {
       relayRefusedListeners.forEach((listener) => listener());
     }
 
+    // A save refused before her arrival: the gate re-reads and covers the screen (pointage-obligatoire AC-3).
+    if (errorCode === ApiErrorCode.ClockInRequired) {
+      clockInRequiredListeners.forEach((listener) => listener());
+    }
+
     // A screen still open when the cabinet was hidden from another PC: re-read, and the page swaps for its card.
     if (errorCode === ApiErrorCode.MoneyHidden) {
       moneyHiddenListeners.forEach((listener) => listener());
@@ -656,7 +684,7 @@ async function throwIfNotOk(response: Response): Promise<void> {
       secondFactorRequiredListeners.forEach((listener) => listener());
     }
 
-    throw new ApiError(response.status, errorMessage, undefined, errorCode);
+    throw new ApiError(response.status, errorMessage, undefined, errorCode, errorDetails);
   }
 }
 

@@ -15,8 +15,6 @@ namespace ClinicManagement.API.Middleware;
 /// </remarks>
 public class DemoReadOnlyMiddleware
 {
-    private const string ApiPrefix = "/api";
-
     private readonly RequestDelegate _next;
 
     public DemoReadOnlyMiddleware(RequestDelegate next)
@@ -39,16 +37,14 @@ public class DemoReadOnlyMiddleware
     private static bool IsRefused(HttpContext context)
     {
         // An unroutable path is routing's 404 to answer, never a demo refusal.
-        if (!context.Request.Path.StartsWithSegments(ApiPrefix) || context.GetEndpoint() is not { } endpoint)
+        if (!context.Request.Path.StartsWithSegments(WriteGate.ApiPrefix) || context.GetEndpoint() is not { } endpoint)
         {
             return false;
         }
 
-        return IsRead(context.Request.Method)
+        return WriteGate.IsRead(context.Request.Method)
             ? endpoint.Metadata.GetMetadata<RefusedInDemoAttribute>() is not null
             : endpoint.Metadata.GetMetadata<AllowedInDemoAttribute>() is null;
     }
 
-    private static bool IsRead(string method) =>
-        HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);
 }

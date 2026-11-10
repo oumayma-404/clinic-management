@@ -23,6 +23,11 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { NotificationPanel } from "@/components/notification-panel"
 import { StaffChatLauncher } from "@/components/staff-chat/staff-chat-launcher"
 import { HelpMenu } from "@/components/help-menu"
+import { BorneLink } from "@/components/team/borne-link"
+import { ClockChip } from "@/components/team/clock-chip"
+import { useClockStatus } from "@/components/team/clock-in-gate"
+import { OPEN_SCHEMA_EVENT, SCHEMA_DEEP_LINK } from "@/components/team/schema-setter"
+import { ClockDialog, SignOutPrompt } from "@/components/team/sign-out-prompt"
 import { PostVisitReviewPopup } from "@/components/post-visit-review-popup"
 import { FeedbackPromptCard } from "@/components/feedback/feedback-prompt-card"
 import { useNotifications } from "@/lib/hooks/use-notifications"
@@ -30,14 +35,21 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientsApi } from "@/lib/api/patients"
 import type { NotificationDto, PatientDto } from "@/lib/api/types"
 import { RELAY_CARD_ID } from "@/lib/api/relay"
+import { USERS_LEAVE_TAB, USERS_LEAVE_TAB_EVENT } from "@/lib/staff-leave"
 import { cn } from "@/lib/utils"
 import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Monitor, Sun, Moon, ArrowLeft } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { useUserStatus } from "@/lib/hooks/use-user-status"
+
+/** Paramètres → « Équipe », where the bornes and the schémas are set up. */
+const TEAM_SETTINGS_HREF = "/settings#equipe"
 
 export function DashboardHeader() {
   const { user, isLoading, mode, logout } = useSession()
   const router = useRouter()
+  // The borne probe is a request per page load; a cabinet without the pointage has no borne to find.
+  const attendanceEnabled = useUserStatus().data?.clinic?.attendanceEnabled === true
   // `theme` (the stored choice, including « système ») drives the radio; `resolvedTheme` would collapse
   // système into whichever concrete theme the OS currently reports and tick the wrong row.
   const { theme, setTheme } = useTheme()
@@ -52,6 +64,12 @@ export function DashboardHeader() {
   // no longer touches sidebar state at all.
 
   const [notifOpen, setNotifOpen] = useState(false)
+  // pointage-obligatoire AC-7: present today, « Se déconnecter » asks first.
+  const { status: clockStatus } = useClockStatus()
+  const [signOutOpen, setSignOutOpen] = useState(false)
+  const requestLogout = () => (clockStatus?.presentSince ? setSignOutOpen(true) : logout())
+  // The header chip and a « Départ non pointé » row open the same dialog: the pad on a borne, the borne's name elsewhere.
+  const [clockOpen, setClockOpen] = useState(false)
   const { notifications, unreadCount, loading, error, refetchList, markRead, markAllRead, dismiss, dismissAll } =
     useNotifications(notifOpen)
 
@@ -188,9 +206,36 @@ export function DashboardHeader() {
     }
   }
 
+  /** The pointage rows, routed by category: several share the `Attendance` target and each asks for something else. */
+  const handleAttendanceNotification = (notification: NotificationDto): boolean => {
+    switch (notification.category) {
+      case "AttendanceDepartureMissing":
+        // On a borne her departure is one pad away; elsewhere her month says which line is open.
+        if (clockStatus?.canClockOutHere && clockStatus.presentSince) setClockOpen(true)
+        else router.push("/mes-presences")
+        return true
+      case "AttendanceSchemaToCreate":
+        router.push(SCHEMA_DEEP_LINK)
+        // Already on Mon profil: the same-route push does not remount the card that reads the link.
+        if (window.location.pathname === "/mon-profil") window.dispatchEvent(new CustomEvent(OPEN_SCHEMA_EVENT))
+        return true
+      case "AttendanceBorneInstalled":
+        // The admin checks it in « Équipe »; for the device's owner the row says everything.
+        if (user?.role === "admin") router.push(TEAM_SETTINGS_HREF)
+        return true
+      case "AttendanceBorneNotReceived":
+      case "AttendanceSchemaBlocked":
+        if (isNavItemVisible("/settings", user?.role)) router.push(TEAM_SETTINGS_HREF)
+        return true
+      default:
+        return false
+    }
+  }
+
   const handleNotificationClick = (notification: NotificationDto) => {
     setNotifOpen(false)
     void markRead(notification.id)
+    if (handleAttendanceNotification(notification)) return
     // A post-visit review notification targets an appointment, but fulfilling it means adding the patient's
     // medical record (saving that record marks the appointment Completed) — NOT opening the appointment. So
     // resolve the patient from the appointment and deep-link to the Add-Medical-Record modal, mirroring the
@@ -244,6 +289,17 @@ export function DashboardHeader() {
     } else if (notification.targetKind === "RelaySettings") {
       // clinic-pc-copy AC-2.2 — admins only, like the card the row opens.
       if (isNavItemVisible("/settings", user?.role)) router.push(`/settings#${RELAY_CARD_ID}`)
+    } else if (notification.targetKind === "Attendance") {
+      // A pointage row of a category this build does not know yet: her month is the safe landing.
+      router.push("/mes-presences")
+    } else if (notification.targetKind === "StaffLeaveRequest") {
+      // conges-secretaires — an admin decides on « Utilisateurs → Congés », a secretary reads her answer on « Congés ».
+      if (user?.role === "admin") {
+        router.push(`/users?onglet=${USERS_LEAVE_TAB}`)
+        window.dispatchEvent(new CustomEvent(USERS_LEAVE_TAB_EVENT))
+      } else {
+        router.push("/conges")
+      }
     } else if (notification.targetKind === "Subscription") {
       // clinic-subscription AC-3.4 — like the two above it carries no id; a secretary may not open « Abonnement ».
       if (isNavItemVisible("/abonnement", user?.role)) router.push("/abonnement")
@@ -268,6 +324,8 @@ export function DashboardHeader() {
     <>
     <PostVisitReviewPopup />
     <FeedbackPromptCard />
+    <SignOutPrompt open={signOutOpen} onOpenChange={setSignOutOpen} />
+    <ClockDialog open={clockOpen} onOpenChange={setClockOpen} />
     {/* Reflows rather than overflows below `md:` (AC-P3.15): tighter padding and gaps, and the user block drops
         its name/email text so the row fits 375 px.
 
@@ -419,6 +477,10 @@ export function DashboardHeader() {
       <div className="flex shrink-0 items-center gap-1 md:gap-4">
         <ConnectivityIndicator />
 
+        <ClockChip onOpen={() => setClockOpen(true)} />
+
+        {attendanceEnabled && <BorneLink variant="header" />}
+
         <HelpMenu />
 
         <StaffChatLauncher />
@@ -537,7 +599,7 @@ export function DashboardHeader() {
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={logout}
+                onClick={requestLogout}
                 className="flex items-center text-destructive cursor-pointer"
               >
                 <LogOut className="mr-2 h-4 w-4" />

@@ -6,6 +6,9 @@ namespace ClinicManagement.Domain.Repositories;
 public interface IUserRepository
 {
     Task<User?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>Holds the account's row until the open transaction ends, so two requests cannot both read its counters.</summary>
+    Task LockForUpdateAsync(string id, CancellationToken cancellationToken = default);
     Task<IEnumerable<User>> GetAllAsync(CancellationToken cancellationToken = default);
     /// <summary>
     /// The clinic's staff list, ordered by name (it had no ordering, which paging cannot tolerate).

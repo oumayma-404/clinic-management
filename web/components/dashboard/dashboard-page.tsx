@@ -32,6 +32,8 @@ import { KpiGrid } from "@/components/dashboard/kpi-grid"
 import { DashboardSection } from "@/components/dashboard/dashboard-section"
 import { DashboardCustomizer } from "@/components/dashboard/dashboard-customizer"
 import { GettingStartedBlock } from "@/components/dashboard/getting-started-card"
+import { PendingLeaveBlock, TeamTodayBlock } from "@/components/dashboard/team-today-block"
+import { useUserStatus } from "@/lib/hooks/use-user-status"
 import { useGuide } from "@/components/guide/guide-provider"
 import { SHOW_PREMIERS_PAS_EVENT, takeShowPremiersPasRequest } from "@/lib/getting-started-celebration"
 import { useGettingStarted } from "@/lib/hooks/use-getting-started"
@@ -89,6 +91,8 @@ const PERIODS: DashboardPeriodKey[] = ["Today", "Week", "Month"]
 
 /** « Premiers pas » left out of « Personnaliser » whenever the card does not apply to this reader. */
 const GETTING_STARTED_OMITTED: readonly DashboardBlockKey[] = ["gettingStarted"]
+/** « Équipe aujourd'hui » left out unless an admin reads a cabinet with the pointage or the congés on. */
+const TEAM_TODAY_OMITTED: readonly DashboardBlockKey[] = ["teamToday"]
 
 /** How often the day zones re-read the clock. A minute is the finest unit anything here displays. */
 const CLOCK_TICK_MS = 60_000
@@ -194,6 +198,16 @@ function DashboardContent() {
   const isAdmin = user?.role === "admin"
   const gettingStarted = useGettingStarted(isAdmin)
   const gettingStartedApplies = isAdmin && gettingStarted.data?.visible === true
+  const { data: userStatus } = useUserStatus()
+  const attendanceOn = userStatus?.clinic?.attendanceEnabled === true
+  const teamTodayApplies = isAdmin && (attendanceOn || userStatus?.clinic?.leaveRequestsEnabled === true)
+  const omittedBlocks = useMemo(
+    () => [
+      ...(gettingStartedApplies ? [] : GETTING_STARTED_OMITTED),
+      ...(teamTodayApplies ? [] : TEAM_TODAY_OMITTED),
+    ],
+    [gettingStartedApplies, teamTodayApplies],
+  )
 
   // « Aide » → « Premiers pas »: the card comes back if it was hidden, and the guided tour resumes on its next step.
   const { continueTour } = useGuide()
@@ -516,7 +530,7 @@ function DashboardContent() {
             onShowAll={showAll}
             saving={saving}
             disabled={prefsLoading}
-            omitKeys={gettingStartedApplies ? undefined : GETTING_STARTED_OMITTED}
+            omitKeys={omittedBlocks}
           />
         </div>
 
@@ -566,6 +580,8 @@ function DashboardContent() {
             />
           </DashboardSection>
         )}
+
+        {teamTodayApplies && !prefsLoading && isVisible("teamToday") && (attendanceOn ? <TeamTodayBlock /> : <PendingLeaveBlock />)}
 
         {/*
           ZONE 6 — la prochaine journée ouvrée.

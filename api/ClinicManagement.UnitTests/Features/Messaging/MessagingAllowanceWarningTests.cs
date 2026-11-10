@@ -447,6 +447,10 @@ public class MessagingAllowanceWarningTests
         public Task<IReadOnlyList<Guid>> GetClinicIdsWithRelayAlertsAsync(
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+        public Task<bool> ExistsForUserSinceAsync(
+            Guid clinicId, NotificationCategory category, string targetUserId, DateTime sinceUtc,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
     }
 
     private sealed class Harness

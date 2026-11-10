@@ -39,6 +39,7 @@ public class PushDevicesController : ApiControllerBase
     /// </summary>
     [HttpPost]
     [AllowsWithoutSubscription("FR-3, AC-4.7 — fired at every mobile sign-in; refusing it breaks signing in.")]
+    [AllowsBeforeClockIn("Fired at every mobile sign-in; the departure reminder reaches her phone through it.")]
     public async Task<IActionResult> Register([FromBody] RegisterPushDeviceCommand command)
     {
         if (!_availability.IsAvailableAtAll)
@@ -56,6 +57,7 @@ public class PushDevicesController : ApiControllerBase
     /// </summary>
     [HttpDelete("{token}")]
     [AllowsWithoutSubscription("FR-3 — the mirror of registration: signing out must not depend on an invoice.")]
+    [AllowsBeforeClockIn("The mirror of registration: signing out must not wait for a pointage.")]
     public async Task<IActionResult> Deregister(string token)
     {
         if (!_availability.IsAvailableAtAll)
@@ -73,6 +75,7 @@ public class PushDevicesController : ApiControllerBase
     /// </summary>
     [HttpPost("release")]
     [AllowsWithoutSubscription("FR-3 — the mirror of registration: signing out must not depend on an invoice.")]
+    [AllowsBeforeClockIn("The mirror of registration: signing out must not wait for a pointage.")]
     public async Task<IActionResult> Release([FromBody] DeletePushDeviceCommand command)
     {
         if (!_availability.IsAvailableAtAll)

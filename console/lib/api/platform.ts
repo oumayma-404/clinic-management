@@ -797,10 +797,15 @@ export async function fetchFeedback(token: string, query: FeedbackQuery): Promis
 
 // ── News e-mails (`console-news-broadcast`) ──────────────────────────────────────────────────────────────────
 
-/** One row of the news form: an emoji and one line of text. */
+/**
+ * One row of the news form: an emoji and one line of text, plus its optional guide — a description and up to five
+ * numbered steps (« Comment ça marche »). Blank steps are dropped server-side.
+ */
 export interface PlatformNewsItem {
   emoji: string;
   text: string;
+  description: string;
+  steps: string[];
 }
 
 /** One address « Envoyer » would reach. `adminName` is null when the account has none. */

@@ -122,8 +122,7 @@ public static class WorkingHoursResolver
         }
 
         var dayName = WorkingHoursSerializer.Weekdays[(int)localStart.DayOfWeek];
-        var day = hours.Days.FirstOrDefault(d =>
-            string.Equals(d.Day?.Trim(), dayName, StringComparison.OrdinalIgnoreCase));
+        var day = WorkingHoursSerializer.DayOf(hours.Days, localStart.DayOfWeek);
 
         if (day == null || !day.Enabled)
         {

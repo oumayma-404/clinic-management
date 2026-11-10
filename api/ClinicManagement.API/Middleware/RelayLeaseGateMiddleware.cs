@@ -33,8 +33,6 @@ namespace ClinicManagement.API.Middleware;
 /// </summary>
 public class RelayLeaseGateMiddleware
 {
-    private const string ApiPrefix = "/api";
-
     private readonly RequestDelegate _next;
 
     public RelayLeaseGateMiddleware(RequestDelegate next)
@@ -52,7 +50,7 @@ public class RelayLeaseGateMiddleware
         // AC-8.1: a retired PC opens for administrators only. A colleague still signed in when the cloud retired it is
         // signed out (401) — reads included — and the sign-in form then gives the reason.
         if (deployment.MirrorsCloudClinic
-            && context.Request.Path.StartsWithSegments(ApiPrefix)
+            && context.Request.Path.StartsWithSegments(WriteGate.ApiPrefix)
             && relayLocal.IsRetired
             && IsSignedInNonAdmin(context))
         {
@@ -101,7 +99,7 @@ public class RelayLeaseGateMiddleware
     /// <summary>FR-5 on a PC holding the cabinet's saves: refused whatever the method — an archive download is a GET.</summary>
     private static bool OnlineOnlyApplies(HttpContext context, DeploymentProfile deployment, IRelayLocalStatus relayLocal) =>
         deployment.MirrorsCloudClinic
-        && context.Request.Path.StartsWithSegments(ApiPrefix)
+        && context.Request.Path.StartsWithSegments(WriteGate.ApiPrefix)
         && relayLocal.IsHolding
         && context.GetEndpoint() is { } endpoint
         && endpoint.Metadata.GetMetadata<OnlineOnlyAttribute>() is not null;
@@ -112,8 +110,8 @@ public class RelayLeaseGateMiddleware
     /// </summary>
     private static bool FenceApplies(HttpContext context, DeploymentProfile deployment, ITenantScope tenantScope) =>
         deployment.PublishesChangeFeed
-        && context.Request.Path.StartsWithSegments(ApiPrefix)
-        && !IsRead(context.Request.Method)
+        && context.Request.Path.StartsWithSegments(WriteGate.ApiPrefix)
+        && !WriteGate.IsRead(context.Request.Method)
         && tenantScope.Kind == TenantScopeKind.Clinic
         && tenantScope.ClinicId is not null
         && context.GetEndpoint() is { } endpoint
@@ -125,9 +123,9 @@ public class RelayLeaseGateMiddleware
     /// </remarks>
     private static bool Applies(HttpContext context, DeploymentProfile deployment, IRelayLocalStatus relayLocal) =>
         deployment.MirrorsCloudClinic
-        && context.Request.Path.StartsWithSegments(ApiPrefix)
+        && context.Request.Path.StartsWithSegments(WriteGate.ApiPrefix)
         && !relayLocal.IsHolding
-        && !IsRead(context.Request.Method)
+        && !WriteGate.IsRead(context.Request.Method)
         && context.GetEndpoint() is { } endpoint
         && endpoint.Metadata.GetMetadata<AllowedOnStandbyRelayAttribute>() is null;
 
@@ -138,6 +136,4 @@ public class RelayLeaseGateMiddleware
         && role is string r
         && !string.Equals(r, Domain.Entities.User.RoleAdmin, StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsRead(string method) =>
-        HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);
 }

@@ -99,6 +99,9 @@ public static class ClinicArchiveScope
         // guided-first-days C: a one-time credential for an account the archive does not carry — restoring it would
         // re-arm a link nobody can still use; and an online-only flow, so it stays off the PC de secours too.
         nameof(StaffInvitation),
+        // pointage-borne: its secret lives only in the device's cookie, so a restored row names a borne nobody can
+        // reach; the lines travel and keep the borne's name.
+        nameof(AttendanceTerminal),
         nameof(ClinicReminderSettings),
         nameof(PlatformAccount),
         nameof(PlatformRecoveryCode),

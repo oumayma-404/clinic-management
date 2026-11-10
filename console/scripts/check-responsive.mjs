@@ -248,7 +248,8 @@ check(
   "news-limits-match-the-server",
   "N10",
   "The news form's limits and default emoji equal the server's",
-  "`news-composer.tsx` caps the subject, a row and the row count, and picks a default emoji, from constants that " +
+  "`news-composer.tsx` caps the subject, a row, the row count and each row's guide (description, step count, " +
+    "step length), and picks a default emoji, from constants that " +
     "copy `PlatformNewsBroadcast`, `PlatformNewsItem` and `PlatformNewsRules`. Nothing else ties them: raise a " +
     "limit on one side and the form accepts text the send then refuses, or forbids text the server would take.",
   () => {
@@ -257,6 +258,10 @@ check(
       ["MAX_ITEMS", "ClinicManagement.Domain/Entities/PlatformNewsBroadcast.cs", /const int MaxItems = (\d+);/],
       ["SUBJECT_MAX", "ClinicManagement.Domain/Entities/PlatformNewsBroadcast.cs", /const int SubjectMaxLength = (\d+);/],
       ["TEXT_MAX", "ClinicManagement.Domain/ValueObjects/PlatformNewsItem.cs", /const int TextMaxLength = (\d+);/],
+      // A row's guide (2026-11-10): one paragraph, and at most N steps of at most M characters each.
+      ["DESCRIPTION_MAX", "ClinicManagement.Domain/ValueObjects/PlatformNewsItem.cs", /const int DescriptionMaxLength = (\d+);/],
+      ["MAX_STEPS", "ClinicManagement.Domain/ValueObjects/PlatformNewsItem.cs", /const int MaxSteps = (\d+);/],
+      ["STEP_MAX", "ClinicManagement.Domain/ValueObjects/PlatformNewsItem.cs", /const int StepMaxLength = (\d+);/],
       ["EMOJIS[0]", "ClinicManagement.Application/Features/Platform/PlatformNews.cs", /DefaultEmoji = "([^"]+)";/],
     ];
     const composer = ALL_FILES.find((f) => rel(f) === "components/news-composer.tsx");

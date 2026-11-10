@@ -229,5 +229,6 @@ public class RelayFenceTests
         public bool IsRetired => retired;
         public DateTime? RetiredAtUtc => null;
         public bool IsHolding => holding;
+        public bool IsPcDeSecours => false;
     }
 }

@@ -1,11 +1,13 @@
 import {
   ShieldCheck,
   BellRing,
+  CalendarOff,
   Calendar,
   ClipboardCheck,
   Clock,
   CreditCard,
   FileCheck,
+  Fingerprint,
   FlaskConical,
   FolderOpen,
   LayoutDashboard,
@@ -56,9 +58,12 @@ const FINANCES_SECTION_TITLE = "Finances"
 // and links to `/patients/{id}/files`, which is still the only place a file is uploaded, moved or deleted. The
 // old row was removed because it duplicated that page; this one exists because nothing answered « which patient
 // has the scan? » without opening records one by one.
+/** The section « Congés » joins for a secretary — named once, so renaming it cannot drop the entry. */
+const DAILY_SECTION_TITLE = "Quotidien"
+
 export const baseSections: NavSection[] = [
   {
-    title: "Quotidien",
+    title: DAILY_SECTION_TITLE,
     items: [
       { name: "Tableau de bord", href: "/", icon: LayoutDashboard },
       { name: "Rendez-vous", href: "/appointments", icon: Calendar },
@@ -231,6 +236,12 @@ export function isNavItemVisible(href: string, role: string | null | undefined, 
   return !hidesClinicWideMoney(role) || !SECRETARY_HIDDEN_HREFS.has(href)
 }
 
+/** « Congés » — a secretary's own congés, while the cabinet has them switched on (`conges-secretaires`). */
+export const LEAVE_NAV_ITEM: NavItem = { name: "Congés", href: "/conges", icon: CalendarOff }
+
+/** « Mes présences » — her own pointage and schéma, for an account that pointe (`pointage-borne`). */
+export const MY_ATTENDANCE_NAV_ITEM: NavItem = { name: "Mes présences", href: "/mes-presences", icon: Fingerprint }
+
 /**
  * Every destination this role can reach, grouped.
  *
@@ -245,11 +256,22 @@ export function buildNavSections(
   showSubscription = true,
   /** « Mode discret » is on — see {@link MONEY_HIDDEN_HREFS}. Defaults to shown, so `zones.ts`' icon map stays complete. */
   moneyHidden = false,
+  /** The cabinet has secretary congés switched on — adds {@link LEAVE_NAV_ITEM} for a secretary. */
+  leaveRequests = false,
+  /** This account pointe (its clock status says `tracked`) — adds {@link MY_ATTENDANCE_NAV_ITEM}, whatever the role. */
+  attendanceTracked = false,
 ): NavSection[] {
+  const ownItems = [
+    ...(leaveRequests && role === "secretary" ? [LEAVE_NAV_ITEM] : []),
+    ...(attendanceTracked ? [MY_ATTENDANCE_NAV_ITEM] : []),
+  ]
   const visible = baseSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((i) => isNavItemVisible(i.href, role, moneyHidden)),
+      items: [
+        ...section.items,
+        ...(section.title === DAILY_SECTION_TITLE ? ownItems : []),
+      ].filter((i) => isNavItemVisible(i.href, role, moneyHidden)),
     }))
     .filter((section) => section.items.length > 0)
 
@@ -278,6 +300,8 @@ export const HIDDEN_PATHS = [
   "/signup",
   // demo-cabinet: the entry screen is the one page of the demo with no app around it.
   "/demo",
+  // pointage-borne: a reception device nobody is meant to be signed in on — no chat, banner or bottom bar over it.
+  "/pointage",
 ]
 
 /** True on a route that deliberately renders without the app chrome. */

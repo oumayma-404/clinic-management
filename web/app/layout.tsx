@@ -10,6 +10,7 @@ import { ClinicRealtimeProvider } from "@/lib/realtime/clinic-realtime-provider"
 import { QueryProvider } from "@/lib/query/query-provider"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { StaffChatProvider } from "@/components/staff-chat/staff-chat-provider"
+import { ClockStatusProvider } from "@/components/team/clock-in-gate"
 import { GuideProvider } from "@/components/guide/guide-provider"
 import { AppToaster } from "@/components/app-toaster"
 import { ClientVersionGate } from "@/components/client-version-gate"
@@ -136,10 +137,15 @@ export default function RootLayout({
                   <MoneyVisibilityProvider>
                     <ConnectivityProvider>
                       <SidebarProvider>
-                        <StaffChatProvider>
-                          {/* « Me guider »: above every page, so a guide survives the page changes it asks for. */}
-                          <GuideProvider>{children}</GuideProvider>
-                        </StaffChatProvider>
+                        {/* pointage-obligatoire: « Pointez votre arrivée » over every signed-in screen, and the status
+                            « Se déconnecter » reads. Inside realtime, which lifts it on her punch; above the chat,
+                            whose notices stand down while it covers the screen. */}
+                        <ClockStatusProvider>
+                          <StaffChatProvider>
+                            {/* « Me guider »: above every page, so a guide survives the page changes it asks for. */}
+                            <GuideProvider>{children}</GuideProvider>
+                          </StaffChatProvider>
+                        </ClockStatusProvider>
                       </SidebarProvider>
                     </ConnectivityProvider>
                   </MoneyVisibilityProvider>

@@ -58,6 +58,9 @@ function normalizeDigits(digits: string): string {
   )}`
 }
 
+/** What a field shows mid-typing (« 93:0 ») read as the time its blur will commit (« 09:30 »), or `""`. */
+export const timeFromTyped = (raw: string): string => normalizeDigits(digitsOf(raw))
+
 export function TimeInput({
   id,
   value,

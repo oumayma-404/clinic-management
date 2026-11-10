@@ -1,5 +1,5 @@
 import {
-  ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react"
+  CalendarOff, Fingerprint, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react"
 import { buildNavSections, NEWS_NAV_ITEM } from "@/lib/nav"
 
 /**
@@ -133,6 +133,7 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/a-cloturer", "daily"],
   ["/recurring-series", "daily"],
   ["/waiting-list", "daily"],
+  ["/conges", "daily"],
   ["/patients", "daily"],
   // « Fichiers » is the patient list read a different way, so it shares its zone — and it must be listed
   // explicitly rather than left to the `daily` fall-back, or the rail would highlight one hue while the page
@@ -212,6 +213,10 @@ const NAV_ICONS: Array<[string, LucideIcon]> = buildNavSections("admin").flatMap
  */
 const EXTRA_ICONS: Array<[string, LucideIcon]> = [
   ["/mon-profil", UserRound],
+  // A secretary's own congés: in her rail only, and only while the cabinet has them switched on.
+  ["/conges", CalendarOff],
+  // Her own pointage: in her rail only while her account pointe.
+  ["/mes-presences", Fingerprint],
   ["/securite", ShieldCheck],
   [NEWS_NAV_ITEM.href, NEWS_NAV_ITEM.icon],
   ["/patients", Users],

@@ -44,6 +44,8 @@ import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { MoneyDiscreetCard } from "@/components/money-discreet-card"
+import { TeamModulesCard } from "@/components/team-modules-card"
+import { SETTINGS_HOURS_ANCHOR, SHOW_SETTINGS_HOURS_EVENT } from "@/components/team/attendance-settings-card"
 import { RelayCard } from "@/components/relay/relay-card"
 import { LetterheadCard } from "@/components/letterhead/letterhead-card"
 import { useSelfRegistrationEnabled } from "@/lib/hooks/use-password-policy"
@@ -224,6 +226,18 @@ export default function ClinicSettings() {
     loadClinicData()
   }, [])
 
+  // « Définir les horaires » in Équipe's setup: open the card and bring it into view.
+  useEffect(() => {
+    const reveal = () => {
+      setIsHoursCollapsed(false)
+      requestAnimationFrame(() =>
+        document.getElementById(SETTINGS_HOURS_ANCHOR)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      )
+    }
+    window.addEventListener(SHOW_SETTINGS_HOURS_EVENT, reveal)
+    return () => window.removeEventListener(SHOW_SETTINGS_HOURS_EVENT, reveal)
+  }, [])
+
   // The loader is for the FIRST read only: on a later one it unmounted every card and reopened them all closed.
   const loadedOnce = useRef(false)
   const loadClinicData = async () => {
@@ -379,7 +393,10 @@ export default function ClinicSettings() {
   const [clinicVersion, setClinicVersion] = useState<number | undefined>(undefined)
   const [clinicNameError, setClinicNameError] = useState<string | null>(null)
 
+  // The « Équipe » switch writes this row too; its own broadcast is not a colleague's change.
+  const ownSwitchSavedAt = useRef(0)
   useClinicRealtime(RealtimeResource.Clinics, () => {
+    if (Date.now() - ownSwitchSavedAt.current < 5000) return
     if (!isEditingClinicInfo && !isEditingDoctors && !isEditingHours && !isEditingBilling) {
       loadClinicData()
       return
@@ -1271,7 +1288,7 @@ export default function ClinicSettings() {
         </Card>
 
         {/* Working Hours Card Collapsible */}
-        <Card>
+        <Card id={SETTINGS_HOURS_ANCHOR} className="scroll-mt-20">
           <CardHeader className="pb-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <button
@@ -1419,6 +1436,16 @@ export default function ClinicSettings() {
             </CardContent>
           )}
         </Card>
+
+        {/* « Équipe » beside « Horaires »: the pointage's first step is the hours above it. */}
+        {isClinicAdmin && (
+          <TeamModulesCard
+            onSaved={(version) => {
+              ownSwitchSavedAt.current = Date.now()
+              setClinicVersion(version)
+            }}
+          />
+        )}
 
         {/* Billing / note-d'honoraires settings */}
         <Card>

@@ -18,6 +18,7 @@ import { RecoveryCodesPanel } from '@/components/security/recovery-codes-panel'
 import { usePasswordResetEnabled, useSecondFactorRecovery } from '@/lib/hooks/use-password-policy'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { appSurface } from '@/lib/shell'
+import { BorneLink } from '@/components/team/borne-link'
 
 export default function LoginPage() {
   const { user, isLoading, mode } = useSession()
@@ -324,12 +325,13 @@ function LocalLoginForm() {
         // Sent only once the field exists, so « pas encore demandé » stays distinct from « demandé et faux ».
         // `trustDevice` rides every attempt including the first: the first one opens no session, so the server
         // reads and discards it — sending it only on the second would mean tracking which attempt this is.
+        // Named on every sign-in, trusted or not: « Ajouter une borne » lists the shared reception PC by it.
         body: JSON.stringify({
           email,
           password,
           ...(totpCode ? { totpCode } : {}),
           trustDevice,
-          ...(trustDevice ? { deviceLabel: deviceName() } : {}),
+          deviceLabel: deviceName(),
           // The first sign-in from the phone app ticks « Votre téléphone » in « Premiers pas ».
           clientSurface: appSurface(),
         }),
@@ -781,6 +783,8 @@ function LocalLoginForm() {
         </Button>
 
         <ForgotPasswordLine />
+
+        <BorneLink variant="login" />
 
         {/* /signup states « Inscription non disponible ici » itself where the capability is off, so this
             link needs no probe of its own — unlike the retired /join one, whose code path is closed. */}

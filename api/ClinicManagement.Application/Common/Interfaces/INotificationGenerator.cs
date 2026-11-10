@@ -334,4 +334,34 @@ public interface INotificationGenerator
     /// </summary>
     Task SyncRelayAlertsAsync(
         Guid clinicId, IReadOnlyList<Features.Relay.RelayAlertRow> wanted, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A secretary congé event (<c>conges-secretaires</c>): for <paramref name="targetUserId"/> alone, or — when null —
+    /// for the cabinet's admins (<c>TargetRole</c>). In-app only; the categories are classified <c>false</c> in
+    /// <see cref="Common.Services.StaffNotificationRules.ReachesALockedPhone"/>.
+    /// </summary>
+    Task StaffLeaveAsync(
+        Guid clinicId,
+        Domain.Enums.NotificationCategory category,
+        string title,
+        string message,
+        string actorUserId,
+        string? targetUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// « Départ non pointé — Arrivée à 08:02 : pointez votre départ à la borne « Accueil ». » (<c>pointage-obligatoire</c> AC-6), for her alone
+    /// and pushed to her phone. The caller dedupes (once per line) on the bell row, so true only once that row is written.
+    /// </summary>
+    Task<bool> AttendanceDepartureMissingAsync(
+        Guid clinicId, string targetUserId, string since, IReadOnlyList<string> bornes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A pointage setup event (<c>StaffNotification.ForAttendance</c>): for one person, or for every admin when
+    /// <paramref name="targetUserId"/> is null. True once the row is written — the push follows only then.
+    /// </summary>
+    Task<bool> AttendanceNoticeAsync(
+        Guid clinicId, Domain.Enums.NotificationCategory category, string title, string message, string? targetUserId,
+        string? actorUserId, CancellationToken cancellationToken = default);
 }

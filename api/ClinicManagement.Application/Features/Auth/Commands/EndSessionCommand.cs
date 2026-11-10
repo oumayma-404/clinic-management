@@ -70,15 +70,18 @@ public enum SessionEnding
 public class EndSessionCommandHandler : IRequestHandler<EndSessionCommand, Result>
 {
     private readonly ISessionFamilyRepository _sessionFamilies;
+    private readonly Team.AttendanceNotifier _attendance;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<EndSessionCommandHandler> _logger;
 
     public EndSessionCommandHandler(
         ISessionFamilyRepository sessionFamilies,
+        Team.AttendanceNotifier attendance,
         IUnitOfWork unitOfWork,
         ILogger<EndSessionCommandHandler> logger)
     {
         _sessionFamilies = sessionFamilies;
+        _attendance = attendance;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -119,6 +122,8 @@ public class EndSessionCommandHandler : IRequestHandler<EndSessionCommand, Resul
             {
                 family.End(ReasonFor(request.Ending));
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
+                // A borne still waiting for this device will never arrive: the admins are told.
+                await _attendance.SessionEndedAsync(family, cancellationToken);
             }
         }
         catch (Exception ex)

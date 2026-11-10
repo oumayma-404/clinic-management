@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { AlertTriangle, Loader2, MessageSquare, Volume2, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { useClockStatus } from "@/components/team/clock-in-gate"
 import type { StaffQuickMessageDto } from "@/lib/api/staff-chat"
 import { useSession } from "@/lib/auth/session"
 import { showErrorToast } from "@/lib/errors"
@@ -28,12 +29,13 @@ import { useStaffChat } from "./staff-chat-provider"
  */
 export function StaffChatNotices() {
   const { locked } = useSession()
+  const { covering: clockInLock } = useClockStatus()
   const { isOpen } = useStaffChat()
   const notices = useStaffChatNotices()
   const quick = useStaffQuickMessages(notices.length > 0)
   const replies = (quick.data?.items ?? []).filter((item) => item.for === "reply").slice(0, 2)
 
-  if (locked || notices.length === 0 || typeof document === "undefined") return null
+  if (locked || clockInLock || notices.length === 0 || typeof document === "undefined") return null
 
   return createPortal(
     <div

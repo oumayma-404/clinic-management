@@ -141,3 +141,47 @@ Every news the console sends is also kept on a page of the app, for the cabinet'
 - No journal row: the portfolio already lists each cabinet's admin address unjournaled; AC-7.3 journals a single
   cabinet's detail read only. `PlatformReadShape` gains `RecipientList` / `SkippedClinics`; the row fields reuse the
   portfolio's `ClinicName` / `AdminName` / `AdminEmail`. Blast radius: `blast-radius-recipient-list.md`.
+
+## Part 4 — Guide par nouveauté + contact WhatsApp (owner's request, 2026-11-10)
+
+> « A way to explain the new features to the users: a small section with a description, describing how the feature
+> works, guiding them a bit, and at the end "if you have any questions, contact us" with the WhatsApp link. »
+
+Decided by the owner: the guide lives **under each news row** (each feature can carry its own).
+
+```
+🌴 Congés des secrétaires
+   La secrétaire demande, vous décidez.          ← optional description
+   Comment ça marche :                           ← only when there are steps
+   1. Paramètres → Équipe : activez « Congés »
+   2. Utilisateurs → la secrétaire : fixez son droit
+──────────────────────────
+Une question ? Écrivez-nous sur WhatsApp          ← every news post
+[ 💬 WhatsApp +216 51 230 456 ]                    ← wa.me link
+```
+
+- AC-4.1 Each row gains two optional fields: a **description** (≤ 400 characters, whitespace collapsed to one
+  paragraph) and **steps** (0–5, each ≤ 160 characters, whitespace collapsed, blank ones dropped). A row with neither
+  renders exactly as before, in the e-mail and in the app.
+- AC-4.2 Refused with `news_invalid` and a French sentence: a description over 400, more than 5 steps, a step over 160,
+  and a row carrying a guide but **no text** (dropping it, like a blank row, would lose the guide unseen). The preview
+  never refuses: it cuts.
+- AC-4.3 Stored on `PlatformNewsItems` (`Description` varchar(400) NULL, `Steps` text holding a JSON array, `""` on
+  older rows = no steps), migration `AddPlatformNewsItemGuide`, purely additive. `PlatformNewsDraft.From` carries the
+  guide, so a send resumed by the sweep mails what the preview showed.
+- AC-4.4 The e-mail renders the guide under its bullet — description muted, « Comment ça marche : » then « 1. » … in a
+  fixed-width number cell (a table, not an `<ol>`, for Outlook) — in HTML and in text/plain, escaped like every value.
+- AC-4.5 Every news e-mail (preview, test, real send — the one composer) closes with « Une question ? Écrivez-nous sur
+  WhatsApp » and a **link** (not a second button) to `https://wa.me/<digits>?text=Bonjour, ici <cabinet>.`, after
+  « Ouvrir Apexa » and before the sign-off. The number is the « Aide » menu's own (`Subscription:WhatsAppPhone`, else
+  `ContactPhone`, never hard-coded); none configured, or none that parses → no block, no dead link.
+- AC-4.6 AC-10 still holds as bytes: every other transactional e-mail, and a news bullet with no guide, render
+  identical to before (`EmailLayoutTests`, SHA-256 of the pre-change output).
+- AC-4.7 `/nouveautes` shows each row's description and numbered steps, and closes each card with the same sentence and
+  a WhatsApp button — `useHelpContact()`, the « Aide » menu's data and link, no second read. No number → no footer.
+- AC-4.8 Console: each row has a collapsed « Ajouter un guide » disclosure (« Modifier le guide · N étapes » once
+  filled, « Masquer le guide » while open) with a description and up to 5 step fields (add / remove); the live preview
+  shows them; the draft keeps them. 320 px and 44 px on a finger, as AC-11. `check:responsive` N10 now also ties the
+  three guide limits to `PlatformNewsItem`'s constants.
+- Out of scope: rich text or links inside a guide, a guide on the news as a whole, a per-news contact number.
+  Blast radius: `blast-radius-news-guide.md`.

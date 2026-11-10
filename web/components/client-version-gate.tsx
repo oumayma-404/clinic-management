@@ -72,8 +72,8 @@ export function ClientVersionGate() {
   return (
     /*
      * `h-dvh`, so the box is exactly the *dynamic* viewport and scrolls inside itself when a phone's chrome or
-     * keyboard shrinks it. `z-50` clears the toaster — the refusal that put this here also raised a toast, and a
-     * toast over a takeover is noise.
+     * keyboard shrinks it. `z-[56]` clears the toaster — the refusal that put this here also raised a toast, and a
+     * toast over a takeover is noise — and the arrival lock (`z-[55]`), whose punch the old build cannot send.
      *
      * ⚠️ Centred with `my-auto` on the card, NOT `items-center` on the scroller. This is § 11's clipping trap on
      * the vertical axis: `align-items: center` pushes overflow to *both* ends and the top overflow is outside
@@ -85,7 +85,7 @@ export function ClientVersionGate() {
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="client-version-gate-title"
-      className="fixed inset-0 z-50 flex h-dvh items-start justify-center overflow-y-auto bg-background p-4"
+      className="fixed inset-0 z-[56] flex h-dvh items-start justify-center overflow-y-auto bg-background p-4"
     >
       <Card className="my-auto w-full max-w-md">
         <CardHeader className="space-y-3 text-center">

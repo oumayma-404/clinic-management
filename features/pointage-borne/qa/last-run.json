@@ -1,0 +1,620 @@
+{
+  "results": [
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "a non-borne /login has no « Pointage » button"
+    },
+    {
+      "id": "D2",
+      "outcome": "pass",
+      "m": "the secretary signed in through the unchanged form"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "pointage switch off by default"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "toast « Pointage activé. »"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "« Bornes » (« Aucune borne ») + « Personnes qui pointent » appear"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "both active secretaries pointent by default"
+    },
+    {
+      "id": "A1",
+      "outcome": "pass",
+      "m": "Dr Nadia (doctor) does not"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "name prefilled « Accueil »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "toast « Cet appareil est maintenant la borne « Accueil » »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "list: « Accueil · cet appareil · Jamais utilisée »"
+    },
+    {
+      "id": "A2",
+      "outcome": "pass",
+      "m": "cookie apexa_borne HttpOnly · /api/pointage · Strict"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "card « Schéma de pointage · À créer avant de pointer à la borne »"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "step 2 « Tracez-le à nouveau »"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "toast « Schéma de pointage enregistré. »"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "card reads « Enregistré » + « Changer de schéma »"
+    },
+    {
+      "id": "A3",
+      "outcome": "pass",
+      "m": "« Mes présences » card shown"
+    },
+    {
+      "id": "A4",
+      "outcome": "pass",
+      "m": "stored schéma is a hash, not the pattern"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "header reads « Borne Accueil »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "Ines tile « Pas encore arrivée »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "QA 991861 tile « Schéma à créer dans Mon profil », disabled"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "« Arrivée » in large before the pad"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "confirmation « Arrivée enregistrée · HH:mm · Borne Accueil »"
+    },
+    {
+      "id": "A5",
+      "outcome": "pass",
+      "m": "back to the tiles, Ines « Présente depuis 23:04 »"
+    },
+    {
+      "id": "A6",
+      "outcome": "pass",
+      "m": "one open row today, terminal Accueil, punched = counted"
+    },
+    {
+      "id": "A7",
+      "outcome": "pass",
+      "m": "admin's « Aujourd'hui » shows Ines present without a reload"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "« Départ » in large"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "confirmation « Départ enregistré »"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "tile back to « Pas encore arrivée »"
+    },
+    {
+      "id": "A8",
+      "outcome": "pass",
+      "m": "row closed, DepartureSource 0 (borne)"
+    },
+    {
+      "id": "A9",
+      "outcome": "pass",
+      "m": "a second row today, open (lunch)"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "tabs « Comptes · Congés · Présences »"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "sheet table with an Ines column"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "today row: one closed line + one « présente »"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "Sunday 1 row hatched (closed day)"
+    },
+    {
+      "id": "A10",
+      "outcome": "pass",
+      "m": "« Total » row"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "toast « Pointage ajouté. »"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "3 nov: « 08:30 – Départ non pointé »"
+    },
+    {
+      "id": "A11",
+      "outcome": "pass",
+      "m": "…with a « Corriger » button"
+    },
+    {
+      "id": "B10",
+      "outcome": "pass",
+      "m": "empty motif refused, dialog stays open"
+    },
+    {
+      "id": "C3",
+      "outcome": "pass",
+      "m": "« Corriger » footer visible at 1536×730 without scrolling"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "dialog names « Ines Gharbi · mardi 3 novembre »"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "borne hours line (none for an admin-added line)"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "toast « Pointage corrigé. »"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "line « 08:30 – 17:00 » + « Corrigé »"
+    },
+    {
+      "id": "A12",
+      "outcome": "pass",
+      "m": "review: the motif reads on the line, no hover needed"
+    },
+    {
+      "id": "A13",
+      "outcome": "pass",
+      "m": "DepartureSource 2, motif kept, no invented borne hour"
+    },
+    {
+      "id": "R-keep",
+      "outcome": "pass",
+      "m": "review: « Ajouter un pointage » keeps what was typed through a punch broadcast"
+    },
+    {
+      "id": "R-overlap",
+      "outcome": "pass",
+      "m": "review: an overlapping line is refused by name, dialog stays open"
+    },
+    {
+      "id": "R-overlap",
+      "outcome": "pass",
+      "m": "no line written"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "stale save refused with « Recharger »"
+    },
+    {
+      "id": "C5",
+      "outcome": "pass",
+      "m": "Recharger shows the new departure 17:30"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "download named by the server (presences-AAAA-MM-JJ.csv)"
+    },
+    {
+      "id": "A14",
+      "outcome": "pass",
+      "m": "CSV names Ines and the corrected line"
+    },
+    {
+      "id": "R-month",
+      "outcome": "pass",
+      "m": "review: failed « Mois précédent » says so, hides November, disables « Exporter »"
+    },
+    {
+      "id": "R-month",
+      "outcome": "pass",
+      "m": "« Réessayer » loads October"
+    },
+    {
+      "id": "C6",
+      "outcome": "pass",
+      "m": "« Mois suivant » disabled on the current month"
+    },
+    {
+      "id": "C6",
+      "outcome": "pass",
+      "m": "previous month reads « octobre 2026 »"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "« Présences » with the three figures"
+    },
+    {
+      "id": "A15",
+      "outcome": "pass",
+      "m": "Jours pointés = 2 (3 and 5 nov)"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "her corrected line listed"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "no « Corriger » control for her"
+    },
+    {
+      "id": "R-mine",
+      "outcome": "pass",
+      "m": "review: a failed read in Mon profil shows « Réessayer », not nothing"
+    },
+    {
+      "id": "R-mine",
+      "outcome": "pass",
+      "m": "« Réessayer » brings the schéma card back"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "the three figures share one row"
+    },
+    {
+      "id": "A16",
+      "outcome": "pass",
+      "m": "schéma card is one row (title, then the button to its right)"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "block « Équipe aujourd'hui » on the dashboard"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "Ines « Présente depuis », QA 991861 « Pas encore arrivée »"
+    },
+    {
+      "id": "A17",
+      "outcome": "pass",
+      "m": "link → /users?onglet=presences"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "« Pointage » in the admin's header (a borne device)"
+    },
+    {
+      "id": "A18",
+      "outcome": "pass",
+      "m": "none in the secretary's header"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "hidden block stays hidden after a reload (server accepted teamToday)"
+    },
+    {
+      "id": "D3",
+      "outcome": "pass",
+      "m": "shown again"
+    },
+    {
+      "id": "B1",
+      "outcome": "pass",
+      "m": "« Reliez au moins 4 points. », still step 1"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "mismatch refused, back to step 1"
+    },
+    {
+      "id": "B2",
+      "outcome": "pass",
+      "m": "nothing saved"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "« Retour » → tiles"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "Échap → tiles"
+    },
+    {
+      "id": "B4",
+      "outcome": "pass",
+      "m": "no row written"
+    },
+    {
+      "id": "R-stray",
+      "outcome": "pass",
+      "m": "review: one dot → « Reliez au moins 4 points. », panel stays"
+    },
+    {
+      "id": "R-stray",
+      "outcome": "pass",
+      "m": "review: a stray tap costs no try"
+    },
+    {
+      "id": "R-lock",
+      "outcome": "pass",
+      "m": "review: three parallel wrong schémas are each counted (tries left 4, 3, 2)"
+    },
+    {
+      "id": "R-lock",
+      "outcome": "pass",
+      "m": "review: the account holds 3 failures, not 1"
+    },
+    {
+      "id": "R-stale",
+      "outcome": "pass",
+      "m": "review: a stale « Départ » is refused by name instead of recording an arrival"
+    },
+    {
+      "id": "R-stale",
+      "outcome": "pass",
+      "m": "no line written"
+    },
+    {
+      "id": "R-stale",
+      "outcome": "pass",
+      "m": "the panel goes back to the tiles"
+    },
+    {
+      "id": "B3",
+      "outcome": "pass",
+      "m": "« Schéma incorrect. Encore 4 essais… », panel stays"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "« Trop d'essais. Réessayez dans 15 min… »"
+    },
+    {
+      "id": "B5",
+      "outcome": "pass",
+      "m": "tile « Bloqué · réessayez dans 15 min » (AC-7), disabled"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "Paramètres: « Bloqué après 5 essais, jusqu'à … »"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "toast « Schéma de Ines Gharbi réinitialisé. »"
+    },
+    {
+      "id": "B6",
+      "outcome": "pass",
+      "m": "borne tile « Schéma à créer dans Mon profil »"
+    },
+    {
+      "id": "B7",
+      "outcome": "pass",
+      "m": "QA 991861 has no tile once untracked"
+    },
+    {
+      "id": "B8",
+      "outcome": "pass",
+      "m": "secretary device: « Cet appareil n'est pas une borne du cabinet. »"
+    },
+    {
+      "id": "B13",
+      "outcome": "pass",
+      "m": "tile with a full-day congé today (present wins while a line is open)"
+    },
+    {
+      "id": "B13",
+      "outcome": "pass",
+      "m": "with no open line: « En congé », disabled"
+    },
+    {
+      "id": "B11",
+      "outcome": "pass",
+      "m": "toast « Pointage désactivé. »"
+    },
+    {
+      "id": "B11",
+      "outcome": "pass",
+      "m": "borne: « Le pointage n'est pas activé pour ce cabinet. »"
+    },
+    {
+      "id": "B11",
+      "outcome": "pass",
+      "m": "/users loses « Présences »"
+    },
+    {
+      "id": "B11",
+      "outcome": "pass",
+      "m": "Mon profil loses both cards"
+    },
+    {
+      "id": "D4",
+      "outcome": "pass",
+      "m": "the congés switch leaves the pointage switch alone"
+    },
+    {
+      "id": "D1",
+      "outcome": "pass",
+      "m": "?onglet=conges opens « Congés »"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "tiles at 820×1180: no horizontal scroll"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "tiles at 1180×820: no horizontal scroll"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "tiles at 390×844: no horizontal scroll"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "tiles at 320×640: no horizontal scroll"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "panel at 1180×820: pad and « Retour » on screen"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "each dot cell ≥ 44 px"
+    },
+    {
+      "id": "C1",
+      "outcome": "pass",
+      "m": "pad fits at 320"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "390: cards, no table"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "390: card title « Jeudi 5 novembre » (month lower-case)"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "390: no horizontal scroll"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "320: cards, no table"
+    },
+    {
+      "id": "C2",
+      "outcome": "pass",
+      "m": "320: no horizontal scroll"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "Paramètres → Équipe at 390: no horizontal overflow"
+    },
+    {
+      "id": "C4",
+      "outcome": "pass",
+      "m": "« Retirer » reachable at 390"
+    },
+    {
+      "id": "R-rename",
+      "outcome": "pass",
+      "m": "review: « Renommer cet appareil » retires the borne it replaces (one active borne, not two)"
+    },
+    {
+      "id": "R-rename",
+      "outcome": "pass",
+      "m": "exactly one row reads « cet appareil »"
+    },
+    {
+      "id": "R-rename",
+      "outcome": "pass",
+      "m": "the borne still works on its new cookie"
+    },
+    {
+      "id": "B12",
+      "outcome": "pass",
+      "m": "toast « Borne « Accueil » retirée. »"
+    },
+    {
+      "id": "B12",
+      "outcome": "pass",
+      "m": "borne: « Cet appareil n'est pas une borne »"
+    },
+    {
+      "id": "B12",
+      "outcome": "pass",
+      "m": "header « Pointage » gone after a reload"
+    },
+    {
+      "id": "D5",
+      "outcome": "skip",
+      "m": "answered outside the browser: unfiltered unit suite 6605 passed / 0 failed"
+    },
+    {
+      "id": "B9",
+      "outcome": "skip",
+      "m": "answered by curl before the launch: 401 terminal_unknown with and without a bogus cookie"
+    }
+  ],
+  "findings": []
+}

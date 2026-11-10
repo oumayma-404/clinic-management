@@ -5,6 +5,7 @@ using ClinicManagement.Application.Features.Platform.Dtos;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
 using Moq;
 using Xunit;
 
@@ -106,7 +107,7 @@ public class PlatformNewsTests
     [Fact]
     public void The_Email_Frames_The_Rows_Between_The_Fun_Opening_And_The_Warm_Closing()
     {
-        var content = PlatformNewsEmail.Compose(Draft("Agenda plus rapide.", "SMS la veille."), "Dr Sassi", "Cabinet Sassi", "https://app.apexa.tn/nouveautes");
+        var content = PlatformNewsEmail.Compose(Draft("Agenda plus rapide.", "SMS la veille."), "Dr Sassi", "Cabinet Sassi", "https://app.apexa.tn/nouveautes", null);
 
         Assert.Equal("Happy Apexing ! 🦷✨", content.Kicker);
         Assert.Equal("Les nouveautés Apexa ✨", content.Title);
@@ -121,7 +122,7 @@ public class PlatformNewsTests
     [Fact]
     public void An_Install_With_No_Public_Address_Sends_No_Button()
     {
-        var content = PlatformNewsEmail.Compose(Draft("x"), null, "Cabinet", appUrl: null);
+        var content = PlatformNewsEmail.Compose(Draft("x"), null, "Cabinet", appUrl: null, whatsApp: null);
 
         Assert.Null(content.Action);
         Assert.Equal("Bonjour,", content.Greeting);
@@ -142,7 +143,7 @@ public class PlatformNewsTests
     [Fact]
     public void The_Preview_Is_The_Real_Html_With_The_Logo_Inlined_For_A_Browser()
     {
-        var content = PlatformNewsEmail.Compose(Draft("x"), "Dr A", "Cabinet", null);
+        var content = PlatformNewsEmail.Compose(Draft("x"), "Dr A", "Cabinet", null, null);
 
         var preview = PlatformNewsEmail.PreviewHtml(content);
 
@@ -231,5 +232,169 @@ public class PlatformNewsTests
             Guid.NewGuid(), "O", new DateTime(2026, 11, 6, 10, 0, 0, DateTimeKind.Utc));
 
         Assert.Equal(new[] { "un", "deux", "trois" }, broadcast.OrderedItems().Select(i => i.Text));
+    }
+
+    // ── The guide under a row, and the WhatsApp closing (owner's request, 2026-11-10) ─────────────────────────────
+
+    private static PlatformNewsItemRequest Guided(string? description, params string?[] steps) =>
+        new("🌴", "Congés des secrétaires", description, steps);
+
+    [Fact]
+    public void Normalize_Cleans_A_Guide_Collapsing_Whitespace_And_Dropping_Blank_Steps_In_Order()
+    {
+        var result = PlatformNewsRules.Normalize("Objet",
+        [
+            Guided("  La secrétaire\r\n demande,   vous décidez. ", "  Paramètres → Équipe ", "   ", null, "Utilisateurs\n→ la secrétaire"),
+            Row("Agenda plus rapide."),
+        ]);
+
+        Assert.True(result.IsSuccess);
+        var guided = result.Value!.Items[0];
+        Assert.Equal("La secrétaire demande, vous décidez.", guided.Description);
+        Assert.Equal(new[] { "Paramètres → Équipe", "Utilisateurs → la secrétaire" }, guided.Steps!);
+        var bare = result.Value.Items[1];
+        Assert.Equal((null, 0), (bare.Description, bare.Steps?.Count ?? 0));
+    }
+
+    [Fact]
+    public void A_Blank_Description_Is_No_Description()
+    {
+        var item = PlatformNewsRules.Normalize("Objet", [Guided("   ", "Une étape")]).Value!.Items[0];
+
+        Assert.Null(item.Description);
+        Assert.Equal(new[] { "Une étape" }, item.Steps!);
+    }
+
+    public static IEnumerable<object[]> RefusedGuides() =>
+    [
+        [Guided(new string('d', PlatformNewsItem.DescriptionMaxLength + 1))],
+        [Guided(null, "1", "2", "3", "4", "5", "6")],
+        [Guided(null, new string('s', PlatformNewsItem.StepMaxLength + 1))],
+        [new PlatformNewsItemRequest("🌴", "  ", "Un guide sans ligne", null)],
+        [new PlatformNewsItemRequest("🌴", null, null, ["Une étape sans ligne"])],
+    ];
+
+    [Theory]
+    [MemberData(nameof(RefusedGuides))]
+    public void Normalize_Refuses_A_Guide_Past_Its_Limits_Or_Orphaned_With_The_Invalid_Code(PlatformNewsItemRequest item)
+    {
+        var result = PlatformNewsRules.Normalize("Objet", [item, Row("x")]);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(PlatformNewsRules.InvalidCode, result.Code);
+        Assert.False(string.IsNullOrWhiteSpace(result.Error));
+    }
+
+    [Fact]
+    public void A_Guide_At_Exactly_Its_Limits_Is_Accepted()
+    {
+        var steps = Enumerable.Range(0, PlatformNewsItem.MaxSteps).Select(_ => new string('s', PlatformNewsItem.StepMaxLength)).ToArray<string?>();
+
+        var result = PlatformNewsRules.Normalize("Objet", [Guided(new string('d', PlatformNewsItem.DescriptionMaxLength), steps)]);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(PlatformNewsItem.MaxSteps, result.Value!.Items[0].Steps!.Count);
+    }
+
+    [Fact]
+    public void The_Preview_Cuts_An_Over_Long_Guide_Instead_Of_Refusing_It()
+    {
+        var steps = Enumerable.Range(0, 7).Select(i => i == 0 ? new string('s', 200) : $"Étape {i}").ToArray<string?>();
+
+        var item = PlatformNewsRules.ForPreview("Objet", [Guided(new string('d', 500), steps)]).Items[0];
+
+        Assert.Equal(PlatformNewsItem.DescriptionMaxLength, item.Description!.Length);
+        Assert.Equal(PlatformNewsItem.MaxSteps, item.Steps!.Count);
+        Assert.Equal(PlatformNewsItem.StepMaxLength, item.Steps[0].Length);
+    }
+
+    // [regression-safety § 2.1] PlatformNewsDraft.From re-lists the stored rows: the copy must carry the guide.
+    [Fact]
+    public void A_Draft_Read_Back_From_A_Stored_Broadcast_Keeps_Every_Guide()
+    {
+        var broadcast = PlatformNewsBroadcast.Create(
+            Guid.NewGuid(), "Objet",
+            [
+                new PlatformNewsItemInput("🌴", "Congés", "La secrétaire demande.", ["Activez", "Fixez son droit"]),
+                new PlatformNewsItemInput("🚀", "Agenda"),
+            ],
+            [new PlatformNewsRecipientInput(Essai, "C", "a@cab.tn", null)],
+            Guid.NewGuid(), "O", new DateTime(2026, 11, 10, 10, 0, 0, DateTimeKind.Utc));
+
+        var draft = PlatformNewsDraft.From(broadcast);
+
+        Assert.Equal("La secrétaire demande.", draft.Items[0].Description);
+        Assert.Equal(new[] { "Activez", "Fixez son droit" }, draft.Items[0].Steps!);
+        Assert.Equal((null, 0), (draft.Items[1].Description, draft.Items[1].Steps!.Count));
+    }
+
+    [Fact]
+    public void The_Stored_Row_Refuses_A_Guide_Past_Its_Limits()
+    {
+        Assert.Throws<ArgumentException>(() => new PlatformNewsItem("🌴", "x", 0, new string('d', PlatformNewsItem.DescriptionMaxLength + 1)));
+        Assert.Throws<ArgumentException>(() => new PlatformNewsItem("🌴", "x", 0, null, ["1", "2", "3", "4", "5", "6"]));
+        Assert.Throws<ArgumentException>(() => new PlatformNewsItem("🌴", "x", 0, null, [" "]));
+        Assert.Null(new PlatformNewsItem("🌴", "x", 0, "  ").Description);
+    }
+
+    [Fact]
+    public void The_Email_Puts_Each_Rows_Guide_Under_It_And_Titles_Steps_Only_When_There_Are_Some()
+    {
+        var draft = new PlatformNewsDraft("Objet",
+        [
+            new PlatformNewsItemInput("🌴", "Congés", "La secrétaire demande.", ["Activez"]),
+            new PlatformNewsItemInput("📝", "Notes", "Une phrase seule."),
+            new PlatformNewsItemInput("🚀", "Agenda"),
+        ]);
+
+        var bullets = PlatformNewsEmail.Compose(draft, null, "Cabinet", null, null).Bullets;
+
+        Assert.Equal(("La secrétaire demande.", PlatformNewsEmail.GuideHeading), (bullets[0].Description, bullets[0].StepsTitle));
+        Assert.Equal(new[] { "Activez" }, bullets[0].Steps!);
+        Assert.Equal(("Une phrase seule.", null), (bullets[1].Description, bullets[1].StepsTitle));
+        Assert.Equal((null, null, 0), (bullets[2].Description, bullets[2].StepsTitle, bullets[2].Steps!.Count));
+    }
+
+    private static ISubscriptionPricing Pricing(string? contactPhone, string? whatsAppPhone)
+    {
+        var pricing = new Mock<ISubscriptionPricing>();
+        pricing.SetupGet(p => p.ContactPhone).Returns(contactPhone);
+        pricing.SetupGet(p => p.WhatsAppPhone).Returns(whatsAppPhone);
+        return pricing.Object;
+    }
+
+    [Theory]
+    [InlineData("+216 53 218 664", "+216 51 230 456", "+216 51 230 456", "https://wa.me/21651230456")]
+    [InlineData("+216 53 218 664", null, "+216 53 218 664", "https://wa.me/21653218664")]
+    [InlineData("+216 53 218 664", "  ", "+216 53 218 664", "https://wa.me/21653218664")]
+    [InlineData(" 51 230 456 ", null, "51 230 456", "https://wa.me/21651230456")]
+    public void The_WhatsApp_Line_Is_The_One_The_Aide_Menu_Opens(
+        string? contactPhone, string? whatsAppPhone, string number, string link)
+    {
+        var contact = PlatformNewsContact.From(Pricing(contactPhone, whatsAppPhone));
+
+        Assert.Equal((number, link), (contact!.Number, contact.Link));
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    [InlineData("appelez-nous", null)]
+    public void No_Usable_Number_Means_No_Contact_Rather_Than_A_Dead_Link(string? contactPhone, string? whatsAppPhone)
+    {
+        Assert.Null(PlatformNewsContact.From(Pricing(contactPhone, whatsAppPhone)));
+        Assert.Null(PlatformNewsEmail.Compose(Draft("x"), null, "Cabinet", null, PlatformNewsContact.From(Pricing(contactPhone, whatsAppPhone))).Contact);
+    }
+
+    [Fact]
+    public void The_Contact_Prefills_The_Cabinet_That_Writes_Like_The_Aide_Menu()
+    {
+        var contact = new PlatformNewsContact("+216 51 230 456", "https://wa.me/21651230456");
+
+        var content = PlatformNewsEmail.Compose(Draft("x"), null, "Cabinet Ben Ali & fils", null, contact);
+
+        Assert.Equal(PlatformNewsEmail.ContactPrompt, content.Contact!.Prompt);
+        Assert.Equal("💬 WhatsApp +216 51 230 456", content.Contact.Label);
+        Assert.Equal("https://wa.me/21651230456?text=Bonjour%2C%20ici%20Cabinet%20Ben%20Ali%20%26%20fils.", content.Contact.Url);
     }
 }

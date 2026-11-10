@@ -129,6 +129,11 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const finish = useCallback(
     async (guide: Guide) => {
       setRun(null)
+      // Not a « Premiers pas » step: nothing to tick, and the tour ends on the page it explained.
+      if (guide.standalone) {
+        toast.success(guide.doneText)
+        return
+      }
       const owner = user?.email ?? ""
       const stepKey = guide.key as GettingStartedKey
       await dashboardApi.tickStep(stepKey).catch(() => {

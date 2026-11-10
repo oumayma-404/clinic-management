@@ -1,9 +1,13 @@
 import { ApiError, apiGet, apiPost } from './client';
 
-/** One line of a news, as the console wrote it. */
+/** One line of a news, as the console wrote it, with its optional guide (« Comment ça marche »). */
 export interface NewsItemDto {
   emoji: string;
   text: string;
+  /** One paragraph under the line, or null. Absent from an older server. */
+  description?: string | null;
+  /** The guide's numbered steps; empty — or absent from an older server — when it has none. */
+  steps?: string[];
 }
 
 export interface NewsEntryDto {

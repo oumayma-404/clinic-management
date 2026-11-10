@@ -59,6 +59,11 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.LockoutEnd);
         builder.Property(u => u.PhoneAppPlatform).HasMaxLength(32);
 
+        builder.Property(u => u.AttendanceSchemaHash).HasMaxLength(256);
+        builder.Property(u => u.SchemaFailedAttempts).IsRequired().HasDefaultValue(0);
+        builder.Ignore(u => u.IsAttendanceTracked);
+        builder.Ignore(u => u.HasAttendanceSchema);
+
         builder.HasIndex(u => u.ClinicId);
         builder.HasIndex(u => new { u.ClinicId, u.Role });
 

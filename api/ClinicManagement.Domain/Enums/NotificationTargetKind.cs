@@ -52,5 +52,14 @@ public enum NotificationTargetKind
     Patient = 8,
 
     /// <summary>« Paramètres → PC de secours » (<c>clinic-pc-copy</c>). No id: there is one PC de secours per cabinet.</summary>
-    RelaySettings = 9
+    RelaySettings = 9,
+
+    /// <summary>A congé request: no id, it opens the congés list of whoever reads it.</summary>
+    StaffLeaveRequest = 10,
+
+    /// <summary>A pointage reminder: no id, it opens « Mon profil », where her month and today's line are.</summary>
+    Attendance = 11,
+
+    /// <summary>A pointage setup event for the admins: no id, it opens « Paramètres → Équipe ».</summary>
+    AttendanceSettings = 12
 }

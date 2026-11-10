@@ -33,7 +33,8 @@ export function useHelpContact() {
   // WhatsApp may be a different number from the one to call.
   const whatsappNumber = subscription?.whatsAppPhone?.trim() || phone
   const whatsapp = whatsAppUrl(whatsappNumber, clinicName ? `Bonjour, ici ${clinicName}. ` : "Bonjour. ")
-  return { phone, whatsapp }
+  // The number as written, for a label (« Nouveautés »' closing line) — only when it makes a link.
+  return { phone, whatsapp, whatsappNumber: whatsapp ? whatsappNumber : null }
 }
 
 /**

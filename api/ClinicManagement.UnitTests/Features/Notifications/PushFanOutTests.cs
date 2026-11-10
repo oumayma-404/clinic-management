@@ -306,6 +306,67 @@ public class PushFanOutTests
         Assert.Equal(DentistId, pushRow.RecipientUserId);
     }
 
+    // pointage-obligatoire AC-6: « Départ non pointé » reaches her phone alone, with the bell's own title and no hour.
+    [Fact]
+    public async Task The_Departure_Reminder_Pushes_To_Her_Alone_With_The_Bells_Title()
+    {
+        var harness = new Harness(devices: new[] { Device(ActorId), Device(ColleagueId) });
+
+        await harness.Generator.AttendanceDepartureMissingAsync(ClinicId, ActorId, "08:02", new[] { "Accueil" });
+
+        var feedRow = Assert.Single(harness.FeedRows);
+        var pushRow = Assert.Single(harness.PushRows);
+        Assert.Equal(ActorId, feedRow.TargetUserId);
+        Assert.Equal(ActorId, pushRow.RecipientUserId);
+        Assert.Equal(feedRow.Title, pushRow.Label);
+        Assert.DoesNotContain("08:02", pushRow.Label);
+    }
+
+    // « Créez votre schéma » reaches her phone alone, with the bell's own title.
+    [Fact]
+    public async Task Create_Your_Schema_Pushes_To_Her_Alone_With_The_Bells_Title()
+    {
+        var harness = new Harness(devices: new[] { Device(ActorId), Device(ColleagueId) });
+        var (title, message) = ClinicManagement.Application.Features.Team.AttendanceNotices.SchemaToCreate("Accueil");
+
+        var written = await harness.Generator.AttendanceNoticeAsync(
+            ClinicId, NotificationCategory.AttendanceSchemaToCreate, title, message, ActorId, null);
+
+        Assert.True(written);
+        var feedRow = Assert.Single(harness.FeedRows);
+        var pushRow = Assert.Single(harness.PushRows);
+        Assert.Equal(ActorId, pushRow.RecipientUserId);
+        Assert.Equal(feedRow.Title, pushRow.Label);
+    }
+
+    // The admins' setup rows stay in the bell: a borne installed or a schéma blocked is read at a keyboard.
+    [Fact]
+    public async Task The_Admins_Setup_Rows_Never_Push()
+    {
+        var harness = new Harness(devices: new[] { Device(ActorId), Device(ColleagueId) });
+
+        await harness.Generator.AttendanceNoticeAsync(
+            ClinicId, NotificationCategory.AttendanceSchemaBlocked, "Schéma bloqué", "…", null, null);
+        await harness.Generator.AttendanceNoticeAsync(
+            ClinicId, NotificationCategory.AttendanceBorneInstalled, "Cet appareil est une borne", "…", ColleagueId, null);
+
+        Assert.Equal(2, harness.FeedRows.Count);
+        Assert.Empty(harness.PushRows);
+    }
+
+    // The job dedupes on the bell row: a push sent while that row failed would be sent again every five minutes.
+    [Fact]
+    public async Task No_Departure_Push_Leaves_When_Its_Bell_Row_Was_Not_Written()
+    {
+        var harness = new Harness(devices: new[] { Device(ActorId) });
+        harness.UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("db"));
+
+        var written = await harness.Generator.AttendanceDepartureMissingAsync(ClinicId, ActorId, "08:02", new[] { "Accueil" });
+
+        Assert.False(written);
+        Assert.Empty(harness.PushRows);
+    }
+
     // ---- AC-55: a push failure never touches the operation that caused it -------------------------
 
     // [AC-55] The feed row is written and the caller returns normally even when the push side throws. The whole
@@ -360,7 +421,11 @@ public class PushFanOutTests
                 NotificationCategory.AppointmentRescheduled,
                 NotificationCategory.Reminder,
                 NotificationCategory.PostVisitReview,
-                NotificationCategory.StaffChatMessage
+                NotificationCategory.StaffChatMessage,
+                // pointage-obligatoire AC-6: read after she has left the desk, so the phone is the point.
+                NotificationCategory.AttendanceDepartureMissing,
+                // A borne went live and she has no schéma: she may not open the app before she needs it.
+                NotificationCategory.AttendanceSchemaToCreate
             },
             pushing);
     }

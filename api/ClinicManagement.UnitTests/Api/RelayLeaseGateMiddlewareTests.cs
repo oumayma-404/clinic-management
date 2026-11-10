@@ -111,6 +111,7 @@ public class RelayLeaseGateMiddlewareTests
         public bool IsRetired => retired;
         public DateTime? RetiredAtUtc => retired ? new DateTime(2026, 10, 6, 9, 0, 0, DateTimeKind.Utc) : null;
         public bool IsHolding => holding;
+        public bool IsPcDeSecours => false;
     }
 
     /// <summary>An armed PC that then said, on a heartbeat, that it holds the cabinet's saves since <paramref name="since"/>.</summary>

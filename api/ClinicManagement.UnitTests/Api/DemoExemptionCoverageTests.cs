@@ -42,6 +42,7 @@ public class DemoExemptionCoverageTests
         "Patients.ExportPatients",
         "Patients.ExportDossier",
         "Stock.ExportStock",
+        "Team.ExportAttendance",
         "TreatmentPlans.ExportPlans",
     };
 

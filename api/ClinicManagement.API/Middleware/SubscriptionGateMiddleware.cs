@@ -31,8 +31,6 @@ namespace ClinicManagement.API.Middleware;
 /// </summary>
 public class SubscriptionGateMiddleware
 {
-    private const string ApiPrefix = "/api";
-
     private readonly RequestDelegate _next;
 
     public SubscriptionGateMiddleware(RequestDelegate next)
@@ -77,17 +75,8 @@ public class SubscriptionGateMiddleware
             return;
         }
 
-        // Which refusal this is comes from the one classifier the outbox gate also reads; only the wording below is
-        // this surface's own.
-        var (error, code) = SubscriptionStateReader.ClassifyRefusal(status) switch
-        {
-            SubscriptionRefusalKind.Suspended =>
-                (SubscriptionRefusals.Suspended, SubscriptionRefusals.SuspendedCode),
-            SubscriptionRefusalKind.Expired =>
-                (SubscriptionRefusals.Required(status.EndsOn!.Value), SubscriptionRefusals.RequiredCode),
-            _ => (SubscriptionRefusals.Missing, SubscriptionRefusals.MissingCode),
-        };
-
+        // Which refusal this is comes from the one classifier the outbox gate also reads, worded once for the borne too.
+        var (error, code) = SubscriptionRefusals.For(status);
         await RefuseAsync(context, error, code);
     }
 
@@ -103,8 +92,8 @@ public class SubscriptionGateMiddleware
     /// </remarks>
     private static bool Applies(HttpContext context, ISubscriptionPolicy policy) =>
         policy.RequiresSubscription
-        && context.Request.Path.StartsWithSegments(ApiPrefix)
-        && !IsRead(context.Request.Method)
+        && context.Request.Path.StartsWithSegments(WriteGate.ApiPrefix)
+        && !WriteGate.IsRead(context.Request.Method)
         && context.GetEndpoint() is { } endpoint
         && endpoint.Metadata.GetMetadata<AllowsWithoutSubscriptionAttribute>() is null;
 
@@ -118,8 +107,6 @@ public class SubscriptionGateMiddleware
     public static DateTime DayToJudge(HttpContext context, DateTime today) =>
         context.RequestServices?.GetService<IRelayLocalStatus>() is { IsHolding: true } ? today.AddDays(-CutGraceDays) : today;
 
-    private static bool IsRead(string method) =>
-        HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);
 
     private static Task RefuseAsync(HttpContext context, string error, string code)
     {

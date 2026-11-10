@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using ClinicManagement.Application.Common.Email;
 using Xunit;
 
@@ -180,5 +182,176 @@ public class EmailLayoutTests
         Assert.DoesNotContain("<b>gras", html);
         Assert.Contains("&lt;b&gt;gras&lt;/b&gt;", html);
         Assert.Contains("&lt;i&gt;", html);
+    }
+
+    // ── AC-10 byte-identity, and the guide + WhatsApp contact added on 2026-11-10 ────────────────────────────────
+
+    /// <summary>SHA-256 of the output with line endings normalised — the source's raw literals follow the checkout.</summary>
+    private static string Hash(string rendered) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rendered.ReplaceLineEndings("\n"))));
+
+    private static EmailContent Minimal() => new()
+    {
+        Title = "Votre mot de passe a été modifié",
+        Preheader = "Si ce n'est pas vous, prévenez votre administrateur.",
+        Intro = ["Le mot de passe de votre compte vient d'être modifié."]
+    };
+
+    private static EmailContent NewsWithoutGuides() => AnyContent() with
+    {
+        Kicker = "Happy Apexing ! 🦷✨",
+        Bullets = [new EmailBullet("🚀", "Les rappels partent la veille."), new EmailBullet("📅", "Agenda plus rapide.")]
+    };
+
+    /// <summary>
+    /// ⚠️ <b>AC-10, as bytes.</b> These hashes are the renderer's output for three fixtures <b>as it stood before the
+    /// per-row guide and the WhatsApp contact were added</b> (computed from that commit's <c>EmailLayout</c>): a full
+    /// transactional e-mail, a minimal one, and a news e-mail whose bullets carry no guide. A structural assertion
+    /// cannot prove « unchanged »; a hash can. If this goes red, the change reached every e-mail that does not use
+    /// the new parts — if that was intended, recompute the hash in the same commit and say so in its message.
+    /// </summary>
+    [Theory]
+    [InlineData("full", "277ABF827BC29F61D4242BA5439DE7524A2E78B251B35C1CB062A16F9579897A", "E92F84769D4A2606EBD9C91E177739D31B469491A21AC1458186DD2AB02D5F29")]
+    [InlineData("minimal", "587E75E43EA4C40B72F0DCB9F10576F0276B48B031633BED157930988E260A97", "78F65AB43FCBF7AA8D12B76228B02DFFC17EFF871CC09DEB142CB5DF6ED95480")]
+    [InlineData("news-without-guides", "F0FAB5F600141159DC74064EC6A98937D7EA50A27F4FECF50D781AA3AB519A99", "10F45281F5D8339EF224F78B4F3C7C5B87769CE55BF2269955244618293D67AB")]
+    public void An_Email_That_Uses_Neither_A_Guide_Nor_A_Contact_Renders_Byte_Identical_To_Before(
+        string fixture, string htmlHash, string textHash)
+    {
+        var content = fixture switch
+        {
+            "full" => AnyContent(),
+            "minimal" => Minimal(),
+            _ => NewsWithoutGuides(),
+        };
+
+        Assert.Equal((htmlHash, textHash), (Hash(EmailLayout.Html(content)), Hash(EmailLayout.PlainText(content))));
+    }
+
+    [Fact]
+    public void A_Bullet_Built_With_Empty_Guide_Parts_Renders_As_A_Two_Field_Bullet()
+    {
+        var bare = NewsWithoutGuides();
+        var empty = bare with
+        {
+            Bullets = bare.Bullets.Select(b => b with { Description = "  ", StepsTitle = "Comment ça marche :", Steps = [] }).ToList()
+        };
+
+        Assert.Equal(EmailLayout.Html(bare), EmailLayout.Html(empty));
+        Assert.Equal(EmailLayout.PlainText(bare), EmailLayout.PlainText(empty));
+    }
+
+    private static EmailContent WithGuide() => AnyContent() with
+    {
+        Bullets =
+        [
+            new EmailBullet("🌴", "Congés des secrétaires", "La secrétaire demande, vous décidez.", "Comment ça marche :",
+                ["Paramètres → Équipe : activez « Congés »", "Utilisateurs → la secrétaire : fixez son droit", "Elle demande depuis « Mes congés »"]),
+            new EmailBullet("🚀", "Agenda plus rapide."),
+        ]
+    };
+
+    [Fact]
+    public void A_Guide_Renders_Under_Its_Bullet_In_Order_Description_Then_Heading_Then_Numbered_Steps()
+    {
+        var html = EmailLayout.Html(WithGuide());
+
+        int At(string fragment)
+        {
+            var index = html.IndexOf(fragment, StringComparison.Ordinal);
+            Assert.True(index >= 0, $"« {fragment} » missing from the HTML");
+            return index;
+        }
+
+        var line = At("Cong&#233;s des secr&#233;taires");
+        var description = At("La secr&#233;taire demande, vous d&#233;cidez.");
+        var heading = At("Comment &#231;a marche :");
+        var first = At(">1.</td>");
+        var third = At(">3.</td>");
+        var stepThree = At("Elle demande depuis &#171; Mes cong&#233;s &#187;");
+        var nextBullet = At("Agenda plus rapide.");
+
+        Assert.True(line < description && description < heading && heading < first && first < third && third < stepThree && stepThree < nextBullet);
+        Assert.DoesNotContain(">4.</td>", html);
+        Assert.DoesNotContain("<ol", html);
+    }
+
+    [Fact]
+    public void A_Guide_Reaches_The_Plain_Text_Indented_Under_Its_Line()
+    {
+        var text = EmailLayout.PlainText(WithGuide());
+
+        Assert.Contains(
+            "🌴 Congés des secrétaires\n"
+            + "   La secrétaire demande, vous décidez.\n"
+            + "   Comment ça marche :\n"
+            + "   1. Paramètres → Équipe : activez « Congés »\n"
+            + "   2. Utilisateurs → la secrétaire : fixez son droit\n"
+            + "   3. Elle demande depuis « Mes congés »\n"
+            + "\n"
+            + "🚀 Agenda plus rapide.\n",
+            text);
+    }
+
+    [Fact]
+    public void A_Guide_Is_Escaped_Like_Every_Other_Value()
+    {
+        var html = EmailLayout.Html(AnyContent() with
+        {
+            Bullets = [new EmailBullet("🌴", "x", "<b>gras</b>", "<i>titre</i>", ["<script>alert(1)</script>"])]
+        });
+
+        Assert.DoesNotContain("<b>gras", html);
+        Assert.DoesNotContain("<i>titre", html);
+        Assert.DoesNotContain("<script>", html);
+        Assert.Contains("&lt;b&gt;gras&lt;/b&gt;", html);
+        Assert.Contains("&lt;script&gt;alert(1)&lt;/script&gt;", html);
+    }
+
+    private static EmailContent WithContact(string url = "https://wa.me/21651230456?text=Bonjour%2C%20ici%20Cabinet.") =>
+        AnyContent() with
+        {
+            Contact = new EmailContact("Une question ? Écrivez-nous sur WhatsApp", "💬 WhatsApp +216 51 230 456", url)
+        };
+
+    [Fact]
+    public void The_Contact_Is_A_Link_After_The_Button_And_Before_The_Sign_Off_Never_A_Second_Button()
+    {
+        var html = EmailLayout.Html(WithContact());
+
+        var button = html.IndexOf("V&#233;rifier mon adresse", StringComparison.Ordinal);
+        var prompt = html.IndexOf("Une question ? &#201;crivez-nous sur WhatsApp", StringComparison.Ordinal);
+        var link = html.IndexOf("href=\"https://wa.me/21651230456?text=Bonjour%2C%20ici%20Cabinet.\"", StringComparison.Ordinal);
+        var outro = html.IndexOf("Rien n&#39;a &#233;t&#233; cr&#233;&#233;.", StringComparison.Ordinal);
+
+        Assert.True(button >= 0 && prompt > button && link > prompt && outro > link, $"{button} {prompt} {link} {outro}");
+        Assert.Contains("&#128172; WhatsApp +216 51 230 456</a>", html);
+        // The button's padded anchor exists exactly once: the contact is text, not a competing call to action.
+        Assert.Single(html.Split("padding:15px 30px").Skip(1));
+    }
+
+    [Fact]
+    public void The_Contact_Reaches_The_Plain_Text_With_Its_Url_On_A_Line_Of_Its_Own()
+    {
+        var text = EmailLayout.PlainText(WithContact());
+
+        Assert.Contains(
+            "Une question ? Écrivez-nous sur WhatsApp\n💬 WhatsApp +216 51 230 456 :\nhttps://wa.me/21651230456?text=Bonjour%2C%20ici%20Cabinet.\n\n",
+            text);
+        Assert.True(text.IndexOf("Installez l'application", StringComparison.Ordinal) < text.IndexOf("Une question ? É", StringComparison.Ordinal));
+        Assert.True(text.IndexOf("WhatsApp +216", StringComparison.Ordinal) < text.IndexOf("Rien n'a été créé.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_Contact_Is_Escaped_Into_The_Href_And_The_Text()
+    {
+        var html = EmailLayout.Html(AnyContent() with
+        {
+            Contact = new EmailContact("<b>q</b>", "<i>l</i>", "https://wa.me/1?text=a\"onmouseover=\"x")
+        });
+
+        Assert.DoesNotContain("<b>q", html);
+        Assert.DoesNotContain("<i>l", html);
+        Assert.DoesNotContain("a\"onmouseover", html);
+        Assert.Contains("a&quot;onmouseover=&quot;x", html);
     }
 }

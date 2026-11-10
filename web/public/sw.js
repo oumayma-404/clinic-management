@@ -21,7 +21,11 @@ self.addEventListener("push", (event) => {
     data = {}
   }
   const tag = typeof data.tag === "string" && data.tag ? data.tag : "apexa"
-  const routing = { conversation: data.conversation || null, appointmentId: data.appointmentId || null }
+  const routing = {
+    conversation: data.conversation || null,
+    appointmentId: data.appointmentId || null,
+    category: data.category || null,
+  }
   const plain = () => self.registration.showNotification(data.title || "APEXA", { tag, icon: "/icon-192.png", data: routing })
 
   // Every push must show a notification — iOS withdraws a subscription whose pushes show nothing — so no step here may
@@ -56,11 +60,14 @@ self.addEventListener("notificationclick", (event) => {
   const data = event.notification.data || {}
   const conversation = typeof data.conversation === "string" ? data.conversation : null
   const appointmentId = typeof data.appointmentId === "string" ? data.appointmentId : null
+  // « Départ non pointé » opens where her bell row does: « Mes présences ».
   const url = conversation
     ? "/?chat=" + encodeURIComponent(conversation)
     : appointmentId
       ? "/appointments?appointmentId=" + encodeURIComponent(appointmentId)
-      : "/"
+      : data.category === "AttendanceDepartureMissing"
+        ? "/mon-profil"
+        : "/"
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {

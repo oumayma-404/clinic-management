@@ -1,5 +1,7 @@
 "use client"
 
+import Link from "next/link"
+
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,6 +15,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { statusToneClass } from "@/components/ui/status-tone"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { DEFAULT_PAGE_SIZE, emptyPage } from "@/lib/api/paging"
+import { useUserStatus } from "@/lib/hooks/use-user-status"
 // The seven English storage keys + their French labels — the same list the setup and join wizards offer, so a
 // practitioner created here is filed under a value every other screen already renders.
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
@@ -35,7 +38,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal, Send, ShieldOff } from "lucide-react"
+import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal, Send, ShieldOff, CalendarOff } from "lucide-react"
 import { StepUpDialog } from "@/components/security/step-up-dialog"
 import { securityApi } from "@/lib/api/security"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -65,6 +68,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useUrlFilterSeed } from "@/lib/hooks/use-url-filters"
 import { replaceUrl } from "@/lib/history"
 import { showErrorToast } from "@/lib/errors"
+import { pointageApi } from "@/lib/api/pointage"
 
 /** The chip both section headers wear. `/users` is the `config` zone — see the note at « Code du cabinet ». */
 const SECTION_CHIP = `flex size-8 shrink-0 items-center justify-center rounded-lg ${zoneChipClass(ZONES.config)}`
@@ -81,6 +85,16 @@ type PendingAction =
 
 export function UserManagement() {
   const { user: currentUser, mode } = useSession()
+  const { data: clinicStatus } = useUserStatus()
+  // A file holds a secretary's congés and anyone's présences: it opens for a secretary with congés on, and for
+  // every tracked account with the pointage on.
+  const leaveRequestsEnabled = clinicStatus?.clinic?.leaveRequestsEnabled === true
+  const attendanceEnabled = clinicStatus?.clinic?.attendanceEnabled === true
+  const trackedIds = useTrackedIds(attendanceEnabled)
+  const hasStaffFile = (u: ClinicUserDto) =>
+    (leaveRequestsEnabled && u.role === "secretary") || (attendanceEnabled && trackedIds.has(u.id))
+  const staffFileLabel = (u: ClinicUserDto) =>
+    leaveRequestsEnabled && u.role === "secretary" ? "Voir sa fiche et ses congés" : "Voir sa fiche"
   /**
    * AC-P2.29: « Réinitialiser le mot de passe » only exists for password-backed accounts —
    * `ResetUserPasswordCommand` refuses anything else with « Ce compte n'utilise pas de mot de passe local. »
@@ -414,6 +428,14 @@ export function UserManagement() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {hasStaffFile(u) && (
+            <DropdownMenuItem asChild>
+              <Link href={`/users/${encodeURIComponent(u.id)}`}>
+                <CalendarOff className="size-4" aria-hidden="true" />
+                {staffFileLabel(u)}
+              </Link>
+            </DropdownMenuItem>
+          )}
           {canResendInvitation(u) ? (
             // An invited colleague has no password to reset yet — the e-mail is her way in.
             <DropdownMenuItem onSelect={() => setPending({ type: "resend", user: u })}>
@@ -750,7 +772,19 @@ export function UserManagement() {
                     ) : (
                       users.map((user) => (
                         <TableRow key={user.id}>
-                          <TableCell className="font-medium text-foreground">{user.fullName || "-"}</TableCell>
+                          <TableCell className="font-medium text-foreground">
+                            {hasStaffFile(user) ? (
+                              <Link
+                                href={`/users/${encodeURIComponent(user.id)}`}
+                                aria-label={`${leaveRequestsEnabled && user.role === "secretary" ? "Fiche et congés" : "Fiche"} de ${user.fullName || user.email}`}
+                                className="underline-offset-2 hover:underline"
+                              >
+                                {user.fullName || user.email}
+                              </Link>
+                            ) : (
+                              user.fullName || "-"
+                            )}
+                          </TableCell>
                           <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
                           <TableCell>
                             {/* AC-P2.23 — no user's role could ever be changed, so a member onboarded with the
@@ -1159,4 +1193,23 @@ export function UserManagement() {
       </Dialog>
     </div>
   )
+}
+
+/** The accounts that pointe, while the pointage is on — each has a file to open. A failed read links none. */
+function useTrackedIds(enabled: boolean): ReadonlySet<string> {
+  const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set())
+  const load = useCallback(async () => {
+    if (!enabled) return setIds(new Set())
+    try {
+      const settings = await pointageApi.settings()
+      setIds(new Set(settings.people.filter((p) => p.tracked).map((p) => p.userId)))
+    } catch {
+      // Only the extra links are missing; secretaries with congés keep theirs.
+    }
+  }, [enabled])
+  useEffect(() => {
+    void load()
+  }, [load])
+  useClinicRealtime(RealtimeResource.Team, () => void load())
+  return ids
 }
