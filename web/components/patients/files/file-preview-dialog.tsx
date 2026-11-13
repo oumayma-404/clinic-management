@@ -15,6 +15,7 @@ import {
 import { PatientFilePdfPreview } from "@/components/patient-file-pdf-preview"
 import { FileThumbnail } from "@/components/patients/files/file-thumbnail"
 import { formatDate, formatFileSize } from "@/lib/format"
+import { cameraCaptureLine, cameraOriginalLine } from "./camera-badge"
 import { PREVIEW_EDGE } from "@/lib/files/preview"
 import { interactiveViewerFor, type ArchiveListing } from "@/lib/files/decoders"
 import { cn } from "@/lib/utils"
@@ -133,6 +134,11 @@ export function FilePreviewDialog({
                 )}
                 {formatFileSize(file.fileSize)} • {formatDate(file.uploadedAt)}
                 {file.description ? ` • ${file.description}` : ""}
+                {/* A camera photo: when it was TAKEN (the date above is when it was filed) and where the full-size
+                    original is kept (`features/camera-photo-import`). */}
+                {cameraCaptureLine(file) && ` • ${cameraCaptureLine(file)}`}
+                {file.cameraModel && file.capturedAt ? ` • ${file.cameraModel}` : ""}
+                {cameraOriginalLine(file) && ` • ${cameraOriginalLine(file)}`}
               </DialogDescription>
             </DialogHeader>
 

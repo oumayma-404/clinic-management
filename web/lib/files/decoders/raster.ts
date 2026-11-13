@@ -42,14 +42,20 @@ const MAX_PIXELS = 60 * 1000 * 1000
 
 /**
  * The size to draw at: the source's own, unless it would exceed what a canvas can hold. Aspect ratio is kept,
- * so nothing is ever distorted to fit.
+ * so nothing is ever distorted to fit. `maxEdge` lowers the long edge further — the camera import's served copy
+ * rule (`features/camera-photo-import`); it can never raise it past {@link MAX_EDGE}.
  */
-export function fitWithin(width: number, height: number): { width: number; height: number } {
+export function fitWithin(
+  width: number,
+  height: number,
+  maxEdge: number = MAX_EDGE,
+): { width: number; height: number } {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return { width: 0, height: 0 }
   }
 
-  const scale = Math.min(1, MAX_EDGE / Math.max(width, height), Math.sqrt(MAX_PIXELS / (width * height)))
+  const edge = Math.min(MAX_EDGE, maxEdge > 0 ? maxEdge : MAX_EDGE)
+  const scale = Math.min(1, edge / Math.max(width, height), Math.sqrt(MAX_PIXELS / (width * height)))
   if (scale >= 1) return { width: Math.round(width), height: Math.round(height) }
 
   return {
@@ -99,11 +105,15 @@ export async function encodeRgba(
   }
 }
 
-/** Draws a bitmap at the given size and encodes it. The caller owns closing the bitmap. */
+/**
+ * Draws a bitmap at the given size and encodes it. The caller owns closing the bitmap. `quality` defaults to the
+ * viewers' 0.95; the camera import passes the server's own copy rule.
+ */
 export async function encodeBitmap(
   bitmap: ImageBitmap,
   width: number,
   height: number,
+  quality = 0.95,
 ): Promise<Blob | null> {
   const canvas = document.createElement('canvas')
   canvas.width = width
@@ -114,5 +124,5 @@ export async function encodeBitmap(
   context.imageSmoothingQuality = 'high'
   context.drawImage(bitmap, 0, 0, width, height)
 
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95))
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
 }

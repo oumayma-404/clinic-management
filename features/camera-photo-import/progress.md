@@ -29,11 +29,31 @@ not ask me any questions, go with all recommended » → import option 1 + Windo
   registry (upsert keeps the pairing, other cabinet's doctor refused, mark forward only, future time ignored), and
   the upload policy's `cameraCopy` (hosted drawer only). Full suite: **7158 passed, 0 failed** (2026-11-13).
 
+## Phase 1 — web (done, gate green)
+
+- `web/lib/photo-import/`: `exif.ts`, `keys.ts`, `wall-clock.ts`, `match.ts` (`MATCH_RULES`), `sources.ts`,
+  `cloud-copy.ts`, `session.ts` (module store; survives navigation; `beforeunload` while sending).
+- API modules `photo-import.ts`, `clinic-cameras.ts`; upload policy `cameraCopy`; `refreshUploadPolicy()`;
+  `encodeBitmap(quality)` + `fitWithin(maxEdge)`; `preview.ts` pins `imageOrientation: "from-image"`.
+- Screen `/photos/import` (`components/photo-import/*`), « Importer des photos » on « Fichiers », « Photos de
+  l'appareil » on a patient's files, « Changer de patient » in the file menu, the camera badge + preview line,
+  « Appareils photo » card in Paramètres, zone + icon for `/photos`.
+- `check:responsive` N55 `exif-has-one-owner`, N56 `match-rules-have-one-owner` (both red-proofed with a throwaway file).
+- `e2e/specs/photo-match.spec.ts` (18 pure tests: 13 matcher scenarios held to « never sure and wrong », 5 EXIF/key
+  tests on a JPEG built byte by byte, both byte orders) + `e2e/playwright.pure.config.ts` to run them with no stack.
+- Gate: `check:responsive` 88/88 · `tsc` 0 · `npm run build` OK (`/photos/import` built) · pure specs 18/18 ·
+  API suite 7158/0. `check-coverage.mjs` exits 1 on main already (64 tier-0 rows untested) — unchanged by this.
+- Matcher changes found while writing the scenarios: the clock offset is the MIDDLE of the best-scoring run (the
+  smallest one put every photo on the first minute of its visit); the order check compares real arrivals
+  (`start + late`), not booked starts; « Couper » cuts where the first patient's visit ends (equal 2-minute gaps
+  have no widest gap).
+
 ## Next
 
-1. Web: lib/photo-import (exif, keys, match, sources, cloud-copy), api modules, a filing queue of its own (NOT a refactor of `upload-queue.tsx` — see Deviations), import screen,
-   settings card, move dialog, files manager badges, clinic-hub `cameras`, check:responsive rules.
-2. Phase 2 shell; Phase 3 console storage + per-clinic quota + alerts.
+1. Browser pass of `/photos/import` on the isolated stack (`:5099`/`:3099`) — not run yet.
+2. Phase 2: shell 1.8.0 (camera on USB / SD detection, originals store, archive copy) + `ReportPhotoOriginalsCopyCommand`
+   and the 7-day alert.
+3. Phase 3: per-clinic quota, console storage column, 80 / 95 % bell alerts, server-disk warning.
 
 ## Deviations
 

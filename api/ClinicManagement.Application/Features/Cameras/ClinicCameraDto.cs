@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Domain.Entities;
 
 namespace ClinicManagement.Application.Features.Cameras;
@@ -15,6 +16,12 @@ public sealed class ClinicCameraDto
     public int ClockOffsetMinutes { get; set; }
     public DateTime? LastImportedAt { get; set; }
 
+    /// <summary>
+    /// The same instant as clinic wall-clock, no offset — the number line a camera's EXIF time lives on, so the import
+    /// screen can tell « new since the last import » without timezone arithmetic in the browser.
+    /// </summary>
+    public DateTime? LastImportedAtLocal { get; set; }
+
     /// <summary>Round-tripped by the settings card so a concurrent rename is a 409, not a silent overwrite.</summary>
     public uint Version { get; set; }
 
@@ -29,6 +36,9 @@ public sealed class ClinicCameraDto
         DoctorId = camera.DoctorId,
         ClockOffsetMinutes = camera.ClockOffsetMinutes,
         LastImportedAt = camera.LastImportedAt,
+        LastImportedAtLocal = camera.LastImportedAt is { } last
+            ? DateTime.SpecifyKind(ClinicClock.ToClinicLocal(last), DateTimeKind.Unspecified)
+            : null,
         Version = camera.Version,
     };
 }

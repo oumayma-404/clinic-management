@@ -1,5 +1,5 @@
 import {
-  CalendarOff, Fingerprint, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react"
+  Camera, CalendarOff, Fingerprint, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react"
 import { buildNavSections, NEWS_NAV_ITEM } from "@/lib/nav"
 
 /**
@@ -139,6 +139,8 @@ const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   // explicitly rather than left to the `daily` fall-back, or the rail would highlight one hue while the page
   // header drew the default and the two surfaces would stop reading as the same place.
   ["/fichiers", "daily"],
+  // « Importer les photos » files into those same drawers (`features/camera-photo-import`), so it shares their zone.
+  ["/photos", "daily"],
   ["/documents", "clinical"],
   ["/treatment-plans", "clinical"],
   ["/lab-orders", "clinical"],
@@ -220,6 +222,8 @@ const EXTRA_ICONS: Array<[string, LucideIcon]> = [
   ["/securite", ShieldCheck],
   [NEWS_NAV_ITEM.href, NEWS_NAV_ITEM.icon],
   ["/patients", Users],
+  // Opened from « Fichiers », a patient's files and the Windows app — never from the rail.
+  ["/photos", Camera],
 ]
 
 export function navIconForPath(pathname: string | null | undefined): LucideIcon | undefined {

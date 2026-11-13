@@ -21,6 +21,8 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
+  UserRoundPen,
+  Camera,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -74,6 +76,9 @@ import { FilePreviewDialog } from "@/components/patients/files/file-preview-dial
 import { FileThumbnail } from "@/components/patients/files/file-thumbnail"
 import { FileResidencyBadge } from "@/components/patients/files/residency-badge"
 import { RenameFileDialog } from "@/components/patients/files/rename-file-dialog"
+import { MoveToPatientDialog } from "@/components/patients/files/move-to-patient-dialog"
+import { CameraBadge } from "@/components/patients/files/camera-badge"
+import Link from "next/link"
 import { UploadQueue, useUploadQueue } from "@/components/patients/files/upload-queue"
 import { ResumeUploadsNotice } from "@/components/patients/files/resume-uploads-notice"
 import { StorageUsageLine } from "@/components/patients/files/storage-usage-line"
@@ -129,6 +134,8 @@ export function PatientFilesManager({
   const [savingFolder, setSavingFolder] = useState(false)
 
   const [fileToEdit, setFileToEdit] = useState<PatientFileDto | null>(null)
+  // « Changer de patient » (`features/camera-photo-import`) — a photo filed to the wrong person.
+  const [fileToMove, setFileToMove] = useState<PatientFileDto | null>(null)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
   const [verifyingFileId, setVerifyingFileId] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<
@@ -514,6 +521,13 @@ export function PatientFilesManager({
           <FolderInput className="mr-2 h-4 w-4" />
           Renommer, décrire, déplacer
         </DropdownMenuItem>
+        {/* A coffre original's path is derived from its patient, so it cannot change hands (the server refuses it). */}
+        {file.residency !== "Vault" && (
+          <DropdownMenuItem className="coarse:py-3" onSelect={() => setFileToMove(file)}>
+            <UserRoundPen className="mr-2 h-4 w-4" />
+            Changer de patient
+          </DropdownMenuItem>
+        )}
         {/* Only where the bytes could be here, and only for a coffre file: the server holds no copy of one, so its
             recorded empreinte is the only integrity evidence that exists. Deliberately an action rather than a
             check on open — a 25 Go study takes about a minute to re-read. */}
@@ -546,7 +560,9 @@ export function PatientFilesManager({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      {/* Side by side only from `xl:` — three actions are ~440 px, and beside the 256 px rail an iPad's 820 px
+          left the title truncated to nothing at `sm:`. */}
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <h2 className="truncate text-xl font-bold text-foreground sm:text-2xl">Fichiers de {patientName}</h2>
           <p className="text-sm text-muted-foreground">
@@ -558,7 +574,14 @@ export function PatientFilesManager({
         </div>
         {/* Full-width halves below `sm:` — « Nouveau dossier » + « Téléverser » is ~270 px of French, so at 320 px
             a shrink-to-fit row leaves two buttons pinched against the gutters. */}
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 xl:shrink-0">
+          {/* The camera's card is sorted by the agenda, for every patient at once (`features/camera-photo-import`). */}
+          <Button asChild variant="outline" size="sm" className="flex-1 coarse:h-11 sm:flex-none">
+            <Link href="/photos/import">
+              <Camera className="mr-2 h-4 w-4" aria-hidden="true" />
+              Photos de l&apos;appareil
+            </Link>
+          </Button>
           {!currentFolderId && (
             <Button variant="outline" onClick={openFolderDialog} size="sm" className="flex-1 coarse:h-11 sm:flex-none">
               <Plus className="mr-2 h-4 w-4" />
@@ -793,6 +816,7 @@ export function PatientFilesManager({
                         {formatFileSize(file.fileSize)} · {formatDate(file.uploadedAt)}
                       </p>
                       <FileResidencyBadge file={file} className="mt-1" />
+                      <CameraBadge file={file} className="mt-1" />
                     </div>
                     <div className="absolute end-1 top-1" onClick={(e) => e.stopPropagation()}>
                       {fileMenu(file)}
@@ -823,6 +847,7 @@ export function PatientFilesManager({
                           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                             <p className="truncate text-sm font-semibold text-foreground">{file.fileName}</p>
                             <FileResidencyBadge file={file} />
+                            <CameraBadge file={file} />
                           </div>
                           <p className="text-xs tabular-nums text-muted-foreground">
                             {formatFileSize(file.fileSize)} • {formatDate(file.uploadedAt)}
@@ -910,6 +935,13 @@ export function PatientFilesManager({
         folders={allFolders}
         onOpenChange={(open) => { if (!open) setFileToEdit(null) }}
         onSaved={() => void loadData()}
+      />
+
+      <MoveToPatientDialog
+        patientId={patientId}
+        file={fileToMove}
+        onOpenChange={(open) => { if (!open) setFileToMove(null) }}
+        onMoved={() => void loadData()}
       />
 
       <FilePreviewDialog
