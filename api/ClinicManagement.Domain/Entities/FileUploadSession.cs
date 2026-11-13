@@ -1,4 +1,5 @@
 using ClinicManagement.Domain.Common;
+using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Domain.Entities;
 
@@ -82,6 +83,19 @@ public class FileUploadSession : AggregateRoot<Guid>
     public DateTime CreatedAtUtc { get; private set; }
 
     public DateTime ExpiresAtUtc { get; private set; }
+
+    /// <summary>
+    /// Carried here because the file is built from this row at completion: a camera original over the chunk size
+    /// (the clinic-PC install keeps full size) would otherwise reach the record as an ordinary upload, with no capture
+    /// key to stop the same shot being filed twice.
+    /// </summary>
+    public FileOrigin Origin { get; private set; }
+
+    public DateTime? CapturedAt { get; private set; }
+
+    public string? CaptureKey { get; private set; }
+
+    public string? CameraModel { get; private set; }
 
     private FileUploadSession() { } // For EF Core
 
@@ -182,4 +196,20 @@ public class FileUploadSession : AggregateRoot<Guid>
 
     /// <summary>Extends the window, so a slow but live upload does not expire under a client still sending.</summary>
     public void KeepAlive(DateTime nowUtc) => ExpiresAtUtc = nowUtc.Add(Lifetime);
+
+    /// <summary>Marks the upload as a camera photo; completion hands the same facts to the file.</summary>
+    public void RecordCameraCapture(PhotoCaptureFacts capture)
+    {
+        ArgumentNullException.ThrowIfNull(capture);
+        Origin = FileOrigin.Camera;
+        CapturedAt = capture.CapturedAtUtc;
+        CaptureKey = capture.CaptureKey;
+        CameraModel = capture.CameraModel;
+    }
+
+    /// <summary>The capture facts this session carries, or null for an ordinary upload.</summary>
+    public PhotoCaptureFacts? CameraCapture(DateTime nowUtc) =>
+        Origin == FileOrigin.Camera && CaptureKey is not null
+            ? PhotoCaptureFacts.Create(CapturedAt, CaptureKey, CameraModel, nowUtc)
+            : null;
 }

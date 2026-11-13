@@ -27,6 +27,19 @@ public class PatientFileDto
 
     /// <summary>Round-tripped by the rename/move form so a concurrent change is a 409, not a silent overwrite.</summary>
     public uint Version { get; set; }
+
+    /// <summary><c>Upload</c> or <c>Camera</c> — a camera photo is badged « Appareil photo » with its capture time.</summary>
+    public string Origin { get; set; } = string.Empty;
+
+    /// <summary>When a camera photo was taken (UTC), or null.</summary>
+    public DateTime? CapturedAt { get; set; }
+
+    public string? CameraModel { get; set; }
+
+    /// <summary>The PC holding the photo's full-size original — « Original : PC ACCUEIL » — or null when none was kept.</summary>
+    public string? OriginalHeldBy { get; set; }
+
+    public long? OriginalSizeBytes { get; set; }
 }
 
 public class PatientFolderDto

@@ -51,6 +51,27 @@ public interface IPatientFileRepository
         PageRequest? paging,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Which of these camera shots this cabinet has already filed (<c>features/camera-photo-import</c>) — one read
+    /// for a whole card, so re-inserting it costs one round trip rather than one per photo. Keys must already be
+    /// normalised (lower-case hex); <paramref name="clinicId"/> is the authoritative predicate.
+    /// </summary>
+    Task<IReadOnlyList<ImportedCaptureRow>> GetImportedCapturesAsync(
+        Guid clinicId,
+        IReadOnlyCollection<string> captureKeys,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The upload doors' duplicate check: is this shot already a file of this cabinet?</summary>
+    Task<bool> CaptureKeyExistsAsync(Guid clinicId, string captureKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Per PC, how many camera originals the server was told it keeps and how many bytes — the figures a PC's
+    /// archive-disk copy is checked against, exactly as <see cref="GetVaultTotalsAsync"/> is for the coffre.
+    /// </summary>
+    Task<IReadOnlyList<CameraOriginalTotals>> GetCameraOriginalTotalsAsync(
+        Guid clinicId,
+        CancellationToken cancellationToken = default);
+
     Task<IEnumerable<Entities.PatientFile>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default);
     Task<IEnumerable<Entities.PatientFile>> GetByFolderIdAsync(Guid folderId, CancellationToken cancellationToken = default);
     Task<IEnumerable<Entities.PatientFile>> GetRootFilesByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default);

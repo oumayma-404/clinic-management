@@ -57,6 +57,30 @@ public class DentalRecordRepository : IDentalRecordRepository
     public Task<bool> AnyForClinicAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
         _context.DentalRecords.AnyAsync(dr => dr.ClinicId == clinicId, cancellationToken);
 
+    public async Task<IReadOnlyList<FicheSaveRow>> GetFicheSavesAsync(
+        Guid clinicId,
+        DateTime fromUtc,
+        DateTime toUtcExclusive,
+        CancellationToken cancellationToken = default)
+    {
+        // One join, projected: the matcher needs a name and an instant, never the fiche's acts.
+        return await (
+                from record in _context.DentalRecords
+                join patient in _context.Patients on record.PatientId equals patient.Id
+                where record.ClinicId == clinicId
+                      && record.CreatedAt >= fromUtc
+                      && record.CreatedAt < toUtcExclusive
+                orderby record.CreatedAt, record.Id
+                select new FicheSaveRow(
+                    record.Id,
+                    record.PatientId,
+                    patient.FirstName + " " + patient.LastName,
+                    record.AppointmentId,
+                    record.DoctorId,
+                    record.CreatedAt))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<(Guid AppointmentId, Guid DentalRecordId, decimal Cost)>> GetAppointmentLinksAsync(
         Guid clinicId,
         IReadOnlyCollection<Guid> appointmentIds,

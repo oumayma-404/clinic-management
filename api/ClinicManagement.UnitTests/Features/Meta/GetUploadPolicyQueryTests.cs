@@ -317,6 +317,33 @@ public class GetUploadPolicyQueryTests
     }
 
     /// <summary>
+    /// <c>features/camera-photo-import</c>: a camera photo is stored as a 2 560 px copy only where the vendor holds
+    /// the bytes. Elsewhere — the cabinet's own disk — there is no rule, and the photo is stored as it was taken.
+    /// </summary>
+    [Fact]
+    public async Task Only_A_Hosted_Drawer_Is_Told_To_Store_A_Camera_Photo_As_A_Copy()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Deployment:Profile"] = "HostedMultiTenant" })
+            .Build();
+        var storagePolicy = new Mock<IClinicStoragePolicy>();
+        storagePolicy.SetupGet(p => p.Enforced).Returns(true);
+        storagePolicy.SetupGet(p => p.QuotaBytes).Returns(10L * 1024 * 1024 * 1024);
+        var files = new Mock<IPatientFileRepository>();
+        files.Setup(r => r.GetHostedBytesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(0L);
+        var hosted = HandlerWith(DeploymentProfile.Resolve(configuration), storagePolicy.Object, files.Object);
+
+        var drawer = await hosted.Handle(new GetUploadPolicyQuery(), CancellationToken.None);
+        var logo = await hosted.Handle(new GetUploadPolicyQuery { Profile = "profile-image" }, CancellationToken.None);
+        var ownDisk = await Read(deployment: "SelfHostedLan");
+
+        Assert.Equal(2560, drawer.Value!.CameraCopy!.MaxEdgePx);
+        Assert.InRange(drawer.Value.CameraCopy.Quality, 0.5, 1.0);
+        Assert.Null(logo.Value!.CameraCopy);
+        Assert.Null(ownDisk.CameraCopy);
+    }
+
+    /// <summary>
     /// An unknown door is refused rather than quietly answered with the drawer's policy — which would offer DICOM
     /// as a clinic logo and quote a ceiling six times too high.
     /// </summary>

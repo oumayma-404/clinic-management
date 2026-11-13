@@ -1583,6 +1583,18 @@ export interface PatientFileDto {
   hasPreview: boolean;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the matching update. */
   version: number;
+  /**
+   * `Camera` for a photo filed by « Importer les photos » (`features/camera-photo-import`); `Upload` for every
+   * other file. Optional because a server older than the feature does not send it.
+   */
+  origin?: 'Upload' | 'Camera';
+  /** When a camera photo was taken (UTC ISO), or null. */
+  capturedAt?: string | null;
+  /** « Canon EOS 250D » — a display snapshot of the camera. */
+  cameraModel?: string | null;
+  /** The PC holding this photo's full-size original — « Original : PC ACCUEIL » — or null when none was kept. */
+  originalHeldBy?: string | null;
+  originalSizeBytes?: number | null;
 }
 
 /**

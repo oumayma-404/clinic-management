@@ -1,4 +1,5 @@
 ﻿using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
@@ -34,6 +35,12 @@ public class UploadPatientFileCommand : IRequest<Result<PatientFileDto>>
     public string? PreviewFileName { get; set; }
 
     public long PreviewSize { get; set; }
+
+    /// <summary>
+    /// The camera facts, when this file is a photo filed by « Importer les photos » — <see cref="CameraCaptureInput.None"/>
+    /// for every other upload (<c>features/camera-photo-import</c>).
+    /// </summary>
+    public CameraCaptureInput Capture { get; set; } = CameraCaptureInput.None;
 }
 
 public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFileCommand, Result<PatientFileDto>>
@@ -109,6 +116,21 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 }
             }
 
+            // A camera photo names its shot, and the same shot is refused a second time BEFORE a byte is stored —
+            // re-inserting a card must cost nothing, and an orphan blob is the one thing this door never leaves.
+            var capture = request.Capture.ToFacts(DateTime.UtcNow);
+            if (capture.IsFailure)
+            {
+                return Result<PatientFileDto>.FailureFrom(capture);
+            }
+
+            if (capture.Value is { } shot
+                && await _fileRepository.CaptureKeyExistsAsync(patient.ClinicId, shot.CaptureKey, cancellationToken))
+            {
+                return Result<PatientFileDto>.Failure(
+                    CameraImportRefusals.AlreadyImported(), CameraImportRefusals.AlreadyImportedCode);
+            }
+
             // US-11 / AC-11.1–11.5: validate BEFORE anything is written, so a refused upload leaves no blob
             // and no row — no orphan cleanup required. The judgement itself lives in the catalog, which is what
             // lets the same rules cover the cachet, the logo, the document PDF and the CSV import.
@@ -179,6 +201,11 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                     request.UploadedBy,
                     previewKey);
 
+                if (capture.Value is { } facts)
+                {
+                    file.RecordCameraCapture(facts);
+                }
+
                 await _fileRepository.AddAsync(file, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -201,6 +228,13 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
 
                 throw;
             }
+        }
+        catch (DbUpdateException ex) when (request.Capture.IsCamera && UniqueViolation.Is(ex))
+        {
+            // Two PCs importing the same card at once both passed the check above; the unique index made one lose,
+            // and losing means « already filed », which is what the page shows rather than an error.
+            return Result<PatientFileDto>.Failure(
+                CameraImportRefusals.AlreadyImported(), CameraImportRefusals.AlreadyImportedCode);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

@@ -162,6 +162,7 @@ public static class Extensions
         services.AddScoped<IPatientFileAnnotationRepository, PatientFileAnnotationRepository>();
         services.AddScoped<IPatientFileRepository, PatientFileRepository>();
         services.AddScoped<IFileUploadSessionRepository, FileUploadSessionRepository>();
+        services.AddScoped<IClinicCameraRepository, ClinicCameraRepository>();
         services.AddScoped<IMedicalDocumentRepository, MedicalDocumentRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IClinicRepository, ClinicRepository>();

@@ -17,6 +17,18 @@ import type {
 export type PatientFileDirectorySort = 'name' | 'files' | 'recent';
 
 /**
+ * What « Importer les photos » sends beside a photo (`features/camera-photo-import`). `capturedAtLocal` is the
+ * clinic's wall clock with no offset (« 2026-11-12T09:14:03 »), already corrected for the camera's clock; the
+ * server turns it into an instant. `capturedAtOffsetMinutes` only when the camera wrote its own zone.
+ */
+export interface CameraCaptureFields {
+  captureKey: string;
+  capturedAtLocal?: string | null;
+  capturedAtOffsetMinutes?: number | null;
+  cameraModel?: string | null;
+}
+
+/**
  * Patient folders and files.
  *
  * ⚠️ **Every call goes through `client.ts`, and that is the fix for a real defect** — not tidiness. All four of
@@ -95,7 +107,8 @@ export const patientFilesApi = {
     file: File,
     folderId?: string,
     description?: string,
-    preview?: Blob | null
+    preview?: Blob | null,
+    capture?: CameraCaptureFields | null
   ): Promise<PatientFileDto> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -108,9 +121,42 @@ export const patientFilesApi = {
     if (preview) {
       formData.append('preview', preview, PREVIEW_FILE_NAME);
     }
+    // A camera photo names its shot, so the server refuses the same shot twice (`features/camera-photo-import`).
+    if (capture) {
+      formData.append('captureKey', capture.captureKey);
+      if (capture.capturedAtLocal) formData.append('capturedAtLocal', capture.capturedAtLocal);
+      if (capture.capturedAtOffsetMinutes != null) {
+        formData.append('capturedAtOffsetMinutes', String(capture.capturedAtOffsetMinutes));
+      }
+      if (capture.cameraModel) formData.append('cameraModel', capture.cameraModel);
+    }
 
     return apiPostFormData<PatientFileDto>(`/patients/${patientId}/files/upload`, formData);
   },
+
+  /**
+   * One default folder of a patient (« photographie »), created — alone — when missing. The camera import files
+   * into it; the initializer would resurrect every default folder the cabinet deleted.
+   */
+  ensureDefaultFolder: async (patientId: string, key: 'photographie' | 'radiographie'): Promise<PatientFolderDto> =>
+    apiPost<PatientFolderDto>(`/patients/${patientId}/files/folders/default/${key}`, {}),
+
+  /** « Changer de patient » — re-files a document under another patient of the cabinet. */
+  moveToPatient: async (
+    patientId: string,
+    fileId: string,
+    targetPatientId: string,
+    version: number
+  ): Promise<PatientFileDto> =>
+    apiPut<PatientFileDto>(`/patients/${patientId}/files/${fileId}/patient`, { targetPatientId, version }),
+
+  /** Records that a clinic PC kept a camera photo's full-size original (sent on the Windows app's behalf). */
+  recordOriginal: async (
+    patientId: string,
+    fileId: string,
+    original: { sha256: string; sizeBytes: number; heldBy: string }
+  ): Promise<PatientFileDto> =>
+    apiPut<PatientFileDto>(`/patients/${patientId}/files/${fileId}/original`, original),
 
   // ── Resumable upload ──────────────────────────────────────────────────────────────────────────────────
   //

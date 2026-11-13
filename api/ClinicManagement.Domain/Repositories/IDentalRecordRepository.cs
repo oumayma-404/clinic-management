@@ -88,6 +88,17 @@ public interface IDentalRecordRepository
     /// <summary>Whether this cabinet has recorded any fiche de soins at all (« Premiers pas »). One <c>EXISTS</c>.</summary>
     Task<bool> AnyForClinicAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// When each fiche first saved in <c>[fromUtc, toUtcExclusive)</c> was written, with its patient — the evidence
+    /// camera-photo matching uses to tell which patient was really in the chair on a day running late
+    /// (<c>features/camera-photo-import</c>). Projected; ordered by save time then id.
+    /// </summary>
+    Task<IReadOnlyList<FicheSaveRow>> GetFicheSavesAsync(
+        Guid clinicId,
+        DateTime fromUtc,
+        DateTime toUtcExclusive,
+        CancellationToken cancellationToken = default);
+
     Task<DentalRecord> AddAsync(DentalRecord dentalRecord, CancellationToken cancellationToken = default);
     Task UpdateAsync(DentalRecord dentalRecord, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

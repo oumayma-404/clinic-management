@@ -93,6 +93,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     /// would lose every upload in flight on a deploy — which is exactly when one is most likely to be running.
     /// </summary>
     public DbSet<FileUploadSession> FileUploadSessions { get; set; }
+
+    /// <summary>The cabinet's paired cameras (<c>features/camera-photo-import</c>).</summary>
+    public DbSet<ClinicCamera> ClinicCameras { get; set; }
     public DbSet<RecurringAppointment> RecurringAppointments { get; set; }
     public DbSet<StockItem> StockItems { get; set; }
     // Append-only stock-movement audit log (consume/restock history) — clinic-scoped aggregate root.
@@ -328,6 +331,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         modelBuilder.Entity<PatientFile>().HasQueryFilter(f => IsSystemWide || f.ClinicId == ScopedClinicId);
         modelBuilder.Entity<PatientFileAnnotation>().HasQueryFilter(a => IsSystemWide || a.ClinicId == ScopedClinicId);
         modelBuilder.Entity<FileUploadSession>().HasQueryFilter(u => IsSystemWide || u.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<ClinicCamera>().HasQueryFilter(c => IsSystemWide || c.ClinicId == ScopedClinicId);
         modelBuilder.Entity<PatientFolder>().HasQueryFilter(f => IsSystemWide || f.ClinicId == ScopedClinicId);
         modelBuilder.Entity<MedicalDocument>().HasQueryFilter(d => IsSystemWide || d.ClinicId == ScopedClinicId);
         modelBuilder.Entity<DentalRecord>().HasQueryFilter(r => IsSystemWide || r.ClinicId == ScopedClinicId);

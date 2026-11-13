@@ -148,7 +148,8 @@ public class PatientFilesController : ApiControllerBase
             UploadedBy = uploadedBy,
             PreviewStream = request.Preview?.OpenReadStream(),
             PreviewFileName = request.Preview?.FileName,
-            PreviewSize = request.Preview?.Length ?? 0
+            PreviewSize = request.Preview?.Length ?? 0,
+            Capture = request.ToCapture()
         };
 
         var result = await _mediator.Send(command, cancellationToken);
@@ -229,7 +230,8 @@ public class PatientFilesController : ApiControllerBase
             FileSize = request.FileSize,
             FolderId = request.FolderId,
             Description = request.Description,
-            UploadedBy = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")
+            UploadedBy = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub"),
+            Capture = request.ToCapture()
         };
 
         var result = await _mediator.Send(command, cancellationToken);
@@ -452,6 +454,69 @@ public class PatientFilesController : ApiControllerBase
         }
 
         return Ok(result.Value);
+    }
+
+    // ── Camera import (features/camera-photo-import) ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Finds one default folder (« photographie »), creating only it when missing. Gated like the upload it precedes:
+    /// on an expired cabinet the import is refused anyway, so an exemption here would buy nothing.
+    /// </summary>
+    [HttpPost("folders/default/{key}")]
+    public async Task<ActionResult<Application.DTOs.PatientFolderDto>> EnsureDefaultFolder(
+        Guid patientId,
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new EnsureDefaultPatientFolderCommand { PatientId = patientId, Key = key }, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// « Changer de patient » — re-files a document under another patient. Recording, not erasing, so it stays on
+    /// the class policy: the secretary who filed a photo to the wrong person must be able to fix it herself.
+    /// </summary>
+    [HttpPut("{fileId}/patient")]
+    public async Task<ActionResult<Application.DTOs.PatientFileDto>> MoveFileToPatient(
+        Guid patientId,
+        Guid fileId,
+        [FromBody] Models.MoveFileToPatientRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new MovePatientFileToPatientCommand
+        {
+            PatientId = patientId,
+            FileId = fileId,
+            TargetPatientId = request.TargetPatientId,
+            Version = request.Version
+        }, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// Records that a clinic PC kept this photo's full-size original — sent by the page on the Windows app's behalf,
+    /// right after the photo's own upload (which the same gate already let through).
+    /// </summary>
+    [HttpPut("{fileId}/original")]
+    public async Task<ActionResult<Application.DTOs.PatientFileDto>> RecordOriginal(
+        Guid patientId,
+        Guid fileId,
+        [FromBody] Models.RecordFileOriginalRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new RecordFileOriginalCommand
+        {
+            PatientId = patientId,
+            FileId = fileId,
+            Sha256 = request.Sha256,
+            SizeBytes = request.SizeBytes,
+            HeldBy = request.HeldBy
+        }, cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
     [HttpPut("folders/{folderId}")]

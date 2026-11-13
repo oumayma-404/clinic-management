@@ -17,6 +17,18 @@ public class StartFileUploadRequest
     public Guid? FolderId { get; set; }
 
     public string? Description { get; set; }
+
+    /// <summary>A camera original going up in parts (clinic-PC install) — see <see cref="UploadFileRequest"/>.</summary>
+    public string? CaptureKey { get; set; }
+
+    public DateTime? CapturedAtLocal { get; set; }
+
+    public int? CapturedAtOffsetMinutes { get; set; }
+
+    public string? CameraModel { get; set; }
+
+    public Application.Features.Files.CameraCaptureInput ToCapture() =>
+        new(CaptureKey, CapturedAtLocal, CapturedAtOffsetMinutes, CameraModel);
 }
 
 /// <summary>Finishing one: the assembled file, plus the stand-in image the browser built along the way.</summary>

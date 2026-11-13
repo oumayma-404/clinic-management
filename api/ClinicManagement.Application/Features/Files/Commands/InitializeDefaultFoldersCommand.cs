@@ -21,14 +21,6 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentClinicResolver _clinicResolver;
 
-    private static readonly string[] DefaultFolderNames = new[]
-    {
-        "Radiographie",
-        "Photographie",
-        "Analyses Biologiques",
-        "Lettres de Liaisons"
-    };
-
     public InitializeDefaultFoldersCommandHandler(
         IPatientRepository patientRepository,
         IPatientFolderRepository folderRepository,
@@ -65,12 +57,12 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
 
             var createdFolders = new List<PatientFolder>();
 
-            foreach (var folderName in DefaultFolderNames)
+            foreach (var (_, folderName) in DefaultPatientFolders.All)
             {
                 if (!existingFolderNames.Contains(folderName))
                 {
                     // Generate a consistent ID based on folder name for default folders
-                    var folderId = GenerateDefaultFolderId(request.PatientId, folderName);
+                    var folderId = DefaultPatientFolders.IdFor(request.PatientId, folderName);
                     var folder = new PatientFolder(folderId, request.PatientId, patient.ClinicId, folderName);
                     await _folderRepository.AddAsync(folder, cancellationToken);
                     createdFolders.Add(folder);
@@ -84,17 +76,7 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
 
             // Return all root folders (including newly created ones)
             var allFolders = await _folderRepository.GetRootFoldersByPatientIdAsync(request.PatientId, cancellationToken);
-            var dtos = allFolders.Select(f => new PatientFolderDto
-            {
-                Id = f.Id,
-                PatientId = f.PatientId,
-                ParentFolderId = f.ParentFolderId,
-                Name = f.Name,
-                FileCount = f.Files.Count,
-                SubFolderCount = f.SubFolders.Count,
-                CreatedAt = f.CreatedAt,
-                UpdatedAt = f.UpdatedAt
-            });
+            var dtos = allFolders.Select(DefaultPatientFolders.ToDto);
 
             return Result<IEnumerable<PatientFolderDto>>.Success(dtos);
         }
@@ -102,16 +84,6 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
         {
             return Result<IEnumerable<PatientFolderDto>>.Failure(ErrorMessages.Generic, ex);
         }
-    }
-
-    private static Guid GenerateDefaultFolderId(Guid patientId, string folderName)
-    {
-        // Generate a deterministic GUID based on patient ID and folder name
-        // This ensures default folders have consistent IDs
-        var input = $"{patientId}-{folderName}";
-        var bytes = System.Text.Encoding.UTF8.GetBytes(input);
-        var hash = System.Security.Cryptography.MD5.HashData(bytes);
-        return new Guid(hash);
     }
 }
 

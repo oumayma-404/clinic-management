@@ -7,6 +7,8 @@ namespace ClinicManagement.Infrastructure.Persistence.Configurations;
 
 public class PatientFileConfiguration : IEntityTypeConfiguration<PatientFile>
 {
+    private const int PhotoCaptureFactsLength = Domain.Common.PhotoCaptureFacts.CaptureKeyLength;
+
     public void Configure(EntityTypeBuilder<PatientFile> builder)
     {
         // The residency form is a CHECK rather than a verified invariant because it is expressible as one: a
@@ -73,6 +75,33 @@ public class PatientFileConfiguration : IEntityTypeConfiguration<PatientFile>
 
         builder.Property(f => f.UploadedAt)
             .IsRequired();
+
+        // ── Camera import (features/camera-photo-import) ─────────────────────────────────────────────
+        // Every column nullable or defaulted, so no existing row is rewritten: an old file reads as an ordinary
+        // upload with no capture facts, which is exactly what it is.
+        builder.Property(f => f.Origin)
+            .IsRequired()
+            .HasConversion<int>()
+            .HasDefaultValue(FileOrigin.Upload);
+
+        builder.Property(f => f.CaptureKey)
+            .HasMaxLength(PhotoCaptureFactsLength);
+
+        builder.Property(f => f.CameraModel)
+            .HasMaxLength(100);
+
+        builder.Property(f => f.OriginalSha256)
+            .HasMaxLength(PhotoCaptureFactsLength);
+
+        builder.Property(f => f.OriginalHeldBy)
+            .HasMaxLength(PatientFile.MaxOriginalHolderLength);
+
+        // The duplicate check's index AND its backstop: two PCs importing the same card at once both read
+        // « not filed yet », and only a unique index makes one of them lose. Partial, so the ordinary upload —
+        // with no key — is untouched.
+        builder.HasIndex(f => new { f.ClinicId, f.CaptureKey })
+            .IsUnique()
+            .HasFilter("\"CaptureKey\" IS NOT NULL");
 
         builder.HasOne(f => f.Patient)
             .WithMany(p => p.Files)

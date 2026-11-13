@@ -814,6 +814,69 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("ClinicArchiveGrants", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicCamera", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ClockOffsetMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DoctorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTime?>("LastImportedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Make")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("SerialSuffix")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DoctorId");
+
+                    b.HasIndex("ClinicId", "Fingerprint")
+                        .IsUnique();
+
+                    b.ToTable("ClinicCameras", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicChange", b =>
                 {
                     b.Property<Guid>("ClinicId")
@@ -2111,6 +2174,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CameraModel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("CaptureKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("CapturedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("ChunkSize")
                         .HasColumnType("integer");
 
@@ -2142,6 +2216,11 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<Guid?>("FolderId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("Origin")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uuid");
@@ -3172,6 +3251,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CameraModel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("CaptureKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("CapturedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("ClinicId")
                         .HasColumnType("uuid");
 
@@ -3201,6 +3291,25 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<Guid?>("FolderId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("Origin")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("OriginalHeldBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("OriginalKeptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OriginalSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long?>("OriginalSizeBytes")
+                        .HasColumnType("bigint");
 
                     b.Property<Guid>("PatientId")
                         .HasColumnType("uuid");
@@ -3238,6 +3347,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("FolderId");
 
                     b.HasIndex("PatientId");
+
+                    b.HasIndex("ClinicId", "CaptureKey")
+                        .IsUnique()
+                        .HasFilter("\"CaptureKey\" IS NOT NULL");
 
                     b.ToTable("PatientFiles", null, t =>
                         {
@@ -5717,6 +5830,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicArchiveGrant", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.ClinicCamera", b =>
                 {
                     b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
                         .WithMany()

@@ -29,5 +29,10 @@ public static class PatientFileMappingExtensions
         ContentHash = file.ContentHash,
         HasPreview = PatientFilePreviewPolicy.HasSomethingToShow(file),
         Version = file.Version,
+        Origin = file.Origin.ToString(),
+        CapturedAt = file.CapturedAt,
+        CameraModel = file.CameraModel,
+        OriginalHeldBy = file.OriginalHeldBy,
+        OriginalSizeBytes = file.OriginalSizeBytes,
     };
 }
