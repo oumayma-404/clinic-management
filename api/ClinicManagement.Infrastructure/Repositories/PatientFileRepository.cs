@@ -90,7 +90,8 @@ public class PatientFileRepository : IPatientFileRepository
         var query =
             from file in _context.PatientFiles
             join patient in _context.Patients on file.PatientId equals patient.Id
-            where file.ClinicId == clinicId
+            // Hosted only: a coffre file cannot be downloaded from here, and listing it stopped the mirror.
+            where file.ClinicId == clinicId && file.Residency == FileResidency.Hosted
             // Ascending, and see the interface note: a caller walks these pages while uploads continue, and
             // newest-first would push unread rows past the cursor every time somebody scans a document.
             orderby file.UploadedAt, file.Id

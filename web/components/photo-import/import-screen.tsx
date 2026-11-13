@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
+import { useSearchParams } from "next/navigation"
 import { Images, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -10,6 +11,7 @@ import { Progress } from "@/components/ui/progress"
 import { StorageUsageLine } from "@/components/patients/files/storage-usage-line"
 import type { UploadPolicy } from "@/lib/api/upload-policy"
 import { formatFileSize } from "@/lib/format"
+import { replaceUrl } from "@/lib/history"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import {
   UNKNOWN_CAMERA,
@@ -18,11 +20,13 @@ import {
   resetImport,
   setShowOlder,
   startFiling,
+  startImport,
   unresolvedGroups,
   useImportSession,
   type ImportPhoto,
   type ImportState,
 } from "@/lib/photo-import/session"
+import { scanShellCamera, takeShellBatch, useCameraShell, useShellCamera } from "@/lib/photo-import/shell-camera"
 import { skippedSummary } from "@/lib/photo-import/sources"
 import { wallClockDay } from "@/lib/photo-import/wall-clock"
 import { BurstCard } from "./burst-card"
@@ -44,11 +48,34 @@ export function ImportScreen() {
   const state = useImportSession()
   const policy = useUploadPolicy()
   const photos = useMemo(() => new Map(state.photos.map((photo) => [photo.id, photo])), [state.photos])
+  const shell = useCameraShell()
+  const { batch: shellBatch, busy: shellBusy } = useShellCamera()
+
+  // The Windows app's photos start as soon as they arrive — they come only because somebody asked for them — except
+  // over a batch still being read or sent, which they wait behind.
+  useEffect(() => {
+    if (!shellBatch || state.phase === "reading" || state.phase === "filing") return
+    const batch = takeShellBatch()
+    if (batch) void startImport(batch)
+  }, [shellBatch, state.phase])
+
+  // `?appareil=<device>` — « Importer » in a notice: copy that device's photos now, once, and drop the key.
+  // Read through `useSearchParams` in the browser only (the `useUrlFilterSeed` pattern), so the page stays static.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const routed = typeof window === "undefined" ? null : useSearchParams()
+  const appareil = routed?.get("appareil") ?? null
+  useEffect(() => {
+    if (appareil === null) return
+    replaceUrl(window.location.pathname)
+    void scanShellCamera({ sourceKey: appareil || undefined })
+  }, [appareil])
 
   const subtitle =
     state.phase === "review"
       ? `${plural(state.photos.length - state.olderCount, "nouvelle photo", "nouvelles photos")}`
-      : "Depuis la carte de l'appareil photo"
+      : shell
+        ? "Depuis l'appareil photo ou sa carte"
+        : "Depuis la carte de l'appareil photo"
 
   return (
     <div className="space-y-5">
@@ -66,7 +93,8 @@ export function ImportScreen() {
 
       <StorageUsageLine policy={policy} />
 
-      {state.phase === "idle" && <SourceStep />}
+      {state.phase === "idle" && shellBusy && <ShellCopyingNotice />}
+      {state.phase === "idle" && !shellBusy && <SourceStep />}
 
       {state.phase === "reading" && (
         <div className="space-y-3 rounded-lg border border-border bg-card p-6" role="status">
@@ -99,6 +127,16 @@ export function ImportScreen() {
   )
 }
 
+/** « Importer » in the Windows app: the photos are being copied off the camera onto this PC. */
+function ShellCopyingNotice() {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-6 font-medium" role="status">
+      <Loader2 className="size-4 text-primary motion-safe:animate-spin" aria-hidden="true" />
+      Copie des photos de l&apos;appareil sur ce PC…
+    </div>
+  )
+}
+
 function ReviewStep({
   state,
   policy,
@@ -127,6 +165,9 @@ function ReviewStep({
     shortBy = Math.max(0, plan.length * perPhoto - (policy.storageQuotaBytes - policy.storageUsedBytes))
   }
 
+  const shellOlder = state.shell?.older ?? 0
+  const shellFailed = state.shell?.failed ?? 0
+
   const goToFirstUnresolved = () => {
     const first = unresolved[0]
     if (first) document.getElementById(`groupe-${first.key}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
@@ -134,6 +175,22 @@ function ReviewStep({
 
   return (
     <div className="space-y-4">
+      {shellFailed > 0 && (
+        <p role="status" className="rounded-lg bg-warning-wash p-3 text-sm text-warning-ink">
+          {plural(shellFailed, "photo n'a", "photos n'ont")} pas pu être copiée{shellFailed > 1 ? "s" : ""} depuis
+          l&apos;appareil : elle{shellFailed > 1 ? "s seront proposées" : " sera proposée"} à la prochaine importation.
+        </p>
+      )}
+      {shellOlder > 0 && (
+        <Button
+          type="button"
+          variant="link"
+          className="h-auto justify-start p-0 text-sm coarse:min-h-11"
+          onClick={() => void scanShellCamera({ includeOlder: true })}
+        >
+          Ajouter {plural(shellOlder, "photo plus ancienne restée", "photos plus anciennes restées")} sur l&apos;appareil
+        </Button>
+      )}
       {(state.alreadyImported > 0 || skipped || state.olderCount > 0 || (state.showOlder && state.photos.length > 0)) && (
         <div className="flex flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4">
           {state.alreadyImported > 0 && <p>{plural(state.alreadyImported, "photo déjà rangée", "photos déjà rangées")}</p>}

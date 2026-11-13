@@ -1,12 +1,13 @@
 "use client"
 
-import { useRef, useState, type DragEvent } from "react"
-import { Camera, FolderOpen, Images } from "lucide-react"
+import { useEffect, useRef, useState, type DragEvent } from "react"
+import { Camera, FolderOpen, Images, Usb } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useDemo } from "@/lib/demo/demo-context"
 import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
 import { showErrorToast } from "@/lib/errors"
 import { startImport } from "@/lib/photo-import/session"
+import { scanShellCamera, useCameraShell } from "@/lib/photo-import/shell-camera"
 import { batchOfDrop, batchOfFiles, canPickFolder, pickFolder, type SourceBatch } from "@/lib/photo-import/sources"
 import { cn } from "@/lib/utils"
 
@@ -16,12 +17,34 @@ import { cn } from "@/lib/utils"
  * ⚠️ **The folder button is the first choice wherever it exists** — a card holds a `DCIM` tree, and picking its root
  * once is the whole gesture. Where the browser cannot open a folder for reading (Firefox, Safari), the same button
  * falls back to the `webkitdirectory` picker; on a phone, « Choisir des photos » opens the gallery.
+ *
+ * ⚠️ **In the Windows app (1.8) the camera itself comes first** — « Depuis l'appareil branché » copies the new photos
+ * of a connected camera or card onto the PC and opens them here, with those still waiting from an earlier import; the
+ * folder stays beside it for a card the app did not see.
  */
 export function SourceStep() {
   const { isDemo } = useDemo()
   const filesInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
+  const shell = useCameraShell()
+  const [pending, setPending] = useState(0)
+
+  useEffect(() => {
+    if (!shell) return
+    let live = true
+    void shell.cameraStatus().then((status) => {
+      if (live) setPending(status?.pending ?? 0)
+    })
+    return () => {
+      live = false
+    }
+  }, [shell])
+
+  const fromCamera = () => {
+    if (refuseInDemo(isDemo)) return
+    void scanShellCamera()
+  }
 
   const begin = (batch: SourceBatch | null) => {
     if (batch) void startImport(batch)
@@ -90,8 +113,27 @@ export function SourceStep() {
         </p>
       </div>
 
+      {shell && (
+        <div className="flex w-full max-w-md flex-col items-center gap-1.5">
+          <Button type="button" className="w-full gap-2 coarse:min-h-11 sm:w-auto" onClick={fromCamera}>
+            <Usb className="size-4" aria-hidden="true" />
+            Depuis l&apos;appareil branché
+          </Button>
+          {pending > 0 && (
+            <p className="text-sm text-muted-foreground" role="status">
+              {pending === 1 ? "1 photo en attente de rangement" : `${pending} photos en attente de rangement`}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="flex w-full max-w-md flex-col gap-2 sm:flex-row sm:justify-center">
-        <Button type="button" className="gap-2 coarse:min-h-11" onClick={() => void chooseFolder()}>
+        <Button
+          type="button"
+          variant={shell ? "outline" : "default"}
+          className="gap-2 coarse:min-h-11"
+          onClick={() => void chooseFolder()}
+        >
           <FolderOpen className="size-4" aria-hidden="true" />
           Choisir le dossier de la carte
         </Button>

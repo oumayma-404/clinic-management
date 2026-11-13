@@ -20,12 +20,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { clinicCamerasApi, type ClinicCameraDto, type UpdateCameraRequest } from "@/lib/api/clinic-cameras"
 import { useSession } from "@/lib/auth/session"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
-import { formatDateTime, quoteFr } from "@/lib/format"
+import { formatDateTime, formatFileSize, quoteFr } from "@/lib/format"
 import { useDoctors } from "@/lib/hooks/use-doctors"
 import { isAdminOrDoctor } from "@/lib/nav"
+import { useCameraShell } from "@/lib/photo-import/shell-camera"
 import { formatOffset } from "@/lib/photo-import/wall-clock"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
@@ -129,6 +131,7 @@ export function CamerasCard() {
             ))}
           </ul>
         )}
+        <ThisPcSection />
       </CardContent>
 
       <AlertDialog open={!!forgetting} onOpenChange={(open) => { if (!open) setForgetting(null) }}>
@@ -293,5 +296,116 @@ function CameraRow({
         )}
       </div>
     </li>
+  )
+}
+
+/**
+ * « Sur ce PC » — the Windows app's half of the camera (`features/camera-photo-import`, phase 2): whether this PC says
+ * « Appareil photo détecté » when one is plugged in, and the full-size originals it keeps. Rendered only in the Windows
+ * app 1.8; per PC and per Windows account, which is why it is here beside the cabinet's cameras and not a cabinet
+ * setting.
+ *
+ * ⚠️ **The switch is off by default** and only raises a notice: nothing is copied before « Importer ». « Depuis
+ * l'appareil branché » on the import screen works whatever it says.
+ */
+function ThisPcSection() {
+  const shell = useCameraShell()
+  const switchId = useId()
+  const [status, setStatus] = useState<ShellCameraStatus | null>(null)
+  const [unreadable, setUnreadable] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [copying, setCopying] = useState(false)
+
+  const read = useCallback(async () => {
+    if (!shell) return
+    const next = await shell.cameraStatus()
+    setStatus(next)
+    setUnreadable(next === null)
+  }, [shell])
+
+  useEffect(() => {
+    void read()
+  }, [read])
+
+  if (!shell) return null
+
+  const toggle = async (on: boolean) => {
+    setSaving(true)
+    try {
+      const next = await shell.setCameraAutoImport(on)
+      if (next) setStatus(next)
+      else toast.error("Le réglage n'a pas pu être enregistré sur ce PC.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const copyNow = async () => {
+    setCopying(true)
+    try {
+      const result = await shell.copyOriginalsNow()
+      if (!result) toast.error("La copie n'a pas pu être lancée.")
+      else if (result.complete) toast.success(result.sentence)
+      else toast.warning(result.sentence)
+      await read()
+    } finally {
+      setCopying(false)
+    }
+  }
+
+  const originals = status?.originals
+  return (
+    <section className="mt-4 space-y-3 border-t border-border pt-4" aria-labelledby={`${switchId}-title`}>
+      <h3 id={`${switchId}-title`} className="text-sm font-medium">
+        Sur ce PC
+      </h3>
+
+      {unreadable ? (
+        <LoadFailureNotice message="L'application Windows n'a pas répondu." onRetry={() => void read()} />
+      ) : (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor={switchId} className="text-sm font-normal">
+              Détecter l&apos;appareil photo branché
+            </Label>
+            <Switch
+              id={switchId}
+              checked={status?.autoImport ?? false}
+              disabled={!status || saving}
+              onCheckedChange={(on) => void toggle(on)}
+            />
+          </div>
+
+          {originals && originals.files > 0 && (
+            <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-muted-foreground">
+                Originaux gardés : {originals.files === 1 ? "1 photo" : `${originals.files} photos`} ·{" "}
+                {formatFileSize(originals.bytes)}
+                {originals.freeBytes !== null && ` · ${formatFileSize(originals.freeBytes)} libres`}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="coarse:min-h-11"
+                disabled={copying}
+                onClick={() => void copyNow()}
+              >
+                {copying ? "Copie en cours…" : "Copier sur le disque de copie"}
+              </Button>
+            </div>
+          )}
+
+          {status?.copy && (
+            <p
+              role="status"
+              className={status.copy.complete ? "text-sm text-muted-foreground" : "text-sm text-warning-ink"}
+            >
+              {status.copy.sentence}
+            </p>
+          )}
+        </>
+      )}
+    </section>
   )
 }

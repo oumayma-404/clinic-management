@@ -24,6 +24,7 @@ import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { buildPreview } from "@/lib/files/preview"
 import { refreshUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import { CloudCopyError, makeCloudCopy } from "./cloud-copy"
+import { ackShellPhoto } from "./shell-camera"
 import { readExif, type ExifFacts } from "./exif"
 import { cameraFingerprintOf, cameraLabelOf, captureKeyOf, serialSuffixOf } from "./keys"
 import {
@@ -76,6 +77,8 @@ export interface ImportPhoto {
   zoneMinutes: number | null
   /** An object URL over the EXIF thumbnail's bytes — no copy, no decode. */
   thumbUrl: string | null
+  /** The Windows app's id for this photo, which every outcome is reported back by; null on a browser path. */
+  shellItemId: string | null
 }
 
 export interface ImportCamera {
@@ -145,6 +148,8 @@ export interface ImportState {
   excluded: Record<string, true>
   filing: FilingItem[]
   storageFullMessage: string | null
+  /** A Windows-app batch: its source, and what stayed on it (« plus anciennes ») or could not be copied. */
+  shell: { label: string; older: number; failed: number } | null
 }
 
 const EMPTY_SKIPPED: Record<SkippedKind, number> = { raw: 0, heic: 0, video: 0, other: 0 }
@@ -169,6 +174,7 @@ function initialState(): ImportState {
     excluded: {},
     filing: [],
     storageFullMessage: null,
+    shell: null,
   }
 }
 
@@ -243,7 +249,12 @@ export async function startImport(batch: SourceBatch): Promise<void> {
   if (state.phase === "filing") return
   resetImport()
   const run = ++runId
-  set({ phase: "reading", read: { done: 0, total: batch.photos.length }, skipped: { ...batch.skipped } })
+  set({
+    phase: "reading",
+    read: { done: 0, total: batch.photos.length },
+    skipped: { ...batch.skipped },
+    shell: batch.shell ? { label: batch.shell.label, older: batch.shell.older, failed: batch.shell.failed } : null,
+  })
 
   try {
     const fingerprints = new Map<string, Promise<string | null>>()
@@ -271,6 +282,7 @@ export async function startImport(batch: SourceBatch): Promise<void> {
         thumbUrl: exif.thumbnail
           ? URL.createObjectURL(file.slice(exif.thumbnail.start, exif.thumbnail.start + exif.thumbnail.length, "image/jpeg"))
           : null,
+        shellItemId: batch.shell?.itemIds.get(file) ?? null,
       })
 
       done++
@@ -291,8 +303,11 @@ export async function startImport(batch: SourceBatch): Promise<void> {
     // The same shot twice in one batch (a folder and its copy) is one photo.
     const unique = new Map<string, ImportPhoto>()
     for (const photo of photos) {
-      if (unique.has(photo.id)) revoke(photo)
-      else unique.set(photo.id, photo)
+      if (unique.has(photo.id)) {
+        revoke(photo)
+        // The same shot twice (two cards of one camera) is covered by the first: the shell need not offer it again.
+        ackShellPhoto(photo.shellItemId, "already")
+      } else unique.set(photo.id, photo)
     }
 
     const known = new Set(
@@ -302,8 +317,10 @@ export async function startImport(batch: SourceBatch): Promise<void> {
 
     const fresh: ImportPhoto[] = []
     for (const photo of unique.values()) {
-      if (known.has(photo.id)) revoke(photo)
-      else fresh.push(photo)
+      if (known.has(photo.id)) {
+        revoke(photo)
+        ackShellPhoto(photo.shellItemId, "already")
+      } else fresh.push(photo)
     }
     fresh.sort((a, b) => (a.rawTime ?? 0) - (b.rawTime ?? 0))
 
@@ -708,16 +725,26 @@ async function runFiling(given: UploadPolicy | null) {
           cameraModel: camera && camera.key !== UNKNOWN_CAMERA ? camera.label : null,
         })
         setItem(item.photoId, { status: "filed", fileId: dto.id })
+        // The Windows app keeps the full-size original only where the cloud stored a reduced copy.
+        ackShellPhoto(photo.shellItemId, "filed", {
+          fileId: dto.id,
+          patientId: item.patientId,
+          patientName: item.patientName,
+          keepOriginal: rule !== null,
+        })
       } catch (error) {
         if (error instanceof ApiError && error.code === PhotoImportCode.AlreadyImported) {
           setItem(item.photoId, { status: "already" })
+          ackShellPhoto(photo.shellItemId, "already")
         } else if (error instanceof ApiError && error.code === PhotoImportCode.StorageFull) {
           stopped = true
           set({ storageFullMessage: error.message })
           setItem(item.photoId, { status: "blocked", message: error.message })
+          ackShellPhoto(photo.shellItemId, "failed")
         } else {
           const message = error instanceof CloudCopyError ? error.message : getErrorMessage(error)
           setItem(item.photoId, { status: "failed", message })
+          ackShellPhoto(photo.shellItemId, "failed")
         }
       }
     }
@@ -735,6 +762,13 @@ async function runFiling(given: UploadPolicy | null) {
           item.status === "pending" ? { ...item, status: "blocked", message: state.storageFullMessage ?? undefined } : item,
         ),
       })
+    }
+
+    // What the dentist set aside (an ignored group, an excluded photo) is not offered again by the Windows app.
+    // A photo merely hidden as « plus ancienne » is not answered: it was never looked at.
+    const planned = new Set(state.filing.map((item) => item.photoId))
+    for (const photo of visiblePhotos()) {
+      if (!planned.has(photo.id)) ackShellPhoto(photo.shellItemId, "skipped")
     }
 
     await recordImports()

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Windows;
 using System.Windows.Interop;
+using ClinicManagement.DesktopShell.Camera;
 using Microsoft.Toolkit.Uwp.Notifications;
 
 namespace ClinicManagement.DesktopShell;
@@ -14,13 +15,18 @@ namespace ClinicManagement.DesktopShell;
 /// <para>⚠️ <b>The toast is silent</b> — the page already played the chat's own tone, and two sounds for one
 /// message is what the whole alert design exists to prevent. ⚠️ Every failure is swallowed: a PC with
 /// notifications turned off still has the in-app notice, the tone and the badge.</para>
+///
+/// <para>Since 1.8 it also says « Appareil photo détecté » (<c>features/camera-photo-import</c>) when a card or a camera
+/// is plugged in while the window is behind another: its own argument, so a click on it can never open a
+/// conversation, and silent too — the person just plugged the device in.</para>
 /// </summary>
 public static class ShellNotifications
 {
     private const string ConversationArgument = "conversation";
+    private const string CameraArgument = "camera";
 
     /// <summary>A click — on a toast raised now, or one left in the action centre before a restart — lands here.</summary>
-    public static void Listen(Action<string> open)
+    public static void Listen(Action<string> open, Action<string>? openCamera = null)
     {
         try
         {
@@ -33,6 +39,12 @@ public static class ShellNotifications
                         && conversation.Length is > 0 and <= ShellNotifyMessage.MaxConversation)
                     {
                         Application.Current?.Dispatcher.BeginInvoke(() => open(conversation));
+                    }
+                    else if (openCamera != null
+                             && arguments.TryGetValue(CameraArgument, out var source)
+                             && CameraMessages.IsSourceKey(source))
+                    {
+                        Application.Current?.Dispatcher.BeginInvoke(() => openCamera(source));
                     }
                 }
                 catch
@@ -75,6 +87,31 @@ public static class ShellNotifications
         catch
         {
             // Notifications off, or no platform: the flash below still says it.
+        }
+
+        Flash(window);
+    }
+
+    /// <summary>« Appareil photo détecté » — one per device, the newest replacing the last; « Importer » opens the screen.</summary>
+    public static void ShowCameraDetected(Window window, string label, string sourceKey)
+    {
+        try
+        {
+            new ToastContentBuilder()
+                .AddArgument(CameraArgument, sourceKey)
+                .AddText("Appareil photo détecté")
+                .AddText($"{label} — rangez ses photos dans les dossiers des patients.")
+                .AddButton(new ToastButton().SetContent("Importer").AddArgument(CameraArgument, sourceKey))
+                .AddAudio(new ToastAudio { Silent = true })
+                .Show(toast =>
+                {
+                    toast.Tag = TagOf("camera|" + sourceKey);
+                    toast.Group = "camera";
+                });
+        }
+        catch
+        {
+            // Notifications off: the in-app notice says it when the window comes back.
         }
 
         Flash(window);

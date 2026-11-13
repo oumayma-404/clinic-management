@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Box, ChevronLeft, ChevronRight, Contrast, Download, File as FileIcon, Loader2, Maximize2, TriangleAlert, X } from "lucide-react"
+import { Box, ChevronLeft, ChevronRight, Contrast, Download, ExternalLink, File as FileIcon, Loader2, Maximize2, TriangleAlert, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -18,6 +18,7 @@ import { formatDate, formatFileSize } from "@/lib/format"
 import { cameraCaptureLine, cameraOriginalLine } from "./camera-badge"
 import { PREVIEW_EDGE } from "@/lib/files/preview"
 import { interactiveViewerFor, type ArchiveListing } from "@/lib/files/decoders"
+import { openOriginalOnThisPc, useOriginalOnThisPc } from "@/lib/photo-import/shell-camera"
 import { cn } from "@/lib/utils"
 import type { PatientFileDto } from "@/lib/api/types"
 
@@ -105,6 +106,8 @@ export function FilePreviewDialog({
    */
   const interactive = file ? interactiveViewerFor(file.fileName) : null
   const navigable = hasPrev || hasNext
+  // A camera photo whose full-size original this PC keeps (Windows app 1.8): the cloud holds a 2 560 px copy.
+  const originalHere = useOriginalOnThisPc(file)
 
   return (
     <Dialog
@@ -265,6 +268,18 @@ export function FilePreviewDialog({
                           this is the primary action, and an unlabelled glyph is not how a dentist discovers the
                           one control that turns a flat stand-in into something they can actually read. */}
                       Visionneuse
+                    </Button>
+                  ) : originalHere ? (
+                    // ⚠️ REPLACES « Pleine résolution » for a camera photo: that control decodes the cloud's 2 560 px
+                    // copy, while the original — the camera's own pixels — is on this PC and opens in Windows' viewer.
+                    <Button
+                      variant="ghost"
+                      onClick={() => void openOriginalOnThisPc(file.id)}
+                      aria-label={`Ouvrir l’original de ${file.fileName} sur ce PC`}
+                      className="shrink-0 gap-2 coarse:h-11 coarse:min-w-11"
+                    >
+                      <ExternalLink className="h-4 w-4 shrink-0" />
+                      <span className="hidden sm:inline">Original</span>
                     </Button>
                   ) : (
                     showFullResolution &&

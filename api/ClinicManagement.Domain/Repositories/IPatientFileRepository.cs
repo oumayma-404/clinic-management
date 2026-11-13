@@ -16,20 +16,6 @@ public interface IPatientFileRepository
         PageRequest? paging,
         CancellationToken cancellationToken = default);
     /// <summary>
-    /// One page of <b>every</b> file the clinic holds, joined to its patient's name
-    /// (<c>patient-file-mirror</c>). The one read in this interface that is not about a single patient.
-    ///
-    /// <para>⚠️ <paramref name="clinicId"/> is a real predicate, not documentation. Every other read here leans on
-    /// the ambient tenant filter, which is correct — but an `Unset` scope reads zero rows with no error, and this
-    /// is the read that would answer « ce cabinet n'a aucun fichier » to a machine whose job is to notice exactly
-    /// that. Stated explicitly, it also gives the cross-clinic guard test something to assert against.</para>
-    ///
-    /// <para>⚠️ Ordered <b>ascending</b> on <c>UploadedAt</c> then <c>Id</c>, against the convention of every
-    /// other list in this product. A caller walking the pages is racing uploads: with newest-first, a file
-    /// arriving mid-walk pushes every later row down one and the walk skips one it had not read yet. Ascending,
-    /// a new file lands after the last page and is simply picked up next time.</para>
-    /// </summary>
-    /// <summary>
     /// What the cabinet's coffre is <b>supposed</b> to hold — how many originals and how many bytes.
     ///
     /// <para>⚠️ It is what turns the shell's copy report from an assertion into a comparison. The report carries a
@@ -46,6 +32,25 @@ public interface IPatientFileRepository
     /// </summary>
     Task<long> GetHostedBytesAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// One page of <b>every</b> file the clinic holds, joined to its patient's name
+    /// (<c>patient-file-mirror</c>). The one read in this interface that is not about a single patient.
+    ///
+    /// <para>⚠️ <paramref name="clinicId"/> is a real predicate, not documentation. Every other read here leans on
+    /// the ambient tenant filter, which is correct — but an `Unset` scope reads zero rows with no error, and this
+    /// is the read that would answer « ce cabinet n'a aucun fichier » to a machine whose job is to notice exactly
+    /// that. Stated explicitly, it also gives the cross-clinic guard test something to assert against.</para>
+    ///
+    /// <para>⚠️ Ordered <b>ascending</b> on <c>UploadedAt</c> then <c>Id</c>, against the convention of every
+    /// other list in this product. A caller walking the pages is racing uploads: with newest-first, a file
+    /// arriving mid-walk pushes every later row down one and the walk skips one it had not read yet. Ascending,
+    /// a new file lands after the last page and is simply picked up next time.</para>
+    ///
+    /// <para>⚠️ <b>Hosted files only</b> (<c>camera-photo-import</c>). A coffre file's bytes never reached the
+    /// deployment, so its download answers 400 — and the mirror counted ten of those in a row as « the server is
+    /// gone » and stopped the whole run, every thirty minutes, at the first imaging series. The coffre has its own
+    /// copy to the same folder (<c>VaultCopyService</c>).</para>
+    /// </summary>
     Task<PagedResult<ClinicFileManifestRow>> GetClinicManifestPageAsync(
         Guid clinicId,
         PageRequest? paging,

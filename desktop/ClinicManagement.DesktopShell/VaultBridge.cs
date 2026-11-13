@@ -11,7 +11,8 @@ namespace ClinicManagement.DesktopShell;
 ///
 /// <para>It exposes two facts, three methods and one seam: <c>version</c>, <c>platform: "windows"</c>,
 /// <c>confirmIdentity</c>, <c>relayHostFacts</c> + <c>installRelay</c> (the PC de secours, since 1.4), and the coffre
-/// folder. <c>saveFile</c> and <c>print</c> are still absent — a WebView2 download works and the page's own
+/// folder — and, since 1.8, the camera import (<see cref="Camera.CameraBridge"/>), whose batches arrive through a
+/// second seam, <c>__clinicShellDeliverCamera</c>. <c>saveFile</c> and <c>print</c> are still absent — a WebView2 download works and the page's own
 /// <c>window.print()</c> works, so each would solve a problem this shell does not have.</para>
 ///
 /// <para>⚠️ <b><c>confirmIdentity</c> was absent for the opposite reason, and its absence was a defect rather
@@ -207,6 +208,68 @@ public static class VaultBridge
               } catch (e) { /* the in-app notice and the tone still say it */ }
             }
 
+            /*
+             * camera-photo-import (since 1.8): the camera import. Requests ride `relayRequest` — a pending map in this
+             * closure and a deliver seam outside the frozen object, AC-26's reason. Photos never come back as a REPLY:
+             * file handles travel only with a posted message, so `cameraScan` answers a count while the batch reaches
+             * `__clinicShellDeliverCamera`, or waits in `__clinicShellPendingCamera` until the page installs it.
+             * Never rejects: a shell that cannot answer resolves the fallback.
+             */
+            function cameraStatus() {
+              return relayRequest('camera-status', null, null, 10000);
+            }
+
+            function setCameraAutoImport(on) {
+              return relayRequest('camera-auto', { on: !!on }, null, 10000);
+            }
+
+            function cameraScan(request) {
+              return relayRequest('camera-scan', {
+                sourceKey: request && typeof request.sourceKey === 'string' ? request.sourceKey : undefined,
+                includeOlder: !!(request && request.includeOlder)
+              }, {
+                delivered: 0, older: 0, failed: 0,
+                sentence: "L'appareil ne répond plus. Débranchez-le, rebranchez-le, puis réessayez."
+              }, 900000);
+            }
+
+            function cameraAck(ack) {
+              try {
+                window.chrome.webview.postMessage('camera-ack:' + JSON.stringify({
+                  itemId: ack && ack.itemId,
+                  outcome: ack && ack.outcome,
+                  fileId: ack && ack.fileId,
+                  patientId: ack && ack.patientId,
+                  patientName: ack && ack.patientName,
+                  keepOriginal: !!(ack && ack.keepOriginal)
+                }));
+              } catch (e) { /* the photo is filed; offered again, the server answers « déjà importée » */ }
+            }
+
+            function cameraOriginalRecorded(fileId) {
+              try {
+                window.chrome.webview.postMessage('camera-recorded:' + JSON.stringify({ fileId: fileId }));
+              } catch (e) { /* re-sent on the next page load */ }
+            }
+
+            function ignoreCamera(sourceKey) {
+              try {
+                window.chrome.webview.postMessage('camera-ignore:' + JSON.stringify({ sourceKey: sourceKey }));
+              } catch (e) { /* the notice comes back next time */ }
+            }
+
+            function openOriginal(fileId) {
+              return relayRequest('camera-open', { fileId: fileId }, false, 15000);
+            }
+
+            function originalsHeld(fileIds) {
+              return relayRequest('camera-held', { fileIds: Array.isArray(fileIds) ? fileIds.slice(0, 500) : [] }, [], 15000);
+            }
+
+            function copyOriginalsNow() {
+              return relayRequest('camera-copy', null, null, 3600000);
+            }
+
             window.__clinicShellDeliverRelayResult = function (id, value) {
               try {
                 var settle = relayPending[id];
@@ -217,7 +280,8 @@ public static class VaultBridge
             Object.defineProperty(window, '__clinicShell', {
               // ⚠️ The method set and the version move together — bridge.md's rule. `confirmIdentity` took this
               // shell from 1.2 to 1.3, `relayHostFacts` + `installRelay` from 1.3 to 1.4, `relayProbe` to 1.5,
-              // `relayPrepare` + `relaySwitch` (and `carryDraft` + `takeCarriedDraft`) to 1.6, `notify` to 1.7.
+              // `relayPrepare` + `relaySwitch` (and `carryDraft` + `takeCarriedDraft`) to 1.6, `notify` to 1.7,
+              // the camera import (`cameraStatus` … `copyOriginalsNow`) to 1.8.
               value: Object.freeze({
                 version: '{{version}}',
                 platform: 'windows',
@@ -229,7 +293,16 @@ public static class VaultBridge
                 relaySwitch: relaySwitch,
                 carryDraft: carryDraft,
                 takeCarriedDraft: takeCarriedDraft,
-                notify: notify
+                notify: notify,
+                cameraStatus: cameraStatus,
+                setCameraAutoImport: setCameraAutoImport,
+                cameraScan: cameraScan,
+                cameraAck: cameraAck,
+                cameraOriginalRecorded: cameraOriginalRecorded,
+                ignoreCamera: ignoreCamera,
+                openOriginal: openOriginal,
+                originalsHeld: originalsHeld,
+                copyOriginalsNow: copyOriginalsNow
               }),
               configurable: true,
               writable: false,
@@ -239,18 +312,40 @@ public static class VaultBridge
             window.chrome.webview.addEventListener('message', function (e) {
               try {
                 var payload = e.data;
-                if (!payload || payload.kind !== 'vault') { return; }
-
+                if (!payload || typeof payload.kind !== 'string') { return; }
                 var objects = e.additionalObjects;
-                var handle = objects && objects.length > 0 ? objects[0] : null;
-                if (!handle) { return; }
 
-                if (typeof window.__clinicShellDeliverVault === 'function') {
-                  window.__clinicShellDeliverVault(handle);
-                } else {
-                  window.__clinicShellPendingVault = handle;
+                if (payload.kind === 'vault') {
+                  var handle = objects && objects.length > 0 ? objects[0] : null;
+                  if (!handle) { return; }
+
+                  if (typeof window.__clinicShellDeliverVault === 'function') {
+                    window.__clinicShellDeliverVault(handle);
+                  } else {
+                    window.__clinicShellPendingVault = handle;
+                  }
+                  return;
                 }
-              } catch (inner) { /* the coffre only — never the page's problem */ }
+
+                /*
+                 * The camera's messages (since 1.8) — a batch with one read-only file handle per photo, a kept
+                 * original, a copy to the archive disk. A QUEUE when the page is not listening yet, never the coffre's
+                 * single slot: a second batch would overwrite the first.
+                 */
+                if (payload.kind.indexOf('camera-') === 0 || payload.kind === 'originals-copy') {
+                  var handles = [];
+                  if (objects) {
+                    for (var i = 0; i < objects.length; i++) { handles.push(objects[i]); }
+                  }
+
+                  if (typeof window.__clinicShellDeliverCamera === 'function') {
+                    window.__clinicShellDeliverCamera(payload, handles);
+                  } else {
+                    var queue = window.__clinicShellPendingCamera || (window.__clinicShellPendingCamera = []);
+                    if (queue.length < 50) { queue.push({ payload: payload, handles: handles }); }
+                  }
+                }
+              } catch (inner) { /* the coffre and the camera only — never the page's problem */ }
             });
           } catch (e) { /* the coffre only — never the page's problem */ }
         })();

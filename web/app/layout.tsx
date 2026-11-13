@@ -10,6 +10,7 @@ import { ClinicRealtimeProvider } from "@/lib/realtime/clinic-realtime-provider"
 import { QueryProvider } from "@/lib/query/query-provider"
 import { SidebarProvider } from "@/contexts/sidebar-context"
 import { StaffChatProvider } from "@/components/staff-chat/staff-chat-provider"
+import { ShellCameraBridge } from "@/components/photo-import/shell-camera-bridge"
 import { ClockStatusProvider } from "@/components/team/clock-in-gate"
 import { GuideProvider } from "@/components/guide/guide-provider"
 import { AppToaster } from "@/components/app-toaster"
@@ -142,6 +143,9 @@ export default function RootLayout({
                             whose notices stand down while it covers the screen. */}
                         <ClockStatusProvider>
                           <StaffChatProvider>
+                            {/* camera-photo-import: the Windows app's camera link — renders nothing, and does
+                                nothing outside the Windows app 1.8. */}
+                            <ShellCameraBridge />
                             {/* « Me guider »: above every page, so a guide survives the page changes it asks for. */}
                             <GuideProvider>{children}</GuideProvider>
                           </StaffChatProvider>

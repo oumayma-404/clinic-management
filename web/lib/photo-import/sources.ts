@@ -12,6 +12,19 @@ export type SkippedKind = "raw" | "heic" | "video" | "other"
 export interface SourceBatch {
   photos: File[]
   skipped: Record<SkippedKind, number>
+  /** Set when the Windows app handed these photos over (`shell-camera.ts`) — absent on every browser path. */
+  shell?: ShellBatchInfo
+}
+
+/** A Windows-app batch: which shell item each file answers for, and what stayed on the source. */
+export interface ShellBatchInfo {
+  batchId: string
+  label: string
+  /** Photos left on the card or the camera, outside the window — « Voir les plus anciennes » asks the shell. */
+  older: number
+  /** Photos the shell could not copy off the source. */
+  failed: number
+  itemIds: Map<File, string>
 }
 
 const RAW = new Set(["cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "raf", "orf", "rw2", "pef", "srw", "x3f", "3fr", "iiq", "rwl"])
