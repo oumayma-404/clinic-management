@@ -231,5 +231,12 @@ public enum NotificationCategory
     ///
     /// <para>In-app only: « branchez le disque d'archive » happens at the PC holding the photos.</para>
     /// </summary>
-    PhotoOriginalsCopyStale = 29
+    PhotoOriginalsCopyStale = 29,
+
+    /// <summary>
+    /// The cabinet's hosted storage crossed 80 % or 95 % of its ceiling (<c>features/camera-photo-import</c>, phase 3).
+    /// One row per cabinet; crossing 95 % replaces the 80 % row with a NEW one so it badges the bell again, and the row
+    /// goes once usage falls back under 75 % — which is what re-arms the alert.
+    /// </summary>
+    StorageNearlyFull = 30
 }

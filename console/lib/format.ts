@@ -46,6 +46,14 @@ export function formatMoney(value: number | null | undefined): string {
   return value === null || value === undefined ? EM_DASH : `${MONEY.format(value)} DT`;
 }
 
+/** « 3,4 Go » / « 820 Mo » — storage, in the units the cabinets' own screens use. */
+export function formatBytes(value: number | null | undefined): string {
+  if (value === null || value === undefined) return EM_DASH;
+  const gigabyte = 1024 * 1024 * 1024;
+  const fr = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1, minimumFractionDigits: 0 });
+  return value >= gigabyte ? `${fr.format(value / gigabyte)} Go` : `${fr.format(value / (1024 * 1024))} Mo`;
+}
+
 export function formatCount(value: number | null | undefined): string {
   return value === null || value === undefined ? EM_DASH : new Intl.NumberFormat("fr-FR").format(value);
 }

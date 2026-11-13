@@ -15,6 +15,7 @@ import {
   Clock,
   CreditCard,
   Fingerprint,
+  HardDrive,
   Loader2,
   LockKeyhole,
   MessageSquareX,
@@ -95,6 +96,8 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   AttendanceSchemaBlocked: LockKeyhole,
   // features/camera-photo-import — full-size camera photos a clinic PC keeps, not yet copied to the archive disk.
   PhotoOriginalsCopyStale: Camera,
+  // Phase 3: the cabinet's hosted storage crossed 80 % or 95 % of its ceiling. Opens « Abonnement », where APEXA is reached.
+  StorageNearlyFull: HardDrive,
 }
 
 /**
@@ -150,6 +153,7 @@ const CATEGORY_TONE: Record<string, string> = {
   AttendanceBorneNotReceived: "bg-destructive-wash text-destructive",
   AttendanceSchemaBlocked: "bg-warning-wash text-warning-ink",
   PhotoOriginalsCopyStale: "bg-warning-wash text-warning-ink",
+  StorageNearlyFull: "bg-warning-wash text-warning-ink",
 }
 
 function relativeTime(iso: string): string {

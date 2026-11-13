@@ -299,6 +299,14 @@ public static class PlatformReadShape
         // heartbeat — never the PC's machine name, its addresses or anything it holds.
         "RelayState",
         "RelayLabel",
+
+        // ── Storage (features/camera-photo-import, phase 3): how many hosted bytes a cabinet stores and its ceiling —
+        // sizes, never which files. The deployment-wide total and the declared disk size feed the disk warning.
+        "StorageUsedBytes",
+        "StorageQuotaBytes",
+        "StorageQuotaIsCustom",
+        "HostedBytesTotal",
+        "ServerDiskBytes",
         // ── « Retours » (guided-first-days E). A message WRITTEN BY A CLINIC USER TO THE VENDOR, never copied from a
         // record: the form asks for no patient name and says so in the field (owner's answer 4, 2026-11-03). The
         // author is a staff account — `AdminEmail`'s category — and `ContactEmail` is that account's address only

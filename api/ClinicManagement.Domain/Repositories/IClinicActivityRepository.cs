@@ -204,7 +204,10 @@ public enum PlatformPortfolioSort
     /// with no entitlement at all sort <b>last</b>: neither is a deadline, and PostgreSQL's default of NULLS LAST on
     /// an ascending sort is the answer this read wants rather than one it inherits by accident.
     /// </summary>
-    EndsOn = 3
+    EndsOn = 3,
+
+    /// <summary>The hosted bytes a cabinet stores, largest first (<c>features/camera-photo-import</c>, phase 3).</summary>
+    Storage = 4
 }
 
 /// <summary>
@@ -252,7 +255,9 @@ public record PlatformClinicRow(
     bool HasMessagingMonth = false,
     int MessagingAllowance = 0,
     int MessagingConsumed = 0,
-    string? ClinicPhone = null);
+    string? ClinicPhone = null,
+    long HostedBytes = 0,
+    long? StorageQuotaBytes = null);
 
 /// <summary>
 /// Portfolio-wide counts for the summary strip (AC-2.7).
@@ -277,4 +282,5 @@ public record PlatformPortfolioTotals(
     int ExpiringWithin14Days,
     int Expired,
     int Suspended,
-    int NoEntitlement);
+    int NoEntitlement,
+    long HostedBytesTotal = 0);

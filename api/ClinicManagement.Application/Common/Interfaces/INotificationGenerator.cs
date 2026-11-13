@@ -151,6 +151,16 @@ public interface INotificationGenerator
     Task ClearPhotoOriginalsCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// « Stockage presque plein » at <paramref name="percent"/> (80 or 95) of the cabinet's ceiling. A different level
+    /// than the row already up REPLACES it with a new row, so the 95 % warning badges the bell again.
+    /// </summary>
+    Task EnsureStorageNearlyFullAsync(
+        Guid clinicId, int percent, long usedBytes, long quotaBytes, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the storage alert — usage is back under the re-arm level.</summary>
+    Task ClearStorageNearlyFullAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ensures the cabinet carries exactly one warning row for <paramref name="thresholdDays"/> — 7, 3, 1 or 0 days
     /// before <paramref name="endsOn"/> (<c>clinic-subscription</c> AC-3.4). Visible to all staff (AC-3.7) and
     /// deep-links to « Abonnement ».

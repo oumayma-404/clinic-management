@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import type { PlatformSummary } from "@/lib/api/platform";
-import { formatCount, formatMoney } from "@/lib/format";
+import { formatBytes, formatCount, formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -105,6 +105,31 @@ export function PortfolioSummary({ summary }: { summary: PlatformSummary }) {
         — les abonnements que les cabinets nous ont réglés, jamais le chiffre d&apos;affaires des cabinets
         eux-mêmes.
       </p>
+
+      {/* features/camera-photo-import phase 3 — every hosted byte is on the server disk twice (the files and their
+          backup), so the warning compares twice the total with the size the operator declared. No declared size, no
+          invented warning. */}
+      {summary.serverDiskBytes ? (
+        <p
+          className={cn(
+            "text-sm text-muted-foreground",
+            summary.hostedBytesTotal * 2 >= summary.serverDiskBytes * 0.7 && "font-medium text-destructive",
+          )}
+          role={summary.hostedBytesTotal * 2 >= summary.serverDiskBytes * 0.7 ? "alert" : undefined}
+        >
+          Fichiers des cabinets : {formatBytes(summary.hostedBytesTotal)}, soit environ{" "}
+          {formatBytes(summary.hostedBytesTotal * 2)} sur le disque du serveur avec la sauvegarde (
+          {Math.round(((summary.hostedBytesTotal * 2) / summary.serverDiskBytes) * 100)} % de{" "}
+          {formatBytes(summary.serverDiskBytes)}).
+          {summary.hostedBytesTotal * 2 >= summary.serverDiskBytes * 0.7
+            ? " Prévoyez un disque plus grand ou un stockage externe avant d'accueillir d'autres cabinets qui photographient."
+            : ""}
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Fichiers des cabinets : {formatBytes(summary.hostedBytesTotal)} (sans compter la sauvegarde).
+        </p>
+      )}
     </section>
   );
 }

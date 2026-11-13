@@ -170,6 +170,20 @@ public class Clinic : AggregateRoot<Guid>
     /// </summary>
     public DateTime? LastVaultCopyAtUtc { get; private set; }
 
+    /// <summary>
+    /// This cabinet's own storage ceiling on a hosted deployment, in bytes — or null for the deployment's default
+    /// (<c>features/camera-photo-import</c>, phase 3). Set from the vendor console only, with a motif that is journaled:
+    /// a practice that photographs every patient outgrows the default, and « contactez APEXA » needs something the
+    /// vendor can actually change.
+    /// </summary>
+    public long? StorageQuotaBytes { get; private set; }
+
+    /// <summary>The smallest ceiling the console may set: below it a cabinet could not hold a week of photos.</summary>
+    public const long MinStorageQuotaBytes = 1L * 1024 * 1024 * 1024;
+
+    /// <summary>The largest: well above any practice, and below anything a typo of three zeros could produce.</summary>
+    public const long MaxStorageQuotaBytes = 2L * 1024 * 1024 * 1024 * 1024;
+
     /// <summary>« Mode discret »: the clinic-wide money screens are hidden. Display only — no money row is touched.</summary>
     public bool IsMoneyHidden { get; private set; }
 
@@ -523,6 +537,27 @@ public class Clinic : AggregateRoot<Guid>
     /// report must not make the cabinet look staler than it is) and it does not stamp <see cref="UpdatedAt"/>,
     /// because nobody edited the cabinet.
     /// </summary>
+    /// <summary>
+    /// Sets this cabinet's own ceiling, or returns it to the deployment's default with null. Returns false when nothing
+    /// changed, so the caller journals only a real change.
+    /// </summary>
+    public bool SetStorageQuota(long? bytes)
+    {
+        if (bytes is { } value && (value < MinStorageQuotaBytes || value > MaxStorageQuotaBytes))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(bytes), "Le quota de stockage doit être compris entre 1 Go et 2 To.");
+        }
+
+        if (StorageQuotaBytes == bytes)
+        {
+            return false;
+        }
+
+        StorageQuotaBytes = bytes;
+        return true;
+    }
+
     public void MarkVaultCopied(DateTime copiedAtUtc)
     {
         if (LastVaultCopyAtUtc == null || copiedAtUtc > LastVaultCopyAtUtc)

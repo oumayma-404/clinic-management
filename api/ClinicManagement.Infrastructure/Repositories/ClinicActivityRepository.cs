@@ -106,6 +106,10 @@ public class ClinicActivityRepository : IClinicActivityRepository
             PlatformPortfolioSort.EndsOn => query
                 .OrderBy(x => x.subscription != null ? x.subscription.EndsOn : null)
                 .ThenBy(x => x.clinic.Id),
+            PlatformPortfolioSort.Storage => query
+                .OrderByDescending(x => x.hostedBytes)
+                .ThenBy(x => x.clinic.Name)
+                .ThenBy(x => x.clinic.Id),
             _ => query
                 .OrderBy(x => x.clinic.Name)
                 .ThenBy(x => x.clinic.Id)
@@ -145,7 +149,12 @@ public class ClinicActivityRepository : IClinicActivityRepository
             clinic = clinic,
             snapshot = snapshot,
             subscription = subscription,
-            messagingMonth = messagingMonth
+            messagingMonth = messagingMonth,
+            // features/camera-photo-import phase 3: GetHostedBytesAsync's own predicate, as a correlated SUM so the
+            // list can show and sort « Stockage » before a page is cut. The console reads under UseSystemWide.
+            hostedBytes = _context.PatientFiles
+                .Where(f => f.ClinicId == clinic.Id && f.Residency == FileResidency.Hosted)
+                .Sum(f => (long?)f.FileSize) ?? 0L
         };
 
     /// <summary>
@@ -271,6 +280,9 @@ public class ClinicActivityRepository : IClinicActivityRepository
 
         /// <summary>The cabinet's WhatsApp-forfait counting row for the month asked about, or null for « non mesuré ».</summary>
         public ClinicMessagingMonth? messagingMonth { get; init; }
+
+        /// <summary>The hosted bytes the cabinet stores — what its ceiling is measured against.</summary>
+        public long hostedBytes { get; init; }
     }
 
     /// <summary>
@@ -306,7 +318,9 @@ public class ClinicActivityRepository : IClinicActivityRepository
             x.messagingMonth != null,
             x.messagingMonth != null ? x.messagingMonth.AllowanceMessages : 0,
             x.messagingMonth != null ? x.messagingMonth.ConsumedMessages : 0,
-            x.clinic.Phone);
+            x.clinic.Phone,
+            x.hostedBytes,
+            x.clinic.StorageQuotaBytes);
 
     public async Task<PlatformPortfolioTotals> GetPortfolioTotalsAsync(
         DateTime clinicToday, int expiringWithinDays, CancellationToken cancellationToken = default)
@@ -343,8 +357,14 @@ public class ClinicActivityRepository : IClinicActivityRepository
         // ⚠️ « En essai » is a subset of « Actif » in SQL — both branches require a covered, unsuspended cabinet —
         // so the strip subtracts it out here. Without that the five buckets would over-count every trialling cabinet
         // and stop summing to the portfolio, which is the one property that makes the strip readable.
+        // features/camera-photo-import phase 3: every hosted byte of the deployment, against the declared disk.
+        var hostedBytes = await _context.PatientFiles
+            .AsNoTracking()
+            .Where(f => f.Residency == FileResidency.Hosted)
+            .SumAsync(f => (long?)f.FileSize, cancellationToken) ?? 0L;
+
         return new PlatformPortfolioTotals(
             clinics, dormant, clinics - measured,
-            inTrial, active - inTrial, expiringSoon, expired, suspended, missing);
+            inTrial, active - inTrial, expiringSoon, expired, suspended, missing, hostedBytes);
     }
 }

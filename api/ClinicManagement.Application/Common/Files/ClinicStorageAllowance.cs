@@ -38,11 +38,59 @@ public class ClinicStorageAllowance
 {
     private readonly IPatientFileRepository _files;
     private readonly IClinicStoragePolicy _policy;
+    private readonly IClinicStorageQuotaReader? _quotas;
+    private readonly INotificationGenerator? _notifications;
 
-    public ClinicStorageAllowance(IPatientFileRepository files, IClinicStoragePolicy policy)
+    /// <param name="quotas">A cabinet's own ceiling, set from the console (phase 3). Optional so a harness that does
+    /// not care keeps the deployment's default.</param>
+    /// <param name="notifications">The 80 / 95 % bell (phase 3). Optional for the same reason.</param>
+    public ClinicStorageAllowance(
+        IPatientFileRepository files,
+        IClinicStoragePolicy policy,
+        IClinicStorageQuotaReader? quotas = null,
+        INotificationGenerator? notifications = null)
     {
         _files = files;
         _policy = policy;
+        _quotas = quotas;
+        _notifications = notifications;
+    }
+
+    /// <summary>
+    /// After a file was added (<c>features/camera-photo-import</c>, phase 3): raises, escalates or withdraws the
+    /// « stockage presque plein » alert to match the new usage. Post-commit and best-effort — the file is stored
+    /// whatever the bell does, and a failure here is swallowed and never reaches the uploader.
+    /// </summary>
+    public async Task AfterChangeAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var usage = await ReadAsync(clinicId, cancellationToken);
+            if (!usage.Enforced)
+            {
+                return;
+            }
+
+            var level = ClinicStorageAlerts.LevelFor(usage.UsedBytes, usage.QuotaBytes);
+            if (level > 0)
+            {
+                await _notifications.EnsureStorageNearlyFullAsync(
+                    clinicId, level, usage.UsedBytes, usage.QuotaBytes, cancellationToken);
+            }
+            else if (level < 0)
+            {
+                await _notifications.ClearStorageNearlyFullAsync(clinicId, cancellationToken);
+            }
+        }
+        catch
+        {
+            // A best-effort courtesy after a committed upload: never the uploader's problem.
+        }
     }
 
     /// <summary>
@@ -58,7 +106,8 @@ public class ClinicStorageAllowance
         }
 
         var used = await _files.GetHostedBytesAsync(clinicId, cancellationToken);
-        return new ClinicStorageUsage(used, _policy.QuotaBytes, true);
+        var quota = _quotas is null ? null : await _quotas.GetOverrideAsync(clinicId, cancellationToken);
+        return new ClinicStorageUsage(used, quota ?? _policy.QuotaBytes, true);
     }
 
     /// <summary>

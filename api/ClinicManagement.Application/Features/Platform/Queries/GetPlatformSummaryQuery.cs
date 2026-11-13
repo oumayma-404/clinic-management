@@ -34,12 +34,16 @@ public class GetPlatformSummaryQueryHandler : IRequestHandler<GetPlatformSummary
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<GetPlatformSummaryQueryHandler> _logger;
 
+    private readonly IClinicStoragePolicy? _storage;
+
     public GetPlatformSummaryQueryHandler(
         IClinicActivityRepository activityRepository,
         IClinicSubscriptionRepository subscriptions,
         ITenantScope tenantScope,
-        ILogger<GetPlatformSummaryQueryHandler> logger)
+        ILogger<GetPlatformSummaryQueryHandler> logger,
+        IClinicStoragePolicy? storage = null)
     {
+        _storage = storage;
         _activityRepository = activityRepository;
         _subscriptions = subscriptions;
         _tenantScope = tenantScope;
@@ -78,6 +82,8 @@ public class GetPlatformSummaryQueryHandler : IRequestHandler<GetPlatformSummary
                 Expired: totals.Expired,
                 Suspended: totals.Suspended,
                 NoEntitlement: totals.NoEntitlement,
+                HostedBytesTotal: totals.HostedBytesTotal,
+                ServerDiskBytes: _storage?.ServerDiskBytes,
                 VendorCollectedThisMonthDt: vendorCollected));
         }
         catch (Exception ex) when (ex is not ConflictException)

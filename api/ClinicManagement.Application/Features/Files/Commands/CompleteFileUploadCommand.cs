@@ -174,6 +174,9 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
                 await _sessions.RemoveAsync(session, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+                // Post-commit, best-effort: the 80 / 95 % storage bell (features/camera-photo-import, phase 3).
+                await _storage.AfterChangeAsync(session.ClinicId, cancellationToken);
+
                 return Result<PatientFileDto>.Success(file.ToDto());
             }
             catch

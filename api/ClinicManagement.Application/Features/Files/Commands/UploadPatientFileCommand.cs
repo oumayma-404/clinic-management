@@ -209,6 +209,9 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 await _fileRepository.AddAsync(file, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+                // Post-commit, best-effort: the 80 / 95 % storage bell (features/camera-photo-import, phase 3).
+                await _storage.AfterChangeAsync(clinicResult.Value, cancellationToken);
+
                 var dto = file.ToDto();
 
                 return Result<PatientFileDto>.Success(dto);

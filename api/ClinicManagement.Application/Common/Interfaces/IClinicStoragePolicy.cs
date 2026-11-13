@@ -25,4 +25,10 @@ public interface IClinicStoragePolicy
 
     /// <summary>The per-cabinet ceiling in bytes. Meaningless, and 0, when <see cref="Enforced"/> is false.</summary>
     long QuotaBytes { get; }
+
+    /// <summary>
+    /// The server disk's size as the operator declared it (<c>Deployment:ServerDiskBytes</c>), or null when unset — the
+    /// console then states no disk warning rather than inventing a capacity.
+    /// </summary>
+    long? ServerDiskBytes => null;
 }

@@ -52,6 +52,12 @@ public enum PlatformAccessAction
     Unsuspended = 4,
 
     /// <summary>
+    /// The vendor changed a cabinet's storage ceiling, or returned it to the default (<c>features/camera-photo-import</c>,
+    /// phase 3). The motif is on the row's <c>Reason</c> — the cabinet keeps only the new figure.
+    /// </summary>
+    StorageQuotaChanged = 90,
+
+    /// <summary>
     /// A console account restored a cabinet from an archive the practice supplied
     /// (<c>clinic-data-archive-and-restore</c>).
     ///

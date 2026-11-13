@@ -240,6 +240,17 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                 cancellationToken);
     }
 
+    public async Task<StaffNotification?> GetStorageNearlyFullAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters for GetVaultCopyStaleAsync's reason; the parameter is the authoritative check.
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                n => n.ClinicId == clinicId && n.Category == NotificationCategory.StorageNearlyFull,
+                cancellationToken);
+    }
+
     public async Task<StaffNotification?> GetBackupStaleAsync(
         Guid clinicId, CancellationToken cancellationToken = default)
     {

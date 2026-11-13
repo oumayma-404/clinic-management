@@ -23,6 +23,8 @@ const SORTS: Array<{ value: string; label: string }> = [
   { value: "createdAt", label: "Création" },
   { value: "activity", label: "Activité" },
   { value: "endsOn", label: "Date de fin" },
+  // features/camera-photo-import phase 3: the cabinets storing the most first — who is about to call.
+  { value: "storage", label: "Stockage" },
   { value: "name", label: "Nom" },
 ];
 

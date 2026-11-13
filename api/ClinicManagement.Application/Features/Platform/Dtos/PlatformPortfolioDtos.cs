@@ -77,7 +77,10 @@ public record PlatformClinicRowDto(
     int? MessagingRemaining = null,
     bool MessagingExhausted = false,
     string RelayState = "none",
-    string RelayLabel = "Aucun");
+    string RelayLabel = "Aucun",
+    long StorageUsedBytes = 0,
+    long StorageQuotaBytes = 0,
+    bool StorageQuotaIsCustom = false);
 
 /// <summary>
 /// One page of the portfolio.
@@ -100,6 +103,13 @@ public record PlatformClinicRowDto(
 /// predicate and the chip's label are then one figure, where two spellings of a threshold is how a filter and its own
 /// label come to disagree with neither screen looking wrong on its own.</para>
 /// </param>
+/// <summary>A cabinet's storage after the console changed its ceiling (features/camera-photo-import, phase 3).</summary>
+public record PlatformStorageQuotaChangedDto(
+    Guid ClinicId,
+    long StorageUsedBytes,
+    long StorageQuotaBytes,
+    bool StorageQuotaIsCustom);
+
 public record PlatformClinicPageDto(
     IReadOnlyList<PlatformClinicRowDto> Items,
     int Page,
@@ -135,4 +145,6 @@ public record PlatformSummaryDto(
     int Expired,
     int Suspended,
     int NoEntitlement,
-    decimal VendorCollectedThisMonthDt);
+    decimal VendorCollectedThisMonthDt,
+    long HostedBytesTotal = 0,
+    long? ServerDiskBytes = null);

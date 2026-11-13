@@ -427,6 +427,67 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task EnsureStorageNearlyFullAsync(
+        Guid clinicId, int percent, long usedBytes, long quotaBytes, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var title = $"Stockage du cabinet rempli à {percent} %";
+            var existing = await _notifications.GetStorageNearlyFullAsync(clinicId, cancellationToken);
+            if (existing != null)
+            {
+                // The level is in the title: the same level is no news, however the figures moved under it.
+                if (string.Equals(existing.Title, title, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                // A new row rather than a restatement: restating keeps who has already read it, so the 95 % warning
+                // would never badge the bell of somebody who dismissed the 80 % one.
+                await _notifications.RemoveAsync(existing, cancellationToken);
+            }
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.StorageNearlyFull,
+                title, StorageNearlyFullMessage(usedBytes, quotaBytes),
+                DateTime.UtcNow,
+                NotificationTargetKind.Subscription,
+                actorUserId: null,
+                stockItemId: null);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    public async Task ClearStorageNearlyFullAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetStorageNearlyFullAsync(clinicId, cancellationToken);
+            if (existing == null)
+            {
+                return false;
+            }
+
+            await _notifications.RemoveAsync(existing, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    /// <summary>« 8,1 Go sur 10 Go utilisés. … » — what is used, what happens at the ceiling, and the two ways out.</summary>
+    private static string StorageNearlyFullMessage(long usedBytes, long quotaBytes)
+    {
+        var fr = CultureInfo.GetCultureInfo("fr-FR");
+        static double Gigabytes(long bytes) => bytes / (1024d * 1024 * 1024);
+        return $"{Gigabytes(usedBytes).ToString("0.0", fr)} Go sur {Gigabytes(quotaBytes).ToString("0.0", fr)} Go "
+               + "utilisés. Une fois l'espace plein, les nouveaux fichiers sont refusés ; ceux déjà enregistrés restent "
+               + "accessibles. Supprimez des fichiers volumineux, ou contactez APEXA depuis « Abonnement » pour "
+               + "augmenter l'espace.";
+    }
+
     public async Task ClearVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
         await SafelyAsync(clinicId, async () =>

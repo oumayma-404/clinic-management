@@ -45,6 +45,10 @@ public class SubscriptionWarningTests
             Guid clinicId, CancellationToken cancellationToken = default) =>
             Task.FromResult<StaffNotification?>(null);
 
+        public Task<StaffNotification?> GetStorageNearlyFullAsync(
+            Guid clinicId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<StaffNotification?>(null);
+
         public List<StaffNotification> Rows { get; } = new();
 
         public Task AddAsync(StaffNotification notification, CancellationToken cancellationToken = default)

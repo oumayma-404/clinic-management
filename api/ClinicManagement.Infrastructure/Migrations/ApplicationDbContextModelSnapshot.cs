@@ -643,6 +643,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<int>("StockExpiryLeadDays")
                         .HasColumnType("integer");
 
+                    b.Property<long?>("StorageQuotaBytes")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 

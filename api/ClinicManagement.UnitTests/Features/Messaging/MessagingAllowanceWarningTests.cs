@@ -347,6 +347,10 @@ public class MessagingAllowanceWarningTests
             Guid clinicId, CancellationToken cancellationToken = default) =>
             Task.FromResult<StaffNotification?>(null);
 
+        public Task<StaffNotification?> GetStorageNearlyFullAsync(
+            Guid clinicId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<StaffNotification?>(null);
+
         public List<StaffNotification> Rows { get; } = new();
 
         /// <summary>Makes the warning duty fail, so R-9's per-duty isolation can be asserted.</summary>

@@ -72,6 +72,13 @@ export interface PlatformClinicRow {
   relayState: string;
   /** « Prêt », « Éteint depuis 08:12 », « Copie arrêtée depuis … ». Never names the PC itself. */
   relayLabel: string;
+  /**
+   * The hosted bytes this cabinet stores and the ceiling in force (`features/camera-photo-import`, phase 3). The ceiling
+   * is the cabinet's own when `storageQuotaIsCustom`, else the deployment's; 0 where nothing is enforced.
+   */
+  storageUsedBytes: number;
+  storageQuotaBytes: number;
+  storageQuotaIsCustom: boolean;
 }
 
 export interface PlatformClinicPage {
@@ -118,6 +125,10 @@ export interface PlatformSummary {
    * what a practice earns. There is nothing to sum here and nothing to confuse this with.
    */
   vendorCollectedThisMonthDt: number;
+  /** Every hosted byte of the deployment (phase 3) — each is stored twice, once more by the backup. */
+  hostedBytesTotal: number;
+  /** The server disk's size as the operator declared it, or null: no warning is invented without it. */
+  serverDiskBytes: number | null;
 }
 
 /** What the screen may narrow the portfolio by. Mirrors the query string the API accepts. */
@@ -587,6 +598,27 @@ export interface PlatformPasswordReset {
   targetRole: string;
   oneTimePassword: string;
   resetAt: string;
+}
+
+export interface PlatformStorageQuotaChanged {
+  clinicId: string;
+  storageUsedBytes: number;
+  storageQuotaBytes: number;
+  storageQuotaIsCustom: boolean;
+}
+
+/** A cabinet's ceiling, or the default again with `quotaBytes: null`. A motif is mandatory and journaled. */
+export async function setStorageQuota(
+  token: string,
+  clinicId: string,
+  quotaBytes: number | null,
+  reason: string,
+): Promise<PlatformStorageQuotaChanged> {
+  return consoleFetch<PlatformStorageQuotaChanged>(`/platform/clinics/${clinicId}/storage-quota`, {
+    method: "PUT",
+    token,
+    body: { quotaBytes, reason },
+  });
 }
 
 export async function fetchClinicDetail(token: string, clinicId: string): Promise<PlatformClinicDetail> {

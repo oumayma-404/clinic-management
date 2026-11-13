@@ -196,6 +196,8 @@ public class SubscriptionExemptionCoverageTests
         // mistaken suspension has to stay liftable on the same cabinet.
         "PlatformSubscriptions.Suspend",
         "PlatformSubscriptions.LiftSuspension",
+        // features/camera-photo-import phase 3: the vendor raising a cabinet's storage ceiling records no work of the cabinet's.
+        "PlatformSubscriptions.SetStorageQuota",
 
         // --- Clearing a clinic account's second factor at its owner's request (`hosted-security-hardening`
         // FR-1.4). ⚠️ **The exemption is the point of the endpoint, not a convenience.** The person who cannot sign
