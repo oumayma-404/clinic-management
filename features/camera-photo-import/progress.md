@@ -48,12 +48,73 @@ not ask me any questions, go with all recommended » → import option 1 + Windo
   (`start + late`), not booked starts; « Couper » cuts where the first patient's visit ends (equal 2-minute gaps
   have no widest gap).
 
-## Next
+## Phase 2 — server (done, suite green)
 
-1. Browser pass of `/photos/import` on the isolated stack (`:5099`/`:3099`) — not run yet.
-2. Phase 2: shell 1.8.0 (camera on USB / SD detection, originals store, archive copy) + `ReportPhotoOriginalsCopyCommand`
-   and the 7-day alert.
-3. Phase 3: per-clinic quota, console storage column, 80 / 95 % bell alerts, server-disk warning.
+- `PhotoOriginalsCopy` (one row per clinic PC holding originals, `StaleAfterDays = 7`), its repository, config,
+  migration `20261113182912_AddPhotoOriginalsCopies` (xmin stripped).
+- `ReportPhotoOriginalsCopyCommand` under `Features/Backup` (no realtime broadcast) + `PhotoOriginalsCopyCheck`;
+  served as `POST api/photo-import/originals-copy` (`AnyClinicRole`, `[AllowsWithoutSubscription]` — `BackupController`
+  is `AdminOnly` at class level and policies AND). The server compares the report with the originals it has on record
+  for that PC before it advances the stamp.
+- `ClinicRecoveryPointJob` raises / clears `PhotoOriginalsCopyStale` (bell, Camera icon, amber).
+
+## Phase 2 — Windows app 1.8 + the page (done, gates green)
+
+- `desktop/ClinicManagement.DesktopShell/Camera/`: file kinds, batch planner (window: 7 days for a new source, the
+  day before the newest filed photo for a known one; cap 1 000, newest kept), journal (per account, atomic, prune 180 /
+  7 days), staging (one folder per photo, the camera's own name, SHA-256 while copying), card source, portable-device
+  source (`StorageDevice`), sources finder, arrival watcher (`WM_DEVICECHANGE` volumes + a `DeviceWatcher`), originals
+  store (`%ProgramData%\ClinicManagement\photos`, `index.csv`, 10 Go floor), originals copy
+  (`{archive}\photos-originales\`), settings (`camera.json`, off by default, ignored devices), messages, import
+  service, bridge. Root: `AddOnlyFolderCopy` (shared with the coffre), `PhysicalDisks` (disk extents).
+- `VaultBridge.Script`: nine camera methods + the `__clinicShellDeliverCamera` seam with a queue; `MainWindow` routes
+  `camera-*` and calls `OnClinicPageLoaded` last on a clinic page; `ShellNotifications.ShowCameraDetected`.
+- Page: `lib/photo-import/shell-camera.ts` (the one reader), `components/photo-import/shell-camera-bridge.tsx` (in the
+  root layout: listener, « Appareil photo détecté » toast with « Importer » / « Ignorer cet appareil »), the session
+  acknowledges every photo (filed + keep original when the cloud stored a copy · already · skipped · failed), « Depuis
+  l'appareil branché » + « N photos en attente », « Ajouter les photos plus anciennes restées sur l'appareil »,
+  « Sur ce PC » in the cameras card, « Original » in the file preview.
+- Found and fixed on the way: the coffre's copy reported « 0 octet » after its first run (the 30-day alert fired over
+  complete copies); the mirror's manifest listed coffre files, and ten in a row stopped every mirror run.
+- Tests: `CameraPlanningTests`, `CameraImportFlowTests` (card → staged → filed → original kept → not offered again;
+  pending after restart; failed kept; housekeeping; add-only copy totals; same-disk refusal; originals copy),
+  `CameraContractTests` (file kinds ↔ `sources.ts`, method set ↔ `clinic-shell.d.ts` + `bridge.md`, both red-proofed).
+  Desktop: **238 passed**. Web: `check:responsive` 88/88 · `tsc` 0 · `npm run build` OK (`/photos/import` static).
+  API: **7 186 passed, 0 failed**.
+
+## Phase 3 — storage you can see (done, gates green)
+
+- `Clinic.StorageQuotaBytes` (null = the deployment's default; 1 Go – 2 To), migration `AddClinicStorageQuota`.
+- `ClinicStorageAllowance` reads the cabinet's own quota; `ClinicStorageAlerts.LevelFor` (95 / 80 / clear under 75);
+  `StorageNearlyFull` bell rows after each upload's commit (best-effort).
+- Console: storage per cabinet (sortable « Stockage » column, card field), « Modifier le quota » with a mandatory
+  motif journaled as `StorageQuotaChanged`, the summary's server-disk line (×2 for the backup, warns from 70 % of the
+  declared `Deployment:ServerDiskBytes`). Console gate: typecheck · check:responsive 17/17 · build.
+
+## Owed — not done, and why
+
+| What | Why it is not done | Who |
+|---|---|---|
+| Browser pass of `/photos/import`, the cameras card and the console storage (`/test-in-browser`) | needs the isolated stack (`:5099`/`:3099`, a DB copy — three new migrations — and a throwaway MinIO bucket); not run in this session | next session |
+| A real Canon and a real Nikon on USB | no camera here; the card path is unit-tested on folders | pilot |
+| The Windows app on a real PC: detection toast, « Importer », original kept, copy to the archive disk | the shell cannot run in CI; build + 238 tests only | pilot |
+| Tune `MATCH_RULES` on the pilot's real day | needs the pilot's card | pilot |
+| Phase 0: PR #84 merged and one off-server backup seen; a decision on the server disk | owner | owner |
+| PR for this branch | never pushed without the owner's OK | owner |
+
+## Blast radius (phase 2 + 3)
+
+| Touched | Other consumers | Verdict |
+|---|---|---|
+| `VaultBridge.Script` (methods + listener) | coffre seam, chat `notify`, relay, session lock | must re-test on the Windows app: coffre handle still delivered, chat toast still raised |
+| `MainWindow` page load / message routing | coffre, archive copy, mirror, updates, relay | unaffected — camera runs last, guarded, only on a clinic page |
+| `VaultCopyService` → `AddOnlyFolderCopy` | coffre copy + `POST backup/vault-copy` | must change (done): totals fixed; **same-disk refusal is a behaviour change** on such setups |
+| Manifest hosted-only | the mirror | must re-test: one mirror run with a coffre file present |
+| `ShellNotifications.Listen` | chat toasts | unaffected — optional parameter |
+| `session.ts` acks, `SourceBatch.shell` | browser import path | unaffected — no shell, no item id, nothing sent |
+| File preview slot | « Visionneuse », « Pleine résolution » | must re-test: a DICOM and a HEIC keep their button |
+| `ClinicStorageAllowance` quota override | every upload door, upload policy | must re-test: an upload under and over a custom quota |
+| Console portfolio read (`hostedBytes`) | the portfolio list and sort | must re-test: list loads, « Stockage » sort |
 
 ## Deviations
 
@@ -62,3 +123,14 @@ not ask me any questions, go with all recommended » → import option 1 + Windo
   copy is ~1,5 Mo, and the SelfHostedLan original is ≤ 50 Mo on a LAN), module-level so it survives navigation. The
   drawer's queue is resumable-chunk aware and tied to one patient's folder; bending it to a multi-patient batch would
   touch the screen every cabinet already uses for a gain this batch does not need.
+- **The originals-copy report is served by `PhotoImportController`**, not `BackupController` (class-level `AdminOnly`
+  would have refused reception's session, and policies AND). The command still lives under `Features/Backup`.
+- **Journal and staging are per Windows account (`%LocalAppData%`)**, not in `photos\_import`: the photos folder is
+  locked to the account that created it, and a journal the second account cannot write would break its import.
+- **Staging is per photo, not per batch** (`{itemId}\{original name}`): two cameras both write `IMG_0001.JPG`, and the
+  name must stay the camera's own.
+- **A detection notifies; it does not copy.** The blueprint queued the batch on plug-in; a phone charged on the PC
+  would then have had its owner's photos copied. Copying starts at « Importer ».
+- **No camera clock read.** `StorageDevice` does not expose it; the matcher's offset detection stands in.
+- **The mirror fix is server-side** (the manifest lists hosted files only) rather than a skip in the shell: it fixes
+  every shell version already installed.
