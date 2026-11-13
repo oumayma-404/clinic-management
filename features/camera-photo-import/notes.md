@@ -38,6 +38,10 @@ console, with bell warnings at 80 % and 95 %.
 
 ## Traps
 
+- **A visit booked with no practitioner belongs to every practitioner's agenda.** Most visits name nobody (32 of 42 in
+  prod), and a new camera follows the signed-in dentist by default — an exact `DoctorId` match made the import answer
+  « Aucun rendez-vous à cette heure-là » over a visit in the book. The rule lives twice, in `agendaFor` (the one the page
+  uses) and in `GetPhotoImportVisitsAsync`, and both say so. Found by the browser walk, not by any unit test.
 - **The coffre's copy report used to send this run's bytes as the total.** After the first complete copy every run
   reported « 0 octet », the server answered « incomplete », and the 30-day alert fired over a copy that was complete.
   `AddOnlyFolderCopy.Result` separates `Copied/CopiedBytes` (this run) from `Files/Bytes` (what the destination holds);

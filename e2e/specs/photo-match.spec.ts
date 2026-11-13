@@ -223,6 +223,22 @@ test.describe("photo import — matching photos to visits", () => {
     assertNeverSureAndWrong(doctorOnly, photos)
   })
 
+  test("a visit booked with no practitioner is in every practitioner's agenda", () => {
+    // Most real visits name nobody; the camera's dentist must still find them (found by the browser walk).
+    const visits = [visit("A", "09:00", 30, { doctorId: "dr-1" }), visit("C", "17:00")]
+    const photos = [...burst("A", "09:10"), ...burst("C", "17:05")]
+
+    const mine = agendaFor("dr-1", visits, [] as Array<{ doctorId: string | null; appointmentId: string | null }>)
+    expect(mine.visits.map((v) => v.patientId)).toEqual(["A", "C"])
+
+    const groups = matchPhotosToVisits(photos, mine.visits, [])
+    expect(groups.map((group) => group.match?.patientId)).toEqual(["A", "C"])
+    assertNeverSureAndWrong(groups, photos)
+
+    // Another practitioner's visit stays out.
+    expect(agendaFor("dr-2", visits, []).visits.map((v) => v.patientId)).toEqual(["C"])
+  })
+
   test("a card holding three days files each day against its own agenda", () => {
     const visits = [visit("A", "0|09:00"), visit("B", "1|09:00"), visit("C", "2|09:00")]
     const photos = [...burst("A", "0|09:10"), ...burst("B", "1|09:10"), ...burst("C", "2|09:10")]

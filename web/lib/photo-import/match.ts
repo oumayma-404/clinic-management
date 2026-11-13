@@ -439,6 +439,11 @@ export function matchPhotosToVisits(photos: MatchPhoto[], visits: MatchVisit[], 
  * The visits a camera's photos are matched against: one practitioner's agenda when the camera belongs to one,
  * else the whole cabinet's. A fiche counts when its visit is in that agenda, when it names that practitioner, or when it
  * names nobody — exactly the server's own doctor filter (`GetPhotoImportContextQuery`).
+ *
+ * ⚠️ **One practitioner's agenda includes the visits booked with NO practitioner** — the server's
+ * `GetPhotoImportVisitsAsync` says the same. Most visits carry none (32 of 42 in production), and a camera follows its
+ * dentist by default, so an exact match answered « Aucun rendez-vous à cette heure-là » over a visit that was in the
+ * book. Found by the browser walk.
  */
 export function agendaFor<V extends { doctorId: string | null; appointmentId: string }, F extends { doctorId: string | null; appointmentId: string | null }>(
   doctorId: string | null,
@@ -446,7 +451,7 @@ export function agendaFor<V extends { doctorId: string | null; appointmentId: st
   fiches: F[],
 ): { visits: V[]; fiches: F[] } {
   if (!doctorId) return { visits, fiches }
-  const kept = visits.filter((visit) => visit.doctorId === doctorId)
+  const kept = visits.filter((visit) => visit.doctorId === doctorId || visit.doctorId === null)
   const ids = new Set(kept.map((visit) => visit.appointmentId))
   return {
     visits: kept,

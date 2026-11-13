@@ -82,6 +82,14 @@ not ask me any questions, go with all recommended » → import option 1 + Windo
   Desktop: **238 passed**. Web: `check:responsive` 88/88 · `tsc` 0 · `npm run build` OK (`/photos/import` static).
   API: **7 186 passed, 0 failed**.
 
+## Browser walk (done, GREEN)
+
+[`qa/run-1.md`](qa/run-1.md): isolated stack (`:5099`/`:3099`, a copy of the dev database, a throwaway bucket), 26
+scenarios pass, 1 not exercised. It found **F1** — a visit booked with no practitioner was invisible to a camera
+following a dentist's agenda (most visits name nobody) — fixed on both sides (`agendaFor` and
+`GetPhotoImportVisitsAsync`), pure test added. Gates after the fix: API 7 186 / 0 · `tsc` 0 · `check:responsive` 88/88
+· build OK · pure specs 19/19.
+
 ## Phase 3 — storage you can see (done, gates green)
 
 - `Clinic.StorageQuotaBytes` (null = the deployment's default; 1 Go – 2 To), migration `AddClinicStorageQuota`.
@@ -95,7 +103,7 @@ not ask me any questions, go with all recommended » → import option 1 + Windo
 
 | What | Why it is not done | Who |
 |---|---|---|
-| Browser pass of `/photos/import`, the cameras card and the console storage (`/test-in-browser`) | needs the isolated stack (`:5099`/`:3099`, a DB copy — three new migrations — and a throwaway MinIO bucket); not run in this session | next session |
+| The vendor console's « Stockage » column and « Modifier le quota » in a browser | the walk ([`qa/run-1.md`](qa/run-1.md), GREEN) covered the cabinet's screens; the console needs its own app and a console sign-in. Its gate is green | next session |
 | A real Canon and a real Nikon on USB | no camera here; the card path is unit-tested on folders | pilot |
 | The Windows app on a real PC: detection toast, « Importer », original kept, copy to the archive disk | the shell cannot run in CI; build + 238 tests only | pilot |
 | Tune `MATCH_RULES` on the pilot's real day | needs the pilot's card | pilot |

@@ -465,7 +465,8 @@ public class AppointmentRepository : IAppointmentRepository
 
         if (doctorId is { } doctor)
         {
-            query = query.Where(row => row.appointment.DoctorId == doctor);
+            // A visit booked with no practitioner is the cabinet's, so it belongs to every agenda (see the interface).
+            query = query.Where(row => row.appointment.DoctorId == doctor || row.appointment.DoctorId == null);
         }
 
         return await query
