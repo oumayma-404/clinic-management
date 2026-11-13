@@ -291,6 +291,15 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
     public Task ClearVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
         _inner.ClearVaultCopyStaleAsync(clinicId, cancellationToken);
 
+    // Pass-through, for VaultCopyStale's reason: plugging the archive disk into the PC holding the photos is not
+    // something a phone can do.
+    public Task EnsurePhotoOriginalsCopyStaleAsync(
+        Guid clinicId, IReadOnlyList<StalePhotoOriginals> stale, CancellationToken cancellationToken = default) =>
+        _inner.EnsurePhotoOriginalsCopyStaleAsync(clinicId, stale, cancellationToken);
+
+    public Task ClearPhotoOriginalsCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
+        _inner.ClearPhotoOriginalsCopyStaleAsync(clinicId, cancellationToken);
+
     public Task ClinicArchiveExportedAsync(
         Guid clinicId, string actorUserId, string actorName, CancellationToken cancellationToken = default) =>
         _inner.ClinicArchiveExportedAsync(clinicId, actorUserId, actorName, cancellationToken);

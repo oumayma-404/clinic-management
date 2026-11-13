@@ -3595,6 +3595,45 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.ToTable("Payments", (string)null);
                 });
 
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PhotoOriginalsCopy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HeldBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("LastCompleteCopyAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastReportAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("LastReportedBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("LastReportedFiles")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId", "HeldBy")
+                        .IsUnique();
+
+                    b.ToTable("PhotoOriginalsCopies", (string)null);
+                });
+
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PlatformAccessEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6514,6 +6553,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasOne("ClinicManagement.Domain.Entities.Invoice", null)
                         .WithMany("Payments")
                         .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PhotoOriginalsCopy", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Clinic", null)
+                        .WithMany()
+                        .HasForeignKey("ClinicId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

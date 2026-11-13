@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Backup;
 using ClinicManagement.Application.Features.Backup.Archive;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
@@ -52,6 +53,7 @@ public class ClinicRecoveryPointJob
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notificationGenerator;
     private readonly IPatientFileRepository _patientFiles;
+    private readonly IPhotoOriginalsCopyRepository _photoOriginalsCopies;
     private readonly IAuditActorProvider _auditActor;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<ClinicRecoveryPointJob> _logger;
@@ -66,8 +68,10 @@ public class ClinicRecoveryPointJob
         IPatientFileRepository patientFiles,
         IAuditActorProvider auditActor,
         ITenantScope tenantScope,
-        ILogger<ClinicRecoveryPointJob> logger)
+        ILogger<ClinicRecoveryPointJob> logger,
+        IPhotoOriginalsCopyRepository photoOriginalsCopies)
     {
+        _photoOriginalsCopies = photoOriginalsCopies;
         _clinicRepository = clinicRepository;
         _points = points;
         _store = store;
@@ -125,6 +129,24 @@ public class ClinicRecoveryPointJob
         // coffre nobody has ever copied. That is exactly the state where a failed disk loses a decade of imaging
         // while every backup indicator reads green.
         await EvaluateVaultCopyStalenessAsync(clinic);
+
+        // The camera originals a clinic PC keeps (features/camera-photo-import): per PC, 7 days rather than 30.
+        await EvaluatePhotoOriginalsStalenessAsync(clinic);
+    }
+
+    private async Task EvaluatePhotoOriginalsStalenessAsync(Clinic clinic)
+    {
+        try
+        {
+            var stale = await PhotoOriginalsCopyCheck.FindStaleAsync(
+                _patientFiles, _photoOriginalsCopies, clinic.Id, DateTime.UtcNow);
+            await PhotoOriginalsCopyCheck.ApplyAsync(_notificationGenerator, clinic.Id, stale);
+        }
+        catch (Exception ex)
+        {
+            // One cabinet's failed check must not stop the pass for the others.
+            _logger.LogError(ex, "Photo-originals copy check failed for clinic {ClinicId}", clinic.Id);
+        }
     }
 
     /// <summary>

@@ -371,6 +371,62 @@ public class NotificationGenerator : INotificationGenerator
         }, cancellationToken);
     }
 
+    public async Task EnsurePhotoOriginalsCopyStaleAsync(
+        Guid clinicId, IReadOnlyList<StalePhotoOriginals> stale, CancellationToken cancellationToken = default)
+    {
+        if (stale.Count == 0)
+        {
+            await ClearPhotoOriginalsCopyStaleAsync(clinicId, cancellationToken);
+            return;
+        }
+
+        await SafelyAsync(clinicId, async () =>
+        {
+            var message = PhotoOriginalsCopyStaleMessage(stale);
+            var existing = await _notifications.GetPhotoOriginalsCopyStaleAsync(clinicId, cancellationToken);
+            if (existing != null)
+            {
+                // The message names PCs, counts and dates — nothing that ticks daily — so an unchanged one is no news.
+                if (string.Equals(existing.Message, message, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                existing.Restate(PhotoOriginalsCopyStaleTitle, message);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            var notification = new StaffNotification(
+                Guid.NewGuid(), clinicId, NotificationCategory.PhotoOriginalsCopyStale,
+                PhotoOriginalsCopyStaleTitle, message,
+                DateTime.UtcNow,
+                NotificationTargetKind.BackupSettings,
+                actorUserId: null, // nobody "did" a staleness → visible to all staff, like its siblings
+                stockItemId: null);
+
+            await _notifications.AddAsync(notification, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
+    public async Task ClearPhotoOriginalsCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(clinicId, async () =>
+        {
+            var existing = await _notifications.GetPhotoOriginalsCopyStaleAsync(clinicId, cancellationToken);
+            if (existing == null)
+            {
+                return false;
+            }
+
+            await _notifications.RemoveAsync(existing, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }, cancellationToken);
+    }
+
     public async Task ClearVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
         await SafelyAsync(clinicId, async () =>
@@ -966,6 +1022,27 @@ public class NotificationGenerator : INotificationGenerator
         return $"{ArchiveStaleKey(last)} (il y a {days} jours, seuil : {staleAfterDays} jours). "
                + "Téléchargez-en une nouvelle copie depuis « Paramètres » puis « Sauvegarde » : une copie gardée "
                + "sur votre poste est la seule qui survive à une panne du serveur.";
+    }
+
+    private const string PhotoOriginalsCopyStaleTitle = "Photos originales à copier";
+
+    /// <summary>
+    /// « 37 photos originales gardées sur PC ACCUEIL ne sont copiées sur aucun disque depuis le 03/11/2026. » — one
+    /// sentence per PC, then what to do. Built from PCs, counts and dates only, so it changes when the facts do and
+    /// never just because a day passed.
+    /// </summary>
+    internal static string PhotoOriginalsCopyStaleMessage(IReadOnlyList<StalePhotoOriginals> stale)
+    {
+        var lines = stale
+            .OrderBy(s => s.HeldBy, StringComparer.OrdinalIgnoreCase)
+            .Select(s =>
+                $"{s.Files} photo{(s.Files > 1 ? "s" : string.Empty)} originale{(s.Files > 1 ? "s" : string.Empty)} "
+                + $"gardée{(s.Files > 1 ? "s" : string.Empty)} sur {s.HeldBy} "
+                + $"{(s.Files > 1 ? "ne sont copiées" : "n'est copiée")} sur aucun disque depuis le "
+                + $"{ClinicClock.ToClinicLocal(s.OldestKeptAtUtc):dd/MM/yyyy}.");
+        return string.Join(" ", lines)
+               + " Branchez le disque d'archive sur ce poste et ouvrez l'application Windows : la copie se fait seule. "
+               + "La copie en ligne de chaque photo est intacte ; c'est la pleine résolution qui n'existe qu'à un endroit.";
     }
 
     private const string VaultCopyStaleTitle = "Coffre du cabinet à copier";

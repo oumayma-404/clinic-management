@@ -138,6 +138,19 @@ public interface INotificationGenerator
     Task ClearVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Raises — or restates, when the PCs or their counts changed — « photos originales à copier »
+    /// (<c>features/camera-photo-import</c>): camera originals some clinic PC keeps have had no complete copy on the
+    /// archive disk for <see cref="Domain.Entities.PhotoOriginalsCopy.StaleAfterDays"/> days. One row per cabinet,
+    /// naming each PC. The caller passes a non-empty list; an empty one is <see cref="ClearPhotoOriginalsCopyStaleAsync"/>.
+    /// </summary>
+    Task EnsurePhotoOriginalsCopyStaleAsync(
+        Guid clinicId, IReadOnlyList<Domain.Repositories.StalePhotoOriginals> stale,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the « photos originales à copier » alert, if there is one — every PC has copied.</summary>
+    Task ClearPhotoOriginalsCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Ensures the cabinet carries exactly one warning row for <paramref name="thresholdDays"/> — 7, 3, 1 or 0 days
     /// before <paramref name="endsOn"/> (<c>clinic-subscription</c> AC-3.4). Visible to all staff (AC-3.7) and
     /// deep-links to « Abonnement ».

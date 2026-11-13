@@ -94,6 +94,9 @@ public interface IStaffNotificationRepository
     /// </summary>
     Task<StaffNotification?> GetVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
+    /// <summary>The cabinet's live « photos originales à copier » alert, if it has one (<c>features/camera-photo-import</c>).</summary>
+    Task<StaffNotification?> GetPhotoOriginalsCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// The cabinet's warning row for one expiry threshold, if it has one (<c>clinic-subscription</c> FR-5).
     /// Keyed on <b>(clinic, threshold)</b> and not on the clinic alone, which is the whole difference from

@@ -60,6 +60,13 @@ export const photoImportApi = {
   context: (from: string, to: string, doctorId?: string | null) =>
     apiGet<PhotoImportContextDto>('/photo-import/context', doctorId ? { from, to, doctorId } : { from, to }),
 
+  /**
+   * A clinic PC copied the originals it keeps to the archive disk (phase 2 — sent by the page for the Windows app).
+   * `covered` is false when the copy reached fewer files or bytes than that PC reported keeping.
+   */
+  reportOriginalsCopy: (report: { heldBy: string; fileCount: number; totalBytes: number }) =>
+    apiPost<{ covered: boolean }>('/photo-import/originals-copy', report),
+
   /** Which of these shots are already filed. Split into requests of at most 2 000 keys. */
   known: async (captureKeys: string[]): Promise<ImportedCaptureDto[]> => {
     const found: ImportedCaptureDto[] = [];

@@ -145,6 +145,25 @@ public class PatientFileRepository : IPatientFileRepository
             .IgnoreQueryFilters()
             .AnyAsync(f => f.ClinicId == clinicId && f.CaptureKey == captureKey, cancellationToken);
 
+    public async Task<UncoveredOriginals> GetUncoveredOriginalsAsync(
+        Guid clinicId,
+        string heldBy,
+        DateTime? afterUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.PatientFiles
+            .IgnoreQueryFilters()
+            .Where(f => f.ClinicId == clinicId && f.OriginalHeldBy == heldBy && f.OriginalKeptAt != null);
+        if (afterUtc is { } after)
+        {
+            query = query.Where(f => f.OriginalKeptAt > after);
+        }
+
+        var files = await query.CountAsync(cancellationToken);
+        var oldest = files == 0 ? null : await query.MinAsync(f => f.OriginalKeptAt, cancellationToken);
+        return new UncoveredOriginals(files, oldest);
+    }
+
     public async Task<IReadOnlyList<CameraOriginalTotals>> GetCameraOriginalTotalsAsync(
         Guid clinicId,
         CancellationToken cancellationToken = default)

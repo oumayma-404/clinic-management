@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Authorization;
+using ClinicManagement.Application.Features.Backup.Commands;
 using ClinicManagement.Application.Features.PhotoImport.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -52,5 +53,23 @@ public class PhotoImportController : ApiControllerBase
             new GetImportedCaptureKeysQuery { CaptureKeys = request.CaptureKeys }, cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// A clinic PC's report that it copied the camera originals it keeps to the archive disk — posted by the page on
+    /// the Windows app's behalf. Here rather than beside <c>vault-copy</c> because <c>BackupController</c> is
+    /// <c>AdminOnly</c> at the class level and policies add up: the person signed in on the camera's PC is usually
+    /// reception. <c>covered</c> says whether the copy reached everything on record, for the vault report's reason.
+    /// </summary>
+    [HttpPost("originals-copy")]
+    [AllowsWithoutSubscription(
+        "Reporting that the practice holds a second copy of its own photos is not recording new work, and a lapsed "
+        + "cabinet must not be the one that stops being told its originals sit on one disk.")]
+    public async Task<IActionResult> ReportOriginalsCopy(
+        [FromBody] ReportPhotoOriginalsCopyCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(command, cancellationToken);
+        return result.IsSuccess ? Ok(new { covered = result.Value }) : HandleFailure(result);
     }
 }

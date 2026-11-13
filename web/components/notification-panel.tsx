@@ -5,6 +5,7 @@ import { fr } from "date-fns/locale"
 import {
   AlertTriangle,
   BellOff,
+  Camera,
   CalendarCheck,
   CalendarClock,
   CalendarOff,
@@ -92,6 +93,8 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
   AttendanceBorneInstalled: MonitorCheck,
   AttendanceBorneNotReceived: MonitorX,
   AttendanceSchemaBlocked: LockKeyhole,
+  // features/camera-photo-import — full-size camera photos a clinic PC keeps, not yet copied to the archive disk.
+  PhotoOriginalsCopyStale: Camera,
 }
 
 /**
@@ -146,6 +149,7 @@ const CATEGORY_TONE: Record<string, string> = {
   AttendanceBorneInstalled: "bg-success-wash text-success",
   AttendanceBorneNotReceived: "bg-destructive-wash text-destructive",
   AttendanceSchemaBlocked: "bg-warning-wash text-warning-ink",
+  PhotoOriginalsCopyStale: "bg-warning-wash text-warning-ink",
 }
 
 function relativeTime(iso: string): string {

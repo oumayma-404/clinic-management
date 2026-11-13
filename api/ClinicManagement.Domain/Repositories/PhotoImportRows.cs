@@ -33,3 +33,9 @@ public sealed record FicheSaveRow(
 
 /// <summary>How many camera originals one PC says it holds, and how many bytes — what its copy is checked against.</summary>
 public sealed record CameraOriginalTotals(string HeldBy, int Files, long Bytes);
+
+/// <summary>The originals one PC kept after its last complete copy: how many, and since when.</summary>
+public sealed record UncoveredOriginals(int Files, DateTime? OldestKeptAtUtc);
+
+/// <summary>A PC whose originals have waited too long for a copy — one line of the bell notification.</summary>
+public sealed record StalePhotoOriginals(string HeldBy, int Files, DateTime OldestKeptAtUtc);
