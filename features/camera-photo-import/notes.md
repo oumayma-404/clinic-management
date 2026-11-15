@@ -28,6 +28,19 @@ console, with bell warnings at 80 % and 95 %.
 - **A detection only raises a notice.** A phone charged on the clinic PC exposes a `DCIM` too; its owner's photos are
   never copied because it was plugged in. Copying starts at « Importer », and « Ignorer cet appareil » stops the
   notices for a device on that PC. The switch is off by default (a `desktop/**` merge reaches every clinic silently).
+- **A tap on a thumbnail opens the photo; it never sets it aside.** At 64 px a name card or a face cannot be read,
+  and the thumbnails are the last line against a photo in the wrong group. Both decisions live in the viewer:
+  « Écarter » (it stays on the card) and « Ranger chez un autre patient » (`takePhotoOut`).
+- **A photo taken out of its group asks, and never offers back the patient it left.** What stays is decided again
+  and keeps its group's key, so a choice already made on it survives; a group the order check demoted stays demoted.
+- **A choice survives a recount only on a group that still holds exactly the same photos** (`unchangedGroupKeys`).
+  A clock correction, another agenda or « plus anciennes » used to drop them all; carrying one onto other photos
+  would answer a question nobody asked.
+- **« Nouveau patient » is under the search, never beside it**: the person is looked for first, and a namesake on
+  file is still offered below the results. The create is the booking dialog's (`useInlineNewPatient`).
+- **A card's bookkeeping is skipped in silence** (Canon `.CTG`, Nikon `.DSC`, a Sony's `PRIVATE` tree whose
+  `THMBNL` JPEGs are video stills, not photos), and **a RAW beside its JPEG is not « ignoré »** — the advice
+  « réglez l'appareil en RAW + JPEG » appears only for a RAW alone.
 - **The originals live by file id** (`photos\{id[0..2]}\{id}.jpg` + `index.csv`), so « Changer de patient » moves
   nothing on disk, and the folder stays readable without the app.
 - **The journal and the staging copies are per Windows account** (`%LocalAppData%`), the originals machine-wide

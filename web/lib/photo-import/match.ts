@@ -96,6 +96,7 @@ export type MatchReason =
   | "near" // nothing holds it; the nearest visits are offered
   | "none" // nothing near it at all
   | "no-date" // the camera wrote no time
+  | "moved" // the dentist took this photo out of its group: it belongs to somebody else
 
 export interface PhotoGroup {
   key: string
@@ -433,6 +434,83 @@ export function matchPhotosToVisits(photos: MatchPhoto[], visits: MatchVisit[], 
   }
 
   return groups
+}
+
+/** The key of the group a photo taken out of its burst becomes. */
+export function movedGroupKey(photoId: string): string {
+  return `moved-${photoId}`
+}
+
+/**
+ * The groups once the dentist has taken photos out of them — « Ranger chez un autre patient » on one photo of a group
+ * that is otherwise right. Pure.
+ *
+ * - A photo taken out is a group of its own that **always asks**, and never offers back the patient it was taken
+ *   from (`takenOut[id]`): the dentist has just said it is not theirs.
+ * - What stays is decided again as one burst and **keeps the group's key**, so a choice already made on it — and
+ *   the dentist's « Choisi » — survives the photo leaving.
+ * - A group that the order check had demoted (`order`) stays demoted: taking one photo out does not make a wrong
+ *   clock right.
+ */
+export function withPhotosTakenOut<G extends PhotoGroup>(
+  groups: G[],
+  photos: MatchPhoto[],
+  visits: MatchVisit[],
+  walkIns: MatchWalkIn[],
+  takenOut: Readonly<Record<string, string | null>>,
+): G[] {
+  const byId = new Map(photos.map((photo) => [photo.id, photo]))
+  const result: G[] = []
+
+  for (const group of groups) {
+    // A photo with no time is already a group of its own; there is nothing to take it out of.
+    const moved = group.photoIds.filter((id) => id in takenOut && (byId.get(id)?.takenAt ?? null) !== null)
+    if (moved.length === 0) {
+      result.push(group)
+      continue
+    }
+
+    const kept = group.photoIds
+      .filter((id) => !moved.includes(id))
+      .map((id) => byId.get(id))
+      .filter((photo): photo is MatchPhoto => photo !== undefined && photo.takenAt !== null)
+    if (kept.length > 0) {
+      const decided = matchBurst(kept, visits, walkIns)
+      const demoted = group.reason === "order" && decided.decision === "sure"
+      result.push({
+        ...group,
+        ...decided,
+        ...(demoted ? { decision: "ask" as const, reason: "order" as const, match: null } : {}),
+      })
+    }
+
+    for (const id of moved) {
+      const decided = matchBurst([byId.get(id)!], visits, walkIns)
+      const from = takenOut[id]
+      result.push({
+        ...group,
+        ...decided,
+        key: movedGroupKey(id),
+        decision: "ask",
+        reason: "moved",
+        match: null,
+        candidates: decided.candidates.filter((candidate) => candidate.patientId !== from),
+        splitAt: null,
+      })
+    }
+  }
+
+  return result
+}
+
+/**
+ * The groups that hold exactly the same photos before and after a recount (a clock correction, another agenda, the
+ * older photos shown) — the only ones where a choice the dentist made still answers the same question. Every other
+ * choice is dropped rather than carried onto photos she has not looked at.
+ */
+export function unchangedGroupKeys(previous: PhotoGroup[], next: PhotoGroup[]): Set<string> {
+  const before = new Map(previous.map((group) => [group.key, group.photoIds.join("|")]))
+  return new Set(next.filter((group) => before.get(group.key) === group.photoIds.join("|")).map((group) => group.key))
 }
 
 /**

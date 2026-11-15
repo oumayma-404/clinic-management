@@ -99,6 +99,31 @@ following a dentist's agenda (most visits name nobody) — fixed on both sides (
   motif journaled as `StorageQuotaChanged`, the summary's server-disk line (×2 for the backup, warns from 70 % of the
   declared `Deployment:ServerDiskBytes`). Console gate: typecheck · check:responsive 17/17 · build.
 
+## Mistake cases, rehearsed on a real card layout (2026-11-15)
+
+A card laid out like a Canon's (DCIM/100CANON, CANONMSC, RAW + JPEG, a video) and a day built to hit every mistake
+case found seven gaps. All fixed:
+
+| Gap | Fix |
+|---|---|
+| A photo of the next patient inside a group that is right for the rest could not be moved — only set aside | A tap opens the photo large (`photo-viewer-dialog.tsx`): « Écarter » or « Ranger chez un autre patient » (`takePhotoOut` → a group of its own that asks, never offering back the patient it left; « Remettre dans son groupe ») |
+| A patient nobody registered (no visit, no fiche, no record) had no way in from the review | « Nouveau patient « … » » under the search (`new-patient-for-group.tsx`, the booking dialog's `useInlineNewPatient` rules, duplicate question included) |
+| A 64 px thumbnail was the only view of a photo, and a tap set it aside | the viewer above; « Écartée » stays on the thumbnail |
+| « Toutes les photos de la carte sont déjà rangées » over a RAW-only card or the wrong folder | three empty states (`emptyReview`) |
+| « 37 RAW ignorés — réglez l'appareil en RAW + JPEG » on a camera already in RAW + JPEG | a RAW beside its JPEG is not counted (web `finishBatch` + shell `CameraBatchPlanner`) |
+| « 1 autre ignoré » on every Canon card (`CANONMSC/M0100.CTG`), Nikon's `NIKON001.DSC`, a Sony's video stills read as photos | bookkeeping skipped in silence, three sets mirrored web ↔ shell and held by `CameraContractTests` |
+| Showing the older photos, correcting the clock or changing the camera's agenda dropped every choice on the screen | a choice stands on any group still holding the same photos (`unchangedGroupKeys`) |
+
+Gates: pure specs 22/22 · desktop 242/242 · `check:responsive` 88/88 · `tsc` 0 · build OK. One photo edited on the
+PC no longer puts the camera's name on every group (only « Appareil inconnu » is named).
+
+| Touched | Other consumers | Verdict |
+|---|---|---|
+| `PatientSearchList` (+ `onCreate`) | « Changer de patient » on a filed file | unaffected — optional prop, not passed there |
+| `CameraFileKinds.IsIgnoredName/Folder` | `CardCameraSource`, `WpdCameraSource` | must re-test on the Windows app with a real card (a wider skip list, nothing new copied) |
+| `CameraBatchPlanner` RAW count | the shell's batch message | unaffected — a count only |
+| `session.ts` recount rule | offset notice, camera owner prompt, « plus anciennes » | must re-test in the browser walk |
+
 ## Owed — not done, and why
 
 | What | Why it is not done | Who |

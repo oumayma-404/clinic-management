@@ -57,17 +57,42 @@ public static class CameraFileKinds
         return Video.Contains(extension) ? CameraFileKind.Video : CameraFileKind.Other;
     }
 
-    /// <summary>A card's own bookkeeping, never a photo: hidden and AppleDouble files, thumbnail databases.</summary>
+    /// <summary>
+    /// A card's own bookkeeping, never a photo — skipped in silence, because a count nobody can act on (« 1 autre
+    /// ignoré » on every Canon card) is noise: Canon's folder catalogue (<c>M0100.CTG</c>), Nikon's card marker
+    /// (<c>NIKON001.DSC</c>), a video's thumbnail (<c>.THM</c>), a GoPro's low-resolution video, an editor's sidecar,
+    /// a print order. Mirrors <c>sources.ts</c>; <c>CameraContractTests</c> holds the three sets equal.
+    /// </summary>
+    public static readonly IReadOnlySet<string> IgnoredNames = Set("thumbs.db", "desktop.ini");
+
+    public static readonly IReadOnlySet<string> IgnoredExtensions = Set("ctg", "dsc", "thm", "lrv", "xmp", "mrk");
+
+    /// <summary>
+    /// <c>CANONMSC</c> / <c>EOSMISC</c> (Canon), <c>PRIVATE</c> (a Sony's video tree — its <c>THMBNL</c> holds a JPEG
+    /// still of every clip, which is not a photo), <c>AVF_INFO</c> (a Sony's index), <c>MISC</c> and the system's own.
+    /// </summary>
+    public static readonly IReadOnlySet<string> IgnoredFolders = Set(
+        "misc", "$recycle.bin", "system volume information", "canonmsc", "eosmisc", "private", "avf_info");
+
+    /// <summary>Hidden and AppleDouble files (a leading dot), thumbnail databases, the bookkeeping extensions.</summary>
     public static bool IsIgnoredName(string name) =>
         name.StartsWith('.')
-        || name.Equals("thumbs.db", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase);
+        || IgnoredNames.Contains(name)
+        || IgnoredExtensions.Contains(Path.GetExtension(name).TrimStart('.'));
 
     public static bool IsIgnoredFolder(string name) =>
-        name.StartsWith('.')
-        || name.Equals("misc", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("$recycle.bin", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("system volume information", StringComparison.OrdinalIgnoreCase);
+        name.StartsWith('.') || IgnoredFolders.Contains(name);
+
+    /// <summary>
+    /// « DCIM\100CANON\IMG_0412 » — one shot whatever its extension, so a RAW can be told from the JPEG beside it
+    /// (<see cref="CameraBatchPlanner"/>).
+    /// </summary>
+    public static string ShotKey(string objectId)
+    {
+        var normalized = objectId.Replace('/', '\\');
+        var folder = Path.GetDirectoryName(normalized) ?? string.Empty;
+        return Path.Combine(folder, Path.GetFileNameWithoutExtension(normalized)).ToLowerInvariant();
+    }
 
     private static IReadOnlySet<string> Set(params string[] extensions) =>
         new HashSet<string>(extensions, StringComparer.OrdinalIgnoreCase);

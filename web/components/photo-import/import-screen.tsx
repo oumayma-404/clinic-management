@@ -137,6 +137,27 @@ function ShellCopyingNotice() {
   )
 }
 
+/**
+ * What an empty review says — three different facts, and each wants a different next step. « Toutes déjà rangées »
+ * over a card holding only RAW files, or over the wrong folder, sends the dentist away from photos that were never
+ * filed.
+ */
+function emptyReview(state: ImportState): { title: string; description: string } {
+  if (state.photos.length === 0 && state.alreadyImported === 0) {
+    const skipped = state.skipped.raw + state.skipped.heic + state.skipped.video + state.skipped.other
+    return skipped > 0
+      ? { title: "Aucune photo JPEG sur la carte", description: "Les fichiers lus ne sont pas des photos que l'application range." }
+      : { title: "Aucune photo dans ce dossier", description: "Choisissez la carte de l'appareil photo, ou son dossier DCIM." }
+  }
+  return {
+    title: "Aucune nouvelle photo à ranger",
+    description:
+      state.olderCount > 0
+        ? "Les photos de la carte sont plus anciennes que la dernière importation."
+        : "Toutes les photos de la carte sont déjà rangées.",
+  }
+}
+
 function ReviewStep({
   state,
   policy,
@@ -149,7 +170,14 @@ function ReviewStep({
   const skipped = skippedSummary(state.skipped)
   const doctors = state.context?.doctors ?? []
   const doctorNames = doctors.length > 1 ? new Map(doctors.map((doctor) => [doctor.id, doctor.name])) : null
-  const cameraLabels = state.cameras.length > 1 ? new Map(state.cameras.map((camera) => [camera.key, camera.label])) : null
+  // A group names its camera when the import mixes sources — but one photo edited on the PC (no camera at all) must
+  // not put « Canon EOS 250D » on every other group: only « Appareil inconnu » is named then.
+  const realCameras = state.cameras.filter((camera) => camera.key !== UNKNOWN_CAMERA).length
+  const cameraLabelOf = (key: string): string | null => {
+    if (state.cameras.length < 2) return null
+    if (key === UNKNOWN_CAMERA) return "Appareil inconnu"
+    return realCameras > 1 ? (state.cameras.find((camera) => camera.key === key)?.label ?? null) : null
+  }
   const days = new Set(state.groups.filter((group) => group.start !== null).map((group) => wallClockDay(group.start!)))
   const plan = filingPlan(state)
   const unresolved = unresolvedGroups(state)
@@ -231,12 +259,7 @@ function ReviewStep({
       {state.groups.length === 0 ? (
         <EmptyState
           icon={Images}
-          title="Aucune nouvelle photo à ranger"
-          description={
-            state.olderCount > 0
-              ? "Les photos de la carte sont plus anciennes que la dernière importation."
-              : "Toutes les photos de la carte sont déjà rangées."
-          }
+          {...emptyReview(state)}
           action={
             <Button type="button" onClick={resetImport}>
               Choisir une autre carte
@@ -258,7 +281,7 @@ function ReviewStep({
                 excluded={state.excluded}
                 showDay={days.size > 1}
                 doctorNames={doctorNames}
-                cameraLabel={cameraLabels?.get(group.cameraKey) ?? null}
+                cameraLabel={cameraLabelOf(group.cameraKey)}
               />
             )
           })}

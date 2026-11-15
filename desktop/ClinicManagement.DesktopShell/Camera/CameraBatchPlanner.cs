@@ -75,7 +75,15 @@ public static class CameraBatchPlanner
         var deliver = new List<CameraItem>();
         int older = 0, done = 0, raw = 0, heic = 0, video = 0, other = 0;
 
-        foreach (var item in items)
+        // ⚠️ A RAW beside its JPEG is not « ignoré »: the JPEG is the photo filed, and counting the twin would tell a
+        // dentist whose camera is already in RAW + JPEG to set it to RAW + JPEG. Mirrors `sources.ts`.
+        var list = items as IReadOnlyCollection<CameraItem> ?? items.ToList();
+        var jpegShots = list
+            .Where(item => item.Kind == CameraFileKind.Jpeg)
+            .Select(item => CameraFileKinds.ShotKey(item.ObjectId))
+            .ToHashSet();
+
+        foreach (var item in list)
         {
             var inWindow = includeOlder || item.TakenLocal is null || item.TakenLocal >= start;
 
@@ -89,7 +97,13 @@ public static class CameraBatchPlanner
 
                 switch (item.Kind)
                 {
-                    case CameraFileKind.Raw: raw++; break;
+                    case CameraFileKind.Raw:
+                        if (!jpegShots.Contains(CameraFileKinds.ShotKey(item.ObjectId)))
+                        {
+                            raw++;
+                        }
+
+                        break;
                     case CameraFileKind.Heic: heic++; break;
                     case CameraFileKind.Video: video++; break;
                     default: other++; break;

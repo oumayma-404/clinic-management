@@ -1,13 +1,15 @@
 "use client"
 
 import { useEffect, useId, useRef, useState } from "react"
-import { Loader2, Search, User } from "lucide-react"
+import { Loader2, Search, User, UserPlus } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { patientsApi } from "@/lib/api/patients"
 import type { PatientDto } from "@/lib/api/types"
 import { getErrorMessage } from "@/lib/errors"
+import { quoteFr } from "@/lib/format"
 
 export interface PickedPatient {
   patientId: string
@@ -21,6 +23,11 @@ interface PatientSearchListProps {
   /** A patient that must not be offered — the one a file already belongs to. */
   excludeId?: string
   autoFocus?: boolean
+  /**
+   * Offers « Nouveau patient « … » » for the name typed, once the search has answered — the camera import's walk-in
+   * nobody registered. Below the results too: a namesake on file is not the person in the photo.
+   */
+  onCreate?: (typed: string) => void
 }
 
 const SEARCH_DELAY_MS = 250
@@ -32,7 +39,7 @@ const SEARCH_DELAY_MS = 250
  *
  * ⚠️ A failed search renders « Réessayer », never « Aucun patient » — the two look alike and mean opposite things.
  */
-export function PatientSearchList({ label, onPick, excludeId, autoFocus = false }: PatientSearchListProps) {
+export function PatientSearchList({ label, onPick, excludeId, autoFocus = false, onCreate }: PatientSearchListProps) {
   const [term, setTerm] = useState("")
   const [results, setResults] = useState<PatientDto[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -121,6 +128,19 @@ export function PatientSearchList({ label, onPick, excludeId, autoFocus = false 
             })}
           </ul>
         )
+      )}
+
+      {onCreate && results && !error && term.trim().length >= 2 && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-auto min-h-9 w-full justify-start gap-2 whitespace-normal text-start coarse:min-h-11"
+          onClick={() => onCreate(term.trim())}
+        >
+          <UserPlus className="size-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0">Nouveau patient {quoteFr(term.trim())}</span>
+        </Button>
       )}
     </div>
   )

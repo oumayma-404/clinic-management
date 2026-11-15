@@ -99,6 +99,24 @@ public class CameraPlanningTests
     }
 
     [Fact]
+    public void A_Raw_Beside_Its_Jpeg_Is_Not_Counted_But_A_Raw_Alone_Is()
+    {
+        var items = new[]
+        {
+            Jpeg("IMG_0412.JPG", Today.AddHours(9)),
+            new CameraItem(@"DCIM\100CANON\IMG_0412.CR3", "IMG_0412.CR3", 1, Today.AddHours(9), CameraFileKind.Raw),
+            new CameraItem(@"DCIM\100CANON\IMG_0413.CR3", "IMG_0413.CR3", 1, Today.AddHours(9), CameraFileKind.Raw),
+            // The same name in another folder is another shot.
+            new CameraItem(@"DCIM\101CANON\IMG_0412.CR3", "IMG_0412.CR3", 1, Today.AddHours(9), CameraFileKind.Raw),
+        };
+
+        var plan = CameraBatchPlanner.Plan(items, _ => null, null, Today, includeOlder: false);
+
+        Assert.Single(plan.Deliver);
+        Assert.Equal(2, plan.Raw);
+    }
+
+    [Fact]
     public void Plus_Anciennes_Offers_Everything_Not_Yet_Dealt_With()
     {
         var items = new[] { Jpeg("IMG_0001.JPG", Today.AddDays(-400)), Jpeg("IMG_0002.JPG", Today.AddHours(1)) };
@@ -155,6 +173,14 @@ public class CameraPlanningTests
         Assert.True(CameraFileKinds.IsIgnoredFolder("MISC"));
         Assert.True(CameraFileKinds.IsIgnoredFolder("System Volume Information"));
         Assert.False(CameraFileKinds.IsIgnoredFolder("100CANON"));
+
+        // What a real Canon, Nikon or Sony card carries beside its photos — never « 1 autre ignoré ».
+        Assert.True(CameraFileKinds.IsIgnoredName("M0100.CTG"));
+        Assert.True(CameraFileKinds.IsIgnoredName("NIKON001.DSC"));
+        Assert.True(CameraFileKinds.IsIgnoredName("MVI_0001.THM"));
+        Assert.True(CameraFileKinds.IsIgnoredFolder("CANONMSC"));
+        Assert.True(CameraFileKinds.IsIgnoredFolder("PRIVATE"));
+        Assert.False(CameraFileKinds.IsIgnoredName("IMG_0001.CR3"));
     }
 
     // ── The journal ──────────────────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { CalendarClock, FileText, Scissors, Undo2, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PatientNameLink } from "@/components/patient-name-link"
@@ -11,8 +11,9 @@ import type { MatchCandidate, MatchReason } from "@/lib/photo-import/match"
 import {
   choosePatient,
   correctedTime,
+  putPhotoBack,
   splitGroup,
-  toggleExcluded,
+  takePhotoOut,
   toggleIgnored,
   type ImportPhoto,
   type PatientRef,
@@ -20,6 +21,8 @@ import {
 } from "@/lib/photo-import/session"
 import { formatWallClockDay, formatWallClockTime, type WallClock } from "@/lib/photo-import/wall-clock"
 import { cn } from "@/lib/utils"
+import { NewPatientForGroup } from "./new-patient-for-group"
+import { PhotoViewerDialog } from "./photo-viewer-dialog"
 
 /** Why a group asks — one plain sentence, shown above its candidates. */
 const ASK_REASON: Partial<Record<MatchReason, string>> = {
@@ -29,6 +32,7 @@ const ASK_REASON: Partial<Record<MatchReason, string>> = {
   near: "Aucun rendez-vous à cette heure-là.",
   none: "Aucun rendez-vous ce jour-là.",
   "no-date": "Pas d'heure dans la photo.",
+  moved: "Photo sortie de son groupe.",
 }
 
 /** Thumbnails shown before « +N » — a long burst is still one glance. */
@@ -71,8 +75,12 @@ function candidateLine(candidate: MatchCandidate, doctorNames: Map<string, strin
  * patient, a time and a strip of pictures, which no table column can hold.
  *
  * ⚠️ **The thumbnails are the last line against a wrong clock**: the matcher can be sure of the wrong visit when a
- * camera is off by exactly one slot, and the faces beside the name are what a dentist checks. Tapping one leaves it
- * on the card and out of « Ranger ».
+ * camera is off by exactly one slot, and the faces beside the name are what a dentist checks. Tapping one opens it
+ * large (`PhotoViewerDialog`), where it can be set aside or sent to another patient — a photo of the next patient
+ * taken a minute after this one's last is in this burst, and the burst is right for every other photo.
+ *
+ * ⚠️ **« Nouveau patient » is offered under the search**, not beside it: the person must be looked for first, and a
+ * namesake on file is still offered below the results.
  */
 export function BurstCard({
   group,
@@ -88,14 +96,19 @@ export function BurstCard({
   const unresolved = !ignored && !patient
   const [choosing, setChoosing] = useState(unresolved)
   const [searching, setSearching] = useState(false)
+  const [creating, setCreating] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
+  const [viewing, setViewing] = useState<string | null>(null)
 
   // A group that needs a patient opens its chooser; one that just got one closes it. Keyed on the id: the patient
   // object is rebuilt on every render, and depending on it would shut the chooser the moment « Changer » opened it.
   const patientId = patient?.patientId ?? null
   useEffect(() => {
     setChoosing(!ignored && patientId === null)
-    if (patientId !== null) setSearching(false)
+    if (patientId !== null) {
+      setSearching(false)
+      setCreating(null)
+    }
   }, [ignored, patientId])
 
   const kept = group.photoIds.filter((id) => !excluded[id]).length
@@ -105,11 +118,25 @@ export function BurstCard({
   const splitPhoto = group.splitAt !== null ? photos.get(group.photoIds[group.splitAt]) : undefined
   const splitTime = splitPhoto ? correctedTime(splitPhoto) : null
   const label = `Groupe de ${timeRange(group.start, group.end)}`
+  const moved = group.reason === "moved"
+  const single = group.photoIds.length === 1
 
   const pick = (choice: PatientRef | MatchCandidate) => {
     choosePatient(group.key, choice)
     setChoosing(false)
     setSearching(false)
+    setCreating(null)
+  }
+
+  const closeViewer = useCallback(() => setViewing(null), [])
+
+  // The photo leaves for a card of its own, which opens on « whose is it? » — scrolled to, so the answer is next.
+  const takeOut = (photoId: string) => {
+    setViewing(null)
+    const key = takePhotoOut(group.key, photoId)
+    window.requestAnimationFrame(() =>
+      document.getElementById(`groupe-${key}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+    )
   }
 
   return (
@@ -153,10 +180,8 @@ export function BurstCard({
             <li key={id}>
               <button
                 type="button"
-                onClick={() => toggleExcluded(id)}
-                disabled={ignored}
-                aria-pressed={out}
-                aria-label={out ? `Reprendre la photo de ${name}` : `Écarter la photo de ${name}`}
+                onClick={() => setViewing(id)}
+                aria-label={out ? `Voir la photo de ${name}, écartée` : `Voir la photo de ${name}`}
                 className="relative block size-16 overflow-hidden rounded-md border border-border bg-muted focus-visible:ring-2 focus-visible:ring-ring coarse:size-[4.5rem]"
               >
                 <PhotoThumb photo={photo} />
@@ -184,7 +209,9 @@ export function BurstCard({
       </ul>
 
       {ignored ? (
-        <p className="text-sm text-muted-foreground">Groupe ignoré : ces photos restent sur la carte.</p>
+        <p className="text-sm text-muted-foreground">
+          {single ? "Photo ignorée : elle reste sur la carte." : "Groupe ignoré : ces photos restent sur la carte."}
+        </p>
       ) : (
         <div className="space-y-2">
           {patient && !choosing && (
@@ -237,8 +264,20 @@ export function BurstCard({
                 </div>
               )}
 
-              {searching ? (
-                <PatientSearchList label={`Patient du ${label.toLowerCase()}`} onPick={pick} autoFocus />
+              {creating !== null ? (
+                <NewPatientForGroup
+                  typed={creating}
+                  onCreated={pick}
+                  onCancel={() => setCreating(null)}
+                  onPickExisting={() => setCreating(null)}
+                />
+              ) : searching ? (
+                <PatientSearchList
+                  label={`Patient du ${label.toLowerCase()}`}
+                  onPick={pick}
+                  onCreate={(typed) => setCreating(typed)}
+                  autoFocus
+                />
               ) : (
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="ghost" size="sm" className="coarse:min-h-11" onClick={() => setSearching(true)}>
@@ -257,6 +296,18 @@ export function BurstCard({
       )}
 
       <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+        {moved && !ignored && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5 coarse:min-h-11"
+            onClick={() => putPhotoBack(group.photoIds[0])}
+          >
+            <Undo2 className="size-4" aria-hidden="true" />
+            Remettre dans son groupe
+          </Button>
+        )}
         {!ignored && group.splitAt !== null && !group.splitFrom && (
           <Button type="button" variant="outline" size="sm" className="gap-1.5 coarse:min-h-11" onClick={() => splitGroup(group.key)}>
             <Scissors className="size-4" aria-hidden="true" />
@@ -271,9 +322,22 @@ export function BurstCard({
           onClick={() => toggleIgnored(group.key)}
         >
           {ignored && <Undo2 className="size-4" aria-hidden="true" />}
-          {ignored ? "Reprendre ce groupe" : "Ignorer ce groupe"}
+          {ignored
+            ? single ? "Reprendre cette photo" : "Reprendre ce groupe"
+            : single ? "Ignorer cette photo" : "Ignorer ce groupe"}
         </Button>
       </div>
+
+      <PhotoViewerDialog
+        group={group}
+        photos={photos}
+        excluded={excluded}
+        photoId={viewing}
+        patientName={patient?.patientName ?? null}
+        onPhotoChange={setViewing}
+        onClose={closeViewer}
+        onTakeOut={takeOut}
+      />
     </li>
   )
 }

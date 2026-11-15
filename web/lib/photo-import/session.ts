@@ -32,6 +32,9 @@ import {
   detectClockOffset,
   matchBurst,
   matchPhotosToVisits,
+  movedGroupKey,
+  unchangedGroupKeys,
+  withPhotosTakenOut,
   type MatchCandidate,
   type MatchPhoto,
   type MatchVisit,
@@ -146,6 +149,8 @@ export interface ImportState {
   ignored: Record<string, true>
   splits: Record<string, true>
   excluded: Record<string, true>
+  /** Photos taken out of their group (« Ranger chez un autre patient »), with the patient that group was going to. */
+  takenOut: Record<string, string | null>
   filing: FilingItem[]
   storageFullMessage: string | null
   /** A Windows-app batch: its source, and what stayed on it (« plus anciennes ») or could not be copied. */
@@ -172,6 +177,7 @@ function initialState(): ImportState {
     ignored: {},
     splits: {},
     excluded: {},
+    takenOut: {},
     filing: [],
     storageFullMessage: null,
     shell: null,
@@ -470,6 +476,7 @@ function agendaOf(camera: ImportCamera): { visits: MatchVisit[]; walkIns: MatchW
 }
 
 function detectOffsets() {
+  const previous = state.groups
   const visible = visiblePhotos()
   const cameras = state.cameras.map((camera) => {
     if (camera.key === UNKNOWN_CAMERA) return { ...camera, detectedOffset: 0, offsetAccepted: false }
@@ -482,11 +489,17 @@ function detectOffsets() {
     const detected = detectClockOffset(times, visits, walkIns)
     return { ...camera, detectedOffset: detected, offsetAccepted: detected !== 0 }
   })
-  set({ cameras, choices: {}, ignored: {}, splits: {} })
-  recompute()
+  set({ cameras })
+  recompute(previous)
 }
 
-function recompute() {
+/**
+ * Re-cuts and re-decides every group. Without `previous`, the groups keep their keys (a cut, a photo taken out or put
+ * back) and every choice keyed on one stands. With `previous` — the times or the agenda moved — a choice stands only
+ * on a group that still holds exactly the same photos: carried onto other photos, it would answer a question the
+ * dentist was never asked. (It used to drop them all, so showing the older photos undid every choice on the screen.)
+ */
+function recompute(previous?: ReviewGroup[]) {
   const visible = visiblePhotos()
   const groups: ReviewGroup[] = []
 
@@ -497,22 +510,24 @@ function recompute() {
     if (photos.length === 0) continue
 
     const { visits, walkIns } = agendaOf(camera)
+    const cut: ReviewGroup[] = []
     for (const group of matchPhotosToVisits(photos, visits, walkIns)) {
       if (state.splits[group.key] && group.splitAt !== null) {
         const byId = new Map(photos.map((photo) => [photo.id, photo]))
         const halves = [group.photoIds.slice(0, group.splitAt), group.photoIds.slice(group.splitAt)]
         for (const half of halves) {
           const decided = matchBurst(half.map((id) => byId.get(id)!), visits, walkIns)
-          groups.push({ key: `burst-${half[0]}`, ...decided, cameraKey: camera.key, splitFrom: group.key })
+          cut.push({ key: `burst-${half[0]}`, ...decided, cameraKey: camera.key, splitFrom: group.key })
         }
       } else {
-        groups.push({ ...group, cameraKey: camera.key, splitFrom: null })
+        cut.push({ ...group, cameraKey: camera.key, splitFrom: null })
       }
     }
+    groups.push(...withPhotosTakenOut(cut, photos, visits, walkIns, state.takenOut))
   }
 
   groups.sort((a, b) => (a.start ?? Number.MAX_SAFE_INTEGER) - (b.start ?? Number.MAX_SAFE_INTEGER))
-  const keys = new Set(groups.map((group) => group.key))
+  const keys = previous ? unchangedGroupKeys(previous, groups) : new Set(groups.map((group) => group.key))
   const keep = <T,>(record: Record<string, T>) =>
     Object.fromEntries(Object.entries(record).filter(([key]) => keys.has(key))) as Record<string, T>
 
@@ -558,6 +573,30 @@ export function splitGroup(groupKey: string) {
   recompute()
 }
 
+/**
+ * « Ranger chez un autre patient » on one photo of a group — a photo of the next patient taken a minute after the
+ * last one of this one is in the same burst, and the burst is right for every other photo. It becomes a group of its
+ * own that asks, never offering back the patient it was taken from. Returns that group's key.
+ */
+export function takePhotoOut(groupKey: string, photoId: string): string {
+  const group = state.groups.find((item) => item.key === groupKey)
+  const from = group ? patientOf(group)?.patientId ?? null : null
+  // A photo set aside and then moved is meant to be filed — to somebody else.
+  const excluded = { ...state.excluded }
+  delete excluded[photoId]
+  set({ takenOut: { ...state.takenOut, [photoId]: from }, excluded })
+  recompute()
+  return movedGroupKey(photoId)
+}
+
+/** « Remettre dans son groupe » — the photo goes back to the group it was taken out of. */
+export function putPhotoBack(photoId: string) {
+  const takenOut = { ...state.takenOut }
+  delete takenOut[photoId]
+  set({ takenOut })
+  recompute()
+}
+
 export async function setShowOlder(on: boolean) {
   if (state.phase !== "review") return
   set({ showOlder: on })
@@ -571,13 +610,11 @@ export async function setShowOlder(on: boolean) {
 }
 
 export function setOffsetAccepted(cameraKey: string, accepted: boolean) {
+  const previous = state.groups
   set({
     cameras: state.cameras.map((camera) => (camera.key === cameraKey ? { ...camera, offsetAccepted: accepted } : camera)),
-    choices: {},
-    ignored: {},
-    splits: {},
   })
-  recompute()
+  recompute(previous)
 }
 
 /** « Cet appareil est à : … » — saved on the camera at once, so the next import asks nothing. */

@@ -44,6 +44,33 @@ public class CameraContractTests
     }
 
     /// <summary>
+    /// A card's bookkeeping (Canon's <c>.CTG</c>, Nikon's <c>.DSC</c>, a Sony's <c>PRIVATE</c> tree) is skipped in
+    /// silence on both paths. One side skipping a folder the other walks would count it as « ignoré » in the browser
+    /// only — or, for a Sony's video stills, file them as photos.
+    /// </summary>
+    [Theory]
+    [InlineData("IGNORED_NAMES")]
+    [InlineData("IGNORED_EXTENSIONS")]
+    [InlineData("IGNORED_FOLDERS")]
+    public void The_Shell_Skips_A_Cards_Bookkeeping_Exactly_As_The_Page_Does(string set)
+    {
+        var source = File.ReadAllText(RepoFile("web", "lib", "photo-import", "sources.ts"));
+        var match = Regex.Match(source, $@"const {set} = new Set\(\[(?<items>[^\]]*)\]\)");
+        Assert.True(match.Success, $"sources.ts no longer declares {set} as a Set — this guard measures nothing");
+
+        var web = Regex.Matches(match.Groups["items"].Value, "\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToHashSet();
+        var shell = set switch
+        {
+            "IGNORED_NAMES" => CameraFileKinds.IgnoredNames,
+            "IGNORED_EXTENSIONS" => CameraFileKinds.IgnoredExtensions,
+            _ => CameraFileKinds.IgnoredFolders,
+        };
+
+        Assert.NotEmpty(web);
+        Assert.True(web.SetEquals(shell), $"{set}: web [{string.Join(", ", web.Order())}] ≠ shell [{string.Join(", ", shell.Order())}]");
+    }
+
+    /// <summary>
     /// bridge.md's rule — the method set and the version move together — made checkable: every method the Windows app
     /// exposes is declared in the page's typing of the bridge and named in the contract.
     /// </summary>

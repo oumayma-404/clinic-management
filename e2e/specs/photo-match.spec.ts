@@ -6,11 +6,15 @@ import {
   detectClockOffset,
   matchBurst,
   matchPhotosToVisits,
+  movedGroupKey,
+  unchangedGroupKeys,
+  withPhotosTakenOut,
   type MatchPhoto,
   type MatchVisit,
   type MatchWalkIn,
   type PhotoGroup,
 } from "../../web/lib/photo-import/match"
+import { batchOfFiles } from "../../web/lib/photo-import/sources"
 import { parseExifDateTime, parseExifOffset, parseWallClockIso } from "../../web/lib/photo-import/wall-clock"
 
 /**
@@ -268,6 +272,75 @@ test.describe("photo import — matching photos to visits", () => {
 
     expect(groups[0].decision).toBe("ask")
     expect(groups[0].candidates[0]?.patientId).toBe("A")
+  })
+})
+
+// ── The dentist's corrections on the review screen ─────────────────────────────────────────────────────────────
+
+test.describe("photo import — the dentist's corrections", () => {
+  test("a photo taken out of a sure group asks on its own, never offers its old patient back, and the rest stays", () => {
+    const visits = [visit("A", "15:00"), visit("B", "15:30")]
+    // Three of A, then — two minutes later — one of B, photographed while B waited: one burst, inside A's visit.
+    const photos: TruthPhoto[] = [
+      ...burst("A", "15:06", 3, 60),
+      { id: "B-early", takenAt: at("15:10"), uncertainTime: false, truth: "B" },
+    ]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+    // The matcher cannot see whose face it is: this is what the thumbnails, and taking the photo out, are for.
+    expect(groups).toHaveLength(1)
+    expect(groups[0].match?.patientId).toBe("A")
+
+    const after = withPhotosTakenOut(groups, photos, visits, [], { "B-early": "A" })
+    assertNeverSureAndWrong(after, photos)
+
+    const rest = after.find((group) => group.key === groups[0].key)
+    expect(rest?.photoIds).toEqual(groups[0].photoIds.filter((id) => id !== "B-early"))
+    expect(rest?.decision).toBe("sure")
+
+    const moved = after.find((group) => group.key === movedGroupKey("B-early"))
+    expect(moved?.decision).toBe("ask")
+    expect(moved?.reason).toBe("moved")
+    expect(moved?.candidates.map((candidate) => candidate.patientId)).not.toContain("A")
+    expect(moved?.candidates[0]?.patientId).toBe("B")
+  })
+
+  test("a recount keeps a choice only on a group that still holds the same photos", () => {
+    const group = (key: string, photoIds: string[]) => ({ key, photoIds }) as PhotoGroup
+    const before = [group("burst-1", ["1", "2"]), group("burst-3", ["3", "4"])]
+    const after = [group("burst-1", ["1", "2"]), group("burst-3", ["3"]), group("burst-4", ["4"])]
+
+    expect([...unchangedGroupKeys(before, after)]).toEqual(["burst-1"])
+  })
+})
+
+// ── Reading a card ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A file as a folder picker hands it over — `webkitRelativePath` from the folder picked. */
+function cardFile(path: string): File {
+  const name = path.split("/").pop()!
+  const file = new File([new Uint8Array(4)], name, { type: /\.jpe?g$/i.test(name) ? "image/jpeg" : "" })
+  Object.defineProperty(file, "webkitRelativePath", { value: path })
+  return file
+}
+
+test.describe("photo import — reading a card", () => {
+  test("a RAW beside its JPEG is not « ignoré », a RAW alone is, and a card's bookkeeping is skipped in silence", () => {
+    const batch = batchOfFiles([
+      cardFile("Carte/DCIM/100CANON/IMG_0412.JPG"),
+      cardFile("Carte/DCIM/100CANON/IMG_0412.CR3"),
+      cardFile("Carte/DCIM/100CANON/IMG_0413.CR3"),
+      cardFile("Carte/DCIM/101CANON/IMG_0412.CR3"),
+      cardFile("Carte/DCIM/100CANON/MVI_0414.MP4"),
+      cardFile("Carte/DCIM/CANONMSC/M0100.CTG"),
+      cardFile("Carte/NIKON001.DSC"),
+      cardFile("Carte/PRIVATE/M4ROOT/THMBNL/C0001T01.JPG"),
+      cardFile("Carte/DCIM/100CANON/._IMG_0412.JPG"),
+      cardFile("Carte/System Volume Information/IndexerVolumeGuid"),
+    ])
+
+    expect(batch.photos.map((file) => file.name)).toEqual(["IMG_0412.JPG"])
+    expect(batch.skipped).toEqual({ raw: 2, heic: 0, video: 1, other: 0 })
   })
 })
 
