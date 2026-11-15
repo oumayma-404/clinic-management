@@ -33,6 +33,7 @@ const ASK_REASON: Partial<Record<MatchReason, string>> = {
   none: "Aucun rendez-vous ce jour-là.",
   "no-date": "Pas d'heure dans la photo.",
   moved: "Photo sortie de son groupe.",
+  owner: "Nouvel appareil : confirmez son agenda en haut de la page.",
 }
 
 /** Thumbnails shown before « +N » — a long burst is still one glance. */

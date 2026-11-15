@@ -29,6 +29,7 @@ import { readExif, type ExifFacts } from "./exif"
 import { cameraFingerprintOf, cameraLabelOf, captureKeyOf, serialSuffixOf } from "./keys"
 import {
   agendaFor,
+  askUntilOwnerKnown,
   detectClockOffset,
   matchBurst,
   matchPhotosToVisits,
@@ -219,6 +220,15 @@ function clinicOffset(): number {
 
 function cameraOf(key: string): ImportCamera | undefined {
   return state.cameras.find((camera) => camera.key === key)
+}
+
+/**
+ * A camera met for the first time, in a cabinet with several practitioners, whose owner nobody has confirmed: its
+ * agenda is the signed-in practitioner's by guess, so nothing it matches is sure and no clock correction is looked
+ * for until « Ses photos suivent l'agenda de … » is answered (`askUntilOwnerKnown`).
+ */
+export function needsOwner(camera: ImportCamera, current = state): boolean {
+  return camera.isNew && !camera.doctorChosen && camera.key !== UNKNOWN_CAMERA && (current.context?.doctors.length ?? 0) > 1
 }
 
 /** The photo's time on the clinic's wall clock, with the camera's zone and clock correction applied. */
@@ -479,7 +489,7 @@ function detectOffsets() {
   const previous = state.groups
   const visible = visiblePhotos()
   const cameras = state.cameras.map((camera) => {
-    if (camera.key === UNKNOWN_CAMERA) return { ...camera, detectedOffset: 0, offsetAccepted: false }
+    if (camera.key === UNKNOWN_CAMERA || needsOwner(camera)) return { ...camera, detectedOffset: 0, offsetAccepted: false }
     const base = { ...camera, offsetAccepted: false }
     const times = visible
       .filter((photo) => photo.cameraKey === camera.key && !photo.uncertainTime)
@@ -523,7 +533,8 @@ function recompute(previous?: ReviewGroup[]) {
         cut.push({ ...group, cameraKey: camera.key, splitFrom: null })
       }
     }
-    groups.push(...withPhotosTakenOut(cut, photos, visits, walkIns, state.takenOut))
+    const decided = withPhotosTakenOut(cut, photos, visits, walkIns, state.takenOut)
+    groups.push(...(needsOwner(camera) ? askUntilOwnerKnown(decided) : decided))
   }
 
   groups.sort((a, b) => (a.start ?? Number.MAX_SAFE_INTEGER) - (b.start ?? Number.MAX_SAFE_INTEGER))

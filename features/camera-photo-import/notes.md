@@ -41,6 +41,10 @@ console, with bell warnings at 80 % and 95 %.
 - **A card's bookkeeping is skipped in silence** (Canon `.CTG`, Nikon `.DSC`, a Sony's `PRIVATE` tree whose
   `THMBNL` JPEGs are video stills, not photos), and **a RAW beside its JPEG is not « ignoré »** — the advice
   « réglez l'appareil en RAW + JPEG » appears only for a RAW alone.
+- **A new camera's guessed agenda makes nothing sure.** In a cabinet with several practitioners a camera met for
+  the first time follows the signed-in one by guess; until that is picked or confirmed its groups ask and no clock
+  correction is searched for — a colleague's camera with a wrong clock could otherwise be « corrected » into the
+  wrong dentist's visits and come out « sûr ».
 - **The originals live by file id** (`photos\{id[0..2]}\{id}.jpg` + `index.csv`), so « Changer de patient » moves
   nothing on disk, and the folder stays readable without the app.
 - **The journal and the staging copies are per Windows account** (`%LocalAppData%`), the originals machine-wide

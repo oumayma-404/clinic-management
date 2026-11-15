@@ -97,6 +97,7 @@ export type MatchReason =
   | "none" // nothing near it at all
   | "no-date" // the camera wrote no time
   | "moved" // the dentist took this photo out of its group: it belongs to somebody else
+  | "owner" // a new camera whose practitioner nobody has confirmed: its agenda is only a guess
 
 export interface PhotoGroup {
   key: string
@@ -501,6 +502,22 @@ export function withPhotosTakenOut<G extends PhotoGroup>(
   }
 
   return result
+}
+
+/**
+ * A new camera's groups while nobody has said whose it is — in a cabinet with several practitioners. Pure.
+ *
+ * ⚠️ **The agenda is a guess until then, and a guess may not make anything sure.** A camera follows the signed-in
+ * practitioner by default; when it is in fact a colleague's, its photos meet the wrong day, and a wrong clock makes it
+ * worse — the offset search can « explain » them by sliding them into the guessed agenda's visits, so a colleague's
+ * camera an hour behind, imported by the other dentist, can come out « sûr » for her own afternoon patients. So every
+ * sure group asks, its match still first among the candidates, until the owner is confirmed — one press, once in the
+ * camera's life — and no clock correction is looked for before then.
+ */
+export function askUntilOwnerKnown<G extends PhotoGroup>(groups: G[]): G[] {
+  return groups.map((group) =>
+    group.decision === "sure" ? { ...group, decision: "ask" as const, reason: "owner" as const, match: null } : group,
+  )
 }
 
 /**

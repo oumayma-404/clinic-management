@@ -113,8 +113,9 @@ case found seven gaps. All fixed:
 | « 37 RAW ignorés — réglez l'appareil en RAW + JPEG » on a camera already in RAW + JPEG | a RAW beside its JPEG is not counted (web `finishBatch` + shell `CameraBatchPlanner`) |
 | « 1 autre ignoré » on every Canon card (`CANONMSC/M0100.CTG`), Nikon's `NIKON001.DSC`, a Sony's video stills read as photos | bookkeeping skipped in silence, three sets mirrored web ↔ shell and held by `CameraContractTests` |
 | Showing the older photos, correcting the clock or changing the camera's agenda dropped every choice on the screen | a choice stands on any group still holding the same photos (`unchangedGroupKeys`) |
+| A colleague's NEW camera, imported by the other dentist, followed her agenda by default — and a wrong clock could slide its photos into her visits as « sûr » | until « Ses photos suivent l'agenda de … » is picked or confirmed (« Confirmer »), its groups ask and no clock correction is looked for (`needsOwner`, `askUntilOwnerKnown`) — several practitioners only |
 
-Gates: pure specs 22/22 · desktop 242/242 · `check:responsive` 88/88 · `tsc` 0 · build OK. One photo edited on the
+Gates: pure specs 23/23 · desktop 242/242 · `check:responsive` 88/88 · `tsc` 0 · build OK. One photo edited on the
 PC no longer puts the camera's name on every group (only « Appareil inconnu » is named).
 
 | Touched | Other consumers | Verdict |

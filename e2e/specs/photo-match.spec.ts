@@ -3,6 +3,7 @@ import { parseExif } from "../../web/lib/photo-import/exif"
 import { captureKeyOf, cameraFingerprintOf, cameraLabelOf } from "../../web/lib/photo-import/keys"
 import {
   agendaFor,
+  askUntilOwnerKnown,
   detectClockOffset,
   matchBurst,
   matchPhotosToVisits,
@@ -303,6 +304,17 @@ test.describe("photo import — the dentist's corrections", () => {
     expect(moved?.reason).toBe("moved")
     expect(moved?.candidates.map((candidate) => candidate.patientId)).not.toContain("A")
     expect(moved?.candidates[0]?.patientId).toBe("B")
+  })
+
+  test("a new camera whose owner nobody confirmed is never sure, but still offers its match first", () => {
+    const visits = [visit("A", "09:00")]
+    const photos = burst("A", "09:10")
+
+    const groups = askUntilOwnerKnown(matchPhotosToVisits(photos, visits, []))
+
+    expect(groups[0].decision).toBe("ask")
+    expect(groups[0].reason).toBe("owner")
+    expect(groups[0].candidates[0]?.patientId).toBe("A")
   })
 
   test("a recount keeps a choice only on a group that still holds the same photos", () => {
