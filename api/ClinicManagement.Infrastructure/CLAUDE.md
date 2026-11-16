@@ -115,6 +115,13 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
   - **UTC everywhere**: `OnModelCreating` installs a global value converter forcing every `DateTime`/`DateTime?`
     to UTC (PostgreSQL `timestamp with time zone`), and `SaveChanges`/`SaveChangesAsync` re-run
     `ConvertDateTimesToUtc()` on Added/Modified entries (belt-and-suspenders). `Unspecified` is assumed UTC.
+  - **A fiche saved before its visit is linked by the save** — `SaveChangesAsync` calls
+    `Persistence/DentalRecordVisitLinks` **first**, before the change capture, the number promises and the audit
+    collector read the tracker, so the link reaches the PC de secours and the journal like any change. Any save that
+    books, moves, cancels, reactivates or reassigns a visit, or saves a fiche still without one, links that day's
+    unlinked fiches when the day now has exactly one visit (`DentalRecordVisitLink`'s rule). Column only, never a
+    re-point; a failure is logged and the save goes on. The minutely status pass costs no query. ⚠️ Not an interceptor:
+    the capture runs before the interceptors. See `features/visit-closure-worklist/notes.md` (last section).
   - `OnConfiguring` ignores `PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning` (expected
     noise from filtering roots but not their children).
 - **`ApplicationDbContextFactory.cs`** — `IDesignTimeDbContextFactory` for `dotnet ef` (reads the API project's

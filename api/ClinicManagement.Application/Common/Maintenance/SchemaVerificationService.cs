@@ -537,15 +537,18 @@ public class SchemaVerificationService
                   + "the L9 backfill did not reach them",
             n => n == 0);
 
-        // The fiche→visit backfill, and the reason it earns a line rather than riding the model diff: the column
-        // and its index have existed since AddDentalRecordAppointmentId and are checked against the catalog for
-        // free, while only one write path ever populated them. A non-zero count means « À clôturer » is about to
-        // report a missing fiche for visits that have one — the loudest wrong answer this feature can give.
+        // The fiche→visit link, and the reason it earns a line rather than riding the model diff: the column and its
+        // index have existed since AddDentalRecordAppointmentId and are checked against the catalog for free, while
+        // whether the rows are linked is invisible to every other layer. A non-zero count means « À clôturer » is
+        // about to report a missing fiche for visits that have one — the loudest wrong answer this feature can give.
+        // ⚠️ Since RelinkOrphanDentalRecordVisits every save links such a fiche itself (DentalRecordVisitLinks), so a
+        // non-zero count is no longer « the backfill missed it »: a write reached the rows without a save (raw SQL),
+        // or the link step failed and logged « A fiche could not be linked to its visit » in the API's log.
         Add("dental-record-visit-links-backfill", counts.FichesResolvableToOneVisitStillUnlinked,
             n => n == 0
                 ? "0 fiche is unlinked while its day holds exactly one candidate visit"
-                : $"{n} fiche(s) could be tied to a single visit on their own day and are not — the "
-                  + "BackfillDentalRecordAppointmentLinks migration did not reach them",
+                : $"{n} fiche(s) could be tied to a single visit on their own day and are not — every save links "
+                  + "them (DentalRecordVisitLinks), so a write bypassed it or the link step failed; see the API log",
             n => n == 0);
 
         // stock-fournisseurs' backfill (AC-8), and the clearest illustration of what this verb is for: the two

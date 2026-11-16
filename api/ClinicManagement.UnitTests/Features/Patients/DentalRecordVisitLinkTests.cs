@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Entities;
+using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
 using Moq;
 using Xunit;
@@ -143,5 +144,141 @@ public class DentalRecordVisitLinkTests
         Assert.Equal(new DateTime(2026, 8, 13, 23, 0, 0, DateTimeKind.Utc), from);
         Assert.True(to > new DateTime(2026, 8, 14, 22, 30, 0, DateTimeKind.Utc));
         Assert.True(to < new DateTime(2026, 8, 14, 23, 0, 0, DateTimeKind.Utc));
+    }
+
+    // ── Asking again: which days a change to a visit re-opens (DentalRecordVisitLinks' half of the rule) ──────
+
+    private static readonly DateOnly Day14 = new(2026, 8, 14);
+    private static readonly DateOnly Day15 = new(2026, 8, 15);
+
+    private static DentalRecordVisitLink.VisitFacts Facts(
+        DateTime at, AppointmentStatus status = AppointmentStatus.Scheduled, Guid? patientId = null) =>
+        new(ClinicId, patientId ?? PatientId, at, status);
+
+    private static DentalRecordVisitLink.FicheDay DayOf(DateOnly day, Guid? patientId = null) =>
+        new(ClinicId, patientId ?? PatientId, day);
+
+    [Fact]
+    public void A_New_Visit_Asks_Its_Own_Day()
+    {
+        Assert.Equal(new[] { DayOf(Day14) }, DentalRecordVisitLink.DaysToAskAgain(null, Facts(InterventionDate)));
+    }
+
+    // The minutely status pass: every status it writes is one a fiche can document, on the same day — nothing to ask.
+    [Theory]
+    [InlineData(AppointmentStatus.Scheduled, AppointmentStatus.InProgress)]
+    [InlineData(AppointmentStatus.InProgress, AppointmentStatus.AwaitingClosure)]
+    [InlineData(AppointmentStatus.AwaitingClosure, AppointmentStatus.Completed)]
+    public void An_Advance_Between_Documentable_Statuses_Asks_Nothing(AppointmentStatus from, AppointmentStatus to)
+    {
+        Assert.Empty(DentalRecordVisitLink.DaysToAskAgain(Facts(InterventionDate, from), Facts(InterventionDate, to)));
+    }
+
+    // A cancelled or missed twin may leave its day with exactly one visit.
+    [Theory]
+    [InlineData(AppointmentStatus.Cancelled)]
+    [InlineData(AppointmentStatus.NoShow)]
+    public void A_Visit_That_Did_Not_Happen_Asks_The_Day_It_Leaves(AppointmentStatus outcome)
+    {
+        Assert.Equal(
+            new[] { DayOf(Day14) },
+            DentalRecordVisitLink.DaysToAskAgain(Facts(InterventionDate), Facts(InterventionDate, outcome)));
+    }
+
+    [Fact]
+    public void A_Reactivated_Visit_Asks_Its_Day()
+    {
+        Assert.Equal(
+            new[] { DayOf(Day14) },
+            DentalRecordVisitLink.DaysToAskAgain(
+                Facts(InterventionDate, AppointmentStatus.Cancelled), Facts(InterventionDate)));
+    }
+
+    [Fact]
+    public void A_Visit_Moved_To_Another_Day_Asks_Both_Days()
+    {
+        Assert.Equal(
+            new[] { DayOf(Day14), DayOf(Day15) },
+            DentalRecordVisitLink.DaysToAskAgain(Facts(InterventionDate), Facts(InterventionDate.AddDays(1))));
+    }
+
+    // Same Tunisian day, another hour: the visit is still that day's candidate, so nothing changed for any fiche.
+    [Fact]
+    public void A_Visit_Moved_Within_Its_Day_Asks_Nothing()
+    {
+        Assert.Empty(DentalRecordVisitLink.DaysToAskAgain(Facts(InterventionDate), Facts(InterventionDate.AddHours(6))));
+    }
+
+    [Fact]
+    public void A_Visit_Reassigned_To_Another_Patient_Asks_Both_Patients_Day()
+    {
+        var other = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+
+        Assert.Equal(
+            new[] { DayOf(Day14, other), DayOf(Day14) },
+            DentalRecordVisitLink.DaysToAskAgain(
+                Facts(InterventionDate, patientId: other), Facts(InterventionDate)));
+    }
+
+    // A blocked slot carries no patient, so no fiche can document it — whatever happens to it.
+    [Fact]
+    public void A_Blocked_Slot_Asks_Nothing()
+    {
+        var blocked = new DentalRecordVisitLink.VisitFacts(ClinicId, null, InterventionDate, AppointmentStatus.Scheduled);
+
+        Assert.Empty(DentalRecordVisitLink.DaysToAskAgain(null, blocked));
+        Assert.Empty(DentalRecordVisitLink.DaysToAskAgain(blocked, blocked with { Status = AppointmentStatus.Cancelled }));
+    }
+
+    // 23:30 in Tunis on the 14th is 22:30 UTC; 00:30 on the 15th is 23:30 UTC — the same UTC date.
+    [Fact]
+    public void The_Day_Asked_Is_The_Clinics_Own()
+    {
+        Assert.Equal(Day14, DentalRecordVisitLink.DayOf(new DateTime(2026, 8, 14, 22, 30, 0, DateTimeKind.Utc)));
+        Assert.Equal(Day15, DentalRecordVisitLink.DayOf(new DateTime(2026, 8, 14, 23, 30, 0, DateTimeKind.Utc)));
+    }
+
+    [Fact]
+    public void Only_A_Single_Candidate_Is_An_Answer()
+    {
+        var one = Guid.NewGuid();
+
+        Assert.Null(DentalRecordVisitLink.OnlyCandidate(Array.Empty<Guid>()));
+        Assert.Equal(one, DentalRecordVisitLink.OnlyCandidate(new[] { one }));
+        Assert.Equal(one, DentalRecordVisitLink.OnlyCandidate(new[] { one, one }));
+        Assert.Null(DentalRecordVisitLink.OnlyCandidate(new[] { one, Guid.NewGuid() }));
+    }
+
+    // ── The write itself ──────────────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void An_Unlinked_Fiche_Takes_The_Visit()
+    {
+        var fiche = new DentalRecord(Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, isAdultTeeth: true);
+        var visit = Guid.NewGuid();
+
+        Assert.True(fiche.LinkToVisit(visit));
+        Assert.Equal(visit, fiche.AppointmentId);
+    }
+
+    // A deep link, or a day that had one visit when the fiche was saved, is never second-guessed by a later booking.
+    [Fact]
+    public void A_Linked_Fiche_Is_Never_Repointed()
+    {
+        var first = Guid.NewGuid();
+        var fiche = new DentalRecord(
+            Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, isAdultTeeth: true, appointmentId: first);
+
+        Assert.False(fiche.LinkToVisit(Guid.NewGuid()));
+        Assert.Equal(first, fiche.AppointmentId);
+    }
+
+    [Fact]
+    public void The_Empty_Id_Links_Nothing()
+    {
+        var fiche = new DentalRecord(Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, isAdultTeeth: true);
+
+        Assert.False(fiche.LinkToVisit(Guid.Empty));
+        Assert.Null(fiche.AppointmentId);
     }
 }
