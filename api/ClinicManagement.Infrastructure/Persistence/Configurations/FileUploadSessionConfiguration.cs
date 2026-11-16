@@ -44,6 +44,18 @@ public class FileUploadSessionConfiguration : IEntityTypeConfiguration<FileUploa
         builder.Property(s => s.UploadedBy)
             .HasMaxLength(FileUploadSession.MaxUploadedByLength);
 
+        // The camera facts the file inherits at completion (features/camera-photo-import).
+        builder.Property(s => s.Origin)
+            .IsRequired()
+            .HasConversion<int>()
+            .HasDefaultValue(Domain.Enums.FileOrigin.Upload);
+
+        builder.Property(s => s.CaptureKey)
+            .HasMaxLength(Domain.Common.PhotoCaptureFacts.CaptureKeyLength);
+
+        builder.Property(s => s.CameraModel)
+            .HasMaxLength(Domain.Common.PhotoCaptureFacts.MaxCameraModelLength);
+
         builder.HasOne<Clinic>()
             .WithMany()
             .HasForeignKey(s => s.ClinicId)

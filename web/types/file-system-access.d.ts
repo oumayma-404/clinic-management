@@ -18,6 +18,14 @@ interface FileSystemHandle {
   requestPermission(descriptor?: FileSystemHandlePermissionDescriptor): Promise<FileSystemPermissionState>
 }
 
+/**
+ * Listing a folder's children (`features/camera-photo-import` walks a card's `DCIM`). TypeScript declares it only in
+ * `lib.dom.asynciterable`, which this project's `lib` does not include.
+ */
+interface FileSystemDirectoryHandle {
+  values(): AsyncIterableIterator<FileSystemHandle>
+}
+
 interface DirectoryPickerOptions {
   id?: string
   mode?: 'read' | 'readwrite'

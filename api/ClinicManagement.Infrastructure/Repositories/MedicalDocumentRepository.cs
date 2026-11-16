@@ -109,6 +109,9 @@ public class MedicalDocumentRepository : IMedicalDocumentRepository
             .ToListAsync(cancellationToken);
     }
 
+    public Task<bool> AnyForFileAsync(Guid clinicId, Guid fileId, CancellationToken cancellationToken = default) =>
+        _context.MedicalDocuments.AnyAsync(d => d.ClinicId == clinicId && d.FileId == fileId, cancellationToken);
+
     public async Task AddAsync(MedicalDocument document, CancellationToken cancellationToken = default)
     {
         await _context.MedicalDocuments.AddAsync(document, cancellationToken);

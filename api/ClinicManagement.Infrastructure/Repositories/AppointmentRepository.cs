@@ -445,6 +445,45 @@ public class AppointmentRepository : IAppointmentRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<PhotoImportVisitRow>> GetPhotoImportVisitsAsync(
+        Guid clinicId,
+        DateTime fromUtc,
+        DateTime toUtcExclusive,
+        Guid? doctorId,
+        CancellationToken cancellationToken = default)
+    {
+        // A visit that did not happen photographed nobody, and a blocked slot (no patient) is nobody to file to.
+        var query =
+            from appointment in _context.Appointments
+            join patient in _context.Patients on appointment.PatientId equals (Guid?)patient.Id
+            where appointment.ClinicId == clinicId
+                  && appointment.AppointmentDateTime >= fromUtc
+                  && appointment.AppointmentDateTime < toUtcExclusive
+                  && appointment.Status != AppointmentStatus.Cancelled
+                  && appointment.Status != AppointmentStatus.NoShow
+            select new { appointment, patient };
+
+        if (doctorId is { } doctor)
+        {
+            // A visit booked with no practitioner is the cabinet's, so it belongs to every agenda (see the interface).
+            query = query.Where(row => row.appointment.DoctorId == doctor || row.appointment.DoctorId == null);
+        }
+
+        return await query
+            .OrderBy(row => row.appointment.AppointmentDateTime)
+            .ThenBy(row => row.appointment.Id)
+            .Select(row => new PhotoImportVisitRow(
+                row.appointment.Id,
+                row.patient.Id,
+                row.patient.FirstName + " " + row.patient.LastName,
+                row.appointment.DoctorId,
+                row.appointment.AppointmentDateTime,
+                row.appointment.Duration,
+                row.appointment.LateArrivalMinutes,
+                row.appointment.Status))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<Appointment> AddAsync(Appointment appointment, CancellationToken cancellationToken = default)
     {
         await _context.Appointments.AddAsync(appointment, cancellationToken);

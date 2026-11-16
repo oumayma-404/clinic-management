@@ -181,6 +181,24 @@ public interface IAppointmentRepository
         DateTime dayLastTickUtc,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The patient visits that start in <c>[fromUtc, toUtcExclusive)</c>, projected for camera-photo matching
+    /// (<c>features/camera-photo-import</c>): patient-bearing only, <c>Cancelled</c> and <c>NoShow</c> excluded —
+    /// nobody was photographed at a visit that did not happen. <paramref name="doctorId"/> narrows to one agenda.
+    /// Ordered by start then id, so the matcher's « booking order » is the same on every read.
+    ///
+    /// <para>⚠️ <b>One agenda includes the visits booked with NO practitioner.</b> Most visits carry none (measured: 32
+    /// of 42 in production, 678 of 986 on the dev database), and a camera follows its dentist's agenda by default — so
+    /// filtering on an exact <c>DoctorId</c> made the import answer « Aucun rendez-vous à cette heure-là » over a visit
+    /// that was in the book. Found by the browser walk; a doctor-less visit is the cabinet's, so it is everyone's.</para>
+    /// </summary>
+    Task<IReadOnlyList<PhotoImportVisitRow>> GetPhotoImportVisitsAsync(
+        Guid clinicId,
+        DateTime fromUtc,
+        DateTime toUtcExclusive,
+        Guid? doctorId,
+        CancellationToken cancellationToken = default);
+
     Task<Appointment> AddAsync(Appointment appointment, CancellationToken cancellationToken = default);
     Task UpdateAsync(Appointment appointment, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

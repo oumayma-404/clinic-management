@@ -1,0 +1,21 @@
+"use client"
+
+import { AppShell } from "@/components/app-shell"
+import { ClinicGuard } from "@/components/clinic-guard"
+import { ImportScreen } from "@/components/photo-import/import-screen"
+
+/**
+ * « Importer les photos » (`features/camera-photo-import`) — the camera's card, sorted by the agenda into each
+ * patient's « Photographie » folder. Reached from « Fichiers », a patient's files and (phase 2) the Windows app; not
+ * from the rail. Every clinic role: filing photos is reception's work as much as the dentist's.
+ */
+export default function PhotoImportPage() {
+  return (
+    <ClinicGuard>
+      {/* The sticky « Ranger » bar covers the bottom of the scroller: focus and « Voir » stop above it. */}
+      <AppShell width="5xl" mainClassName="overflow-y-auto scroll-pb-36 sm:scroll-pb-24">
+        <ImportScreen />
+      </AppShell>
+    </ClinicGuard>
+  )
+}

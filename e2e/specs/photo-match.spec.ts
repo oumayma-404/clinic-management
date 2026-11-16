@@ -1,0 +1,578 @@
+import { expect, test } from "@playwright/test"
+import { parseExif } from "../../web/lib/photo-import/exif"
+import { captureKeyOf, cameraFingerprintOf, cameraLabelOf } from "../../web/lib/photo-import/keys"
+import {
+  agendaFor,
+  askUntilOwnerKnown,
+  detectClockOffset,
+  matchBurst,
+  matchPhotosToVisits,
+  movedGroupKey,
+  unchangedGroupKeys,
+  withPhotosTakenOut,
+  type MatchPhoto,
+  type MatchVisit,
+  type MatchWalkIn,
+  type PhotoGroup,
+} from "../../web/lib/photo-import/match"
+import { batchOfFiles } from "../../web/lib/photo-import/sources"
+import { parseExifDateTime, parseExifOffset, parseWallClockIso } from "../../web/lib/photo-import/wall-clock"
+
+/**
+ * The camera import's matcher and EXIF reader (`features/camera-photo-import`) — pure functions, no page and no API.
+ * They live here because `web/` has no test runner; they need no stack, but the suite's global setup signs in
+ * before any test, so run them alone with a config that skips it when the stack is down.
+ *
+ * ⚠️ **The rule every scenario is held to: never sure and wrong.** An « à vérifier » costs one tap; a photo filed
+ * in the wrong patient's record is a clinical error. `assertNeverSureAndWrong` runs after every scenario, on top of
+ * what that scenario expects.
+ */
+
+const DAY = Date.UTC(2026, 10, 12)
+const MINUTE = 60_000
+
+/** « 09:40 » (or « 2|09:40 » for the 2nd day after) → the wall-clock line. */
+function at(time: string): number {
+  const [dayPart, clock] = time.includes("|") ? time.split("|") : ["0", time]
+  const [hours, minutes] = clock.split(":").map(Number)
+  return DAY + Number(dayPart) * 24 * 60 * MINUTE + (hours * 60 + minutes) * MINUTE
+}
+
+function visit(
+  patientId: string,
+  start: string,
+  minutes = 30,
+  options: { late?: number; ficheAt?: string; doctorId?: string } = {},
+): MatchVisit {
+  const late = options.late ?? 0
+  return {
+    appointmentId: `rdv-${patientId}-${start}`,
+    patientId,
+    patientName: `Patient ${patientId}`,
+    doctorId: options.doctorId ?? null,
+    start: at(start),
+    expectedEnd: at(start) + (minutes + late) * MINUTE,
+    lateArrivalMinutes: late,
+    ficheSavedAt: options.ficheAt ? at(options.ficheAt) : null,
+  }
+}
+
+/** `count` photos from `start`, `everySeconds` apart, all truly of `patientId`. */
+function burst(patientId: string, start: string, count = 3, everySeconds = 40, shiftMinutes = 0) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${patientId}@${start}#${index}`,
+    takenAt: at(start) + index * everySeconds * 1000 + shiftMinutes * MINUTE,
+    uncertainTime: false,
+    truth: patientId,
+  }))
+}
+
+type TruthPhoto = MatchPhoto & { truth: string }
+
+function assertNeverSureAndWrong(groups: PhotoGroup[], photos: TruthPhoto[]) {
+  const truth = new Map(photos.map((photo) => [photo.id, photo.truth]))
+  for (const group of groups) {
+    if (group.decision !== "sure") continue
+    for (const id of group.photoIds) {
+      expect(group.match?.patientId, `sure group ${group.key} filed ${id} under the wrong patient`).toBe(truth.get(id))
+    }
+  }
+}
+
+function groupOf(groups: PhotoGroup[], photoId: string): PhotoGroup {
+  const found = groups.find((group) => group.photoIds.includes(photoId))
+  expect(found, `no group holds ${photoId}`).toBeTruthy()
+  return found!
+}
+
+test.describe("photo import — matching photos to visits", () => {
+  test("an on-time day is sure of every burst", () => {
+    const visits = [visit("A", "09:00"), visit("B", "09:30"), visit("C", "10:00"), visit("D", "10:30")]
+    const photos = [...burst("A", "09:10"), ...burst("B", "09:41"), ...burst("C", "10:12"), ...burst("D", "10:44")]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    expect(groups).toHaveLength(4)
+    expect(groups.every((group) => group.decision === "sure")).toBe(true)
+    assertNeverSureAndWrong(groups, photos)
+  })
+
+  test("a late day with fiches is sure where only one patient can have been in the chair", () => {
+    // A booked 09:00, arrived 09:20, fiche saved 09:58. B booked 09:30, seated after A, fiche saved 10:35.
+    const visits = [visit("A", "09:00", 30, { late: 20, ficheAt: "09:58" }), visit("B", "09:30", 30, { ficheAt: "10:35" })]
+    const photos = [...burst("A", "09:45"), ...burst("B", "10:20")]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    // 09:45 sits inside both cores (B was booked from 09:30): it asks. 10:20 is B's alone: it is sure.
+    expect(groupOf(groups, "A@09:45#0").decision).toBe("ask")
+    expect(groupOf(groups, "B@10:20#0").decision).toBe("sure")
+    assertNeverSureAndWrong(groups, photos)
+  })
+
+  test("a late day without fiches asks rather than guessing", () => {
+    const visits = [visit("A", "09:00", 30, { late: 20 }), visit("B", "09:30")]
+    // 09:45 is inside both cores; 10:05 is past both, inside both margins.
+    const photos = [...burst("A", "09:45"), ...burst("B", "10:05")]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    expect(groups.every((group) => group.decision === "ask")).toBe(true)
+    // Both are still offered by name — one tap each.
+    expect(groupOf(groups, "B@10:05#0").candidates.map((candidate) => candidate.patientId)).toContain("B")
+    assertNeverSureAndWrong(groups, photos)
+  })
+
+  test("a camera an hour behind is detected, and the corrected day is sure", () => {
+    const visits = [
+      visit("A", "09:00"),
+      visit("B", "09:30"),
+      visit("C", "10:00"),
+      visit("D", "10:30"),
+      visit("E", "11:30"),
+      visit("F", "12:00"),
+    ]
+    const truth = [
+      ...burst("A", "09:12"),
+      ...burst("B", "09:43"),
+      ...burst("C", "10:11"),
+      ...burst("D", "10:42"),
+      ...burst("E", "11:41"),
+      ...burst("F", "12:13"),
+    ]
+    // The camera's face reads 62 minutes earlier than the clinic's clock.
+    const raw = truth.map((photo) => ({ ...photo, takenAt: photo.takenAt - 62 * MINUTE }))
+
+    const offset = detectClockOffset(raw.map((photo) => photo.takenAt), visits)
+    expect(Math.abs(offset - 62)).toBeLessThanOrEqual(10)
+
+    const corrected = raw.map((photo) => ({ ...photo, takenAt: photo.takenAt + offset * MINUTE }))
+    const groups = matchPhotosToVisits(corrected, visits, [])
+    expect(groups.filter((group) => group.decision === "sure").length).toBeGreaterThanOrEqual(5)
+    assertNeverSureAndWrong(groups, corrected)
+  })
+
+  test("a camera four minutes off is left alone", () => {
+    const visits = [visit("A", "09:00"), visit("B", "09:30"), visit("C", "10:00")]
+    const photos = [...burst("A", "09:10", 3, 40, 4), ...burst("B", "09:40", 3, 40, 4), ...burst("C", "10:10", 3, 40, 4)]
+
+    expect(detectClockOffset(photos.map((photo) => photo.takenAt), visits)).toBe(0)
+  })
+
+  test("a burst straddling two visits asks, and « Couper » cuts where the first visit ends", () => {
+    const visits = [visit("A", "09:00"), visit("B", "09:30")]
+    const photos = [
+      { id: "A1", takenAt: at("09:26"), uncertainTime: false, truth: "A" },
+      { id: "A2", takenAt: at("09:28"), uncertainTime: false, truth: "A" },
+      { id: "B1", takenAt: at("09:31"), uncertainTime: false, truth: "B" },
+      { id: "B2", takenAt: at("09:33"), uncertainTime: false, truth: "B" },
+    ]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].reason).toBe("straddle")
+    expect(groups[0].splitAt).toBe(2)
+
+    // Each half, cut there, is its own patient's — and sure of it.
+    const first = matchBurst(photos.slice(0, 2), visits, [])
+    const second = matchBurst(photos.slice(2), visits, [])
+    expect(first.match?.patientId).toBe("A")
+    expect(second.match?.patientId).toBe("B")
+    assertNeverSureAndWrong(groups, photos)
+  })
+
+  test("a before and an after on one visit are two groups of the same patient", () => {
+    const visits = [visit("A", "09:00", 45)]
+    const photos = [...burst("A", "09:03"), ...burst("A", "09:38")]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    expect(groups).toHaveLength(2)
+    expect(groups.map((group) => group.match?.patientId)).toEqual(["A", "A"])
+    assertNeverSureAndWrong(groups, photos)
+  })
+
+  test("a fiche saved with no appointment files its patient's photos", () => {
+    const walkIn: MatchWalkIn = { key: "fiche-W", patientId: "W", patientName: "Patient W", doctorId: null, savedAt: at("11:00") }
+    const photos = burst("W", "10:40")
+
+    const groups = matchPhotosToVisits(photos, [], [walkIn])
+
+    expect(groups[0].decision).toBe("sure")
+    expect(groups[0].reason).toBe("walk-in")
+    assertNeverSureAndWrong(groups, photos)
+  })
+
+  test("a day with no appointment proposes nobody", () => {
+    const photos = burst("X", "15:00")
+
+    const groups = matchPhotosToVisits(photos, [], [])
+
+    expect(groups[0].decision).toBe("ask")
+    expect(groups[0].reason).toBe("none")
+    expect(groups[0].candidates).toHaveLength(0)
+  })
+
+  test("two chairs at once: the camera's own agenda decides, the whole cabinet asks", () => {
+    const visits = [visit("A", "09:00", 30, { doctorId: "dr-1" }), visit("B", "09:00", 30, { doctorId: "dr-2" })]
+    const photos = burst("A", "09:10")
+
+    const cabinet = matchPhotosToVisits(photos, visits, [])
+    expect(cabinet[0].decision).toBe("ask")
+    expect(cabinet[0].reason).toBe("overlap")
+
+    const mine = agendaFor("dr-1", visits, [] as Array<{ doctorId: string | null; appointmentId: string | null }>)
+    const doctorOnly = matchPhotosToVisits(photos, mine.visits, [])
+    expect(doctorOnly[0].decision).toBe("sure")
+    assertNeverSureAndWrong(doctorOnly, photos)
+  })
+
+  test("a visit booked with no practitioner is in every practitioner's agenda", () => {
+    // Most real visits name nobody; the camera's dentist must still find them (found by the browser walk).
+    const visits = [visit("A", "09:00", 30, { doctorId: "dr-1" }), visit("C", "17:00")]
+    const photos = [...burst("A", "09:10"), ...burst("C", "17:05")]
+
+    const mine = agendaFor("dr-1", visits, [] as Array<{ doctorId: string | null; appointmentId: string | null }>)
+    expect(mine.visits.map((v) => v.patientId)).toEqual(["A", "C"])
+
+    const groups = matchPhotosToVisits(photos, mine.visits, [])
+    expect(groups.map((group) => group.match?.patientId)).toEqual(["A", "C"])
+    assertNeverSureAndWrong(groups, photos)
+
+    // Another practitioner's visit stays out.
+    expect(agendaFor("dr-2", visits, []).visits.map((v) => v.patientId)).toEqual(["C"])
+  })
+
+  test("a card holding three days files each day against its own agenda", () => {
+    const visits = [visit("A", "0|09:00"), visit("B", "1|09:00"), visit("C", "2|09:00")]
+    const photos = [...burst("A", "0|09:10"), ...burst("B", "1|09:10"), ...burst("C", "2|09:10")]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    expect(groups.map((group) => group.match?.patientId)).toEqual(["A", "B", "C"])
+    assertNeverSureAndWrong(groups, photos)
+  })
+
+  test("a photo with no time is its own group and always asks", () => {
+    const visits = [visit("A", "09:00")]
+    const photos = [{ id: "nodate", takenAt: null, uncertainTime: true, truth: "A" }]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].decision).toBe("ask")
+    expect(groups[0].reason).toBe("no-date")
+  })
+
+  test("a photo dated by its file, not its camera, asks even inside a visit", () => {
+    const visits = [visit("A", "09:00")]
+    const photos = [{ id: "file-date", takenAt: at("09:10"), uncertainTime: true, truth: "A" }]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    expect(groups[0].decision).toBe("ask")
+    expect(groups[0].candidates[0]?.patientId).toBe("A")
+  })
+})
+
+// ── The dentist's corrections on the review screen ─────────────────────────────────────────────────────────────
+
+test.describe("photo import — the dentist's corrections", () => {
+  test("a photo taken out of a sure group asks on its own, never offers its old patient back, and the rest stays", () => {
+    const visits = [visit("A", "15:00"), visit("B", "15:30")]
+    // Three of A, then — two minutes later — one of B, photographed while B waited: one burst, inside A's visit.
+    const photos: TruthPhoto[] = [
+      ...burst("A", "15:06", 3, 60),
+      { id: "B-early", takenAt: at("15:10"), uncertainTime: false, truth: "B" },
+    ]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+    // The matcher cannot see whose face it is: this is what the thumbnails, and taking the photo out, are for.
+    expect(groups).toHaveLength(1)
+    expect(groups[0].match?.patientId).toBe("A")
+
+    const after = withPhotosTakenOut(groups, photos, visits, [], { "B-early": "A" })
+    assertNeverSureAndWrong(after, photos)
+
+    const rest = after.find((group) => group.key === groups[0].key)
+    expect(rest?.photoIds).toEqual(groups[0].photoIds.filter((id) => id !== "B-early"))
+    expect(rest?.decision).toBe("sure")
+
+    const moved = after.find((group) => group.key === movedGroupKey("B-early"))
+    expect(moved?.decision).toBe("ask")
+    expect(moved?.reason).toBe("moved")
+    expect(moved?.candidates.map((candidate) => candidate.patientId)).not.toContain("A")
+    expect(moved?.candidates[0]?.patientId).toBe("B")
+  })
+
+  test("a new camera whose owner nobody confirmed is never sure, and offers nobody from the guessed agenda", () => {
+    const visits = [visit("A", "09:00"), visit("B", "11:00")]
+    const photos = [...burst("A", "09:10"), ...burst("X", "10:20")]
+
+    const groups = askUntilOwnerKnown(matchPhotosToVisits(photos, visits, []))
+
+    // The sure group and the one that was asking both ask for the owner — one answer at the top lifts them all.
+    expect(groups.every((group) => group.decision === "ask" && group.reason === "owner")).toBe(true)
+    expect(groups.every((group) => group.candidates.length === 0)).toBe(true)
+  })
+
+  test("a fiche charted at the end of the day does not stretch its visit over the afternoon", () => {
+    // A was seen 09:00–09:30 and her fiche written at 17:30; B came at 10:00. A walk-in nobody booked is photographed at 15:00.
+    const visits = [visit("A", "09:00", 30, { ficheAt: "17:30" }), visit("B", "10:00")]
+    const photos = [...burst("A", "09:10"), ...burst("B", "10:10"), ...burst("W", "15:00")]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    expect(groupOf(groups, "B@10:10#0").decision).toBe("sure")
+    expect(groupOf(groups, "W@15:00#0").decision).toBe("ask")
+    assertNeverSureAndWrong(groups, photos)
+  })
+
+  test("one walk-in burst falling into a visit is not a wrong clock", () => {
+    // Eight shots of a walk-in at 13:30; an offset of +100 min would drop them into R's visit. One burst proves nothing.
+    const visits = [visit("Q", "11:00"), visit("R", "15:00")]
+    const photos = burst("W", "13:30", 8, 20)
+
+    expect(detectClockOffset(photos.map((photo) => photo.takenAt), visits)).toBe(0)
+  })
+
+  test("a recount keeps a choice only on a group that still holds the same photos", () => {
+    const group = (key: string, photoIds: string[]) => ({ key, photoIds }) as PhotoGroup
+    const before = [group("burst-1", ["1", "2"]), group("burst-3", ["3", "4"])]
+    const after = [group("burst-1", ["1", "2"]), group("burst-3", ["3"]), group("burst-4", ["4"])]
+
+    expect([...unchangedGroupKeys(before, after)]).toEqual(["burst-1"])
+  })
+})
+
+// ── Reading a card ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A file as a folder picker hands it over — `webkitRelativePath` from the folder picked. */
+function cardFile(path: string): File {
+  const name = path.split("/").pop()!
+  const file = new File([new Uint8Array(4)], name, { type: /\.jpe?g$/i.test(name) ? "image/jpeg" : "" })
+  Object.defineProperty(file, "webkitRelativePath", { value: path })
+  return file
+}
+
+test.describe("photo import — reading a card", () => {
+  test("a RAW beside its JPEG is not « ignoré », a RAW alone is, and a card's bookkeeping is skipped in silence", () => {
+    const batch = batchOfFiles([
+      cardFile("Carte/DCIM/100CANON/IMG_0412.JPG"),
+      cardFile("Carte/DCIM/100CANON/IMG_0412.CR3"),
+      cardFile("Carte/DCIM/100CANON/IMG_0413.CR3"),
+      cardFile("Carte/DCIM/101CANON/IMG_0412.CR3"),
+      cardFile("Carte/DCIM/100CANON/MVI_0414.MP4"),
+      cardFile("Carte/DCIM/CANONMSC/M0100.CTG"),
+      cardFile("Carte/NIKON001.DSC"),
+      cardFile("Carte/PRIVATE/M4ROOT/THMBNL/C0001T01.JPG"),
+      cardFile("Carte/DCIM/100CANON/._IMG_0412.JPG"),
+      cardFile("Carte/System Volume Information/IndexerVolumeGuid"),
+    ])
+
+    expect(batch.photos.map((file) => file.name)).toEqual(["IMG_0412.JPG"])
+    expect(batch.skipped).toEqual({ raw: 2, heic: 0, video: 1, other: 0 })
+  })
+})
+
+// ── The EXIF reader, on a JPEG built byte by byte ──────────────────────────────────────────────────────────────
+
+/** A minimal camera JPEG: SOI, APP1 « Exif » with IFD0 (Make, Model, Orientation, Exif pointer), the Exif IFD
+ *  (DateTimeOriginal, SubSec, OffsetTime, BodySerialNumber) and IFD1 with a 4-byte « thumbnail ». */
+/**
+ * A Nikon DSLR's JPEG as the real ones are laid out (D3500, D5600…): no 0xA431, the body's serial in the maker notes —
+ * « Nikon\0 », a version, then a TIFF header of their own (in `noteLittle` order) whose offsets count from it.
+ */
+function nikonJpeg(little: boolean, noteLittle: boolean, serial: string): Uint8Array {
+  const bytesOf = (le: boolean) => ({
+    u16: (value: number) => (le ? [value & 0xff, value >> 8] : [value >> 8, value & 0xff]),
+    u32: (value: number) =>
+      le
+        ? [value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >>> 24) & 0xff]
+        : [(value >>> 24) & 0xff, (value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff],
+  })
+  const outer = bytesOf(little)
+  const inner = bytesOf(noteLittle)
+  const ascii = (text: string) => [...Array.from(text, (char) => char.charCodeAt(0)), 0]
+  const entry = (b: ReturnType<typeof bytesOf>, tag: number, type: number, count: number, value: number[]) => [
+    ...b.u16(tag),
+    ...b.u16(type),
+    ...b.u32(count),
+    ...value,
+  ]
+
+  // The maker note: signature + version, its own TIFF header at +10, one IFD at +8 of that header, then the serial.
+  const serialBytes = ascii(serial)
+  const note = [
+    ...[0x4e, 0x69, 0x6b, 0x6f, 0x6e, 0x00, 0x02, 0x11, 0x00, 0x00],
+    ...(noteLittle ? [0x49, 0x49] : [0x4d, 0x4d]),
+    ...inner.u16(0x2a),
+    ...inner.u32(8),
+    ...inner.u16(1),
+    ...entry(inner, 0x001d, 2, serialBytes.length, inner.u32(8 + 2 + 12 + 4)),
+    ...inner.u32(0),
+    ...serialBytes,
+  ]
+
+  // The main TIFF: IFD0 (make, model, Exif pointer) at 8, the Exif IFD (date, maker note), then the data.
+  const ifd0At = 8
+  const exifAt = ifd0At + 2 + 3 * 12 + 4
+  const dataAt = exifAt + 2 + 2 * 12 + 4
+  const data: number[] = []
+  const place = (bytes: number[]) => {
+    const offset = dataAt + data.length
+    data.push(...bytes)
+    return offset
+  }
+  const make = place(ascii("NIKON CORPORATION"))
+  const model = place(ascii("NIKON D5600"))
+  const date = place(ascii("2026:11:12 18:20:00"))
+  const noteAt = place(note)
+
+  const tiff = [
+    ...(little ? [0x49, 0x49] : [0x4d, 0x4d]),
+    ...outer.u16(0x2a),
+    ...outer.u32(ifd0At),
+    ...outer.u16(3),
+    ...entry(outer, 0x010f, 2, 18, outer.u32(make)),
+    ...entry(outer, 0x0110, 2, 12, outer.u32(model)),
+    ...entry(outer, 0x8769, 4, 1, outer.u32(exifAt)),
+    ...outer.u32(0),
+    ...outer.u16(2),
+    ...entry(outer, 0x9003, 2, 20, outer.u32(date)),
+    ...entry(outer, 0x927c, 7, note.length, outer.u32(noteAt)),
+    ...outer.u32(0),
+    ...data,
+  ]
+  const app1 = [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff]
+  const length = app1.length + 2
+  return new Uint8Array([0xff, 0xd8, 0xff, 0xe1, length >> 8, length & 0xff, ...app1, 0xff, 0xda, 0, 2, 0xff, 0xd9])
+}
+
+function cameraJpeg(little: boolean): Uint8Array {
+  const tiff: number[] = []
+  const u16 = (value: number) => (little ? [value & 0xff, value >> 8] : [value >> 8, value & 0xff])
+  const u32 = (value: number) =>
+    little
+      ? [value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >>> 24) & 0xff]
+      : [(value >>> 24) & 0xff, (value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff]
+  const ascii = (text: string) => [...Array.from(text, (char) => char.charCodeAt(0)), 0]
+
+  // Layout (offsets from the TIFF header): header 8 · IFD0 at 8 (4 entries) · Exif IFD · IFD1 · data.
+  const ifd0At = 8
+  const ifd0Size = 2 + 4 * 12 + 4
+  const exifAt = ifd0At + ifd0Size
+  const exifSize = 2 + 4 * 12 + 4
+  const ifd1At = exifAt + exifSize
+  const ifd1Size = 2 + 2 * 12 + 4
+  let dataAt = ifd1At + ifd1Size
+
+  const data: number[] = []
+  const place = (bytes: number[]) => {
+    const offset = dataAt + data.length
+    data.push(...bytes)
+    return offset
+  }
+  const make = place(ascii("Canon"))
+  const model = place(ascii("Canon EOS 250D"))
+  const date = place(ascii("2026:11:12 09:14:03"))
+  const zone = place(ascii("+01:00"))
+  const serial = place(ascii("123456789012"))
+  const thumb = place([0xff, 0xd8, 0xff, 0xd9])
+
+  const entry = (tag: number, type: number, count: number, value: number[]) => [...u16(tag), ...u16(type), ...u32(count), ...value]
+  const inline16 = (value: number) => [...u16(value), 0, 0]
+
+  tiff.push(...(little ? [0x49, 0x49] : [0x4d, 0x4d]), ...u16(0x2a), ...u32(ifd0At))
+  tiff.push(...u16(4))
+  tiff.push(...entry(0x010f, 2, 6, u32(make)))
+  tiff.push(...entry(0x0110, 2, 15, u32(model)))
+  tiff.push(...entry(0x0112, 3, 1, inline16(6)))
+  tiff.push(...entry(0x8769, 4, 1, u32(exifAt)))
+  tiff.push(...u32(ifd1At))
+  tiff.push(...u16(4))
+  tiff.push(...entry(0x9003, 2, 20, u32(date)))
+  tiff.push(...entry(0x9011, 2, 7, u32(zone)))
+  tiff.push(...entry(0x9291, 2, 3, [0x34, 0x35, 0x00, 0x00]))
+  tiff.push(...entry(0xa431, 2, 13, u32(serial)))
+  tiff.push(...u32(0))
+  tiff.push(...u16(2))
+  tiff.push(...entry(0x0201, 4, 1, u32(thumb)))
+  tiff.push(...entry(0x0202, 4, 1, u32(4)))
+  tiff.push(...u32(0))
+  tiff.push(...data)
+
+  const app1 = [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff]
+  const length = app1.length + 2
+  // A JFIF APP0 in front, as many cameras write it.
+  const app0 = [0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 1, 1, 0, 0, 1, 0, 1, 0, 0]
+  return new Uint8Array([0xff, 0xd8, ...app0, 0xff, 0xe1, length >> 8, length & 0xff, ...app1, 0xff, 0xda, 0, 2, 0xff, 0xd9])
+}
+
+test.describe("photo import — reading EXIF", () => {
+  for (const little of [true, false]) {
+    test(`a ${little ? "little" : "big"}-endian camera JPEG gives its seven facts and its thumbnail`, () => {
+      const bytes = cameraJpeg(little)
+      const exif = parseExif(bytes)
+
+      expect(exif.make).toBe("Canon")
+      expect(exif.model).toBe("Canon EOS 250D")
+      expect(exif.orientation).toBe(6)
+      expect(exif.dateTimeOriginal).toBe("2026:11:12 09:14:03")
+      expect(exif.subSecTimeOriginal).toBe("45")
+      expect(exif.offsetTimeOriginal).toBe("+01:00")
+      expect(exif.bodySerialNumber).toBe("123456789012")
+      expect(exif.thumbnail).not.toBeNull()
+      const { start, length } = exif.thumbnail!
+      expect(Array.from(bytes.slice(start, start + length))).toEqual([0xff, 0xd8, 0xff, 0xd9])
+    })
+  }
+
+  for (const [little, noteLittle] of [[true, false], [false, true], [true, true]] as const) {
+    test(`a Nikon DSLR's serial is read from its maker notes (${little ? "II" : "MM"} file, ${noteLittle ? "II" : "MM"} note)`, () => {
+      const exif = parseExif(nikonJpeg(little, noteLittle, "3459256"))
+      expect(exif.make).toBe("NIKON CORPORATION")
+      expect(exif.dateTimeOriginal).toBe("2026:11:12 18:20:00")
+      expect(exif.bodySerialNumber).toBe("3459256")
+    })
+  }
+
+  test("two Nikon bodies of one model are two cameras, and a maker note cut short never throws", async () => {
+    const one = await cameraFingerprintOf(parseExif(nikonJpeg(true, false, "3177951")))
+    const two = await cameraFingerprintOf(parseExif(nikonJpeg(true, false, "3459256")))
+    expect(one).not.toBe(two)
+    const whole = nikonJpeg(false, true, "3459256")
+    for (let cut = 4; cut < whole.length; cut += 3) expect(() => parseExif(whole.slice(0, cut))).not.toThrow()
+  })
+
+  test("a file that is not a JPEG, or a JPEG with no EXIF, reads as nothing — never throws", () => {
+    expect(parseExif(new Uint8Array([0x89, 0x50, 0x4e, 0x47])).dateTimeOriginal).toBeNull()
+    expect(parseExif(new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0, 2])).make).toBeNull()
+    expect(parseExif(cameraJpeg(true).slice(0, 40)).dateTimeOriginal).toBeNull()
+  })
+
+  test("the camera's clock face is read without any timezone", () => {
+    expect(parseExifDateTime("2026:11:12 09:14:03", "45")).toBe(Date.UTC(2026, 10, 12, 9, 14, 3, 450))
+    expect(parseExifDateTime("0000:00:00 00:00:00")).toBeNull()
+    expect(parseExifDateTime("2026:02:31 10:00:00")).toBeNull()
+    expect(parseExifOffset("+01:00")).toBe(60)
+    expect(parseExifOffset("-05:30")).toBe(-330)
+    expect(parseWallClockIso("2026-11-12T09:00:00")).toBe(Date.UTC(2026, 10, 12, 9))
+    expect(parseWallClockIso("2026-11-12T09:00:00Z")).toBeNull()
+  })
+
+  test("the same shot always hashes to the same key, and a different shot does not", async () => {
+    const exif = parseExif(cameraJpeg(true))
+    const fingerprint = await cameraFingerprintOf(exif)
+    expect(fingerprint).toMatch(/^[0-9a-f]{64}$/)
+
+    const one = await captureKeyOf(fingerprint, exif, { name: "IMG_4521.JPG", size: 8_400_000 })
+    const again = await captureKeyOf(fingerprint, exif, { name: "IMG_4521.JPG", size: 8_400_000 })
+    const other = await captureKeyOf(fingerprint, exif, { name: "IMG_4522.JPG", size: 8_400_000 })
+    expect(one).toBe(again)
+    expect(other).not.toBe(one)
+    expect(cameraLabelOf(exif)).toBe("Canon EOS 250D")
+    expect(cameraLabelOf({ make: "FUJIFILM", model: "X-T30" })).toBe("FUJIFILM X-T30")
+  })
+})

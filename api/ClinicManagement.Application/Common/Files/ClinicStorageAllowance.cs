@@ -1,6 +1,8 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Domain.Repositories;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ClinicManagement.Application.Common.Files;
 
@@ -38,11 +40,73 @@ public class ClinicStorageAllowance
 {
     private readonly IPatientFileRepository _files;
     private readonly IClinicStoragePolicy _policy;
+    private readonly IClinicStorageQuotaReader? _quotas;
+    private readonly INotificationGenerator? _notifications;
+    private readonly ILogger<ClinicStorageAllowance> _logger;
 
-    public ClinicStorageAllowance(IPatientFileRepository files, IClinicStoragePolicy policy)
+    /// <param name="quotas">A cabinet's own ceiling, set from the console (phase 3). Optional so a harness that does
+    /// not care keeps the deployment's default.</param>
+    /// <param name="notifications">The 80 / 95 % bell (phase 3). Optional for the same reason.</param>
+    /// <param name="logger">Where a failed re-evaluation of the bell is reported. Optional for the same reason.</param>
+    public ClinicStorageAllowance(
+        IPatientFileRepository files,
+        IClinicStoragePolicy policy,
+        IClinicStorageQuotaReader? quotas = null,
+        INotificationGenerator? notifications = null,
+        ILogger<ClinicStorageAllowance>? logger = null)
     {
         _files = files;
         _policy = policy;
+        _quotas = quotas;
+        _notifications = notifications;
+        _logger = logger ?? NullLogger<ClinicStorageAllowance>.Instance;
+    }
+
+    /// <summary>
+    /// After the cabinet's storage changed — a file added or deleted, its ceiling moved (<c>features/camera-photo-import</c>,
+    /// phase 3): raises, escalates, lowers or withdraws the « stockage presque plein » alert to match the new usage.
+    /// Post-commit and best-effort — the change stands whatever the bell does, so a failure here never reaches the caller.
+    ///
+    /// <para>⚠️ <b>Inside the band (75–80 %) nothing is announced, but a « 95 % » row is lowered</b>: a deletion can take
+    /// a cabinet from 96 % to 77 % in one go, and the bell must not keep saying 95 % until something crosses 80 or 75.</para>
+    /// </summary>
+    public async Task AfterChangeAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var usage = await ReadAsync(clinicId, cancellationToken);
+            if (!usage.Enforced)
+            {
+                return;
+            }
+
+            var level = ClinicStorageAlerts.LevelFor(usage.UsedBytes, usage.QuotaBytes);
+            if (level > 0)
+            {
+                await _notifications.EnsureStorageNearlyFullAsync(
+                    clinicId, level, usage.UsedBytes, usage.QuotaBytes, cancellationToken);
+            }
+            else if (level == 0)
+            {
+                await _notifications.LowerStorageNearlyFullAsync(
+                    clinicId, ClinicStorageAlerts.WarnPercent, usage.UsedBytes, usage.QuotaBytes, cancellationToken);
+            }
+            else
+            {
+                await _notifications.ClearStorageNearlyFullAsync(clinicId, cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Never the caller's problem — the change is committed — but never silent either: a read that keeps
+            // failing here stops the 80 / 95 % bell for every cabinet with no other trace.
+            _logger.LogWarning(ex, "The storage alert of clinic {ClinicId} was not re-evaluated after a change.", clinicId);
+        }
     }
 
     /// <summary>
@@ -58,7 +122,8 @@ public class ClinicStorageAllowance
         }
 
         var used = await _files.GetHostedBytesAsync(clinicId, cancellationToken);
-        return new ClinicStorageUsage(used, _policy.QuotaBytes, true);
+        var quota = _quotas is null ? null : await _quotas.GetOverrideAsync(clinicId, cancellationToken);
+        return new ClinicStorageUsage(used, quota ?? _policy.QuotaBytes, true);
     }
 
     /// <summary>
@@ -96,10 +161,12 @@ public static class ClinicStorageRefusals
     /// <summary>Branched on by the picker so « plein » is not rendered as a generic upload failure.</summary>
     public const string FullCode = "storage_full";
 
+    /// <summary>The two ways out, said the same way by the refusal and by the 80 / 95 % bell.</summary>
+    public const string Remedy = "Supprimez des fichiers volumineux, ou contactez APEXA pour augmenter l'espace.";
+
     public static string Full(long usedBytes, long quotaBytes) =>
         $"L'espace de stockage du cabinet est plein ({Size(usedBytes)} sur {Size(quotaBytes)} utilisés). "
-        + "Les fichiers déjà envoyés restent accessibles. Supprimez des fichiers volumineux, ou contactez APEXA "
-        + "pour augmenter l'espace.";
+        + $"Les fichiers déjà envoyés restent accessibles. {Remedy}";
 
     /// <summary>
     /// A size a dentist can read, mirroring the browser's own <c>formatFileSize</c>.
@@ -111,8 +178,10 @@ public static class ClinicStorageRefusals
     ///
     /// <para>⚠️ A comma, always — this product prints every size and every dinar in French, and « 12.4 GB » in
     /// the middle of a French sentence is the sort of detail that makes a message read as a machine error.</para>
+    ///
+    /// <para>Shared with the 80 / 95 % bell, which printed « Go » unconditionally and had the same defect.</para>
     /// </summary>
-    private static string Size(long bytes)
+    internal static string Size(long bytes)
     {
         var fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
         const long gigabyte = 1024L * 1024 * 1024;

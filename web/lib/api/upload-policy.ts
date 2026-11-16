@@ -54,6 +54,12 @@ export interface UploadPolicy {
   storageUsedBytes: number;
   /** The server's own « plein » sentence, so the two cannot word it differently. Empty when unenforced. */
   storageFullMessage: string;
+  /**
+   * How a camera photo is stored (`features/camera-photo-import`): a JPEG copy at most `maxEdgePx` on its long edge,
+   * at `quality` — or **null where the photo is stored as it was taken** (a cabinet's own server has no quota).
+   * Optional because an older server does not send it, which reads the same as null.
+   */
+  cameraCopy?: { maxEdgePx: number; quality: number } | null;
 }
 
 /** Which door a file goes through. Decided by the server's policy, never guessed from the extension. */

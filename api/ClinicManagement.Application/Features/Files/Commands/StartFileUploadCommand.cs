@@ -50,6 +50,12 @@ public class StartFileUploadCommand : IRequest<Result<FileUploadSessionDto>>, ID
     public long FileSize { get; set; }
     public string? Description { get; set; }
     public string? UploadedBy { get; set; }
+
+    /// <summary>
+    /// A camera original over the chunk size goes up in parts on the clinic-PC install, and the file is built from
+    /// the session at completion — so the shot's facts ride here (<c>features/camera-photo-import</c>).
+    /// </summary>
+    public CameraCaptureInput Capture { get; set; } = CameraCaptureInput.None;
 }
 
 public class StartFileUploadCommandHandler
@@ -58,6 +64,7 @@ public class StartFileUploadCommandHandler
     private readonly IPatientRepository _patientRepository;
     private readonly IPatientFolderRepository _folderRepository;
     private readonly IFileUploadSessionRepository _sessions;
+    private readonly IPatientFileRepository _fileRepository;
     private readonly IResumableUploadStore _uploadStore;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentClinicResolver _clinicResolver;
@@ -69,6 +76,7 @@ public class StartFileUploadCommandHandler
         IPatientRepository patientRepository,
         IPatientFolderRepository folderRepository,
         IFileUploadSessionRepository sessions,
+        IPatientFileRepository fileRepository,
         IResumableUploadStore uploadStore,
         IUnitOfWork unitOfWork,
         ICurrentClinicResolver clinicResolver,
@@ -79,6 +87,7 @@ public class StartFileUploadCommandHandler
         _patientRepository = patientRepository;
         _folderRepository = folderRepository;
         _sessions = sessions;
+        _fileRepository = fileRepository;
         _uploadStore = uploadStore;
         _unitOfWork = unitOfWork;
         _clinicResolver = clinicResolver;
@@ -112,6 +121,20 @@ public class StartFileUploadCommandHandler
                     return Result<FileUploadSessionDto>.Failure(
                         "Dossier introuvable ou n'appartenant pas à ce patient.");
                 }
+            }
+
+            // The same shot is refused before a single part is sent — exactly the upload door's rule.
+            var capture = request.Capture.ToFacts(DateTime.UtcNow);
+            if (capture.IsFailure)
+            {
+                return Result<FileUploadSessionDto>.FailureFrom(capture);
+            }
+
+            if (capture.Value is { } shot
+                && await _fileRepository.CaptureKeyExistsAsync(patient.ClinicId, shot.CaptureKey, cancellationToken))
+            {
+                return Result<FileUploadSessionDto>.Failure(
+                    CameraImportRefusals.AlreadyImported(), CameraImportRefusals.AlreadyImportedCode);
             }
 
             var profile = FileUploadProfile.PatientFile;
@@ -172,6 +195,11 @@ public class StartFileUploadCommandHandler
                 request.FolderId,
                 request.Description,
                 request.UploadedBy);
+
+            if (capture.Value is { } facts)
+            {
+                session.RecordCameraCapture(facts);
+            }
 
             await _sessions.AddAsync(session, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

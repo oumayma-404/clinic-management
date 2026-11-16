@@ -41,6 +41,14 @@ public class SubscriptionWarningTests
             Guid clinicId, CancellationToken cancellationToken = default) =>
             Task.FromResult<StaffNotification?>(null);
 
+        public Task<StaffNotification?> GetPhotoOriginalsCopyStaleAsync(
+            Guid clinicId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<StaffNotification?>(null);
+
+        public Task<IReadOnlyList<StaffNotification>> GetStorageNearlyFullAlertsAsync(
+            Guid clinicId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<StaffNotification>>(Array.Empty<StaffNotification>());
+
         public List<StaffNotification> Rows { get; } = new();
 
         public Task AddAsync(StaffNotification notification, CancellationToken cancellationToken = default)

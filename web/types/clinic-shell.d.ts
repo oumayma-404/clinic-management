@@ -52,6 +52,44 @@ interface ShellRelayProbeResult {
   gateways: string[]
 }
 
+/**
+ * The Windows app's camera state (`features/camera-photo-import`, since 1.8). `pending` is photos copied onto this PC
+ * and never filed (a tab closed mid-batch); `originals` is what this PC keeps of the full-size photos, and `copy` the
+ * last copy of them to the archive disk — `null` when none ran this session.
+ */
+interface ShellCameraStatus {
+  autoImport: boolean
+  pending: number
+  heldBy: string
+  originals: { files: number; bytes: number; freeBytes: number | null }
+  copy: { complete: boolean; sentence: string; atUtc: string | null } | null
+}
+
+/**
+ * What « Importer » answered. The photos themselves never come back here — file handles travel only with a posted
+ * message, so they reach `__clinicShellDeliverCamera`. `sentence` is the shell's French when nothing was delivered.
+ */
+interface ShellCameraScanResult {
+  delivered: number
+  older: number
+  failed: number
+  sentence: string | null
+}
+
+/** A copy of the originals to the archive disk. Only `complete` may clear the server's alert. */
+interface ShellOriginalsCopyResult {
+  complete: boolean
+  sentence: string
+  files: number
+  bytes: number
+}
+
+/** A message the Windows app posts about the camera — routed by `kind` in `lib/photo-import/shell-camera.ts`. */
+interface ShellCameraMessage {
+  payload: unknown
+  handles: unknown[]
+}
+
 interface ClinicShell {
   /**
    * The shell's own version, injected before first paint.
@@ -163,6 +201,39 @@ interface ClinicShell {
 
   /** Android 1.4: the permission prompt if it can still be shown, else the app's notification settings. */
   openNotificationSettings?(): void
+  /*
+   * The camera import — Windows 1.8 (`features/camera-photo-import`). `lib/photo-import/shell-camera.ts` is the one
+   * reader; none of these exists in a browser, on Android or in an older Windows app, and every caller asks first.
+   * Requests never reject: a shell that cannot answer resolves the fallback the bridge names.
+   */
+  /** Whether this PC notices a camera, what waits, what it keeps. `null` when the shell cannot say. */
+  cameraStatus?(): Promise<ShellCameraStatus | null>
+  /** « Détecter l'appareil photo branché sur ce PC » — per PC and per Windows account, off by default. */
+  setCameraAutoImport?(on: boolean): Promise<ShellCameraStatus | null>
+  /**
+   * Copies the new photos of every connected card or camera (or the one a notice named) onto this PC and posts them as
+   * a batch, with the ones still waiting from an earlier batch. `includeOlder` adds what the window left on the source.
+   */
+  cameraScan?(request: { sourceKey?: string; includeOlder?: boolean }): Promise<ShellCameraScanResult>
+  /** The outcome of one photo it handed over — `filed` names the file and whether to keep the full-size original. */
+  cameraAck?(ack: {
+    itemId: string
+    outcome: "filed" | "already" | "skipped" | "failed"
+    fileId?: string
+    patientId?: string
+    patientName?: string
+    keepOriginal?: boolean
+  }): void
+  /** The server wrote down that this PC keeps that original: the shell stops re-announcing it. */
+  cameraOriginalRecorded?(fileId: string): void
+  /** « Ignorer cet appareil » — no more notices for it on this PC (a phone charged here every morning). */
+  ignoreCamera?(sourceKey: string): void
+  /** Opens the full-size original in Windows' own viewer. False when this PC does not hold it. */
+  openOriginal?(fileId: string): Promise<boolean>
+  /** Which of these files' originals this PC holds. */
+  originalsHeld?(fileIds: string[]): Promise<string[]>
+  /** Copies the originals to the archive disk now. `null` when the shell cannot. */
+  copyOriginalsNow?(): Promise<ShellOriginalsCopyResult | null>
 }
 
 interface Window {
@@ -196,4 +267,17 @@ interface Window {
    * looks identical to « this machine has none », so the bug would read as a configuration problem.
    */
   __clinicShellPendingVault?: FileSystemDirectoryHandle
+
+  /**
+   * Where the Windows app (1.8) posts the camera's messages — a batch with one read-only `FileSystemFileHandle` per
+   * photo, a kept original, a copy to the archive disk. The page defines it (`lib/photo-import/shell-camera.ts`);
+   * deliberately not a member of `__clinicShell`, for `__clinicShellDeliverVault`'s reason.
+   */
+  __clinicShellDeliverCamera?: (payload: unknown, handles: unknown[]) => void
+
+  /** The camera's messages that arrived before the page listened — a QUEUE, unlike the coffre's single slot. */
+  __clinicShellPendingCamera?: ShellCameraMessage[]
+
+  /** The page defines this; the Windows app calls it when « Importer » is clicked in a camera notification. */
+  __clinicShellOpenCameraImport?: (sourceKey: string) => void
 }

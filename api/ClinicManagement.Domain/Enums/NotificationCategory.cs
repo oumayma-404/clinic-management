@@ -222,5 +222,21 @@ public enum NotificationCategory
     AttendanceBorneNotReceived = 27,
 
     /// <summary>A fifth wrong schéma blocked someone's tile for 15 min — for the admins, who can lift it.</summary>
-    AttendanceSchemaBlocked = 28
+    AttendanceSchemaBlocked = 28,
+
+    /// <summary>
+    /// Camera originals a clinic PC keeps have had no complete copy on the cabinet's archive disk for
+    /// <see cref="Entities.PhotoOriginalsCopy.StaleAfterDays"/> days (<c>features/camera-photo-import</c>). One row per
+    /// cabinet naming the PCs, restated when the set changes and removed once every PC has copied.
+    ///
+    /// <para>In-app only: « branchez le disque d'archive » happens at the PC holding the photos.</para>
+    /// </summary>
+    PhotoOriginalsCopyStale = 29,
+
+    /// <summary>
+    /// The cabinet's hosted storage crossed 80 % or 95 % of its ceiling (<c>features/camera-photo-import</c>, phase 3).
+    /// One row per cabinet; crossing 95 % replaces the 80 % row with a NEW one so it badges the bell again, and the row
+    /// goes once usage falls back under 75 % — which is what re-arms the alert.
+    /// </summary>
+    StorageNearlyFull = 30
 }

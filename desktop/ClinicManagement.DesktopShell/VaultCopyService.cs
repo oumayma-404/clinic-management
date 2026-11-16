@@ -32,11 +32,6 @@ public sealed class VaultCopyService
     /// <summary>The subfolder the copy occupies in the archive folder, beside the <c>archive-*.zip</c> files.</summary>
     public const string DestinationFolderName = "coffre";
 
-    /// <summary>Headroom over what is about to be written. A study arriving mid-run must not fill the volume.</summary>
-    private const long FreeSpaceHeadroomBytes = 256L * 1024 * 1024;
-
-    private const string PartSuffix = ".part";
-
     private static readonly TimeSpan ReportTimeout = TimeSpan.FromSeconds(30);
 
     private readonly ServerConfig _server;
@@ -72,9 +67,21 @@ public sealed class VaultCopyService
         }
 
         string destination;
+        string? sameDisk;
         try
         {
             destination = Path.Combine(_settings.Folder, DestinationFolderName);
+
+            // Before anything is created: with the archive disk unplugged, a camera's card can hold its letter.
+            if (ArchiveDisk.Unplugged(_settings.Folder) is { } unplugged)
+            {
+                return new ArchiveCopyOutcome(false, unplugged);
+            }
+
+            // ⚠️ Said, never refused: this copy predates the rule, and a cabinet whose folder is another partition of
+            // the PC's own disk would silently stop being copied — then told 30 days later to plug in a disk it has.
+            sameDisk = AddOnlyFolderCopy.SameDiskRefusal(source, _settings.Folder);
+
             Directory.CreateDirectory(destination);
             ArchiveCopyService.HardenFolder(destination);
         }
@@ -83,23 +90,28 @@ public sealed class VaultCopyService
             return new ArchiveCopyOutcome(false, $"Le dossier de destination n'est pas utilisable : {ex.Message}");
         }
 
-        int copied;
-        long bytes;
-        int total;
+        AddOnlyFolderCopy.Result copy;
         try
         {
-            (copied, bytes, total) = await CopyTreeAsync(source, destination, cancellationToken);
+            copy = await AddOnlyFolderCopy.CopyAsync(source, destination, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
             return new ArchiveCopyOutcome(false, $"La copie du coffre a échoué : {ex.Message}");
         }
 
-        var reported = await ReportAsync(total, bytes, reuseToken, cancellationToken);
+        // ⚠️ What the destination now HOLDS, never what this run copied. Reporting the run's own bytes sent « 0 » on
+        // every run after the first, the server answered « incomplete » to a complete copy, and the 30-day alert
+        // fired over a coffre that was safely on a second disk.
+        var reported = await ReportAsync(copy.Files, copy.Bytes, reuseToken, cancellationToken);
 
-        var message = copied == 0
-            ? $"Le coffre était déjà à jour ({total} fichier(s))."
-            : $"{copied} fichier(s) copié(s) dans {destination}.";
+        var message = copy.Copied == 0
+            ? $"Le coffre était déjà à jour ({copy.Files} fichier(s))."
+            : $"{copy.Copied} fichier(s) copié(s) dans {destination}.";
+        if (sameDisk != null)
+        {
+            message += " " + sameDisk;
+        }
 
         // ⚠️ A report that did not land, or landed short, is stated rather than swallowed: the copy is on disk
         // either way, but the practice will keep being nagged, and « la copie a réussi » beside a nag that will not
@@ -116,92 +128,6 @@ public sealed class VaultCopyService
             _ => new ArchiveCopyOutcome(
                 true, message + " Le serveur n'a pas pu être informé ; l'alerte peut persister.", destination),
         };
-    }
-
-    /// <summary>Walks the coffre and copies what the destination lacks. Returns (copied, bytes copied, files seen).</summary>
-    private static async Task<(int Copied, long Bytes, int Total)> CopyTreeAsync(
-        string source, string destination, CancellationToken cancellationToken)
-    {
-        var copied = 0;
-        var bytes = 0L;
-        var total = 0;
-
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // A .part left by an interrupted ingest is not a file the practice owns yet.
-            if (file.EndsWith(PartSuffix, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            total++;
-
-            var relative = Path.GetRelativePath(source, file);
-            var target = Path.Combine(destination, relative);
-            var info = new FileInfo(file);
-
-            var existing = new FileInfo(target);
-            if (existing.Exists && existing.Length == info.Length)
-            {
-                continue;
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            EnsureFreeSpace(target, info.Length);
-
-            // Staged then renamed, so an interrupted copy never leaves a short file that the size check above
-            // would read as complete on the next run.
-            var partPath = target + PartSuffix;
-            try
-            {
-                await using (var input = File.OpenRead(file))
-                await using (var output = File.Create(partPath))
-                {
-                    await input.CopyToAsync(output, cancellationToken);
-                }
-
-                File.Move(partPath, target, overwrite: true);
-            }
-            catch
-            {
-                TryDelete(partPath);
-                throw;
-            }
-
-            copied++;
-            bytes += info.Length;
-        }
-
-        return (copied, bytes, total);
-    }
-
-    private static void EnsureFreeSpace(string target, long needed)
-    {
-        try
-        {
-            var root = Path.GetPathRoot(Path.GetFullPath(target));
-            if (string.IsNullOrEmpty(root))
-            {
-                return;
-            }
-
-            var available = new DriveInfo(root).AvailableFreeSpace;
-            if (available < needed + FreeSpaceHeadroomBytes)
-            {
-                throw new IOException(
-                    $"espace insuffisant sur {root} ({available / (1024 * 1024)} Mo disponibles).");
-            }
-        }
-        catch (ArgumentException)
-        {
-            // A UNC path has no DriveInfo. Let the write itself be the check.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Same: unknowable here, and the write will say so.
-        }
     }
 
     /// <summary>
@@ -268,21 +194,6 @@ public sealed class VaultCopyService
         catch
         {
             return VaultReportOutcome.NotReported;
-        }
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // Best-effort: a leftover .part is pruned by the next run's own staging.
         }
     }
 }

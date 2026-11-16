@@ -175,6 +175,38 @@ public class PlatformSubscriptionsController : ApiControllerBase
     }
 
     /// <summary>
+    /// Sets a cabinet's storage ceiling, or returns it to the default with <c>quotaBytes: null</c>
+    /// (<c>features/camera-photo-import</c>, phase 3). A mandatory motif, journaled with the change.
+    /// </summary>
+    [HttpPut("clinics/{clinicId:guid}/storage-quota")]
+    [AllowsWithoutSubscription(
+        "Raising a cabinet's storage is the vendor answering « contactez APEXA » — it must not depend on whether the "
+        + "cabinet's own cover is current, and it records no work of the cabinet's.")]
+    public async Task<ActionResult<PlatformStorageQuotaChangedDto>> SetStorageQuota(
+        Guid clinicId,
+        [FromBody] SetStorageQuotaRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new SetClinicStorageQuotaFromConsoleCommand
+            {
+                ClinicId = clinicId,
+                QuotaBytes = request.QuotaBytes,
+                Reason = request.Reason,
+            },
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : HandleFailure(result, result.Code switch
+            {
+                SetClinicStorageQuotaFromConsoleCommandHandler.UnknownClinicCode => StatusCodes.Status404NotFound,
+                SetClinicStorageQuotaFromConsoleCommandHandler.NotEnforcedCode => StatusCodes.Status409Conflict,
+                _ => StatusCodes.Status400BadRequest,
+            });
+    }
+
+    /// <summary>
     /// The two routes' shared tail. ⚠️ The refusals a client acts on differently carry <b>codes</b> — an unknown
     /// cabinet is a 404, and « déjà suspendu » / « pas suspendu » are states of the world (409) rather than rejected
     /// requests. None of them is recovered by matching the French sentence.

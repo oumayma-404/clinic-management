@@ -83,7 +83,11 @@ public class GetUploadPolicyQueryHandler : IRequestHandler<GetUploadPolicyQuery,
             StorageFullMessage = storage.Enforced
                 ? ClinicStorageRefusals.Full(storage.UsedBytes, storage.QuotaBytes)
                 : string.Empty,
-            Formats = profile.Entries.Select(entry => ToFormat(profile, entry, vaultAvailable)).ToList()
+            Formats = profile.Entries.Select(entry => ToFormat(profile, entry, vaultAvailable)).ToList(),
+            // Only the patient's drawer takes camera photos, and only a quota'd deployment reduces them.
+            CameraCopy = profile.Name == FileUploadProfile.PatientFile.Name && storage.Enforced
+                ? new CameraCopyRuleDto { MaxEdgePx = CameraCopyRuleDto.Hosted.MaxEdgePx, Quality = CameraCopyRuleDto.Hosted.Quality }
+                : null
         };
 
         return Result<UploadPolicyDto>.Success(dto);

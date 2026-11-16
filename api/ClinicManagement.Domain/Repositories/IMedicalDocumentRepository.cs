@@ -42,6 +42,12 @@ public interface IMedicalDocumentRepository
         IReadOnlyCollection<Guid> dentalRecordIds,
         IReadOnlyCollection<Guid> appointmentIds,
         CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Whether a document of this cabinet points at this file — a file a document names cannot change patient, or
+    /// the document would print one person's name above another's scan (<c>features/camera-photo-import</c>).
+    /// </summary>
+    Task<bool> AnyForFileAsync(Guid clinicId, Guid fileId, CancellationToken cancellationToken = default);
+
     Task AddAsync(Entities.MedicalDocument document, CancellationToken cancellationToken = default);
     Task UpdateAsync(Entities.MedicalDocument document, CancellationToken cancellationToken = default);
     Task DeleteAsync(Entities.MedicalDocument document, CancellationToken cancellationToken = default);

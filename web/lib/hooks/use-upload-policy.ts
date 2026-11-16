@@ -12,6 +12,21 @@ import { uploadPolicyApi, type UploadPolicy, type UploadProfile } from "@/lib/ap
  */
 const cached = new Map<UploadProfile, Promise<UploadPolicy>>()
 
+/** Bumped by {@link refreshUploadPolicy}; every mounted hook re-reads when it moves. */
+let generation = 0
+const listeners = new Set<() => void>()
+
+/**
+ * Forgets a door's policy and makes every mounted consumer read it again — after a batch of uploads, so
+ * « 3,1 Go sur 10 Go » is the figure after the files rather than the one from when the page opened
+ * (`features/camera-photo-import`).
+ */
+export function refreshUploadPolicy(profile: UploadProfile = "patient-file"): void {
+  cached.delete(profile)
+  generation++
+  for (const listener of listeners) listener()
+}
+
 function load(profile: UploadProfile): Promise<UploadPolicy> {
   const existing = cached.get(profile)
   if (existing) return existing
@@ -42,6 +57,13 @@ function load(profile: UploadProfile): Promise<UploadPolicy> {
  */
 export function useUploadPolicy(profile: UploadProfile | null = "patient-file"): UploadPolicy | null {
   const [policy, setPolicy] = useState<UploadPolicy | null>(null)
+  const [seen, setSeen] = useState(generation)
+
+  useEffect(() => {
+    const listener = () => setSeen(generation)
+    listeners.add(listener)
+    return () => { listeners.delete(listener) }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -55,7 +77,7 @@ export function useUploadPolicy(profile: UploadProfile | null = "patient-file"):
       .then((value) => { if (active) setPolicy(value) })
       .catch(() => { /* the picker stays open; the server still checks */ })
     return () => { active = false }
-  }, [profile])
+  }, [profile, seen])
 
   return policy
 }

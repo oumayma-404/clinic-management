@@ -4659,6 +4659,56 @@ check(
   }
 );
 
+/** The camera import's one EXIF reader (`features/camera-photo-import`). */
+const EXIF_OWNER = "lib/photo-import/exif.ts";
+
+check(
+  "exif-has-one-owner",
+  "N55",
+  "A photo's EXIF is read by `lib/photo-import/exif.ts` alone",
+  "features/camera-photo-import: the capture key hashes `DateTimeOriginal` exactly as the reader returns it, so a " +
+    "second parser that trims, re-pads or re-orders it produces another key for the same shot — and the same card " +
+    "is filed twice with every gate green. Derived: any source naming the EXIF tags the reader owns (DateTimeOriginal " +
+    "0x9003, the Exif IFD pointer 0x8769) outside the owner is a second parser.",
+  () => {
+    const owner = ALL_FILES.find((f) => rel(f) === EXIF_OWNER);
+    if (!owner) return [{ file: EXIF_OWNER, line: 0, text: "missing", full: "the EXIF reader is gone — retarget this check" }];
+    const tags = /\b0x(?:9003|8769)\b/i;
+    const hits = [];
+    // Non-vacuity: the owner must still hold both tags, or this check guards a name and nothing else.
+    const own = read(owner);
+    if (!/0x9003/i.test(own) || !/0x8769/i.test(own)) {
+      hits.push({ file: EXIF_OWNER, line: 0, text: "tags gone", full: "the reader no longer names 0x9003 / 0x8769 — retarget this check" });
+    }
+    return hits.concat(scanLines(tsx().filter((f) => rel(f) !== EXIF_OWNER), tags));
+  }
+);
+
+/** The matcher's one set of thresholds. */
+const MATCH_OWNER = "lib/photo-import/match.ts";
+
+check(
+  "match-rules-have-one-owner",
+  "N56",
+  "The camera import's matching thresholds are declared in `MATCH_RULES` alone",
+  "features/camera-photo-import: « never sure and wrong » rests on a handful of minutes — the burst gap, the margins " +
+    "around a visit, the clock-offset search — and they are starting values to be tuned on a real day. A component " +
+    "that re-declares one (a 4-minute gap for its own grouping, a 15-minute margin for a hint) keeps the old value " +
+    "after the tuning and disagrees with the matcher on screen. Derived: every key of `MATCH_RULES` is read from " +
+    "the owner; a property of that name declared anywhere else fails.",
+  () => {
+    const owner = ALL_FILES.find((f) => rel(f) === MATCH_OWNER);
+    if (!owner) return [{ file: MATCH_OWNER, line: 0, text: "missing", full: "the matcher is gone — retarget this check" }];
+    const block = /export const MATCH_RULES = \{([\s\S]*?)\n\} as const/.exec(read(owner));
+    const keys = block ? [...block[1].matchAll(/^\s+([a-zA-Z]+):/gm)].map((m) => m[1]) : [];
+    if (keys.length < 5) {
+      return [{ file: MATCH_OWNER, line: 0, text: "unparsable", full: `found ${keys.length} MATCH_RULES keys — this check cannot read the owner` }];
+    }
+    const declared = new RegExp(`\\b(?:${keys.join("|")})\\s*:`);
+    return scanLines(tsx().filter((f) => rel(f) !== MATCH_OWNER), declared);
+  }
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

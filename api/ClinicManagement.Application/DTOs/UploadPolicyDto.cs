@@ -79,6 +79,29 @@ public class UploadPolicyDto
     /// French, which is how « 9.8 GB » ends up in the middle of a French refusal.</para>
     /// </summary>
     public string StorageFullMessage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How a camera photo is stored here (<c>features/camera-photo-import</c>, storage « deux maisons »): on a cabinet
+    /// with a storage quota the cloud keeps a reduced copy and the Windows app keeps the original; where there is no
+    /// quota (the clinic's own PC is the server) this is null and the original goes up untouched.
+    ///
+    /// <para>⚠️ Decided here, not in the browser — « what may be uploaded has one authority, and the browser is told
+    /// rather than trusted ».</para>
+    /// </summary>
+    public CameraCopyRuleDto? CameraCopy { get; set; }
+}
+
+/// <summary>The reduced copy a hosted cabinet stores for a camera photo.</summary>
+public class CameraCopyRuleDto
+{
+    /// <summary>The longest edge — the repo's measured « nobody can tell apart in a 1000 px dialog » size.</summary>
+    public int MaxEdgePx { get; set; }
+
+    /// <summary>JPEG quality, 0–1.</summary>
+    public double Quality { get; set; }
+
+    /// <summary>A hosted camera copy's size cap, kept far below the JPEG door's own 50 Mo.</summary>
+    public static readonly CameraCopyRuleDto Hosted = new() { MaxEdgePx = 2560, Quality = 0.92 };
 }
 
 public class UploadPolicyFormatDto

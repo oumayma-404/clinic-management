@@ -60,6 +60,10 @@ public static class StaffNotificationRules
         // « Branchez le disque et laissez la copie se faire » happens at the machine holding the coffre. A phone
         // is never that machine, so a banner there could only be read and dismissed.
         NotificationCategory.VaultCopyStale => false,
+        // The same at the PC holding the camera originals: plug the archive disk in there, and the copy does itself.
+        NotificationCategory.PhotoOriginalsCopyStale => false,
+        // Deleting files or calling APEXA happens at a desk, and nothing breaks before the ceiling itself.
+        NotificationCategory.StorageNearlyFull => false,
         // What it asks for is a birth date and a telephone number typed into a fiche, which happens at a keyboard;
         // and the record stays marked provisional on the patient itself, so nothing is lost by waiting.
         NotificationCategory.PatientImportedNeedsReview => false,

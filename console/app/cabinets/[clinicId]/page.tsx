@@ -9,6 +9,7 @@ import { DeleteClinicDialog } from "@/components/delete-clinic-dialog";
 import { ResetClinicPasswordDialog } from "@/components/reset-clinic-password-dialog";
 import { ResetSecondFactorDialog } from "@/components/reset-second-factor-dialog";
 import { SuspendDialog } from "@/components/suspend-dialog";
+import { StorageQuotaDialog } from "@/components/storage-quota-dialog";
 import { ConsoleApiError } from "@/lib/api/client";
 import {
   CLINIC_NOT_FOUND_CODE,
@@ -16,7 +17,7 @@ import {
   redirectIfPasswordChangeRequired,
   type PlatformClinicDetail,
 } from "@/lib/api/platform";
-import { EM_DASH, formatCount, formatDate, formatDateTime, formatFreshness, formatMoney } from "@/lib/format";
+import { EM_DASH, formatBytes, formatCount, formatDate, formatDateTime, formatFreshness, formatMoney } from "@/lib/format";
 import { readSessionToken } from "@/lib/session";
 
 /**
@@ -121,6 +122,32 @@ export default async function CabinetDetailPage({ params }: PageProps) {
             <Figure label="PC de secours" value={clinic.relayLabel} />
           </dl>
         </section>
+
+        {/* features/camera-photo-import phase 3 — what the cabinet stores against its ceiling, and the one action
+            « contactez APEXA pour augmenter l'espace » leads to. Absent where nothing is enforced. */}
+        {clinic.storageQuotaBytes > 0 ? (
+          <section aria-labelledby="storage-heading" className="rounded-lg border border-border bg-card p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 id="storage-heading" className="text-base font-semibold">
+                  Stockage
+                </h2>
+                <p className="mt-1 text-sm tabular-nums text-muted-foreground">
+                  {formatBytes(clinic.storageUsedBytes)} sur {formatBytes(clinic.storageQuotaBytes)} ·{" "}
+                  {Math.round((clinic.storageUsedBytes / clinic.storageQuotaBytes) * 100)} %
+                  {clinic.storageQuotaIsCustom ? " · quota propre à ce cabinet" : " · quota par défaut"}
+                </p>
+              </div>
+              <StorageQuotaDialog
+                clinicId={clinic.clinicId}
+                clinicName={clinic.name}
+                usedBytes={clinic.storageUsedBytes}
+                quotaBytes={clinic.storageQuotaBytes}
+                isCustom={clinic.storageQuotaIsCustom}
+              />
+            </div>
+          </section>
+        ) : null}
 
         <ActivityTrend trend={detail.trend} />
 

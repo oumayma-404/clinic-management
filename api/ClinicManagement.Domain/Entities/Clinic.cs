@@ -170,6 +170,20 @@ public class Clinic : AggregateRoot<Guid>
     /// </summary>
     public DateTime? LastVaultCopyAtUtc { get; private set; }
 
+    /// <summary>
+    /// This cabinet's own storage ceiling on a hosted deployment, in bytes — or null for the deployment's default
+    /// (<c>features/camera-photo-import</c>, phase 3). Set from the vendor console only, with a motif that is journaled:
+    /// a practice that photographs every patient outgrows the default, and « contactez APEXA » needs something the
+    /// vendor can actually change.
+    /// </summary>
+    public long? StorageQuotaBytes { get; private set; }
+
+    /// <summary>The smallest ceiling the console may set: below it a cabinet could not hold a week of photos.</summary>
+    public const long MinStorageQuotaBytes = 1L * 1024 * 1024 * 1024;
+
+    /// <summary>The largest: well above any practice, and below anything a typo of three zeros could produce.</summary>
+    public const long MaxStorageQuotaBytes = 2L * 1024 * 1024 * 1024 * 1024;
+
     /// <summary>« Mode discret »: the clinic-wide money screens are hidden. Display only — no money row is touched.</summary>
     public bool IsMoneyHidden { get; private set; }
 
@@ -515,6 +529,38 @@ public class Clinic : AggregateRoot<Guid>
         {
             LastArchiveDownloadedAtUtc = deliveredAtUtc;
         }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="bytes"/> is a ceiling the console may set — null (the deployment's default) always is.
+    /// Asked by the console before anything is read, so a refusal is a sentence rather than an exception.
+    /// </summary>
+    public static bool IsValidStorageQuota(long? bytes) =>
+        bytes is not { } value || (value >= MinStorageQuotaBytes && value <= MaxStorageQuotaBytes);
+
+    /// <summary>The one sentence for <see cref="IsValidStorageQuota"/>'s refusal, built from the two bounds it checks.</summary>
+    public static readonly string StorageQuotaRangeError =
+        $"Le quota de stockage doit être compris entre {MinStorageQuotaBytes / (1024L * 1024 * 1024)} Go et "
+        + $"{MaxStorageQuotaBytes / (1024L * 1024 * 1024 * 1024)} To.";
+
+    /// <summary>
+    /// Sets this cabinet's own ceiling, or returns it to the deployment's default with null. Returns false when nothing
+    /// changed, so the caller journals only a real change.
+    /// </summary>
+    public bool SetStorageQuota(long? bytes)
+    {
+        if (!IsValidStorageQuota(bytes))
+        {
+            throw new ArgumentOutOfRangeException(nameof(bytes), StorageQuotaRangeError);
+        }
+
+        if (StorageQuotaBytes == bytes)
+        {
+            return false;
+        }
+
+        StorageQuotaBytes = bytes;
+        return true;
     }
 
     /// <summary>

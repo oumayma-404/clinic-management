@@ -136,6 +136,51 @@ public class UploadPatientFileAtomicityTests
         _fileStorage.Verify(f => f.DeleteAsync(StoredKey, It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    /// <summary>
+    /// The 80 / 95 % bell runs after the commit, and it used to run INSIDE the try whose catch deletes the stored blobs —
+    /// so anything escaping it would have erased the bytes of a file whose row was already committed. The allowance
+    /// swallows its own failures; this injects the one thing that can still escape it (its logger) to prove that nothing
+    /// after the commit can reach the cleanup.
+    /// </summary>
+    [Fact]
+    public async Task Nothing_After_The_Commit_Can_Delete_The_Committed_Files_Bytes()
+    {
+        PatientFound();
+        _fileStorage
+            .Setup(f => f.UploadAsync(It.IsAny<Stream>(), It.IsAny<string>(), ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(StoredKey);
+        _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        var usage = new Mock<IPatientFileRepository>();
+        usage.SetupSequence(f => f.GetHostedBytesAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0)                                         // the room check, before the bytes are stored
+            .ThrowsAsync(new TimeoutException("database gone"));    // the bell's read, after the commit
+        var policy = new Mock<IClinicStoragePolicy>();
+        policy.SetupGet(p => p.Enforced).Returns(true);
+        policy.SetupGet(p => p.QuotaBytes).Returns(10L * 1024 * 1024 * 1024);
+        var allowance = new ClinicStorageAllowance(
+            usage.Object, policy.Object, notifications: new Mock<INotificationGenerator>().Object,
+            logger: new ThrowingLogger<ClinicStorageAllowance>());
+        var handler = new UploadPatientFileCommandHandler(
+            _patients.Object, _folders.Object, _files.Object, _fileStorage.Object, _uow.Object,
+            _clinicResolver.Object, _residencyPolicy.Object, allowance, NullLogger<UploadPatientFileCommandHandler>.Instance);
+
+        await handler.Handle(ACommand(), CancellationToken.None);
+
+        _files.Verify(r => r.AddAsync(It.IsAny<PatientFile>(), It.IsAny<CancellationToken>()), Times.Once);
+        _fileStorage.Verify(f => f.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private sealed class ThrowingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            throw new InvalidOperationException("log sink down");
+    }
+
     // [AC-3] On success the record persists and no cleanup delete is issued.
     [Fact]
     public async Task Handle_Should_Not_Delete_Blob_On_Success()

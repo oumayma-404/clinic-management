@@ -4,7 +4,6 @@ using ClinicManagement.Application.Common.Interfaces;
 using MediatR;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
-using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 
 namespace ClinicManagement.Application.Features.Files.Commands;
@@ -20,14 +19,6 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
     private readonly IPatientFolderRepository _folderRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentClinicResolver _clinicResolver;
-
-    private static readonly string[] DefaultFolderNames = new[]
-    {
-        "Radiographie",
-        "Photographie",
-        "Analyses Biologiques",
-        "Lettres de Liaisons"
-    };
 
     public InitializeDefaultFoldersCommandHandler(
         IPatientRepository patientRepository,
@@ -60,41 +51,13 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
                 return Result<IEnumerable<PatientFolderDto>>.Failure("Patient introuvable.");
             }
 
-            var existingFolders = await _folderRepository.GetRootFoldersByPatientIdAsync(request.PatientId, cancellationToken);
-            var existingFolderNames = existingFolders.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            var createdFolders = new List<PatientFolder>();
-
-            foreach (var folderName in DefaultFolderNames)
-            {
-                if (!existingFolderNames.Contains(folderName))
-                {
-                    // Generate a consistent ID based on folder name for default folders
-                    var folderId = GenerateDefaultFolderId(request.PatientId, folderName);
-                    var folder = new PatientFolder(folderId, request.PatientId, patient.ClinicId, folderName);
-                    await _folderRepository.AddAsync(folder, cancellationToken);
-                    createdFolders.Add(folder);
-                }
-            }
-
-            if (createdFolders.Count > 0)
-            {
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-            }
+            // « Missing » is asked by id first, then by name: a renamed default folder still holds its id, and creating
+            // it again under that id is refused before any SQL runs (features/camera-photo-import).
+            await DefaultPatientFolders.EnsureAllAsync(_folderRepository, _unitOfWork, patient, cancellationToken);
 
             // Return all root folders (including newly created ones)
             var allFolders = await _folderRepository.GetRootFoldersByPatientIdAsync(request.PatientId, cancellationToken);
-            var dtos = allFolders.Select(f => new PatientFolderDto
-            {
-                Id = f.Id,
-                PatientId = f.PatientId,
-                ParentFolderId = f.ParentFolderId,
-                Name = f.Name,
-                FileCount = f.Files.Count,
-                SubFolderCount = f.SubFolders.Count,
-                CreatedAt = f.CreatedAt,
-                UpdatedAt = f.UpdatedAt
-            });
+            var dtos = allFolders.Select(DefaultPatientFolders.ToDto);
 
             return Result<IEnumerable<PatientFolderDto>>.Success(dtos);
         }
@@ -102,16 +65,6 @@ public class InitializeDefaultFoldersCommandHandler : IRequestHandler<Initialize
         {
             return Result<IEnumerable<PatientFolderDto>>.Failure(ErrorMessages.Generic, ex);
         }
-    }
-
-    private static Guid GenerateDefaultFolderId(Guid patientId, string folderName)
-    {
-        // Generate a deterministic GUID based on patient ID and folder name
-        // This ensures default folders have consistent IDs
-        var input = $"{patientId}-{folderName}";
-        var bytes = System.Text.Encoding.UTF8.GetBytes(input);
-        var hash = System.Security.Cryptography.MD5.HashData(bytes);
-        return new Guid(hash);
     }
 }
 

@@ -47,6 +47,8 @@ public class SubscriptionExemptionCoverageTests
         // of its own files is not recording new work, and a lapsed cabinet must not be the one that stops being
         // told its coffre is unprotected. It is grant-gated independently of the subscription.
         "Backup.ReportVaultCopy",
+        // features/camera-photo-import: the same report for the camera originals a clinic PC keeps, sent by the page.
+        "PhotoImport.ReportOriginalsCopy",
         // clinic-pc-copy: setting up, feeding and retiring the PC de secours. A copy of the cabinet's own records
         // is not new work, and a lapsed cabinet is the last one that should lose its spare copy (FR-1).
         "RelayPeer.Pair",
@@ -194,6 +196,8 @@ public class SubscriptionExemptionCoverageTests
         // mistaken suspension has to stay liftable on the same cabinet.
         "PlatformSubscriptions.Suspend",
         "PlatformSubscriptions.LiftSuspension",
+        // features/camera-photo-import phase 3: the vendor raising a cabinet's storage ceiling records no work of the cabinet's.
+        "PlatformSubscriptions.SetStorageQuota",
 
         // --- Clearing a clinic account's second factor at its owner's request (`hosted-security-hardening`
         // FR-1.4). ⚠️ **The exemption is the point of the endpoint, not a convenience.** The person who cannot sign

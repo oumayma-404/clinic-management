@@ -43,8 +43,11 @@ public static class PlatformClinicRowMapper
     /// <paramref name="adminEmail"/>. Required rather than defaulted, so a third caller cannot forget it and render
     /// every cabinet as « Aucun ».
     /// </param>
+    /// <param name="defaultQuotaBytes">The deployment's ceiling (<c>IClinicStoragePolicy.QuotaBytes</c>), used where the
+    /// cabinet has none of its own; 0 where nothing is enforced, which the console reads as « no meter ».</param>
     public static PlatformClinicRowDto ToDto(
-        PlatformClinicRow row, DateTime clinicToday, string? adminEmail, ClinicRelay? relay, DateTime nowUtc)
+        PlatformClinicRow row, DateTime clinicToday, string? adminEmail, ClinicRelay? relay, DateTime nowUtc,
+        long defaultQuotaBytes = 0)
     {
         ArgumentNullException.ThrowIfNull(row);
         var relayReading = ClinicRelayHealth.Read(relay, nowUtc);
@@ -95,6 +98,9 @@ public static class PlatformClinicRowMapper
             // must not light up for a cabinet whose real problem is that nothing is counting.
             MessagingExhausted: row.HasMessagingMonth && row.MessagingConsumed >= row.MessagingAllowance,
             RelayState: RelayLabels.Key(relayReading.State),
-            RelayLabel: RelayLabels.Short(relayReading, nowUtc));
+            RelayLabel: RelayLabels.Short(relayReading, nowUtc),
+            StorageUsedBytes: row.HostedBytes,
+            StorageQuotaBytes: defaultQuotaBytes > 0 ? row.StorageQuotaBytes ?? defaultQuotaBytes : 0,
+            StorageQuotaIsCustom: defaultQuotaBytes > 0 && row.StorageQuotaBytes is not null);
     }
 }

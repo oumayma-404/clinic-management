@@ -77,6 +77,12 @@ public sealed class FileMirrorService
         string root;
         try
         {
+            // Before anything is created: with the archive disk unplugged, a camera's card can hold its letter.
+            if (ArchiveDisk.Unplugged(_settings.Folder) is { } unplugged)
+            {
+                return new ArchiveCopyOutcome(false, unplugged);
+            }
+
             root = RootFor(_settings.Folder);
             Directory.CreateDirectory(root);
         }

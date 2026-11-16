@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
+using ClinicManagement.DesktopShell.Camera;
 using Microsoft.Web.WebView2.Core;
 
 namespace ClinicManagement.DesktopShell;
@@ -76,11 +77,17 @@ public partial class MainWindow : Window
     /// </summary>
     private string _noticeDismissedForVersion = string.Empty;
 
+    /// <summary>The camera import (camera-photo-import, since 1.8): its messages, its watcher, its notices.</summary>
+    private readonly CameraBridge _camera;
+
     public MainWindow()
     {
         InitializeComponent();
         FitToWorkArea();
-        ShellNotifications.Listen(OpenStaffChatFromNotification);
+        _camera = new CameraBridge(
+            this, () => _coreReady ? WebView.CoreWebView2 : null, IsClinicPage, DeliverRelayResultAsync);
+        Closed += (_, _) => _camera.Dispose();
+        ShellNotifications.Listen(OpenStaffChatFromNotification, _camera.OpenFromNotification);
     }
 
     /// <summary>
@@ -385,6 +392,12 @@ public partial class MainWindow : Window
             RunArchiveCopyIfDue();
             StartFileMirrorIfEnabled();
             StartUpdateChecks();
+
+            // Last, after the five above: the watcher, the originals the server has not written down, the copy.
+            if (IsClinicPage(WebView.CoreWebView2.Source))
+            {
+                _camera.OnClinicPageLoaded();
+            }
         }
         else if (IsClinicServerUnreachable(e))
         {
@@ -534,6 +547,11 @@ public partial class MainWindow : Window
                 else if (message.StartsWith(CarryTakePrefix, StringComparison.Ordinal))
                 {
                     AnswerCarryTakeAsync(e.Source, message[CarryTakePrefix.Length..]);
+                }
+                // `camera-*` — the camera import (camera-photo-import, since 1.8). CameraBridge checks the origin.
+                else if (message.StartsWith(CameraBridge.Prefix, StringComparison.Ordinal))
+                {
+                    _camera.TryHandle(message, e.Source);
                 }
                 // `notify:<json>` — staff-chat: a chat message while this window is not in front.
                 else if (message.StartsWith(NotifyPrefix, StringComparison.Ordinal))

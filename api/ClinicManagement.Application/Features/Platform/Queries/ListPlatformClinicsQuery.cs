@@ -70,6 +70,9 @@ public class ListPlatformClinicsQueryHandler
     private readonly IClinicActivityRepository _activityRepository;
     private readonly IUserRepository _userRepository;
     private readonly IClinicRelayRepository _relays;
+    /// <summary>The deployment's default storage ceiling (features/camera-photo-import, phase 3). Optional: a test
+    /// harness that does not care about storage leaves it out, and the row then reads « no meter ».</summary>
+    private readonly IClinicStoragePolicy? _storage;
     private readonly ITenantScope _tenantScope;
     private readonly ILogger<ListPlatformClinicsQueryHandler> _logger;
 
@@ -78,8 +81,10 @@ public class ListPlatformClinicsQueryHandler
         IUserRepository userRepository,
         IClinicRelayRepository relays,
         ITenantScope tenantScope,
-        ILogger<ListPlatformClinicsQueryHandler> logger)
+        ILogger<ListPlatformClinicsQueryHandler> logger,
+        IClinicStoragePolicy? storage = null)
     {
+        _storage = storage;
         _activityRepository = activityRepository;
         _userRepository = userRepository;
         _relays = relays;
@@ -137,7 +142,7 @@ public class ListPlatformClinicsQueryHandler
             var items = page.Items
                 .Select(row => PlatformClinicRowMapper.ToDto(
                     row, today, admins.TryGetValue(row.ClinicId, out var admin) ? admin.Email : null,
-                    relays.GetValueOrDefault(row.ClinicId), now))
+                    relays.GetValueOrDefault(row.ClinicId), now, _storage?.QuotaBytes ?? 0))
                 .ToList();
 
             return Result<PlatformClinicPageDto>.Success(new PlatformClinicPageDto(
@@ -186,6 +191,7 @@ public class ListPlatformClinicsQueryHandler
         "name" => PlatformPortfolioSort.Name,
         "activity" => PlatformPortfolioSort.Activity,
         "endson" => PlatformPortfolioSort.EndsOn,
+        "storage" => PlatformPortfolioSort.Storage,
         _ => PlatformPortfolioSort.CreatedAt
     };
 

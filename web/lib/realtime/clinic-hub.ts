@@ -47,6 +47,9 @@ export const RealtimeResource = {
   // worklist gets a new home.
   Recall: "recall",
   WaitingList: "waitinglist", // /waiting-list — the canonical two-user screen (salle d'attente)
+  // Features/Cameras/Commands (features/camera-photo-import): a camera paired, renamed or moved to another doctor
+  // on one PC reaches the « Appareils photo » card and the import screen open on another.
+  Cameras: "cameras",
 } as const
 
 export type RealtimeResourceKey = (typeof RealtimeResource)[keyof typeof RealtimeResource]

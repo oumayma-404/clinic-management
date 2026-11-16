@@ -32,6 +32,7 @@ public sealed class ClinicStoragePolicy : IClinicStoragePolicy
 
     private readonly DeploymentProfile _profile;
     private readonly long _quotaBytes;
+    private readonly long _serverDiskBytes;
 
     public ClinicStoragePolicy(DeploymentProfile profile, IConfiguration configuration)
     {
@@ -46,9 +47,17 @@ public sealed class ClinicStoragePolicy : IClinicStoragePolicy
         // exact failure the fall-back above exists to prevent. Caught by the test that asserts the fall-back.
         var configured = configuration["Deployment:StorageQuotaPerClinicBytes"];
         _quotaBytes = long.TryParse(configured, out var parsed) && parsed > 0 ? parsed : DefaultQuotaBytes;
+        _serverDiskBytes = long.TryParse(configuration["Deployment:ServerDiskBytes"], out var disk) && disk > 0 ? disk : 0;
     }
 
     public bool Enforced => !_profile.UsesDiskStorage;
 
     public long QuotaBytes => Enforced ? _quotaBytes : 0;
+
+    /// <summary>
+    /// <c>Deployment:ServerDiskBytes</c> — the server disk's size, as the operator declared it (phase 3 of
+    /// <c>features/camera-photo-import</c>). Parsed by hand for the reason above; unset or unreadable is null, and the
+    /// console then states no disk warning rather than inventing a capacity.
+    /// </summary>
+    public long? ServerDiskBytes => Enforced && _serverDiskBytes > 0 ? _serverDiskBytes : null;
 }

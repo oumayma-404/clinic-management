@@ -54,6 +54,9 @@ public class GetPlatformClinicDetailQueryHandler
     private readonly IPlatformAccessEntryRepository _accessEntryRepository;
     private readonly IPlatformSessionContext _session;
     private readonly IUnitOfWork _unitOfWork;
+    /// <summary>The deployment's default storage ceiling (features/camera-photo-import, phase 3). Optional: a test
+    /// harness that does not care about storage leaves it out, and the row then reads « no meter ».</summary>
+    private readonly IClinicStoragePolicy? _storage;
     private readonly ITenantScope _tenantScope;
     private readonly IMessagingAllowanceRepository _allowances;
     private readonly IClinicReminderSettingsRepository _reminderSettings;
@@ -73,8 +76,10 @@ public class GetPlatformClinicDetailQueryHandler
         IClinicReminderSettingsRepository reminderSettings,
         IVendorMessagingAvailability vendorMessaging,
         IClinicRelayRepository relays,
-        ILogger<GetPlatformClinicDetailQueryHandler> logger)
+        ILogger<GetPlatformClinicDetailQueryHandler> logger,
+        IClinicStoragePolicy? storage = null)
     {
+        _storage = storage;
         _relays = relays;
         _activityRepository = activityRepository;
         _userRepository = userRepository;
@@ -136,7 +141,8 @@ public class GetPlatformClinicDetailQueryHandler
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return Result<PlatformClinicDetailDto>.Success(new PlatformClinicDetailDto(
-                Clinic: PlatformClinicRowMapper.ToDto(row, clinicToday, admin?.Email, relay, DateTime.UtcNow),
+                Clinic: PlatformClinicRowMapper.ToDto(
+                    row, clinicToday, admin?.Email, relay, DateTime.UtcNow, _storage?.QuotaBytes ?? 0),
                 AdminName: admin?.FullName,
                 AdminEmail: admin?.Email,
                 // No admin at all reads as « inactive » rather than as a reachable person: the screen shows a

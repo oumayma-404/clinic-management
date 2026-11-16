@@ -18,7 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { FilePlus2, FolderOpen, SearchX } from "lucide-react"
+import { Camera, FilePlus2, FolderOpen, SearchX } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 import { patientFilesApi, type PatientFileDirectorySort } from "@/lib/api/patient-files"
 import type { PatientFileSummaryDto } from "@/lib/api/types"
@@ -189,7 +190,19 @@ export function PatientFilesDirectory() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Fichiers" subtitle={subtitle} />
+      <PageHeader
+        title="Fichiers"
+        subtitle={subtitle}
+        actions={
+          // The camera's card, sorted by the agenda into each patient's « Photographie » (`features/camera-photo-import`).
+          <Button asChild className="gap-2 coarse:min-h-11">
+            <Link href="/photos/import">
+              <Camera className="size-4" aria-hidden="true" />
+              Importer des photos
+            </Link>
+          </Button>
+        }
+      />
 
       <ListToolbar
         search={{

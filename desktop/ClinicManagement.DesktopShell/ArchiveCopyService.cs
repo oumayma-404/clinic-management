@@ -89,6 +89,12 @@ public sealed class ArchiveCopyService
         string partPath;
         try
         {
+            // Before anything is created: with the archive disk unplugged, a camera's card can hold its letter.
+            if (ArchiveDisk.Unplugged(_settings.Folder) is { } unplugged)
+            {
+                return new ArchiveCopyOutcome(false, unplugged);
+            }
+
             Directory.CreateDirectory(_settings.Folder);
             HardenFolder(_settings.Folder);
 

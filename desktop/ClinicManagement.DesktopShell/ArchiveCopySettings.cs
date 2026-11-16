@@ -47,6 +47,13 @@ public sealed class ArchiveCopySettings
     /// </summary>
     public string VaultFolder { get; set; } = "";
 
+    /// <summary>
+    /// The volume serials of the disks <see cref="Folder"/> was set up on (<c>camera-photo-import</c>) — the archive
+    /// disk's identity, so a camera card that took its letter is not written to. A list, so two disks used in
+    /// turn both stay accepted. Empty on settings saved before 1.8: <see cref="ArchiveDisk"/> decides then.
+    /// </summary>
+    public List<uint> FolderVolumes { get; set; } = new();
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Folder) && !string.IsNullOrWhiteSpace(GrantSecret);
 
@@ -98,5 +105,30 @@ public static class ArchiveCopySettingsStore
         var path = Path;
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(settings, Json));
+    }
+
+    /// <summary>
+    /// Records the disk a complete copy just landed on, for settings that named none yet (saved before 1.8). Re-read
+    /// first and skipped when the folder changed meanwhile, so a copy that started before a new choice cannot undo it.
+    /// Never throws.
+    /// </summary>
+    public static void RememberFolderVolume(string folder, uint volume)
+    {
+        try
+        {
+            var settings = Load();
+            if (settings.FolderVolumes.Count > 0
+                || !string.Equals(settings.Folder.Trim(), folder.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            settings.FolderVolumes.Add(volume);
+            Save(settings);
+        }
+        catch
+        {
+            // The next complete copy records it.
+        }
     }
 }

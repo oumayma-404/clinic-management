@@ -229,6 +229,30 @@ public class StaffNotificationRepository : IStaffNotificationRepository
                 cancellationToken);
     }
 
+    public async Task<StaffNotification?> GetPhotoOriginalsCopyStaleAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters for GetVaultCopyStaleAsync's reason: the daily pass runs UseSystemWide.
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                n => n.ClinicId == clinicId && n.Category == NotificationCategory.PhotoOriginalsCopyStale,
+                cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<StaffNotification>> GetStorageNearlyFullAlertsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        // IgnoreQueryFilters for GetVaultCopyStaleAsync's reason (the console's quota change runs system-wide); the
+        // parameter is the authoritative check.
+        return await _context.StaffNotifications
+            .IgnoreQueryFilters()
+            .Where(n => n.ClinicId == clinicId && n.Category == NotificationCategory.StorageNearlyFull)
+            .OrderBy(n => n.CreatedAt)
+            .ThenBy(n => n.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<StaffNotification?> GetBackupStaleAsync(
         Guid clinicId, CancellationToken cancellationToken = default)
     {

@@ -54,7 +54,9 @@ export async function buildPreview(file: File): Promise<Blob | null> {
 
   let bitmap: ImageBitmap
   try {
-    bitmap = await createImageBitmap(source)
+    // Pinned rather than left to the default: a phone or camera photo shot in portrait stores its pixels on their
+    // side plus an EXIF Orientation tag, and the stand-in carries no EXIF — the rotation must be baked in here.
+    bitmap = await createImageBitmap(source, { imageOrientation: 'from-image' })
   } catch {
     return null
   }

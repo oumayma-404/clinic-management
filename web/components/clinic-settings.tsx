@@ -44,6 +44,7 @@ import { useAuthToken } from "@/lib/hooks/use-auth-token"
 import { useSession } from "@/lib/auth/session"
 import { BackupSettings } from "@/components/backup-settings"
 import { MoneyDiscreetCard } from "@/components/money-discreet-card"
+import { CamerasCard } from "@/components/settings/cameras-card"
 import { TeamModulesCard } from "@/components/team-modules-card"
 import { SETTINGS_HOURS_ANCHOR, SHOW_SETTINGS_HOURS_EVENT } from "@/components/team/attendance-settings-card"
 import { RelayCard } from "@/components/relay/relay-card"
@@ -1549,6 +1550,9 @@ export default function ClinicSettings() {
             </CardContent>
           </Card>
         )}
+
+        {/* features/camera-photo-import — the cameras this cabinet imports from; each appears at its first import. */}
+        <CamerasCard />
 
         {/* Admin-only backup card — Local mode only (US-8 / FR-G). */}
         {mode === "local" && user?.role === "admin" && <BackupSettings />}

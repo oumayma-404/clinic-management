@@ -90,7 +90,8 @@ public class PatientFileRepository : IPatientFileRepository
         var query =
             from file in _context.PatientFiles
             join patient in _context.Patients on file.PatientId equals patient.Id
-            where file.ClinicId == clinicId
+            // Hosted only: a coffre file cannot be downloaded from here, and listing it stopped the mirror.
+            where file.ClinicId == clinicId && file.Residency == FileResidency.Hosted
             // Ascending, and see the interface note: a caller walks these pages while uploads continue, and
             // newest-first would push unread rows past the cursor every time somebody scans a document.
             orderby file.UploadedAt, file.Id
@@ -112,6 +113,74 @@ public class PatientFileRepository : IPatientFileRepository
 
         var items = await query.Skip(page.Skip).Take(page.Take).ToListAsync(cancellationToken);
         return new PagedResult<ClinicFileManifestRow>(items, page.Page, page.PageSize, total);
+    }
+
+    public async Task<IReadOnlyList<ImportedCaptureRow>> GetImportedCapturesAsync(
+        Guid clinicId,
+        IReadOnlyCollection<string> captureKeys,
+        CancellationToken cancellationToken = default)
+    {
+        if (captureKeys.Count == 0)
+        {
+            return Array.Empty<ImportedCaptureRow>();
+        }
+
+        // Served by the unique (ClinicId, CaptureKey) index; the join names the patient for « déjà importée chez … ».
+        return await (
+                from file in _context.PatientFiles
+                join patient in _context.Patients on file.PatientId equals patient.Id
+                where file.ClinicId == clinicId
+                      && file.CaptureKey != null
+                      && captureKeys.Contains(file.CaptureKey)
+                orderby file.CaptureKey
+                select new ImportedCaptureRow(
+                    file.CaptureKey!,
+                    file.Id,
+                    file.PatientId,
+                    patient.FirstName + " " + patient.LastName,
+                    file.OriginalHeldBy))
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<bool> CaptureKeyExistsAsync(Guid clinicId, string captureKey, CancellationToken cancellationToken = default) =>
+        _context.PatientFiles
+            .IgnoreQueryFilters()
+            .AnyAsync(f => f.ClinicId == clinicId && f.CaptureKey == captureKey, cancellationToken);
+
+    public async Task<UncoveredOriginals> GetUncoveredOriginalsAsync(
+        Guid clinicId,
+        string heldBy,
+        DateTime? afterUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.PatientFiles
+            .IgnoreQueryFilters()
+            .Where(f => f.ClinicId == clinicId && f.OriginalHeldBy == heldBy && f.OriginalKeptAt != null);
+        if (afterUtc is { } after)
+        {
+            query = query.Where(f => f.OriginalKeptAt > after);
+        }
+
+        var files = await query.CountAsync(cancellationToken);
+        var oldest = files == 0 ? null : await query.MinAsync(f => f.OriginalKeptAt, cancellationToken);
+        return new UncoveredOriginals(files, oldest);
+    }
+
+    public async Task<IReadOnlyList<CameraOriginalTotals>> GetCameraOriginalTotalsAsync(
+        Guid clinicId,
+        CancellationToken cancellationToken = default)
+    {
+        // `IgnoreQueryFilters` + an explicit ClinicId for GetVaultTotalsAsync's reason: the daily pass reads this
+        // under UseSystemWide, and the parameter is the authoritative check.
+        var rows = await _context.PatientFiles
+            .IgnoreQueryFilters()
+            .Where(f => f.ClinicId == clinicId && f.OriginalHeldBy != null)
+            .GroupBy(f => f.OriginalHeldBy!)
+            .Select(g => new { HeldBy = g.Key, Files = g.Count(), Bytes = g.Sum(f => f.OriginalSizeBytes ?? 0L) })
+            .OrderBy(g => g.HeldBy)
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(r => new CameraOriginalTotals(r.HeldBy, r.Files, r.Bytes)).ToList();
     }
 
     public async Task<IEnumerable<PatientFile>> GetByPatientIdAsync(Guid patientId, CancellationToken cancellationToken = default)

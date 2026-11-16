@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { PlatformClinicPage, PlatformClinicRow } from "@/lib/api/platform";
 import { CardList } from "@/components/ui/card-list";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { EM_DASH, formatCount, formatDate, formatDateTime } from "@/lib/format";
+import { EM_DASH, formatBytes, formatCount, formatDate, formatDateTime } from "@/lib/format";
 
 /**
  * The portfolio itself — one table above `lg:`, one card list below it (`platform-console` AC-2.1).
@@ -83,6 +83,11 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                 <TableHead scope="col" className="text-right">
                   Reste
                 </TableHead>
+                {/* Phase 3 of camera-photo-import: used of the ceiling in force, with the share — the figure a
+                    « contactez APEXA pour augmenter l'espace » call is about. */}
+                <TableHead scope="col" className="text-right">
+                  Stockage
+                </TableHead>
                 <TableHead scope="col">Créé le</TableHead>
                 {/* The action column's header is not empty: a blank `<th>` leaves a screen reader announcing a
                     column number for the one cell that does something. */}
@@ -143,6 +148,9 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
                         ? "épuisé"
                         : formatCount(clinic.messagingRemaining)}
                   </TableCell>
+                  <TableCell className="whitespace-nowrap text-right tabular-nums">
+                    <StorageFigure clinic={clinic} />
+                  </TableCell>
                   <TableCell className="whitespace-nowrap">{formatDate(clinic.createdAt)}</TableCell>
                   <TableCell className="whitespace-nowrap">
                     <Link
@@ -184,6 +192,7 @@ export function ClinicPortfolio({ page }: { page: PlatformClinicPage }) {
             clinic.endsOn ? { label: "Fin d'abonnement", value: formatDate(clinic.endsOn) } : false,
             // clinic-pc-copy AC-9.1 — always present, « Aucun » included: whether a cabinet is covered is the question.
             { label: "PC de secours", value: <RelayBadge clinic={clinic} /> },
+            clinic.storageQuotaBytes > 0 && { label: "Stockage", value: <StorageFigure clinic={clinic} /> },
             // Ordered by what a churn conversation needs first: is it being used, then the rest. The unmeasured
             // cabinet drops every figure rather than showing zeros it cannot vouch for.
             clinic.countersComputedAt !== null && {
@@ -308,4 +317,23 @@ function messagingConsumption(clinic: PlatformClinicRow): string {
   return clinic.messagingMeasured
     ? `${formatCount(clinic.messagingConsumed)} / ${formatCount(clinic.messagingAllowance)}`
     : EM_DASH;
+}
+
+/**
+ * « 8,1 Go / 10 Go · 81 % » — what a cabinet stores against the ceiling in force (`features/camera-photo-import`, phase 3).
+ * The share turns amber from 80 % and red from 95 %, the cabinet's own two bell levels, and « perso » marks a ceiling
+ * the vendor set for this cabinet rather than the deployment's.
+ */
+function StorageFigure({ clinic }: { clinic: PlatformClinicRow }) {
+  if (clinic.storageQuotaBytes <= 0) return <>{EM_DASH}</>;
+  const percent = Math.round((clinic.storageUsedBytes / clinic.storageQuotaBytes) * 100);
+  const tone =
+    percent >= 95 ? "text-destructive font-medium" : percent >= 80 ? "text-amber-700 dark:text-amber-400 font-medium" : "";
+  return (
+    <span>
+      {formatBytes(clinic.storageUsedBytes)} / {formatBytes(clinic.storageQuotaBytes)}
+      <span className={`ms-1 ${tone}`}>· {percent} %</span>
+      {clinic.storageQuotaIsCustom ? <span className="ms-1 text-xs text-muted-foreground">(perso)</span> : null}
+    </span>
+  );
 }

@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Files;
@@ -50,6 +51,7 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
     private readonly IFileStorage _fileStorage;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly ClinicStorageAllowance _storage;
     private readonly ILogger<CompleteFileUploadCommandHandler> _logger;
 
     public CompleteFileUploadCommandHandler(
@@ -60,8 +62,10 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
         IFileStorage fileStorage,
         IUnitOfWork unitOfWork,
         ICurrentClinicResolver clinicResolver,
+        ClinicStorageAllowance storage,
         ILogger<CompleteFileUploadCommandHandler> logger)
     {
+        _storage = storage;
         _patientRepository = patientRepository;
         _fileRepository = fileRepository;
         _sessions = sessions;
@@ -112,6 +116,24 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
                 return Result<PatientFileDto>.Failure("Patient introuvable.");
             }
 
+            // The quota again, against what actually arrived. The start checked a claim; between the two, the
+            // browser's two other uploads may have filled the room this one was counting on, and nothing else
+            // would notice (features/camera-photo-import, « found on the way »).
+            var room = await _storage.EnsureRoomForAsync(patient.ClinicId, session.ReceivedBytes, cancellationToken);
+            if (room.IsFailure)
+            {
+                return Result<PatientFileDto>.FailureFrom(room);
+            }
+
+            // A camera shot filed by another PC while these parts were arriving is refused before assembly.
+            var capture = session.CameraCapture(DateTime.UtcNow);
+            if (capture is not null
+                && await _fileRepository.CaptureKeyExistsAsync(patient.ClinicId, capture.CaptureKey, cancellationToken))
+            {
+                return Result<PatientFileDto>.Failure(
+                    CameraImportRefusals.AlreadyImported(), CameraImportRefusals.AlreadyImportedCode);
+            }
+
             var parts = Enumerable.Range(1, session.TotalParts).ToList();
 
             var storageKey = await _uploadStore.CompleteAsync(
@@ -123,11 +145,12 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
                 _fileStorage, _logger, fileId, session.ClinicId,
                 request.PreviewStream, request.PreviewFileName, request.PreviewSize, cancellationToken);
 
+            PatientFile file;
             try
             {
                 var entry = FileTypeCatalog.TryGet(FileNameSanitizer.ExtensionOf(session.FileName));
 
-                var file = new PatientFile(
+                file = new PatientFile(
                     fileId,
                     session.PatientId,
                     session.ClinicId,
@@ -141,13 +164,16 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
                     session.UploadedBy,
                     previewKey);
 
+                if (capture is not null)
+                {
+                    file.RecordCameraCapture(capture);
+                }
+
                 await _fileRepository.AddAsync(file, cancellationToken);
 
                 // The session's whole purpose is spent; the file row is the record from here.
                 await _sessions.RemoveAsync(session, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-                return Result<PatientFileDto>.Success(file.ToDto());
             }
             catch
             {
@@ -164,6 +190,18 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
 
                 throw;
             }
+
+            // ⚠️ Outside the cleanup scope: the row is committed from here, so nothing that follows may take its
+            // bytes with it. Post-commit, best-effort: the 80 / 95 % storage bell (features/camera-photo-import).
+            await _storage.AfterChangeAsync(session.ClinicId, cancellationToken);
+
+            return Result<PatientFileDto>.Success(file.ToDto());
+        }
+        catch (DbUpdateException ex) when (UniqueViolation.Is(ex))
+        {
+            // Only one unique index can fire here — the capture key's — and losing that race means « already filed ».
+            return Result<PatientFileDto>.Failure(
+                CameraImportRefusals.AlreadyImported(), CameraImportRefusals.AlreadyImportedCode);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
