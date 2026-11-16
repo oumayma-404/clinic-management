@@ -56,6 +56,48 @@ public class AppointmentPatientFilterTests
         repo.Verify();
     }
 
+    // [cabinet-de-groupe D10] A dentist's agenda keeps the RDV that name no dentist — a « créneau occupé » blocks their
+    // chair too — and still hides a colleague's.
+    [Fact]
+    public async Task A_Dentists_Agenda_Keeps_The_Unassigned_Rows_And_Drops_A_Colleagues()
+    {
+        var salma = Guid.NewGuid();
+        var nadia = Guid.NewGuid();
+        var at = new DateTime(2026, 9, 10, 9, 0, 0, DateTimeKind.Utc);
+        var hers = new Appointment(Guid.NewGuid(), ClinicId, PatientId, salma, at, TimeSpan.FromMinutes(30));
+        var block = new Appointment(Guid.NewGuid(), ClinicId, null, null, at.AddHours(3), TimeSpan.FromMinutes(60));
+        var colleagues = new Appointment(Guid.NewGuid(), ClinicId, PatientId, nadia, at.AddHours(1), TimeSpan.FromMinutes(30));
+        var repo = new Mock<IAppointmentRepository>();
+        // The widened read asks for the whole window, then keeps hers and nobody's.
+        repo.Setup(r => r.GetByClinicIdAsync(
+                ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { hers, block, colleagues });
+
+        var result = await Handler(repo).Handle(
+            new GetAppointmentsQuery { DoctorId = salma, IncludeUnassigned = true }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(
+            new[] { hers.Id, block.Id }.OrderBy(id => id),
+            result.Value!.Select(a => a.Id).OrderBy(id => id));
+    }
+
+    [Fact]
+    public async Task Without_The_Flag_The_Dentist_Filter_Stays_Strict()
+    {
+        var salma = Guid.NewGuid();
+        var repo = new Mock<IAppointmentRepository>();
+        repo.Setup(r => r.GetByClinicIdAsync(
+                ClinicId, It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), salma, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Appointment>())
+            .Verifiable();
+
+        var result = await Handler(repo).Handle(new GetAppointmentsQuery { DoctorId = salma }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        repo.Verify();
+    }
+
     private static GetAppointmentsQueryHandler Handler(Mock<IAppointmentRepository> repo)
     {
         var user = User.CreateLocalUser(ClinicId, "secretary", "sec@clinic.com", "HASH", "Sec");

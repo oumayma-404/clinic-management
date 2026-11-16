@@ -20,4 +20,10 @@ public class CreateClinicUserRequest
     /// Without it the account gets no <c>Doctor</c> record, and its documents print with no practitioner identity.
     /// </summary>
     public DoctorPersonalInfoDto? DoctorInfo { get; set; }
+
+    /// <summary>
+    /// A practitioner already on the roster to LINK to this account instead of creating a second record — for a
+    /// « médecin » or an « administrateur » who is also a dentist (cabinet-de-groupe US-3).
+    /// </summary>
+    public Guid? ExistingDoctorId { get; set; }
 }

@@ -168,7 +168,7 @@ public class UpdateAppointmentLateArrivalTests
 
         Assert.True(result.IsSuccess, result.Error);
         _notifications.Verify(g => g.EnsurePostVisitReviewAsync(
-            ClinicId, appointment.Id, DoctorId, It.IsAny<string>(), At.AddMinutes(45), It.IsAny<CancellationToken>()),
+            ClinicId, appointment.Id, DoctorId, It.IsAny<string>(), At.AddMinutes(45), It.IsAny<CancellationToken>(), It.IsAny<string?>()),
             Times.Once);
     }
 
@@ -182,7 +182,7 @@ public class UpdateAppointmentLateArrivalTests
 
         _notifications.Verify(g => g.EnsurePostVisitReviewAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<DateTime>(),
-            It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<CancellationToken>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]

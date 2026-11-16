@@ -149,6 +149,16 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 }
             }
 
+            // Which dentist this patient booking is for — resolved before the overlap and hours checks, so both
+            // judge the slot against the practitioner the RDV will actually carry (cabinet-de-groupe US-1).
+            var practitioner = await AppointmentPractitioner.ResolveAsync(
+                _doctorRepository, clinicId, request.PatientId, request.DoctorId, cancellationToken);
+            if (practitioner.IsFailure)
+            {
+                return Result<AppointmentDto>.FailureFrom(practitioner);
+            }
+            var doctorId = practitioner.Value;
+
             // Resolve the séance's acts — one shared path for the multi-act list and the single-act shorthand, so
             // every act (not just the first) is tenant-checked and required to be active.
             var requestedProcedures = AppointmentProcedureSelection.Reconcile(
@@ -192,7 +202,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             // The database's exclusion constraint is the real guarantee (AC-P1.15) — this exists to produce a
             // readable French refusal naming the clash instead of a raw 23P01.
             var collision = await AppointmentScheduling.FindCollisionAsync(
-                _appointmentRepository, clinicId, request.DoctorId,
+                _appointmentRepository, clinicId, doctorId,
                 request.AppointmentDateTime, duration, excludeAppointmentId: null, cancellationToken);
             // Advisory, not a prohibition (see AppointmentScheduling.SlotTakenCode): the refusal carries a code so
             // the dialog can offer « Continuer quand même », and the retry records the acceptance below.
@@ -209,7 +219,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
             if (!request.AllowOutsideWorkingHours)
             {
                 var hoursCheck = await AppointmentScheduling.CheckWorkingHoursAsync(
-                    _doctorRepository, _clinicRepository, _doctorLeaveRepository, clinicId, request.DoctorId,
+                    _doctorRepository, _clinicRepository, _doctorLeaveRepository, clinicId, doctorId,
                     request.AppointmentDateTime, duration, cancellationToken);
                 if (hoursCheck.IsFailure)
                 {
@@ -224,7 +234,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 Guid.NewGuid(),
                 clinicId,
                 request.PatientId,
-                request.DoctorId,
+                doctorId,
                 request.AppointmentDateTime,
                 duration,
                 request.DoctorName,
@@ -267,11 +277,11 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                     clinicId, appointment.Id, userId, patientName, appointment.AppointmentDateTime, cancellationToken);
                 await _notificationGenerator.ScheduleAppointmentReminderAsync(
                     clinicId, appointment.Id, patientName, appointment.AppointmentDateTime, cancellationToken);
-                // Post-visit review: becomes visible at the appointment end (start + duration), targeted at
-                // the linked doctor if any (else all staff). Deferred visibility replaces a background job.
+                // Post-visit review: becomes visible at the appointment end (start + duration), for the linked
+                // doctor and whoever booked it (else all staff). Deferred visibility replaces a background job.
                 await _notificationGenerator.EnsurePostVisitReviewAsync(
                     clinicId, appointment.Id, appointment.DoctorId, patientName,
-                    appointment.ExpectedEndUtc, cancellationToken);
+                    appointment.ExpectedEndUtc, cancellationToken, bookedByUserId: userId);
 
                 // Outbound SMS/WhatsApp reminder(s): enqueued to the Notification outbox per configured
                 // channel, sent later by the connectivity-gated dispatcher. Best-effort, never fails create.

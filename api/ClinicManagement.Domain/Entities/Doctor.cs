@@ -90,8 +90,17 @@ public class Doctor : AggregateRoot<Guid>
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Ties this practitioner to an account. ⚠️ Refuses a record already linked to <b>another</b> account — linking is
+    /// never a way to take a colleague's cachet and history (cabinet-de-groupe US-3); the same account again is a no-op.
+    /// </summary>
     public void LinkToUser(string userId)
     {
+        if (UserId is not null && UserId != userId)
+        {
+            throw new InvalidOperationException("Ce praticien est déjà lié à un autre compte.");
+        }
+
         UserId = userId;
         UpdatedAt = DateTime.UtcNow;
     }

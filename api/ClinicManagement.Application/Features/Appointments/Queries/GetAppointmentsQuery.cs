@@ -17,6 +17,14 @@ public class GetAppointmentsQuery : IRequest<Result<IEnumerable<AppointmentDto>>
     public Guid? DoctorId { get; set; }
 
     /// <summary>
+    /// With <see cref="DoctorId"/>: also keep the RDV that name NO dentist (cabinet-de-groupe D10). A « créneau
+    /// occupé » with no dentist blocks every chair (L2b), so an agenda filtered to one dentist that hid it would
+    /// offer a slot the save then refuses — and an old patient RDV booked with none would vanish from every view.
+    /// Off by default, so the export and every other reader keep the strict filter.
+    /// </summary>
+    public bool IncludeUnassigned { get; set; }
+
+    /// <summary>
     /// Optional per-patient filter — the patient page's own agenda. Cut in SQL, not in the browser: the client
     /// had been sending <c>?patientId=</c> since the page was written and nothing bound it, so the patient's
     /// « À compléter » section listed every undocumented visit in the clinic.
@@ -66,13 +74,21 @@ public class GetAppointmentsQueryHandler : IRequestHandler<GetAppointmentsQuery,
 
             var clinicId = user.ClinicId;
 
+            // The window bounds the rows, so the unassigned ones are kept here rather than by a second query.
+            var widened = request.IncludeUnassigned && request.DoctorId.HasValue;
             var appointments = await _appointmentRepository.GetByClinicIdAsync(
                 clinicId,
                 request.StartDate,
                 request.EndDate,
-                request.DoctorId,
+                widened ? null : request.DoctorId,
                 request.PatientId,
                 cancellationToken);
+            if (widened)
+            {
+                appointments = appointments
+                    .Where(a => a.DoctorId == request.DoctorId || a.DoctorId == null)
+                    .ToList();
+            }
 
             // Which of these visits are already billed (AC-P6.13). One batched read for the whole window, not
             // one per row — and bounded by the window, so the agenda does not pull every appointment-linked

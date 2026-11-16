@@ -149,17 +149,30 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
                 if (role == User.RoleDoctor
                     && await _doctorRepository.GetByUserIdAsync(target.Id, cancellationToken) is null)
                 {
-                    var (firstName, lastName) = SplitName(target.FullName, target.Email);
-                    var doctor = new Doctor(
-                        Guid.NewGuid(),
-                        target.ClinicId,
-                        firstName,
-                        lastName,
-                        DefaultSpecialty,
-                        phone: null,
-                        email: target.Email);
-                    doctor.LinkToUser(target.Id);
-                    await _doctorRepository.AddAsync(doctor, cancellationToken);
+                    // A practitioner added earlier in Paramètres → Praticiens with this very e-mail IS this person:
+                    // linking it keeps their cachet and history, where creating one more made a duplicate nothing
+                    // could merge (cabinet-de-groupe D12). Exactly one match, or none is taken.
+                    var roster = await _doctorRepository.GetByClinicIdAsync(target.ClinicId, cancellationToken) ?? [];
+                    var existing = PractitionerLink.SoleUnlinkedWithEmail(roster, target.Email);
+                    if (existing is not null)
+                    {
+                        existing.LinkToUser(target.Id);
+                        _doctorRepository.Update(existing);
+                    }
+                    else
+                    {
+                        var (firstName, lastName) = SplitName(target.FullName, target.Email);
+                        var doctor = new Doctor(
+                            Guid.NewGuid(),
+                            target.ClinicId,
+                            firstName,
+                            lastName,
+                            DefaultSpecialty,
+                            phone: null,
+                            email: target.Email);
+                        doctor.LinkToUser(target.Id);
+                        await _doctorRepository.AddAsync(doctor, cancellationToken);
+                    }
                 }
 
                 // staff-chat EC-14: a new secretary joins every secretariat thread with its history already read.

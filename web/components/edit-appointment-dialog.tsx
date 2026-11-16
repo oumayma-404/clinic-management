@@ -90,6 +90,7 @@ import { doctorsForPicker, useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
 import { specialtyLabel } from "@/lib/specialties"
+import { PRACTITIONER_REQUIRED_MESSAGE, practitionerRequired } from "@/lib/appointments/practitioner"
 import Link from "next/link"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { MANUALLY_SETTABLE_STATUSES, admitsLateArrival, appointmentStatusLabel } from "@/components/appointment-labels"
@@ -549,6 +550,12 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   // The picker: the active roster plus this visit's own practitioner, even retired (I3).
   const doctors = useMemo(() => doctorsForPicker(allDoctors, selectedDoctorId), [allDoctors, selectedDoctorId])
+  const activeDoctors = useMemo(() => allDoctors.filter((d) => d.isActive !== false), [allDoctors])
+  /**
+   * « Aucun praticien » unassigns, which a patient RDV may no longer do once the cabinet has several dentists; a
+   * « créneau occupé » keeps it, since that is how a slot is blocked for every chair (cabinet-de-groupe D3).
+   */
+  const offersUnassigned = !practitionerRequired(activeDoctors, Boolean(source?.patientId))
   const selectedDoctorName = useMemo(
     () => allDoctors.find((d) => d.id === selectedDoctorId)?.name ?? null,
     [allDoctors, selectedDoctorId],
@@ -851,6 +858,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   const validateForm = (): boolean => {
     if (!appointment) {
       setError("Aucun rendez-vous sélectionné")
+      return false
+    }
+
+    // A patient RDV in a cabinet of several dentists names one — the server refuses it otherwise. With exactly one,
+    // the server fills it in, so an old RDV with none saves as it is (cabinet-de-groupe US-1).
+    if (practitionerRequired(activeDoctors, Boolean(source?.patientId)) && !selectedDoctorId) {
+      setError(PRACTITIONER_REQUIRED_MESSAGE)
       return false
     }
 
@@ -1467,7 +1481,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     Praticien
                   </Label>
                   <Select
-                    value={selectedDoctorId || UNASSIGNED_DOCTOR}
+                    value={selectedDoctorId || (offersUnassigned ? UNASSIGNED_DOCTOR : "")}
                     onValueChange={(value) =>
                       setSelectedDoctorId(value === UNASSIGNED_DOCTOR ? "" : value)
                     }
@@ -1479,7 +1493,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     <SelectContent className="max-h-[200px]">
                       {/* Unassigning is now a real operation server-side (an explicit null clears DoctorId),
                           so it needs an option. Radix Select cannot hold value="" — hence the sentinel. */}
-                      <SelectItem value={UNASSIGNED_DOCTOR}>Aucun praticien</SelectItem>
+                      {offersUnassigned && <SelectItem value={UNASSIGNED_DOCTOR}>Aucun praticien</SelectItem>}
                       {doctors.length === 0 && !loadingDoctors ? (
                         <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun médecin disponible</div>
                       ) : (

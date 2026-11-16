@@ -260,6 +260,10 @@ how it was built, `notes.md` is what shipped.
 
 **Who may do what, and whose data it is**
 
+- [`cabinet-de-groupe`](features/cabinet-de-groupe/notes.md) — Every patient RDV names its dentist (filled in for a
+  one-dentist cabinet, refused without one in a group) · the visit prompt reaches the dentist and whoever booked · the
+  agenda shows whose RDV is whose and remembers each person's dentist filter · one practitioner record per dentist
+
 - [`adoption-qa-i-access-control-and-audit`](features/adoption-qa-i-access-control-and-audit/notes.md) — Who may do what, and who did it · The patient AI summary is gone, and the claim that used to be here was false on both halves (I4)
 - [`money-discreet-mode`](features/money-discreet-mode/notes.md) — « Mode discret » : un clic masque l'argent du cabinet sur tous les postes, seul un code d'authentificateur le réaffiche
 - [`multi-tenant-cloud`](features/multi-tenant-cloud/notes.md) — Three deployment topologies, one capability per question (US-1 / Part A) · The hosted runtime can be watched, and it cannot race itself (US-6 / Part F) · Every blob knows whose it is (US-5 / Part E)

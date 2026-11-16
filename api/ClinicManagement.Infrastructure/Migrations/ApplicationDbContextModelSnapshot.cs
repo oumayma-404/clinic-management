@@ -4847,6 +4847,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
+                    b.Property<string>("AlsoTargetUserId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
                     b.Property<Guid?>("AppointmentId")
                         .HasColumnType("uuid");
 

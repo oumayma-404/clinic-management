@@ -338,7 +338,10 @@ public class AppointmentRepository : IAppointmentRepository
                                 // fiche and owes no money. Excluded so the in-memory rule never has to un-say them.
                                 && a.Status != AppointmentStatus.Cancelled
                                 && a.Status != AppointmentStatus.NoShow))
-                        && (doctorId == null || a.DoctorId == doctorId)
+                        // A dentist's view keeps the visits that name NO dentist (cabinet-de-groupe D10): booked
+                        // before every RDV had to name one, they are nobody's in particular, and a strict filter
+                        // would hide them from every dentist's « À clôturer » at once.
+                        && (doctorId == null || a.DoctorId == doctorId || a.DoctorId == null)
                         // Outside the disregarded branch, like `doctorId`: a retired séance of THIS patient must
                         // still be findable, and narrowing to one patient never widens the set.
                         && (patientId == null || a.PatientId == patientId))

@@ -381,4 +381,95 @@ public class CreateClinicUserCommandHandlerTests
         Assert.Contains("existe déjà", result.Error);
         Assert.Contains("votre cabinet", result.Error);
     }
+
+    // ---- cabinet-de-groupe US-3: one practitioner record per dentist ----------------------------------------------
+
+    private static DoctorPersonalInfoDto Practitioner() =>
+        new() { FirstName = "Nadia", LastName = "Trabelsi", Specialty = "Dentiste" };
+
+    private static Doctor RosterDentist(Harness h, Guid clinicId, string? userId = null, bool retired = false)
+    {
+        var doctor = new Doctor(Guid.NewGuid(), clinicId, "Nadia", "Trabelsi", "Dentiste");
+        if (userId != null) doctor.LinkToUser(userId);
+        if (retired) doctor.Retire();
+        h.Doctors.Setup(r => r.GetByIdAsync(doctor.Id, It.IsAny<CancellationToken>())).ReturnsAsync(doctor);
+        return doctor;
+    }
+
+    [Fact]
+    public async Task An_Admin_Who_Is_Also_A_Dentist_Gets_A_Linked_Practitioner_Record()
+    {
+        var h = new Harness(Admin(ClinicId));
+        var command = Command("admin");
+        command.DoctorInfo = Practitioner();
+
+        var result = await h.Handler().Handle(command, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        var doctor = Assert.Single(h.AddedDoctors);
+        Assert.Equal(Assert.Single(h.Added).Id, doctor.UserId);
+    }
+
+    [Fact]
+    public async Task An_Admin_Invited_Without_Practitioner_Fields_Is_Still_No_Practitioner()
+    {
+        var h = new Harness(Admin(ClinicId));
+
+        var result = await h.Handler().Handle(Command("admin"), default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Empty(h.AddedDoctors);
+    }
+
+    [Fact]
+    public async Task Inviting_The_Dentist_Of_An_Existing_Record_Links_It_Rather_Than_Creating_A_Second()
+    {
+        var h = new Harness(Admin(ClinicId));
+        var existing = RosterDentist(h, ClinicId);
+        var command = Command("doctor");
+        command.ExistingDoctorId = existing.Id;
+
+        var result = await h.Handler().Handle(command, default);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Empty(h.AddedDoctors);
+        Assert.Equal(Assert.Single(h.Added).Id, existing.UserId);
+        h.Doctors.Verify(r => r.Update(existing), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("linked")]
+    [InlineData("retired")]
+    [InlineData("other-clinic")]
+    public async Task A_Record_That_Cannot_Be_Linked_Is_Refused_And_Nothing_Is_Created(string why)
+    {
+        var h = new Harness(Admin(ClinicId));
+        var record = why switch
+        {
+            "linked" => RosterDentist(h, ClinicId, userId: "local|someone-else"),
+            "retired" => RosterDentist(h, ClinicId, retired: true),
+            _ => RosterDentist(h, OtherClinicId),
+        };
+        var command = Command("doctor");
+        command.ExistingDoctorId = record.Id;
+
+        var result = await h.Handler().Handle(command, default);
+
+        Assert.Equal(Application.Features.Users.PractitionerLink.UnavailableCode, result.Code);
+        Assert.Empty(h.Added);
+        Assert.Empty(h.AddedDoctors);
+    }
+
+    [Fact]
+    public async Task A_Secretary_Cannot_Be_Linked_To_A_Practitioner()
+    {
+        var h = new Harness(Admin(ClinicId));
+        var command = Command("secretary");
+        command.ExistingDoctorId = RosterDentist(h, ClinicId).Id;
+
+        var result = await h.Handler().Handle(command, default);
+
+        Assert.True(result.IsFailure);
+        Assert.Empty(h.Added);
+    }
 }

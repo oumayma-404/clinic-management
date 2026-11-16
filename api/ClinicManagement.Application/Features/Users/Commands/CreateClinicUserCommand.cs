@@ -41,10 +41,17 @@ public class CreateClinicUserCommand : IRequest<Result<CreatedClinicUserDto>>
     public string Role { get; set; } = string.Empty;
 
     /// <summary>
-    /// The practitioner behind the account. <b>Required for the <c>doctor</c> role</b> and ignored for the other two,
-    /// exactly as <c>JoinClinicCommand</c> treats it — an admin or a secretary is not a practitioner.
+    /// The practitioner behind the account, created and linked in the same save. <b>Required for the <c>doctor</c>
+    /// role</b> unless <see cref="ExistingDoctorId"/> names one; <b>optional for an <c>admin</c></b> — a dentist who also
+    /// runs the cabinet (cabinet-de-groupe US-3); ignored for a secretary, who is not a practitioner.
     /// </summary>
     public DoctorPersonalInfoDto? DoctorInfo { get; set; }
+
+    /// <summary>
+    /// A practitioner already on the roster (added in Paramètres → Praticiens) to LINK instead of creating a second
+    /// record — for a doctor or an admin. Must be this cabinet's, still active and linked to nobody.
+    /// </summary>
+    public Guid? ExistingDoctorId { get; set; }
 }
 
 public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCommand, Result<CreatedClinicUserDto>>
@@ -126,12 +133,33 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
                     "Rôle invalide. Les rôles autorisés sont : admin, doctor, secretary.");
             }
 
-            // Mirrors JoinClinicCommand: a doctor account with no practitioner behind it is what left every hosted
-            // dentist without a cachet, a n° d'ordre or any attribution on the money they collected.
-            if (role == User.RoleDoctor && !HasPractitioner(request.DoctorInfo))
+            // Which practitioner record this account is (cabinet-de-groupe US-3): an existing one to link, a new one
+            // to create, or none. Decided before anything is written, so a refusal leaves no half-created account.
+            Doctor? existingDoctor = null;
+            if (request.ExistingDoctorId.HasValue)
             {
-                return Result<CreatedClinicUserDto>.Failure(
-                    "Le prénom, le nom et la spécialité du praticien sont requis pour le rôle « médecin ».");
+                if (role == User.RoleSecretary)
+                {
+                    return Result<CreatedClinicUserDto>.Failure(PractitionerLink.NotAPractitionerMessage);
+                }
+
+                var linkable = await PractitionerLink.FindLinkableAsync(
+                    _doctorRepository, admin.ClinicId, request.ExistingDoctorId.Value, cancellationToken);
+                if (linkable.IsFailure)
+                {
+                    return Result<CreatedClinicUserDto>.FailureFrom(linkable);
+                }
+                existingDoctor = linkable.Value;
+            }
+
+            // Mirrors JoinClinicCommand: a doctor account with no practitioner behind it is what left every hosted
+            // dentist without a cachet, a n° d'ordre or any attribution on the money they collected. An admin who
+            // says they are a practitioner owes the same three fields.
+            var createsPractitioner = existingDoctor is null
+                && (role == User.RoleDoctor || (role == User.RoleAdmin && request.DoctorInfo != null));
+            if (createsPractitioner && !PractitionerLink.HasPractitioner(request.DoctorInfo))
+            {
+                return Result<CreatedClinicUserDto>.Failure(PractitionerLink.InfoRequiredMessage);
             }
 
             // The partial unique index on the lowercased email would otherwise surface as a 500. It is checked
@@ -165,7 +193,12 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
 
             await _userRepository.AddAsync(user, cancellationToken);
 
-            if (role == User.RoleDoctor)
+            if (existingDoctor is not null)
+            {
+                existingDoctor.LinkToUser(user.Id);
+                _doctorRepository.Update(existingDoctor);
+            }
+            else if (createsPractitioner)
             {
                 var doctor = new Doctor(
                     Guid.NewGuid(),
@@ -244,9 +277,4 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
         }
     }
 
-    private static bool HasPractitioner(DoctorPersonalInfoDto? info) =>
-        info != null
-        && !string.IsNullOrWhiteSpace(info.FirstName)
-        && !string.IsNullOrWhiteSpace(info.LastName)
-        && !string.IsNullOrWhiteSpace(info.Specialty);
 }

@@ -77,7 +77,7 @@ public class StaffNotificationRepository : IStaffNotificationRepository
     public static System.Linq.Expressions.Expression<Func<StaffNotification, bool>> AddressedTo(
         ApplicationDbContext db, string userId) =>
         n => (n.ActorUserId == null || n.ActorUserId != userId)
-             && (n.TargetUserId == null || n.TargetUserId == userId)
+             && (n.TargetUserId == null || n.TargetUserId == userId || n.AlsoTargetUserId == userId)
              && (n.TargetRole == null || db.Users.Any(u => u.Id == userId && u.Role == n.TargetRole))
              && !db.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId);
 

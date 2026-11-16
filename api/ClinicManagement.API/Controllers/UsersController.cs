@@ -97,7 +97,8 @@ public class UsersController : ApiControllerBase
             Email = request.Email,
             FullName = request.FullName,
             Role = request.Role,
-            DoctorInfo = request.DoctorInfo
+            DoctorInfo = request.DoctorInfo,
+            ExistingDoctorId = request.ExistingDoctorId
         };
         var result = await _mediator.Send(command);
 
@@ -216,6 +217,24 @@ public class UsersController : ApiControllerBase
     /// class-level policy; the handler re-checks the DB role, validates the value against the closed set, and
     /// refuses a self-demotion that would leave the clinic with no active admin.
     /// </summary>
+    /// <summary>
+    /// « Lier à un praticien » (cabinet-de-groupe US-3): an admin or doctor account with no practitioner record gets
+    /// one — an existing record of the roster, linked, or a new one. 204 on success.
+    /// </summary>
+    [OnlineOnly("FR-5 — an account's practitioner link changes on the cloud only: accounts stay on the cloud during a cut (FR-11).")]
+    [HttpPut("{id}/practitioner")]
+    public async Task<IActionResult> LinkPractitioner(string id, [FromBody] LinkUserPractitionerRequest request)
+    {
+        var result = await _mediator.Send(new LinkUserPractitionerCommand
+        {
+            TargetUserId = id,
+            ExistingDoctorId = request.ExistingDoctorId,
+            DoctorInfo = request.DoctorInfo,
+        });
+
+        return result.IsFailure ? HandleFailure(result) : NoContent();
+    }
+
     [OnlineOnly("FR-5 — a role changes on the cloud only: accounts stay on the cloud during a cut (FR-11).")]
     [HttpPut("{id}/role")]
     public async Task<ActionResult<ClinicUserDto>> SetRole(string id, [FromBody] SetUserRoleRequest request)

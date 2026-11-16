@@ -892,6 +892,7 @@ export default function WaitingListPage() {
           if (!open) setPromoteBookEntry(null)
         }}
         defaultPatientId={promoteBookEntry?.patientId}
+        defaultDoctorId={promoteBookEntry?.preferredDoctorId ?? undefined}
         /* The slot, when we were sent here to fill one — one instant, see `slotDefaultDate`; passing
            `defaultTime` beside it would be ignored. Deliberately NOT `defaultDurationMinutes`: a 2 h hole is
            room, not an appointment length, and defaulting it would make every use start by shortening the

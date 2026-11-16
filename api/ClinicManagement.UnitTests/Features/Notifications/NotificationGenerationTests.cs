@@ -388,7 +388,7 @@ public class NotificationGenerationTests
         gen.Verify(g => g.AppointmentRescheduledAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         // [AC-4] Cancelling removes the pending post-visit review (and never keeps it in sync).
         gen.Verify(g => g.CancelPostVisitReviewAsync(appointment.ClinicId, appointment.Id, It.IsAny<CancellationToken>()), Times.Once);
-        gen.Verify(g => g.EnsurePostVisitReviewAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+        gen.Verify(g => g.EnsurePostVisitReviewAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()), Times.Never);
     }
 
     // [US-3] Changing the date fires a rescheduled notification.
@@ -406,7 +406,7 @@ public class NotificationGenerationTests
         // [AC-4] Rescheduling keeps the post-visit review in sync — moved to the new end (start + 30-min duration).
         gen.Verify(g => g.EnsurePostVisitReviewAsync(
             appointment.ClinicId, appointment.Id, It.IsAny<Guid?>(), It.IsAny<string>(),
-            It.Is<DateTime>(d => d == newDate + TimeSpan.FromMinutes(30)), It.IsAny<CancellationToken>()), Times.Once);
+            It.Is<DateTime>(d => d == newDate + TimeSpan.FromMinutes(30)), It.IsAny<CancellationToken>(), It.IsAny<string?>()), Times.Once);
     }
 
     // [US-3 / R-3] Reactivating a cancelled appointment (status → Scheduled, same date) must never emit a
@@ -596,7 +596,7 @@ public class NotificationGenerationTests
         Assert.True(result.IsSuccess);
         gen.Verify(g => g.EnsurePostVisitReviewAsync(
             ClinicId, It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<string>(),
-            start + TimeSpan.FromMinutes(30), It.IsAny<CancellationToken>()), Times.Once);
+            start + TimeSpan.FromMinutes(30), It.IsAny<CancellationToken>(), It.IsAny<string?>()), Times.Once);
     }
 
     // [AC-1] A patient-less "busy slot" appointment schedules NOTHING (no post-visit review).
@@ -613,7 +613,7 @@ public class NotificationGenerationTests
         Assert.True(result.IsSuccess);
         gen.Verify(g => g.EnsurePostVisitReviewAsync(
             It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<string>(),
-            It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<string?>()), Times.Never);
     }
 
     private static IServiceScopeFactory ScopeFactory()

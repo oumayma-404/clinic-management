@@ -215,14 +215,16 @@ public class AppointmentsController : ApiControllerBase
         [FromQuery] DateTime? startDate,
         [FromQuery] DateTime? endDate,
         [FromQuery] Guid? doctorId,
-        [FromQuery] Guid? patientId)
+        [FromQuery] Guid? patientId,
+        [FromQuery] bool includeUnassigned = false)
     {
         var query = new GetAppointmentsQuery
         {
             StartDate = startDate,
             EndDate = endDate,
             DoctorId = doctorId,
-            PatientId = patientId
+            PatientId = patientId,
+            IncludeUnassigned = includeUnassigned
         };
         var result = await _mediator.Send(query);
 

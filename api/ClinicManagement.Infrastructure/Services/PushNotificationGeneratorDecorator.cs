@@ -32,6 +32,7 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
     private readonly INotificationGenerator _inner;
     private readonly IUserRepository _users;
     private readonly IDoctorRepository _doctors;
+    private readonly IStaffNotificationRepository _staffNotifications;
     private readonly IDeviceRegistrationRepository _devices;
     private readonly IPushDeliveryRepository _deliveries;
     private readonly IUnitOfWork _unitOfWork;
@@ -43,6 +44,7 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         INotificationGenerator inner,
         IUserRepository users,
         IDoctorRepository doctors,
+        IStaffNotificationRepository staffNotifications,
         IDeviceRegistrationRepository devices,
         IPushDeliveryRepository deliveries,
         IUnitOfWork unitOfWork,
@@ -53,6 +55,7 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         _inner = inner;
         _users = users;
         _doctors = doctors;
+        _staffNotifications = staffNotifications;
         _devices = devices;
         _deliveries = deliveries;
         _unitOfWork = unitOfWork;
@@ -125,19 +128,33 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
 
     public async Task EnsurePostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, Guid? doctorId, string patientName, DateTime appointmentEndUtc,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string? bookedByUserId = null)
     {
         await _inner.EnsurePostVisitReviewAsync(
-            clinicId, appointmentId, doctorId, patientName, appointmentEndUtc, cancellationToken);
+            clinicId, appointmentId, doctorId, patientName, appointmentEndUtc, cancellationToken, bookedByUserId);
 
-        // Resolved through the same rule the generator targets its feed row with, so the banner and the row it
-        // announces cannot reach different people.
-        var targetUserId = await StaffNotificationRules.ResolveDoctorUserIdAsync(
-            _doctors, clinicId, doctorId, cancellationToken);
+        // Read off the row the feed just wrote, so the banner and the row it announces cannot reach different
+        // people — the dentist and the person who booked (cabinet-de-groupe D6). The doctor rule is only the
+        // fallback for a row the generator failed to write (it swallows).
+        string? targetUserId;
+        string? alsoTargetUserId = null;
+        try
+        {
+            var row = await _staffNotifications.GetPostVisitReviewByAppointmentAsync(appointmentId, cancellationToken);
+            targetUserId = row is not null
+                ? row.TargetUserId
+                : await StaffNotificationRules.ResolveDoctorUserIdAsync(_doctors, clinicId, doctorId, cancellationToken);
+            alsoTargetUserId = row?.AlsoTargetUserId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read the post-visit review audience for appointment {AppointmentId}", appointmentId);
+            return;
+        }
 
         await FanOutAsync(
             clinicId, NotificationCategory.PostVisitReview, actorUserId: null, targetUserId,
-            appointmentId, appointmentEndUtc, cancellationToken);
+            appointmentId, appointmentEndUtc, cancellationToken, alsoTargetUserId);
     }
 
     // ---- The seven that stay in the app (AC-44) ----------------------------------------------------
@@ -328,7 +345,8 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         string? targetUserId,
         Guid? appointmentId,
         DateTime effectiveFeedTimeUtc,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? alsoTargetUserId = null)
     {
         try
         {
@@ -337,7 +355,7 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
                 return;
             }
 
-            var audience = await AudienceAsync(clinicId, actorUserId, targetUserId, cancellationToken);
+            var audience = await AudienceAsync(clinicId, actorUserId, targetUserId, cancellationToken, alsoTargetUserId);
             if (audience.Count == 0)
             {
                 return;
@@ -365,13 +383,17 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
     /// until they sign out — which someone who was deactivated will not do.</para>
     /// </summary>
     private async Task<IReadOnlyList<string>> AudienceAsync(
-        Guid clinicId, string? actorUserId, string? targetUserId, CancellationToken cancellationToken)
+        Guid clinicId, string? actorUserId, string? targetUserId, CancellationToken cancellationToken,
+        string? alsoTargetUserId = null)
     {
         if (targetUserId != null)
         {
-            return string.Equals(targetUserId, actorUserId, StringComparison.Ordinal)
-                ? Array.Empty<string>()
-                : new[] { targetUserId };
+            // The feed's AddressedTo: the target, or the second recipient a targeted row may carry (D6).
+            return new[] { targetUserId, alsoTargetUserId }
+                .OfType<string>()
+                .Where(id => !string.Equals(id, actorUserId, StringComparison.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
         }
 
         // paging: null = every member, the first-class case the paging primitive models — an audience is not a page.

@@ -79,6 +79,7 @@ import {
   normalizeStatus,
 } from "@/components/appointment-labels"
 import { statusToneClass, type StatusTone } from "@/components/ui/status-tone"
+import { DoctorChip, doctorTones } from "@/components/agenda/doctor-chip"
 
 /** `13` → `"13:00"`. One place, because the hour label, the `data-time-slot` key and the scroll target must agree. */
 const hourSlot = (hour: number): string => `${String(hour).padStart(2, "0")}:00`
@@ -860,7 +861,23 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     format(view === "day" ? startOfWeek(selectedDate, { weekStartsOn: 1 }) : startDate, "yyyy-MM-dd"),
     format(view === "day" ? endOfWeek(selectedDate, { weekStartsOn: 1 }) : endDate, "yyyy-MM-dd"),
   )
-  const { doctors: activeDoctors } = useDoctors()
+  const { doctors: activeDoctors, allDoctors } = useDoctors()
+  /** Each block names its dentist once the cabinet has two (cabinet-de-groupe D7); in a one-chair cabinet it would not. */
+  const showDoctorChips = activeDoctors.length >= 2
+  const doctorToneById = useMemo(() => doctorTones(allDoctors), [allDoctors])
+  const doctorNameById = useMemo(
+    () => new Map(allDoctors.filter((d) => d.id).map((d) => [d.id as string, d.name])),
+    [allDoctors],
+  )
+  /** The dentist's name when blocks name it — the live roster name first, the RDV's own as the fallback. */
+  const blockDoctorName = (appointment: AppointmentDto): string | null =>
+    showDoctorChips && appointment.doctorId
+      ? doctorNameById.get(appointment.doctorId) ?? appointment.doctorName ?? null
+      : null
+  const renderDoctorChip = (appointment: AppointmentDto, className?: string) => {
+    const name = blockDoctorName(appointment)
+    return name ? <DoctorChip name={name} tone={doctorToneById.get(appointment.doctorId!)} className={className} /> : null
+  }
   const visibleLeaves = useMemo(
     () => (doctorId ? windowLeaves.filter((leave) => leave.doctorId === doctorId) : windowLeaves),
     [windowLeaves, doctorId],
@@ -1804,7 +1821,11 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const bookedActPrefix = canonicalStatus === "Completed" ? "prévu : " : ""
     // The booked slot never moves for a retard; this mark is the only place the agenda states one.
     const lateArrival = appointment.lateArrivalMinutes ?? 0
+    const doctorName = blockDoctorName(appointment)
+    const doctorChip = renderDoctorChip(appointment)
     const blockLabel = `${appointment.patientName} · ${format(aptStart, "HH:mm")} · ${durationMinutes} min · ${statusLabel}${
+      doctorName ? ` · avec ${doctorName}` : ""
+    }${
       lateArrival > 0 ? ` · arrivé avec ${lateArrival} min de retard` : ""
     }${actsSummary ? ` · ${bookedActPrefix}${actsSummary}` : ""}${planSeance ? " · séance d'un devis" : ""}`
 
@@ -1906,6 +1927,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 tightLines ? "leading-[1.15]" : "leading-[1.3]",
               )}
             >
+              {doctorChip && <>{doctorChip} </>}
               {format(aptStart, "HH:mm")}
               {planSeance && " · devis"}
               {actsSummary ? ` · ${bookedActPrefix}${actsSummary.split(" + ")[0]}` : ""}
@@ -1968,6 +1990,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           >
             {appointment.patientName}
           </span>
+          {/* A block under 30 px has no second line — a 30-minute visit, the default, is 24 px here — so the
+              dentist's initials ride on the name row instead, at a 12 px line to fit (cabinet-de-groupe QA F1). */}
+          {isVerySmall && renderDoctorChip(appointment, "leading-3")}
           {!isVerySmall && lateArrival > 0 && (
             <span
               aria-hidden="true"
@@ -2022,6 +2047,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             )}
           >
             <span className="shrink-0 font-medium tabular-nums">{format(aptStart, "HH:mm")}</span>
+            {doctorChip}
             {/*
               ⚠️ **The « devis » mark, which the agenda did not have at any width.** A séance that is one étape
               of a six-visit treatment rendered exactly like a loose visit, so at 8 a.m. the screen a dentist
@@ -2158,7 +2184,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const tone = appointmentTone(appointment)
     const start = format(new Date(appointment.appointmentDateTime), "HH:mm")
     // The status belongs in the label for the same reason it belongs on the block: the chip now *paints* it.
-    const chipLabel = `${start} · ${appointment.patientName} · ${appointmentStatusLabel(appointment.status)}`
+    const chipDoctor = blockDoctorName(appointment)
+    const chipLabel = `${start} · ${appointment.patientName} · ${appointmentStatusLabel(appointment.status)}${
+      chipDoctor ? ` · avec ${chipDoctor}` : ""
+    }`
 
     return (
       <button
@@ -2187,6 +2216,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
         {renderStatusEdge(appointment)}
         {tone === "negative" && <UserX className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />}
         {!compact && <span className="flex-shrink-0 font-semibold">{start}</span>}
+        {!compact && renderDoctorChip(appointment)}
         <span className={cn("min-w-0 truncate", compact && "font-medium")}>{appointment.patientName}</span>
       </button>
     )
@@ -2594,6 +2624,22 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
           )}
         </div>
 
+        {showDoctorChips && (
+          <div className="flex flex-col gap-1.5 border-t pt-3">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Praticien</p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+              {activeDoctors
+                .filter((doc) => doc.id)
+                .map((doc) => (
+                  <span key={doc.id} className="flex min-w-0 items-center gap-1.5">
+                    <DoctorChip name={doc.name} tone={doctorToneById.get(doc.id!)} />
+                    <span className="truncate text-muted-foreground">{doc.name}</span>
+                  </span>
+                ))}
+            </div>
+          </div>
+        )}
+
         {effectiveHours && effectiveHours.length > 0 && (
           <div className="flex flex-col gap-1.5 border-t pt-3">
             <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Grille</p>
@@ -2712,6 +2758,16 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
              single copies the desktop uses — see `panelExtra`. */
           panelExtra={
             <div className="space-y-3">
+              {/* Below `md:` the bar holding the praticien filter is hidden, so a phone could remove the filter's chip
+                  and never pick a dentist (cabinet-de-groupe US-2). */}
+              {doctorFilter && doctorFilter.doctors.length > 1 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="agenda-doctor-phone" className="text-xs font-medium text-muted-foreground">
+                    Praticien
+                  </Label>
+                  {renderDoctorSelect("w-full", "agenda-doctor-phone")}
+                </div>
+              )}
               {canListAllLeaves && (
                 <button
                   type="button"

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
@@ -25,6 +25,9 @@ import { DEFAULT_PAGE_SIZE } from "@/lib/api/paging"
 import { getErrorMessage } from "@/lib/errors"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
+import { useSession } from "@/lib/auth/session"
+import { useDoctors } from "@/lib/hooks/use-doctors"
+import { ALL_DOCTORS_VIEW, readDoctorView, resolveDoctorView, writeDoctorView } from "@/lib/agenda/doctor-view"
 
 /**
  * « À clôturer » — the séances whose slot has passed and which still owe one of three answers.
@@ -72,12 +75,36 @@ export default function VisitsToClosePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  /**
+   * Whose séances — the agenda's own remembered « Praticien » choice (cabinet-de-groupe D9), decided once the roster
+   * is read. A dentist's view still lists the séances that name no dentist: the server keeps them in.
+   */
+  const { user } = useSession()
+  const { doctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
+  const [doctorView, setDoctorView] = useState<string | null>(null)
+  const doctorViewDecidedRef = useRef(false)
+  useEffect(() => {
+    if (doctorViewDecidedRef.current || loadingDoctors || !user) return
+    doctorViewDecidedRef.current = true
+    setDoctorView(
+      resolveDoctorView({ stored: readDoctorView(user.email), activeDoctors: doctors, ownDoctorId: currentUserDoctor?.id }),
+    )
+  }, [loadingDoctors, user, doctors, currentUserDoctor])
+  const changeDoctorView = (value: string) => {
+    setDoctorView(value)
+    setPage(1)
+    writeDoctorView(user?.email, value)
+  }
+
   const load = useCallback(async () => {
+    // Nothing is read before the view is decided, so the list never flashes everyone's séances first.
+    if (doctorView === null) return
     setLoading(true)
     try {
       const result = await appointmentsApi.visitsToClose({
         // Omitted, not zero: the server reads an absent window as « toutes les dates », while 0 would clamp to 1.
         days: days === ALL_DATES ? undefined : Number(days),
+        doctorId: doctorView === ALL_DOCTORS_VIEW ? undefined : doctorView,
         disregarded: showDisregarded || undefined,
         page,
         pageSize,
@@ -101,7 +128,7 @@ export default function VisitsToClosePage() {
     } finally {
       setLoading(false)
     }
-  }, [days, showDisregarded, page, pageSize])
+  }, [days, doctorView, showDisregarded, page, pageSize])
 
   useEffect(() => {
     void load()
@@ -180,7 +207,29 @@ export default function VisitsToClosePage() {
                 : `${visits.totalCount.toLocaleString("fr-TN")} séance${visits.totalCount <= 1 ? "" : "s"} en attente d’une présence, d’une fiche ou d’un encaissement`
           }
           actions={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {doctors.length > 1 && doctorView !== null && (
+                <>
+                  <Label htmlFor="closure-doctor" className="text-xs font-medium text-muted-foreground">
+                    Praticien
+                  </Label>
+                  <Select value={doctorView} onValueChange={changeDoctorView}>
+                    <SelectTrigger id="closure-doctor" className="h-9 w-48">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_DOCTORS_VIEW}>Tous les praticiens</SelectItem>
+                      {doctors
+                        .filter((d) => d.id)
+                        .map((d) => (
+                          <SelectItem key={d.id} value={d.id!}>
+                            {d.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
               <Label htmlFor="closure-window" className="text-xs font-medium text-muted-foreground">
                 Période
               </Label>
