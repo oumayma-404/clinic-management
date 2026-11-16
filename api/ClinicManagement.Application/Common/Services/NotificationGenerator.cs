@@ -1,6 +1,10 @@
 using System.Globalization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Exceptions;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Interfaces;
+using ClinicManagement.Application.Features.Files;
 using ClinicManagement.Application.Features.Messaging;
 using ClinicManagement.Application.Features.Subscriptions;
 using ClinicManagement.Domain.Entities;
@@ -430,63 +434,150 @@ public class NotificationGenerator : INotificationGenerator
     public async Task EnsureStorageNearlyFullAsync(
         Guid clinicId, int percent, long usedBytes, long quotaBytes, CancellationToken cancellationToken = default)
     {
-        await SafelyAsync(clinicId, async () =>
-        {
-            var title = $"Stockage du cabinet rempli à {percent} %";
-            var existing = await _notifications.GetStorageNearlyFullAsync(clinicId, cancellationToken);
-            if (existing != null)
-            {
-                // The level is in the title: the same level is no news, however the figures moved under it.
-                if (string.Equals(existing.Title, title, StringComparison.Ordinal))
-                {
-                    return false;
-                }
+        await SafelyAsync(
+            clinicId,
+            () => SyncStorageNearlyFullAsync(clinicId, percent, usedBytes, quotaBytes, mayRaise: true, cancellationToken),
+            cancellationToken);
+    }
 
-                // A new row rather than a restatement: restating keeps who has already read it, so the 95 % warning
-                // would never badge the bell of somebody who dismissed the 80 % one.
-                await _notifications.RemoveAsync(existing, cancellationToken);
-            }
-
-            var notification = new StaffNotification(
-                Guid.NewGuid(), clinicId, NotificationCategory.StorageNearlyFull,
-                title, StorageNearlyFullMessage(usedBytes, quotaBytes),
-                DateTime.UtcNow,
-                NotificationTargetKind.Subscription,
-                actorUserId: null,
-                stockItemId: null);
-
-            await _notifications.AddAsync(notification, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return true;
-        }, cancellationToken);
+    public async Task LowerStorageNearlyFullAsync(
+        Guid clinicId, int percent, long usedBytes, long quotaBytes, CancellationToken cancellationToken = default)
+    {
+        await SafelyAsync(
+            clinicId,
+            () => SyncStorageNearlyFullAsync(clinicId, percent, usedBytes, quotaBytes, mayRaise: false, cancellationToken),
+            cancellationToken);
     }
 
     public async Task ClearStorageNearlyFullAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {
         await SafelyAsync(clinicId, async () =>
         {
-            var existing = await _notifications.GetStorageNearlyFullAsync(clinicId, cancellationToken);
-            if (existing == null)
+            // Every row, not the first: a race lost before the ids were deterministic could have left two.
+            var rows = await _notifications.GetStorageNearlyFullAlertsAsync(clinicId, cancellationToken);
+            if (rows.Count == 0)
             {
                 return false;
             }
 
-            await _notifications.RemoveAsync(existing, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return true;
+            try
+            {
+                foreach (var row in rows)
+                {
+                    await _notifications.RemoveAsync(row, cancellationToken);
+                }
+
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+            catch (Exception ex) when (IsLostStorageAlertRace(ex))
+            {
+                // Another request withdrew them first: the outcome is the one asked for.
+                Discard(rows);
+                return false;
+            }
         }, cancellationToken);
     }
 
-    /// <summary>« 8,1 Go sur 10 Go utilisés. … » — what is used, what happens at the ceiling, and the two ways out.</summary>
-    private static string StorageNearlyFullMessage(long usedBytes, long quotaBytes)
+    /// <summary>
+    /// The storage alert's one write path. ⚠️ <b>Only a level not yet announced in this episode is a NEW row</b> — a new
+    /// row is what badges the bell again, since restating keeps who already read it, and the 95 % warning must reach
+    /// somebody who dismissed the 80 % one. Every other move is silent: the same level is no news however the figures
+    /// moved, and a lower one (files deleted, 95 → 85 %) restates the row in place rather than announcing « 80 % » as
+    /// news. A row's announced level is read from its id (<see cref="ClinicStorageAlerts.AnnouncedLevelOf"/>), which a
+    /// lowering keeps — so 96 → 85 → 96 % tells nobody 95 % twice; only a withdrawal under 75 % re-arms.
+    /// </summary>
+    private async Task<bool> SyncStorageNearlyFullAsync(
+        Guid clinicId, int percent, long usedBytes, long quotaBytes, bool mayRaise, CancellationToken cancellationToken)
     {
-        var fr = CultureInfo.GetCultureInfo("fr-FR");
-        static double Gigabytes(long bytes) => bytes / (1024d * 1024 * 1024);
-        return $"{Gigabytes(usedBytes).ToString("0.0", fr)} Go sur {Gigabytes(quotaBytes).ToString("0.0", fr)} Go "
-               + "utilisés. Une fois l'espace plein, les nouveaux fichiers sont refusés ; ceux déjà enregistrés restent "
-               + "accessibles. Supprimez des fichiers volumineux, ou contactez APEXA depuis « Abonnement » pour "
-               + "augmenter l'espace.";
+        var rows = await _notifications.GetStorageNearlyFullAlertsAsync(clinicId, cancellationToken);
+        var announced = rows.Count == 0 ? 0 : rows.Max(row => ClinicStorageAlerts.AnnouncedLevelOf(clinicId, row.Id));
+        var title = StorageNearlyFullTitle(percent);
+        var touched = new List<StaffNotification>();
+
+        try
+        {
+            if (percent > announced)
+            {
+                if (!mayRaise)
+                {
+                    return false;
+                }
+
+                foreach (var row in rows)
+                {
+                    await _notifications.RemoveAsync(row, cancellationToken);
+                    touched.Add(row);
+                }
+
+                var raised = StaffNotification.ForStorageNearlyFull(
+                    ClinicStorageAlerts.AlertIdFor(clinicId, percent), clinicId, title,
+                    StorageNearlyFullMessage(usedBytes, quotaBytes), DateTime.UtcNow);
+                touched.Add(raised);
+                await _notifications.AddAsync(raised, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            var kept = rows
+                .OrderByDescending(row => ClinicStorageAlerts.AnnouncedLevelOf(clinicId, row.Id))
+                .ThenBy(row => row.CreatedAt)
+                .First();
+            foreach (var extra in rows.Where(row => !ReferenceEquals(row, kept)))
+            {
+                await _notifications.RemoveAsync(extra, cancellationToken);
+                touched.Add(extra);
+            }
+
+            if (!string.Equals(kept.Title, title, StringComparison.Ordinal))
+            {
+                kept.Restate(title, StorageNearlyFullMessage(usedBytes, quotaBytes));
+                touched.Add(kept);
+            }
+
+            if (touched.Count == 0)
+            {
+                return false;
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (Exception ex) when (IsLostStorageAlertRace(ex))
+        {
+            // Two uploads crossed the same level at once: the other one's row stands, under the same id.
+            Discard(touched);
+            return false;
+        }
     }
+
+    /// <summary>
+    /// A concurrent writer of the same alert got there first: the insert hit the deterministic id (23505), or the row
+    /// being withdrawn or restated had already moved (the unit of work's 409). Either way the bell is already right.
+    /// </summary>
+    private static bool IsLostStorageAlertRace(Exception ex) =>
+        ex is ConflictException || (ex is DbUpdateException update && UniqueViolation.Is(update));
+
+    /// <summary>Drops this attempt's tracked changes, so a later save in the same request cannot replay them.</summary>
+    private void Discard(IEnumerable<StaffNotification> rows)
+    {
+        foreach (var row in rows)
+        {
+            _unitOfWork.StopTracking(row);
+        }
+    }
+
+    private static string StorageNearlyFullTitle(int percent) => $"Stockage du cabinet rempli à {percent} %";
+
+    /// <summary>
+    /// « 8,1 Go sur 10,0 Go utilisés. … » — what is used, what happens at the ceiling, and the two ways out. The size
+    /// and the remedy are the refusal's own (<see cref="ClinicStorageRefusals"/>), so a cabinet under 1 Go reads
+    /// « 46,0 Mo sur 60,0 Mo » rather than « 0,0 Go sur 0,1 Go ».
+    /// </summary>
+    private static string StorageNearlyFullMessage(long usedBytes, long quotaBytes) =>
+        $"{ClinicStorageRefusals.Size(usedBytes)} sur {ClinicStorageRefusals.Size(quotaBytes)} utilisés. "
+        + "Une fois l'espace plein, les nouveaux fichiers sont refusés ; ceux déjà enregistrés restent accessibles. "
+        + ClinicStorageRefusals.Remedy;
 
     public async Task ClearVaultCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default)
     {

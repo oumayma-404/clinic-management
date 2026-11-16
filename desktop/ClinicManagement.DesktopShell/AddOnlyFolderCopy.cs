@@ -19,8 +19,9 @@ namespace ClinicManagement.DesktopShell;
 /// one that found nothing new said « 0 octet », the server answered « incomplete », and the 30-day alert fired over a
 /// copy that was complete.</para>
 ///
-/// <para>⚠️ <b>A copy onto the same physical disk is refused</b> (<see cref="SameDiskRefusal"/>): one disk is one
-/// failure, and a second copy on it protects nothing while every screen says it does.</para>
+/// <para>⚠️ <b>A copy onto the same physical disk</b> (<see cref="SameDiskRefusal"/>) is refused for the photo
+/// originals — one disk is one failure — and only <i>said</i> for the coffre, whose copy worked that way before 1.8:
+/// stopping it on update left cabinets uncopied and, a month later, told to plug in a disk they had.</para>
 /// </summary>
 public static class AddOnlyFolderCopy
 {
@@ -107,7 +108,7 @@ public static class AddOnlyFolderCopy
 
     /// <summary>
     /// A French sentence when <paramref name="destination"/> sits on the same physical disk as
-    /// <paramref name="source"/>, else null.
+    /// <paramref name="source"/>, else null. It names the remedy, so it reads as a refusal and as a warning alike.
     ///
     /// <para>⚠️ <b>« Je ne sais pas » is not a refusal.</b> A share, a path that does not exist yet on an unplugged
     /// disk, or a volume Windows will not describe all answer null: refusing there would remove a copy that may well
@@ -121,7 +122,7 @@ public static class AddOnlyFolderCopy
         }
 
         return "Le dossier de copie est sur le même disque que les fichiers à protéger : une panne de ce disque "
-               + "perdrait les deux. Choisissez un disque externe ou un autre disque du PC.";
+               + "perdrait les deux. Choisissez un dossier sur un disque externe ou sur un autre disque du PC.";
     }
 
     /// <summary>Throws an <see cref="IOException"/> naming the free space when the write would fill the volume.</summary>

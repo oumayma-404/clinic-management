@@ -66,7 +66,10 @@ export function StorageQuotaDialog({
     }
 
     if (submitting) return;
-    if (reason.trim() !== "" && changed === null && !window.confirm("Abandonner ce changement ? Le motif saisi sera perdu.")) {
+    // Any edit counts — a new figure or « par défaut » ticked is lost on Escape as surely as a typed motif.
+    const edited =
+      reason.trim() !== "" || useDefault || gigabytes !== String(Math.round(quotaBytes / GIGABYTE));
+    if (edited && changed === null && !window.confirm("Abandonner ce changement ? Ce qui a été saisi sera perdu.")) {
       return;
     }
     setOpen(false);
@@ -164,7 +167,7 @@ export function StorageQuotaDialog({
                       onChange={(e) => setUseDefault(e.target.checked)}
                       disabled={submitting}
                     />
-                    Revenir au quota par défaut
+                    Quota par défaut
                   </label>
                   {!typedValid ? (
                     <p className="text-xs text-destructive" role="alert">

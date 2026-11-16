@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -15,11 +16,17 @@ public sealed class CardCameraSource : ICameraSource
     /// <summary>At most this many files are listed — a drive mounted at the wrong folder can hold a whole disk.</summary>
     public const int MaxFiles = 5000;
 
-    public CardCameraSource(string root, string sourceKey, string label)
+    /// <summary>How many names are read to choose the newest <see cref="MaxFiles"/> before the walk gives up.</summary>
+    public const int ReadAhead = 4;
+
+    private readonly int _maxFiles;
+
+    public CardCameraSource(string root, string sourceKey, string label, int maxFiles = MaxFiles)
     {
         Root = root;
         SourceKey = sourceKey;
         Label = label;
+        _maxFiles = maxFiles;
     }
 
     public string Root { get; }
@@ -55,20 +62,24 @@ public sealed class CardCameraSource : ICameraSource
             return items;
         }
 
-        var pending = new Stack<string>();
-        pending.Push(dcim);
+        // ⚠️ Read past the cap, then keep the newest (CameraListing): a card lists its photos in the order they were
+        // written. The read still ends somewhere, newest folder first, so what it leaves unread is the oldest.
+        var readLimit = _maxFiles * ReadAhead;
+        var pending = new Stack<DirectoryInfo>();
+        pending.Push(new DirectoryInfo(dcim));
 
-        while (pending.Count > 0 && items.Count < MaxFiles)
+        while (pending.Count > 0 && items.Count < readLimit)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var folder = pending.Pop();
-            string[] files;
-            string[] folders;
+            FileInfo[] files;
+            DirectoryInfo[] folders;
             try
             {
-                files = Directory.GetFiles(folder);
-                folders = Directory.GetDirectories(folder);
+                // The listing carries each file's size and date: no second read per photo.
+                files = folder.GetFiles();
+                folders = folder.GetDirectories();
             }
             catch
             {
@@ -76,44 +87,43 @@ public sealed class CardCameraSource : ICameraSource
                 continue;
             }
 
-            foreach (var sub in folders)
+            // Pushed in ascending order, so « 102CANON » comes off the stack before « 100CANON ».
+            foreach (var sub in folders.OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase))
             {
-                if (!CameraFileKinds.IsIgnoredFolder(Path.GetFileName(sub)))
+                if (!CameraFileKinds.IsIgnoredFolder(sub.Name))
                 {
                     pending.Push(sub);
                 }
             }
 
-            foreach (var file in files)
+            foreach (var info in files)
             {
-                var name = Path.GetFileName(file);
-                if (CameraFileKinds.IsIgnoredName(name))
+                if (CameraFileKinds.IsIgnoredName(info.Name))
                 {
                     continue;
                 }
 
                 try
                 {
-                    var info = new FileInfo(file);
                     items.Add(new CameraItem(
-                        Path.GetRelativePath(Root, file),
-                        name,
+                        Path.GetRelativePath(Root, info.FullName),
+                        info.Name,
                         info.Length,
                         DateTime.SpecifyKind(info.LastWriteTime, DateTimeKind.Unspecified),
-                        CameraFileKinds.Of(name)));
+                        CameraFileKinds.Of(info.Name)));
                 }
                 catch
                 {
                     continue;
                 }
 
-                if (items.Count >= MaxFiles)
+                if (items.Count >= readLimit)
                 {
                     break;
                 }
             }
         }
 
-        return items;
+        return CameraListing.KeepNewest(items, item => item.TakenLocal, item => item.ObjectId, _maxFiles);
     }
 }

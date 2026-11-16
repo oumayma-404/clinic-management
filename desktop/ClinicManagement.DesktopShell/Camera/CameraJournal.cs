@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 
 namespace ClinicManagement.DesktopShell.Camera;
 
@@ -42,6 +43,9 @@ public sealed class CameraJournalEntry
     /// <summary>The server has written down that this PC holds the original (« Original : PC ACCUEIL »).</summary>
     public bool OriginalRecorded { get; set; }
 
+    /// <summary>Page loads that re-sent this kept original without the server writing it down — bounded.</summary>
+    public int Announced { get; set; }
+
     public DateTime UpdatedUtc { get; set; }
 }
 
@@ -57,11 +61,17 @@ public sealed class CameraJournalEntry
 ///
 /// <para>⚠️ <b>Every write lands whole</b> (a temp file, then a replace): a journal cut in half by a power cut would
 /// read as empty, and the next card would be offered from scratch — which is safe, only slow.</para>
+///
+/// <para>⚠️ <b>The page's answers are saved per burst, not per photo</b> (<see cref="SaveSoon"/>): a card of 500 photos
+/// already on the server is 500 answers in a second, and rewriting the whole journal for each froze the window.</para>
 /// </summary>
 public sealed class CameraJournal
 {
     public const int KeepDoneDays = 180;
     public const int KeepPendingDays = 7;
+
+    /// <summary>How long <see cref="SaveSoon"/> waits, so a burst of answers is one write.</summary>
+    public static readonly TimeSpan DefaultSaveDelay = TimeSpan.FromSeconds(1);
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -70,12 +80,19 @@ public sealed class CameraJournal
     };
 
     private readonly string _path;
+    private readonly TimeSpan _saveDelay;
     private readonly object _gate = new();
+    private readonly object _fileGate = new();
     private readonly Dictionary<string, CameraJournalEntry> _byKey;
+    private Timer? _saveTimer;
+    private bool _saveDue;
 
-    public CameraJournal(string path)
+    /// <param name="saveDelay"><see cref="Timeout.InfiniteTimeSpan"/>: <see cref="SaveSoon"/> waits for
+    /// <see cref="Flush"/>.</param>
+    public CameraJournal(string path, TimeSpan? saveDelay = null)
     {
         _path = path;
+        _saveDelay = saveDelay ?? DefaultSaveDelay;
         _byKey = Load(path);
     }
 
@@ -235,19 +252,82 @@ public sealed class CameraJournal
     /// <summary>Writes the journal whole. Never throws: a journal that could not be saved costs a re-copy, nothing more.</summary>
     public void Save()
     {
-        lock (_gate)
+        // ⚠️ The disk is written outside `_gate`: holding it there made every read wait on a file write — the window's
+        // answers and a batch being built on another thread, each behind the other's save.
+        lock (_fileGate)
         {
+            // Everything inside the try: SaveSoon calls this from a timer, where an exception ends the process.
+            string? temp = null;
             try
             {
+                string json;
+                lock (_gate)
+                {
+                    _saveDue = false;
+                    json = JsonSerializer.Serialize(_byKey.Values.ToList(), Json);
+                }
+
                 Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-                var temp = $"{_path}.{Guid.NewGuid():N}.tmp";
-                File.WriteAllText(temp, JsonSerializer.Serialize(_byKey.Values.ToList(), Json));
+                temp = $"{_path}.{Guid.NewGuid():N}.tmp";
+                File.WriteAllText(temp, json);
                 File.Move(temp, _path, overwrite: true);
             }
             catch
             {
                 // A full disk or a locked file: the next save tries again with everything still in memory.
+                TryDelete(temp);
             }
+        }
+    }
+
+    /// <summary>Saves within <see cref="DefaultSaveDelay"/>: one write for a burst of changes.</summary>
+    public void SaveSoon()
+    {
+        lock (_gate)
+        {
+            if (_saveDue)
+            {
+                return;
+            }
+
+            _saveDue = true;
+            _saveTimer ??= new Timer(_ => SaveIfDue());
+            _saveTimer.Change(_saveDelay, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    /// <summary>Writes what <see cref="SaveSoon"/> is still holding — at shutdown. Never throws.</summary>
+    public void Flush() => SaveIfDue();
+
+    private void SaveIfDue()
+    {
+        lock (_fileGate)
+        {
+            bool due;
+            lock (_gate)
+            {
+                due = _saveDue;
+            }
+
+            if (due)
+            {
+                Save();
+            }
+        }
+    }
+
+    private static void TryDelete(string? path)
+    {
+        try
+        {
+            if (path != null && File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // A temp file nobody reads.
         }
     }
 
@@ -290,6 +370,7 @@ public sealed class CameraJournal
         PatientId = entry.PatientId,
         OriginalKept = entry.OriginalKept,
         OriginalRecorded = entry.OriginalRecorded,
+        Announced = entry.Announced,
         UpdatedUtc = entry.UpdatedUtc,
     };
 }

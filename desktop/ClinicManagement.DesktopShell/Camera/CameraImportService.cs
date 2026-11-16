@@ -31,6 +31,9 @@ public sealed record KeptOriginalNotice(Guid FileId, Guid PatientId, string Sha2
 /// <summary>What answering one photo did: an original kept (to report), or a sentence saying why not.</summary>
 public sealed record CameraAckResult(bool Known, KeptOriginalNotice? Kept, string? Refusal);
 
+/// <summary>How far one « Importer » has gone: photos copied onto this PC, of those it plans to copy so far.</summary>
+public readonly record struct CameraScanProgress(int Copied, int Planned);
+
 /// <summary>
 /// The Windows app's half of the camera import (<c>features/camera-photo-import</c>, phase 2), with no window and no
 /// WebView in it — so the whole flow, card to kept original, runs in a test.
@@ -40,6 +43,12 @@ public sealed record CameraAckResult(bool Known, KeptOriginalNotice? Kept, strin
 /// </summary>
 public sealed class CameraImportService
 {
+    /// <summary>Page loads that re-send one kept original the server will not write down — then it stops.</summary>
+    public const int MaxAnnouncements = 20;
+
+    /// <summary>Re-sent per page load, well under the page's 50-message queue, so a new batch always has room.</summary>
+    public const int MaxAnnouncedPerLoad = 20;
+
     private readonly CameraJournal _journal;
     private readonly PhotoStaging _staging;
     private readonly OriginalsStore _originals;
@@ -68,7 +77,10 @@ public sealed class CameraImportService
     /// adds the photos still waiting from an earlier batch. One batch at a time — a second press waits for the first.
     /// </summary>
     public async Task<CameraBatch> BuildBatchAsync(
-        IReadOnlyList<ICameraSource> sources, bool includeOlder, CancellationToken cancellationToken = default)
+        IReadOnlyList<ICameraSource> sources,
+        bool includeOlder,
+        IProgress<CameraScanProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         await _batchGate.WaitAsync(cancellationToken);
         try
@@ -77,7 +89,7 @@ public sealed class CameraImportService
             var todayLocal = nowUtc.ToLocalTime().Date;
             var items = new List<CameraBatchItem>();
             var seen = new HashSet<string>();
-            int older = 0, raw = 0, heic = 0, video = 0, other = 0, failed = 0;
+            int older = 0, raw = 0, heic = 0, video = 0, other = 0, failed = 0, planned = 0, copied = 0;
 
             foreach (var source in sources)
             {
@@ -104,10 +116,16 @@ public sealed class CameraImportService
                 heic += plan.Heic;
                 video += plan.Video;
                 other += plan.Other;
+                planned += plan.Deliver.Count;
+                progress?.Report(new CameraScanProgress(copied, planned));
 
                 foreach (var item in plan.Deliver)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+
+                    // Before each photo: a slow cable must keep showing it is alive, or the page gives up on it.
+                    progress?.Report(new CameraScanProgress(copied, planned));
+                    copied++;
 
                     var itemId = CameraJournal.ItemIdOf(CameraJournal.KeyOf(source.SourceKey, item));
                     var known = _journal.ByItemId(itemId);
@@ -150,7 +168,17 @@ public sealed class CameraImportService
                     continue;
                 }
 
-                _journal.Update(entry.ItemId, e => e.State = CameraItemState.Delivered, nowUtc);
+                // The page's answers are handled on another thread now: one that landed since must not be undone.
+                _journal.Update(
+                    entry.ItemId,
+                    e =>
+                    {
+                        if (!CameraBatchPlanner.IsDone(e.State))
+                        {
+                            e.State = CameraItemState.Delivered;
+                        }
+                    },
+                    nowUtc);
                 items.Add(new CameraBatchItem(entry.ItemId, entry.Name, stagedPath));
                 seen.Add(entry.ItemId);
             }
@@ -238,7 +266,7 @@ public sealed class CameraImportService
                 break;
         }
 
-        _journal.Save();
+        _journal.SaveSoon();
         return new CameraAckResult(true, kept, refusal);
     }
 
@@ -251,26 +279,57 @@ public sealed class CameraImportService
             _journal.Update(entry.ItemId, e => e.OriginalRecorded = true, nowUtc);
         }
 
-        _journal.Save();
+        _journal.SaveSoon();
     }
 
-    /// <summary>Originals kept here that the server has not acknowledged — re-sent on each page load until it has.</summary>
-    public IReadOnlyList<KeptOriginalNotice> UnrecordedOriginals()
+    /// <summary>
+    /// Originals kept here that the server has not written down, to re-send on this page load — and counted as sent.
+    ///
+    /// <para>⚠️ <b>Bounded twice.</b> One the server keeps refusing (a file deleted meanwhile) stops after
+    /// <see cref="MaxAnnouncements"/> loads — the entry stays, the original stays — and one load re-sends at most
+    /// <see cref="MaxAnnouncedPerLoad"/>, the least-sent first: the page parks what arrives before it listens in a
+    /// queue of 50, and a new batch or a copy report must never be the message that does not fit.</para>
+    /// </summary>
+    public IReadOnlyList<KeptOriginalNotice> OriginalsToAnnounce()
     {
+        var nowUtc = _nowUtc();
         var notices = new List<KeptOriginalNotice>();
-        foreach (var entry in _journal.UnrecordedOriginals())
+        var due = _journal.UnrecordedOriginals()
+            .Where(e => e.Announced < MaxAnnouncements && e.Sha256 != null)
+            .OrderBy(e => e.Announced)
+            .ThenByDescending(e => e.UpdatedUtc);
+
+        foreach (var entry in due)
         {
             var path = _originals.PathFor(entry.FileId!.Value);
-            if (entry.Sha256 is null || !File.Exists(path))
+            if (!File.Exists(path))
             {
                 continue;
             }
 
             notices.Add(new KeptOriginalNotice(
-                entry.FileId.Value, entry.PatientId!.Value, entry.Sha256, new FileInfo(path).Length, Environment.MachineName));
+                entry.FileId.Value, entry.PatientId!.Value, entry.Sha256!, new FileInfo(path).Length, Environment.MachineName));
+            _journal.Update(entry.ItemId, e => e.Announced++, nowUtc);
+
+            if (notices.Count == MaxAnnouncedPerLoad)
+            {
+                break;
+            }
+        }
+
+        if (notices.Count > 0)
+        {
+            _journal.SaveSoon();
         }
 
         return notices;
+    }
+
+    /// <summary>Writes what is held back — the journal's last answers, an index line — before the app closes.</summary>
+    public void Flush()
+    {
+        _journal.Flush();
+        _originals.FlushIndex();
     }
 
     public int PendingCount() =>

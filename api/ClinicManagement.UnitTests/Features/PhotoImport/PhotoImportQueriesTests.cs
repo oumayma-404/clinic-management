@@ -188,6 +188,27 @@ public class PhotoImportQueriesTests
     }
 
     [Fact]
+    public async Task A_Known_Shot_Says_Which_PC_Keeps_Its_Original()
+    {
+        // The page keeps a re-delivered photo's original on the PC only when no PC holds it yet: the field must reach it.
+        var key = new string('c', 64);
+        _files.Setup(f => f.GetImportedCapturesAsync(ClinicId, It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new ImportedCaptureRow(key, Guid.NewGuid(), Guid.NewGuid(), "Sana Trabelsi", "PC-ACCUEIL"),
+                new ImportedCaptureRow(new string('d', 64), Guid.NewGuid(), Guid.NewGuid(), "Karim Hamdi", null),
+            });
+
+        var handler = new GetImportedCaptureKeysQueryHandler(_files.Object, _resolver.Object);
+        var result = await handler.Handle(
+            new GetImportedCaptureKeysQuery { CaptureKeys = new[] { key, new string('d', 64) } }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("PC-ACCUEIL", result.Value![0].OriginalHeldBy);
+        Assert.Null(result.Value[1].OriginalHeldBy);
+    }
+
+    [Fact]
     public async Task More_Keys_Than_One_Request_Carries_Are_Refused()
     {
         var keys = Enumerable.Range(0, CameraImportRefusals.MaxKeysPerRequest + 1)

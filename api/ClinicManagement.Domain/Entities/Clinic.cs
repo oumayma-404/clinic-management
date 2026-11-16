@@ -532,21 +532,26 @@ public class Clinic : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Records that the shell copied the coffre somewhere else. <see cref="MarkArchiveDownloaded"/>'s shape, and
-    /// for its reasons: it never moves the moment backwards (two machines can report in either order and the older
-    /// report must not make the cabinet look staler than it is) and it does not stamp <see cref="UpdatedAt"/>,
-    /// because nobody edited the cabinet.
+    /// Whether <paramref name="bytes"/> is a ceiling the console may set — null (the deployment's default) always is.
+    /// Asked by the console before anything is read, so a refusal is a sentence rather than an exception.
     /// </summary>
+    public static bool IsValidStorageQuota(long? bytes) =>
+        bytes is not { } value || (value >= MinStorageQuotaBytes && value <= MaxStorageQuotaBytes);
+
+    /// <summary>The one sentence for <see cref="IsValidStorageQuota"/>'s refusal, built from the two bounds it checks.</summary>
+    public static readonly string StorageQuotaRangeError =
+        $"Le quota de stockage doit être compris entre {MinStorageQuotaBytes / (1024L * 1024 * 1024)} Go et "
+        + $"{MaxStorageQuotaBytes / (1024L * 1024 * 1024 * 1024)} To.";
+
     /// <summary>
     /// Sets this cabinet's own ceiling, or returns it to the deployment's default with null. Returns false when nothing
     /// changed, so the caller journals only a real change.
     /// </summary>
     public bool SetStorageQuota(long? bytes)
     {
-        if (bytes is { } value && (value < MinStorageQuotaBytes || value > MaxStorageQuotaBytes))
+        if (!IsValidStorageQuota(bytes))
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(bytes), "Le quota de stockage doit être compris entre 1 Go et 2 To.");
+            throw new ArgumentOutOfRangeException(nameof(bytes), StorageQuotaRangeError);
         }
 
         if (StorageQuotaBytes == bytes)
@@ -558,6 +563,12 @@ public class Clinic : AggregateRoot<Guid>
         return true;
     }
 
+    /// <summary>
+    /// Records that the shell copied the coffre somewhere else. <see cref="MarkArchiveDownloaded"/>'s shape, and
+    /// for its reasons: it never moves the moment backwards (two machines can report in either order and the older
+    /// report must not make the cabinet look staler than it is) and it does not stamp <see cref="UpdatedAt"/>,
+    /// because nobody edited the cabinet.
+    /// </summary>
     public void MarkVaultCopied(DateTime copiedAtUtc)
     {
         if (LastVaultCopyAtUtc == null || copiedAtUtc > LastVaultCopyAtUtc)

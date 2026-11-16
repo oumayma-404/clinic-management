@@ -125,13 +125,30 @@ PC no longer puts the camera's name on every group (only « Appareil inconnu » 
 | `CameraBatchPlanner` RAW count | the shell's batch message | unaffected — a count only |
 | `session.ts` recount rule | offset notice, camera owner prompt, « plus anciennes » | must re-test in the browser walk |
 
+## Pre-merge checks (2026-11-16)
+
+Asked: « do all checks that we can do now until it is merged to prod and tested with a real camera ». Done:
+
+| Check | Result |
+|---|---|
+| Code review, 6 agents, every finding checked against the source | 30 fixed, 3 decided — [`reviews/feature-review.md`](reviews/feature-review.md) |
+| 38 real camera files through the EXIF reader | zone not applied; Nikon serial from the maker notes; orientation 5/7 fixed |
+| Browser run 2 → fixes → browser run 3 | [`qa/run-3.md`](qa/run-3.md) **GREEN**, 115 checks, 0 product finding |
+| Big card (399 full-size photos) | read 2,9 s · 7/7 sure · filed 154 s · 0 failure |
+| Vendor console « Stockage » | 6/6 |
+| API suite (full, unfiltered) | 7222 passed, 0 failed, 6 skipped |
+| Windows app tests | 270/0 |
+| Web `tsc` · `check:responsive` · build · pure specs | 0 · 88/88 · OK · 29/29 |
+
+Behaviour changes to tell the pilot are in `notes.md` (« Behaviour change on update »). Committed locally; nothing
+pushed, no PR.
+
 ## Owed — not done, and why
 
 | What | Why it is not done | Who |
 |---|---|---|
-| The vendor console's « Stockage » column and « Modifier le quota » in a browser | the walk ([`qa/run-1.md`](qa/run-1.md), GREEN) covered the cabinet's screens; the console needs its own app and a console sign-in. Its gate is green | next session |
 | A real Canon and a real Nikon on USB | no camera here; the card path is unit-tested on folders | pilot |
-| The Windows app on a real PC: detection toast, « Importer », original kept, copy to the archive disk | the shell cannot run in CI; build + 238 tests only | pilot |
+| The Windows app on a real PC: detection toast, « Importer » and its « N sur M », original kept, copy to the archive disk | the shell cannot run in CI; build + 270 tests only | pilot |
 | Tune `MATCH_RULES` on the pilot's real day | needs the pilot's card | pilot |
 | Phase 0: PR #84 merged and one off-server backup seen; a decision on the server disk | owner | owner |
 | PR for this branch | never pushed without the owner's OK | owner |

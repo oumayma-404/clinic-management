@@ -9,7 +9,12 @@ using MediatR;
 
 namespace ClinicManagement.Application.Features.PhotoImport.Queries;
 
-public sealed record ImportedCaptureDto(string CaptureKey, Guid FileId, Guid PatientId, string PatientName);
+/// <param name="OriginalHeldBy">
+/// The PC keeping the full-size original, null when none reported one — read by the page to answer the Windows app
+/// for a photo filed before: keep the original only when the cloud has just a copy and no PC holds it.
+/// </param>
+public sealed record ImportedCaptureDto(
+    string CaptureKey, Guid FileId, Guid PatientId, string PatientName, string? OriginalHeldBy);
 
 /// <summary>
 /// Which of a card's shots this cabinet has already filed — read before anything is uploaded, so re-inserting a card
@@ -61,7 +66,8 @@ public class GetImportedCaptureKeysQueryHandler
             var rows = await _files.GetImportedCapturesAsync(clinic.Value, keys, cancellationToken);
 
             IReadOnlyList<ImportedCaptureDto> dtos = rows
-                .Select(row => new ImportedCaptureDto(row.CaptureKey, row.FileId, row.PatientId, row.PatientName))
+                .Select(row => new ImportedCaptureDto(
+                    row.CaptureKey, row.FileId, row.PatientId, row.PatientName, row.OriginalHeldBy))
                 .ToList();
 
             return Result<IReadOnlyList<ImportedCaptureDto>>.Success(dtos);

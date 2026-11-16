@@ -113,21 +113,34 @@ public static class VaultBridge
              * plus an installer), so the shell is always the one that speaks first.
              */
             var relayPending = {};
+            var relayAlive = {};
             var relayCounter = 0;
 
+            /*
+             * `timeoutMs` counts from the last sign of life: a `camera-progress` naming the request re-arms it
+             * (`relayAlive`), so a slow copy off a camera is never told « ne répond plus » while it is still copying.
+             */
             function relayRequest(kind, body, fallback, timeoutMs) {
               return new Promise(function (resolve) {
                 try {
                   var id = 'r' + (++relayCounter);
                   var settled = false;
+                  var timer = null;
                   var settle = function (value) {
                     if (settled) { return; }
                     settled = true;
+                    clearTimeout(timer);
                     delete relayPending[id];
+                    delete relayAlive[id];
                     resolve(value);
                   };
+                  var arm = function () {
+                    clearTimeout(timer);
+                    timer = setTimeout(function () { settle(fallback); }, timeoutMs);
+                  };
                   relayPending[id] = settle;
-                  setTimeout(function () { settle(fallback); }, timeoutMs);
+                  relayAlive[id] = arm;
+                  arm();
                   window.chrome.webview.postMessage(kind + ':' + id + (body === null ? '' : ':' + JSON.stringify(body)));
                 } catch (e) {
                   resolve(fallback);
@@ -223,13 +236,14 @@ public static class VaultBridge
               return relayRequest('camera-auto', { on: !!on }, null, 10000);
             }
 
+            // Fifteen minutes WITHOUT a `camera-progress` — a copy that is moving is never given up on.
             function cameraScan(request) {
               return relayRequest('camera-scan', {
                 sourceKey: request && typeof request.sourceKey === 'string' ? request.sourceKey : undefined,
                 includeOlder: !!(request && request.includeOlder)
               }, {
                 delivered: 0, older: 0, failed: 0,
-                sentence: "L'appareil ne répond plus. Débranchez-le, rebranchez-le, puis réessayez."
+                sentence: "L'appareil ne répond plus depuis un quart d'heure. Débranchez-le, rebranchez-le, puis réessayez."
               }, 900000);
             }
 
@@ -323,6 +337,19 @@ public static class VaultBridge
                     window.__clinicShellDeliverVault(handle);
                   } else {
                     window.__clinicShellPendingVault = handle;
+                  }
+                  return;
+                }
+
+                /*
+                 * « Importer » is still copying: its wait starts again. Handed on to a page that listens (it may show
+                 * the count), never queued — a stale count is worth nothing and would take a batch's place.
+                 */
+                if (payload.kind === 'camera-progress') {
+                  var alive = relayAlive[payload.requestId];
+                  if (typeof alive === 'function') { alive(); }
+                  if (typeof window.__clinicShellDeliverCamera === 'function') {
+                    window.__clinicShellDeliverCamera(payload, []);
                   }
                   return;
                 }

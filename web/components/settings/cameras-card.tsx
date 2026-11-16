@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/empty-state"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
@@ -114,9 +115,12 @@ export function CamerasCard() {
             Chargement…
           </p>
         ) : cameras.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Aucun appareil pour l&apos;instant : il apparaît ici à sa première importation.
-          </p>
+          <EmptyState
+            size="compact"
+            icon={Camera}
+            title="Aucun appareil pour l'instant"
+            description="Un appareil apparaît ici à sa première importation."
+          />
         ) : (
           <ul className="divide-y divide-border rounded-md border border-border">
             {cameras.map((camera) => (

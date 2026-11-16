@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -19,12 +18,29 @@ namespace ClinicManagement.DesktopShell.Camera;
 /// </summary>
 public static class CameraSources
 {
-    /// <summary>A card (or a camera mounting as a drive) at this root, or null when there is no <c>DCIM</c> there.</summary>
+    /// <summary>
+    /// The one rule for « this volume is a camera's card »: a removable drive with <c>DCIM</c> at its root. The arrival
+    /// watcher, « Chercher l'appareil » and the archive copy's guard all ask it — a notice for a disk the scan then
+    /// cannot find sent the scan to every other device.
+    /// </summary>
+    public static bool IsCard(string root)
+    {
+        try
+        {
+            return Directory.Exists(Path.Combine(root, "DCIM")) && new DriveInfo(root).DriveType == DriveType.Removable;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>A card (or a camera mounting as a drive) at this root, or null when <see cref="IsCard"/> says no.</summary>
     public static CardCameraSource? CardAt(string root)
     {
         try
         {
-            if (!Directory.Exists(Path.Combine(root, "DCIM")))
+            if (!IsCard(root))
             {
                 return null;
             }
@@ -44,7 +60,7 @@ public static class CameraSources
             var label = volumeLabel.Length == 0 ? $"Carte ({letter})" : $"Carte {volumeLabel} ({letter})";
 
             // The volume's serial: a card read twice is one card; a reformatted card is a new one, which is right.
-            var key = VolumeSerial(root) is { } serial
+            var key = PhysicalDisks.VolumeSerial(root) is { } serial
                 ? $"card:{serial:x8}"
                 : $"card:{char.ToLowerInvariant(letter[0])}";
 
@@ -114,8 +130,7 @@ public static class CameraSources
         {
             try
             {
-                if (drive.DriveType == DriveType.Removable && drive.IsReady
-                    && CardAt(drive.RootDirectory.FullName) is { } card)
+                if (drive.IsReady && CardAt(drive.RootDirectory.FullName) is { } card)
                 {
                     sources.Add(card);
                 }
@@ -143,28 +158,4 @@ public static class CameraSources
 
         return sources;
     }
-
-    private static uint? VolumeSerial(string root)
-    {
-        try
-        {
-            return GetVolumeInformationW(root, null, 0, out var serial, out _, out _, null, 0) ? serial : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetVolumeInformationW(
-        string rootPathName,
-        StringBuilder? volumeNameBuffer,
-        int volumeNameSize,
-        out uint volumeSerialNumber,
-        out uint maximumComponentLength,
-        out uint fileSystemFlags,
-        StringBuilder? fileSystemNameBuffer,
-        int fileSystemNameSize);
 }

@@ -1,4 +1,5 @@
-﻿using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Files;
+using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Files.Commands;
 using ClinicManagement.Application.Features.Files.Queries;
@@ -43,6 +44,14 @@ public class FilesTenantIsolationTests
 
     private static PatientFolder Folder(Guid patientId, Guid clinicId) =>
         new(Guid.NewGuid(), patientId, clinicId, "documents");
+
+    /// <summary>An allowance that reads nothing — these cases are about tenancy, not the storage bell.</summary>
+    private static ClinicStorageAllowance UnboundedStorage()
+    {
+        var policy = new Mock<IClinicStoragePolicy>();
+        policy.SetupGet(p => p.Enforced).Returns(false);
+        return new ClinicStorageAllowance(new Mock<IPatientFileRepository>().Object, policy.Object);
+    }
 
     // ---- GetPatientFilesQuery (AC-1/AC-2) -----------------------------------
 
@@ -162,7 +171,7 @@ public class FilesTenantIsolationTests
         var uow = new Mock<IUnitOfWork>();
 
         var handler = new DeletePatientFileCommandHandler(files.Object, patients.Object, storage.Object, Resolver(ClinicId).Object, uow.Object,
-            NullLogger<DeletePatientFileCommandHandler>.Instance);
+            UnboundedStorage(), NullLogger<DeletePatientFileCommandHandler>.Instance);
         var result = await handler.Handle(
             new DeletePatientFileCommand { PatientId = foreign.Id, FileId = file.Id }, CancellationToken.None);
 
@@ -189,7 +198,7 @@ public class FilesTenantIsolationTests
 
         var handler = new DeletePatientFolderCommandHandler(
             folders.Object, files.Object, patients.Object, storage.Object, Resolver(ClinicId).Object, uow.Object,
-            NullLogger<DeletePatientFolderCommandHandler>.Instance);
+            UnboundedStorage(), NullLogger<DeletePatientFolderCommandHandler>.Instance);
         var result = await handler.Handle(
             new DeletePatientFolderCommand { PatientId = foreign.Id, FolderId = folder.Id }, CancellationToken.None);
 
@@ -226,7 +235,7 @@ public class FilesTenantIsolationTests
 
         var handler = new DeletePatientFolderCommandHandler(
             folders.Object, files.Object, patients.Object, storage.Object, Resolver(ClinicId).Object, uow.Object,
-            NullLogger<DeletePatientFolderCommandHandler>.Instance);
+            UnboundedStorage(), NullLogger<DeletePatientFolderCommandHandler>.Instance);
         var result = await handler.Handle(
             new DeletePatientFolderCommand { PatientId = patient.Id, FolderId = folder.Id }, CancellationToken.None);
 

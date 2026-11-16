@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { AlertTriangle, CheckCircle2, FolderOpen, Loader2, RotateCcw } from "lucide-react"
 import { PatientNameLink } from "@/components/patient-name-link"
@@ -43,6 +44,7 @@ export function FilingStep({ state, photos }: { state: ImportState; photos: Map<
   const filed = items.filter((item) => item.status === "filed").length
   const failures = items.filter((item) => item.status === "failed" || item.status === "blocked")
   const running = state.phase === "filing"
+  const [showAllFailures, setShowAllFailures] = useState(false)
   const percent = items.length > 0 ? Math.round((settled / items.length) * 100) : 100
 
   return (
@@ -120,15 +122,23 @@ export function FilingStep({ state, photos }: { state: ImportState; photos: Map<
         <section className="space-y-2" aria-label="Photos non rangées">
           <h2 className="text-sm font-medium">Photos non rangées</h2>
           <ul className="space-y-1 text-sm">
-            {failures.slice(0, 20).map((item) => (
+            {(showAllFailures ? failures : failures.slice(0, 20)).map((item) => (
               <li key={item.photoId} className="flex flex-col gap-0.5 rounded-md bg-muted/50 px-3 py-2 sm:flex-row sm:gap-2">
                 <span className="font-medium">{photos.get(item.photoId)?.file.name ?? "Photo"}</span>
                 <span className="text-muted-foreground">{item.message ?? "Envoi refusé."}</span>
               </li>
             ))}
           </ul>
-          {failures.length > 20 && (
-            <p className="text-xs text-muted-foreground">Et {failures.length - 20} autres.</p>
+          {/* Folded, never dropped: « Réessayer » acts on every one of them, and each has its own reason. */}
+          {!showAllFailures && failures.length > 20 && (
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-sm coarse:min-h-11"
+              onClick={() => setShowAllFailures(true)}
+            >
+              Afficher les {failures.length - 20} autres
+            </Button>
           )}
         </section>
       )}

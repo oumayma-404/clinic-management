@@ -79,7 +79,7 @@ export function MoveToPatientDialog({
       <DialogContent className="md:max-w-lg">
         <DialogHeader>
           <DialogTitle>Changer de patient</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="[overflow-wrap:anywhere]">
             {file ? `${quoteFr(file.fileName)} sera rangé chez un autre patient.` : ""}
           </DialogDescription>
         </DialogHeader>
@@ -97,15 +97,22 @@ export function MoveToPatientDialog({
             </Button>
           </div>
         ) : (
-          <PatientSearchList label="Rechercher le patient qui doit recevoir ce fichier" onPick={setTarget} excludeId={patientId} autoFocus />
+          // No autoFocus: opened from a menu, focus must land on the title and come back to « ⋯ » on close — and on
+          // a phone the keyboard would rise over the sheet as it opens.
+          <PatientSearchList label="Rechercher le patient qui doit recevoir ce fichier" onPick={setTarget} excludeId={patientId} />
         )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Annuler
           </Button>
-          <Button onClick={() => void move()} disabled={!target || saving}>
-            {saving ? "Déplacement…" : target ? `Ranger chez ${target.patientName}` : "Ranger"}
+          {/* « Ranger » alone on the button — the line above names the patient, and a long name overflowed at 320 px. */}
+          <Button
+            onClick={() => void move()}
+            disabled={!target || saving}
+            aria-label={target && !saving ? `Ranger chez ${target.patientName}` : undefined}
+          >
+            {saving ? "Déplacement…" : "Ranger"}
           </Button>
         </DialogFooter>
       </DialogContent>

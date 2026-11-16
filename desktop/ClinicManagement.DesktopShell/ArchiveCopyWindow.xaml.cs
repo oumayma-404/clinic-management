@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
+using ClinicManagement.DesktopShell.Camera;
 
 namespace ClinicManagement.DesktopShell;
 
@@ -15,6 +17,9 @@ public partial class ArchiveCopyWindow : Window
 {
     private readonly ServerConfig _server;
     private ArchiveCopySettings _settings;
+
+    /// <summary>The disk under the folder last checked — what « Enregistrer » records as an archive disk.</summary>
+    private (string Folder, uint? Volume) _checkedDisk = ("", null);
 
     public ArchiveCopyWindow(ServerConfig server)
     {
@@ -54,9 +59,16 @@ public partial class ArchiveCopyWindow : Window
 
         EncryptionText.Text = "Vérification du chiffrement du disque…";
 
-        var encrypted = await Task.Run(() => ArchiveCopyService.IsDriveEncrypted(folder));
+        // Off the window's thread too: a folder on a mapped NAS letter can take seconds to answer.
+        var vault = VaultFolder.Resolve(_settings);
+        var (encrypted, sameDisk, volume) = await Task.Run(() => (
+            ArchiveCopyService.IsDriveEncrypted(folder),
+            AddOnlyFolderCopy.SameDiskRefusal(vault, folder)
+            ?? AddOnlyFolderCopy.SameDiskRefusal(OriginalsStore.DefaultRoot, folder),
+            ArchiveDisk.IdentityOf(folder)));
+        _checkedDisk = (folder, volume);
 
-        EncryptionText.Text = encrypted switch
+        var encryption = encrypted switch
         {
             true => "Ce disque est protégé par BitLocker : en cas de vol, les copies restent illisibles.",
             false => "Ce disque n'est PAS protégé par BitLocker. Quiconque récupère ce poste peut lire les copies. "
@@ -67,6 +79,10 @@ public partial class ArchiveCopyWindow : Window
                  + "administrateur). Pour le voir : ouvrez l'Explorateur, clic droit sur le disque, "
                  + "« Activer BitLocker » — s'il est déjà chiffré, Windows propose plutôt de le gérer.",
         };
+
+        // ⚠️ The coffre's copy still runs onto the PC's own disk (it did before 1.8, and stopping it silently was
+        // worse); this is where somebody choosing the folder learns that it is no second copy.
+        EncryptionText.Text = sameDisk is null ? encryption : $"{encryption}\n\n{sameDisk}";
     }
 
     private void Browse_Click(object sender, RoutedEventArgs e)
@@ -109,6 +125,19 @@ public partial class ArchiveCopyWindow : Window
             return null;
         }
 
+        // The disk under the folder now is an archive disk from here on (camera-photo-import); a second disk used
+        // in turn is added the day somebody saves with it plugged in. A new folder starts the list again.
+        var volumes = string.Equals(folder, _settings.Folder.Trim(), StringComparison.OrdinalIgnoreCase)
+            ? new List<uint>(_settings.FolderVolumes)
+            : new List<uint>();
+        if (string.Equals(_checkedDisk.Folder, folder, StringComparison.OrdinalIgnoreCase)
+            && _checkedDisk.Volume is { } volume
+            && !volumes.Contains(volume))
+        {
+            volumes.Add(volume);
+        }
+
+        // ⚠️ Every field the form does not show is carried, or saving resets it.
         return new ArchiveCopySettings
         {
             Folder = folder,
@@ -116,6 +145,8 @@ public partial class ArchiveCopyWindow : Window
             EveryDays = days,
             KeepCopies = keep,
             MirrorFiles = MirrorFilesCheckBox.IsChecked == true,
+            VaultFolder = _settings.VaultFolder,
+            FolderVolumes = volumes,
         };
     }
 

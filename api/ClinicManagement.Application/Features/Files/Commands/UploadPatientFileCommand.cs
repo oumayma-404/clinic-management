@@ -183,11 +183,12 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
                 request.PreviewSize,
                 cancellationToken);
 
+            PatientFile file;
             try
             {
                 // Persist the VALIDATED type, name and byte count, never the client's claims — the stored type
                 // is what the download endpoint serves back (AC-11.6).
-                var file = new PatientFile(
+                file = new PatientFile(
                     fileId,
                     request.PatientId,
                     patient.ClinicId,
@@ -208,13 +209,6 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
 
                 await _fileRepository.AddAsync(file, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-                // Post-commit, best-effort: the 80 / 95 % storage bell (features/camera-photo-import, phase 3).
-                await _storage.AfterChangeAsync(clinicResult.Value, cancellationToken);
-
-                var dto = file.ToDto();
-
-                return Result<PatientFileDto>.Success(dto);
             }
             catch
             {
@@ -231,6 +225,12 @@ public class UploadPatientFileCommandHandler : IRequestHandler<UploadPatientFile
 
                 throw;
             }
+
+            // ⚠️ Outside the cleanup scope: the row is committed from here, so nothing that follows may take its
+            // bytes with it. Post-commit, best-effort: the 80 / 95 % storage bell (features/camera-photo-import).
+            await _storage.AfterChangeAsync(clinicResult.Value, cancellationToken);
+
+            return Result<PatientFileDto>.Success(file.ToDto());
         }
         catch (DbUpdateException ex) when (request.Capture.IsCamera && UniqueViolation.Is(ex))
         {

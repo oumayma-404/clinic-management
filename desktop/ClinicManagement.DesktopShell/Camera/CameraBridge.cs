@@ -25,6 +25,10 @@ namespace ClinicManagement.DesktopShell.Camera;
 /// <para>⚠️ <b>A batch is a message, not a reply.</b> File handles can only travel with
 /// <c>PostWebMessageAsJson</c>, so « Importer » answers a count while the photos arrive through the listener, parked in
 /// a queue when the page is not ready yet — the coffre's single slot would lose a second batch.</para>
+///
+/// <para>⚠️ <b>The page's answers are handled off the window's thread, one at a time</b> (<see cref="Enqueue"/>): each
+/// one moves files and writes the journal, and a card of 500 photos already on the server is 500 answers in a second —
+/// on the window's thread that was a window « Ne répond pas ».</para>
 /// </summary>
 public sealed class CameraBridge : IDisposable
 {
@@ -36,6 +40,12 @@ public sealed class CameraBridge : IDisposable
     /// <summary>Windows announces one card several times; one notice is enough.</summary>
     private static readonly TimeSpan ArrivalQuiet = TimeSpan.FromSeconds(20);
 
+    /// <summary>« Importer » says it is alive at most this often — enough to keep the page from giving up on it.</summary>
+    private static readonly TimeSpan ProgressEvery = TimeSpan.FromSeconds(1);
+
+    /// <summary>How long closing the window waits for the page's last answers before writing the journal.</summary>
+    private static readonly TimeSpan DrainOnClose = TimeSpan.FromSeconds(3);
+
     private readonly Window _window;
     private readonly Func<CoreWebView2?> _core;
     private readonly Func<string?, bool> _isClinicPage;
@@ -44,11 +54,17 @@ public sealed class CameraBridge : IDisposable
     private readonly DeviceArrivalWatcher _watcher;
     private readonly DispatcherTimer _copyTimer;
     private readonly Dictionary<string, DateTime> _recentArrivals = new();
+    private readonly object _workGate = new();
 
+    private Task _work = Task.CompletedTask;
     private bool _sessionStarted;
     private int _copyRunning;
     private OriginalsCopyOutcome? _lastCopy;
     private DateTime? _lastCopyAtUtc;
+    private DateTime _lastProgressUtc;
+
+    /// <summary>The devices the batch on screen came from — what « plus anciennes » may read again.</summary>
+    private IReadOnlyCollection<string> _lastLook = Array.Empty<string>();
 
     public CameraBridge(
         Window window,
@@ -71,6 +87,9 @@ public sealed class CameraBridge : IDisposable
             _copyTimer.Stop();
             _ = RunOriginalsCopyAsync();
         };
+
+        // Velopack's « Installer et redémarrer » exits the process without closing the window.
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
     }
 
     /// <summary>
@@ -89,10 +108,13 @@ public sealed class CameraBridge : IDisposable
                 _watcher.Start(_window);
             }
 
-            foreach (var notice in _service.UnrecordedOriginals())
+            Enqueue(() =>
             {
-                PostOriginalKept(notice);
-            }
+                foreach (var notice in _service.OriginalsToAnnounce())
+                {
+                    OnWindow(() => PostOriginalKept(notice));
+                }
+            });
 
             if (_sessionStarted)
             {
@@ -100,7 +122,7 @@ public sealed class CameraBridge : IDisposable
             }
 
             _sessionStarted = true;
-            _ = Task.Run(_service.Housekeep);
+            Enqueue(_service.Housekeep);
             _ = RunOriginalsCopyAsync();
         }
         catch
@@ -146,14 +168,14 @@ public sealed class CameraBridge : IDisposable
             case "ack":
                 if (CameraAck.TryParse(rest) is { } ack)
                 {
-                    Acknowledge(ack);
+                    Enqueue(() => Acknowledge(ack));
                 }
 
                 break;
             case "recorded":
                 if (CameraMessages.FileIdOf(rest) is { } recorded)
                 {
-                    _service.MarkOriginalRecorded(recorded);
+                    Enqueue(() => _service.MarkOriginalRecorded(recorded));
                 }
 
                 break;
@@ -212,24 +234,107 @@ public sealed class CameraBridge : IDisposable
 
     public void Dispose()
     {
+        AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
         _copyTimer.Stop();
         _watcher.Dispose();
+
+        // The answers still queued, then the journal they changed — saved per burst, so it may hold the last second.
+        Task work;
+        lock (_workGate)
+        {
+            work = _work;
+        }
+
+        try
+        {
+            work.Wait(DrainOnClose);
+        }
+        catch
+        {
+            // Every queued step swallows its own failure; nothing here is worth keeping the window open for.
+        }
+
+        Flush();
+    }
+
+    private void OnProcessExit(object? sender, EventArgs e) => Flush();
+
+    private void Flush()
+    {
+        try
+        {
+            _service.Flush();
+        }
+        catch
+        {
+            // An unsaved answer costs a photo offered again, nothing more.
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> off the window's thread, after everything queued before it — the page's answers
+    /// change the same journal entries, in the order it sent them.
+    /// </summary>
+    private void Enqueue(Action work)
+    {
+        lock (_workGate)
+        {
+            _work = _work.ContinueWith(
+                _ =>
+                {
+                    try
+                    {
+                        work();
+                    }
+                    catch
+                    {
+                        // One answer that fails must not stop the ones behind it.
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default);
+        }
+    }
+
+    /// <summary>Back on the window's thread — where the WebView lives — for what the page must hear.</summary>
+    private void OnWindow(Action action)
+    {
+        try
+        {
+            _window.Dispatcher.InvokeAsync(() =>
+            {
+                try
+                {
+                    action();
+                }
+                catch
+                {
+                    // The page is navigating; the next load re-sends what matters.
+                }
+            });
+        }
+        catch
+        {
+            // The window is closing.
+        }
     }
 
     private async Task AnswerAsync(string verb, string requestId, string? json)
     {
         try
         {
+            // ⚠️ Disk work (the originals' totals walk every file kept) runs off the window's thread.
             object? answer = verb switch
             {
-                "status" => Status(),
-                "auto" => SetAutoImport(CameraMessages.OnOf(json)),
-                "scan" => await ScanAsync(CameraScanRequest.Parse(json)),
+                "status" => await Task.Run(Status),
+                "auto" => await SetAutoImportAsync(CameraMessages.OnOf(json)),
+                "scan" => await ScanAsync(requestId, CameraScanRequest.Parse(json)),
                 "open" => OpenOriginal(CameraMessages.FileIdOf(json)),
-                "held" => CameraMessages.FileIdsOf(json)
+                "held" => await Task.Run(() => CameraMessages.FileIdsOf(json)
                     .Where(_service.Originals.Holds)
                     .Select(id => id.ToString("D"))
-                    .ToList(),
+                    .ToList()),
                 "copy" => await RunOriginalsCopyAsync(),
                 _ => null,
             };
@@ -258,7 +363,7 @@ public sealed class CameraBridge : IDisposable
         };
     }
 
-    private object SetAutoImport(bool? on)
+    private async Task<object> SetAutoImportAsync(bool? on)
     {
         if (on is { } value)
         {
@@ -276,33 +381,38 @@ public sealed class CameraBridge : IDisposable
             }
         }
 
-        return Status();
+        return await Task.Run(Status);
     }
 
-    private async Task<object> ScanAsync(CameraScanRequest request)
+    private async Task<object> ScanAsync(string requestId, CameraScanRequest request)
     {
-        var sources = await Task.Run(CameraSources.FindConnectedAsync);
-        if (request.SourceKey is { } wanted)
+        var connected = await Task.Run(CameraSources.FindConnectedAsync);
+        var choice = request.Choose(connected, CameraSettingsStore.Load().IgnoredSources, _lastLook);
+        if (choice.Refusal is { } refusal)
         {
-            // A notice names one device; if it has gone, every connected one is the next best answer.
-            var named = sources.Where(s => s.SourceKey == wanted).ToList();
-            if (named.Count > 0)
-            {
-                sources = named;
-            }
+            return new { delivered = 0, older = 0, failed = 0, sentence = refusal };
         }
 
-        var batch = await Task.Run(() => _service.BuildBatchAsync(sources, request.IncludeOlder));
+        // Made here, on the window's thread, so each report comes back to it.
+        var progress = new Progress<CameraScanProgress>(p => PostProgress(requestId, p));
+        var batch = await Task.Run(() => _service.BuildBatchAsync(choice.Sources, request.IncludeOlder, progress));
         var posted = batch.Items.Count > 0 ? PostBatch(batch) : 0;
+        if (posted > 0)
+        {
+            _lastLook = choice.Sources.Select(s => s.SourceKey).ToList();
+        }
 
         string? sentence = null;
         if (posted == 0)
         {
-            sentence = sources.Count == 0
-                ? "Aucun appareil photo ni carte n'est branché. Branchez l'appareil (ou insérez sa carte), puis réessayez."
-                : batch.Older > 0
+            sentence = choice.Sources.Count > 0
+                ? batch.Older > 0
                     ? $"Aucune nouvelle photo sur {batch.Label}. {batch.Older} plus ancienne(s) y reste(nt)."
-                    : $"Aucune nouvelle photo sur {batch.Label}.";
+                    : $"Aucune nouvelle photo sur {batch.Label}."
+                : choice.Ignored > 0
+                    ? $"Aucun appareil photo à importer n'est branché : {choice.Ignored} appareil(s) ignoré(s) sur ce PC "
+                      + "(« Ignorer cet appareil ») n'ont pas été lus."
+                    : "Aucun appareil photo ni carte n'est branché. Branchez l'appareil (ou insérez sa carte), puis réessayez.";
 
             if (batch.Failed > 0)
             {
@@ -312,6 +422,22 @@ public sealed class CameraBridge : IDisposable
         }
 
         return new { delivered = posted, older = batch.Older, failed = batch.Failed, sentence };
+    }
+
+    /// <summary>
+    /// <c>camera-progress</c> — re-arms the page's wait on this « Importer » (the injected script's), so a slow cable
+    /// is never told « l'appareil ne répond plus » while it is still copying. Never queued by the page.
+    /// </summary>
+    private void PostProgress(string requestId, CameraScanProgress progress)
+    {
+        var now = DateTime.UtcNow;
+        if (now - _lastProgressUtc < ProgressEvery)
+        {
+            return;
+        }
+
+        _lastProgressUtc = now;
+        Post(new { kind = "camera-progress", requestId, copied = progress.Copied, total = progress.Planned });
     }
 
     /// <summary>Hands one batch to the page with a read-only handle per photo. Returns how many went.</summary>
@@ -366,18 +492,22 @@ public sealed class CameraBridge : IDisposable
         }
     }
 
+    /// <summary>On the queue (<see cref="Enqueue"/>); what the page must hear goes back to the window's thread.</summary>
     private void Acknowledge(CameraAck ack)
     {
         var result = _service.Acknowledge(ack);
         if (result.Kept is { } kept)
         {
-            PostOriginalKept(kept);
-            _copyTimer.Stop();
-            _copyTimer.Start();
+            OnWindow(() =>
+            {
+                PostOriginalKept(kept);
+                _copyTimer.Stop();
+                _copyTimer.Start();
+            });
         }
         else if (result.Refusal is { } refusal && ack.FileId is { } fileId)
         {
-            Post(new { kind = "camera-original-refused", fileId = fileId.ToString("D"), sentence = refusal });
+            OnWindow(() => Post(new { kind = "camera-original-refused", fileId = fileId.ToString("D"), sentence = refusal }));
         }
     }
 
@@ -442,10 +572,25 @@ public sealed class CameraBridge : IDisposable
 
         try
         {
-            var folder = ArchiveCopySettingsStore.Load().Folder;
-            var outcome = await Task.Run(() => OriginalsCopyService.CopyNowAsync(_service.Originals, folder));
+            var settings = ArchiveCopySettingsStore.Load();
+            var folder = settings.Folder;
+            var volumes = settings.FolderVolumes;
+            var outcome = await Task.Run(() => OriginalsCopyService.CopyNowAsync(
+                _service.Originals, folder, diskRefusal: f => ArchiveDisk.Refusal(f, volumes)));
             _lastCopy = outcome;
             _lastCopyAtUtc = DateTime.UtcNow;
+
+            if (outcome.Complete && volumes.Count == 0)
+            {
+                // Settings from before 1.8 name no disk: the one this copy just landed on becomes the archive disk.
+                _ = Task.Run(() =>
+                {
+                    if (ArchiveDisk.IdentityOf(folder) is { } volume)
+                    {
+                        ArchiveCopySettingsStore.RememberFolderVolume(folder, volume);
+                    }
+                });
+            }
 
             if (outcome.Complete)
             {

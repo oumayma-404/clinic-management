@@ -67,7 +67,14 @@ export function NewPatientForGroup({
   }
 
   return (
-    <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+    // A form, so Enter in a field (or the phone keyboard's « OK ») creates — the button sits under the keyboard there.
+    <form
+      className="space-y-3 rounded-md border border-border bg-muted/30 p-3"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void create(false)
+      }}
+    >
       <p className="flex items-center gap-2 text-sm font-medium">
         <UserPlus className="size-4 shrink-0 text-primary" aria-hidden="true" />
         Nouveau patient
@@ -79,7 +86,7 @@ export function NewPatientForGroup({
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button type="button" className="gap-1.5 coarse:min-h-11" disabled={busy} onClick={() => void create(false)}>
+        <Button type="submit" className="gap-1.5 coarse:min-h-11" disabled={busy}>
           {busy && <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />}
           Créer et choisir
         </Button>
@@ -99,6 +106,6 @@ export function NewPatientForGroup({
         onCreateAnyway={() => void create(true)}
         onDismiss={() => setDuplicate(null)}
       />
-    </div>
+    </form>
   )
 }

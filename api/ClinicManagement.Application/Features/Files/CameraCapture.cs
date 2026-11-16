@@ -78,6 +78,9 @@ public static class CameraImportRefusals
     public const string OriginalNotCameraCode = "file-original-not-camera";
     public const string OriginalInvalidCode = "file-original-invalid";
 
+    /// <summary>The file an original is reported for is gone (deleted) — answered 404, so the page stops re-sending.</summary>
+    public const string FileNotFoundCode = "file-not-found";
+
     /// <summary>The longest range one import reads: a card left a month in the camera is the outer case.</summary>
     public const int MaxRangeDays = 31;
 
@@ -116,6 +119,9 @@ public static class CameraImportRefusals
 
     public static string OriginalInvalid() =>
         "Les informations sur l'original sont incomplètes.";
+
+    public static string FileNotFound() =>
+        "Fichier introuvable.";
 }
 
 /// <summary>

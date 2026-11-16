@@ -67,17 +67,20 @@ public sealed class VaultCopyService
         }
 
         string destination;
+        string? sameDisk;
         try
         {
             destination = Path.Combine(_settings.Folder, DestinationFolderName);
 
-            // ⚠️ Asked before anything is created there: a « second copy » on the coffre's own disk dies with it, and
-            // reporting it would clear the alert that exists to say so (camera-photo-import, AddOnlyFolderCopy).
-            var sameDisk = AddOnlyFolderCopy.SameDiskRefusal(source, _settings.Folder);
-            if (sameDisk != null)
+            // Before anything is created: with the archive disk unplugged, a camera's card can hold its letter.
+            if (ArchiveDisk.Unplugged(_settings.Folder) is { } unplugged)
             {
-                return new ArchiveCopyOutcome(false, sameDisk);
+                return new ArchiveCopyOutcome(false, unplugged);
             }
+
+            // ⚠️ Said, never refused: this copy predates the rule, and a cabinet whose folder is another partition of
+            // the PC's own disk would silently stop being copied — then told 30 days later to plug in a disk it has.
+            sameDisk = AddOnlyFolderCopy.SameDiskRefusal(source, _settings.Folder);
 
             Directory.CreateDirectory(destination);
             ArchiveCopyService.HardenFolder(destination);
@@ -105,6 +108,10 @@ public sealed class VaultCopyService
         var message = copy.Copied == 0
             ? $"Le coffre était déjà à jour ({copy.Files} fichier(s))."
             : $"{copy.Copied} fichier(s) copié(s) dans {destination}.";
+        if (sameDisk != null)
+        {
+            message += " " + sameDisk;
+        }
 
         // ⚠️ A report that did not land, or landed short, is stated rather than swallowed: the copy is on disk
         // either way, but the practice will keep being nagged, and « la copie a réussi » beside a nag that will not

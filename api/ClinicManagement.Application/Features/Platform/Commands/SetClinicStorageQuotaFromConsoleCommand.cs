@@ -1,4 +1,5 @@
 using ClinicManagement.Application.Common.Exceptions;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Features.Platform.Dtos;
@@ -21,6 +22,10 @@ namespace ClinicManagement.Application.Features.Platform.Commands;
 ///
 /// <para>⚠️ Lowering below what the cabinet already stores is allowed: nothing is deleted, the next upload is refused
 /// with the ordinary « plein » sentence. The console shows the figures before the press.</para>
+///
+/// <para>⚠️ <b>Every refusal is answered before anything is read</b>, each with its code: a quota out of range and a motif
+/// longer than the journal holds used to reach the catch-all as exceptions. And a changed ceiling re-evaluates the
+/// cabinet's 80 / 95 % bell after the commit — raising it is the remedy the bell names, so it must not keep ringing.</para>
 /// </summary>
 public class SetClinicStorageQuotaFromConsoleCommand : IRequest<Result<PlatformStorageQuotaChangedDto>>
 {
@@ -37,6 +42,8 @@ public class SetClinicStorageQuotaFromConsoleCommandHandler
 {
     public const string UnknownClinicCode = "clinic_not_found";
     public const string NotEnforcedCode = "storage_not_enforced";
+    public const string QuotaOutOfRangeCode = "storage_quota_out_of_range";
+    public const string ReasonTooLongCode = "reason_too_long";
 
     public const string ReasonRequiredError =
         "Indiquez le motif du changement : il reste inscrit au journal, et c'est la seule réponse à « pourquoi ce "
@@ -45,9 +52,13 @@ public class SetClinicStorageQuotaFromConsoleCommandHandler
     public const string NotEnforcedError =
         "Ce déploiement n'impose aucun plafond de stockage : le cabinet stocke ses fichiers sur son propre poste.";
 
+    public static readonly string ReasonTooLongError =
+        $"Le motif ne peut pas dépasser {PlatformAccessEntry.MaxReasonLength} caractères.";
+
     private readonly IClinicRepository _clinics;
     private readonly IPatientFileRepository _files;
     private readonly IClinicStoragePolicy _storage;
+    private readonly ClinicStorageAllowance _allowance;
     private readonly IPlatformAccessEntryRepository _accessEntries;
     private readonly IPlatformSessionContext _session;
     private readonly IUnitOfWork _unitOfWork;
@@ -58,6 +69,7 @@ public class SetClinicStorageQuotaFromConsoleCommandHandler
         IClinicRepository clinics,
         IPatientFileRepository files,
         IClinicStoragePolicy storage,
+        ClinicStorageAllowance allowance,
         IPlatformAccessEntryRepository accessEntries,
         IPlatformSessionContext session,
         IUnitOfWork unitOfWork,
@@ -67,6 +79,7 @@ public class SetClinicStorageQuotaFromConsoleCommandHandler
         _clinics = clinics;
         _files = files;
         _storage = storage;
+        _allowance = allowance;
         _accessEntries = accessEntries;
         _session = session;
         _unitOfWork = unitOfWork;
@@ -92,6 +105,18 @@ public class SetClinicStorageQuotaFromConsoleCommandHandler
                 return Result<PlatformStorageQuotaChangedDto>.Failure(ReasonRequiredError);
             }
 
+            var reason = request.Reason.Trim();
+            if (reason.Length > PlatformAccessEntry.MaxReasonLength)
+            {
+                return Result<PlatformStorageQuotaChangedDto>.Failure(ReasonTooLongError, ReasonTooLongCode);
+            }
+
+            if (!Clinic.IsValidStorageQuota(request.QuotaBytes))
+            {
+                return Result<PlatformStorageQuotaChangedDto>.Failure(
+                    Clinic.StorageQuotaRangeError, QuotaOutOfRangeCode);
+            }
+
             var clinic = await _clinics.GetByIdAsync(request.ClinicId, cancellationToken);
             if (clinic is null)
             {
@@ -109,7 +134,7 @@ public class SetClinicStorageQuotaFromConsoleCommandHandler
                     PlatformAccessAction.StorageQuotaChanged,
                     DateTime.UtcNow,
                     cancellationToken,
-                    reason: request.Reason!.Trim());
+                    reason: reason);
 
                 await _clinics.UpdateAsync(clinic, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -117,6 +142,9 @@ public class SetClinicStorageQuotaFromConsoleCommandHandler
                 _logger.LogInformation(
                     "Console account {AccountId} set clinic {ClinicId} storage quota to {QuotaBytes}",
                     accountId, clinic.Id, request.QuotaBytes);
+
+                // Post-commit, best-effort: a raised ceiling withdraws or lowers the bell, a lowered one may raise it.
+                await _allowance.AfterChangeAsync(clinic.Id, cancellationToken);
             }
 
             var used = await _files.GetHostedBytesAsync(clinic.Id, cancellationToken);
@@ -125,12 +153,6 @@ public class SetClinicStorageQuotaFromConsoleCommandHandler
                 StorageUsedBytes: used,
                 StorageQuotaBytes: clinic.StorageQuotaBytes ?? _storage.QuotaBytes,
                 StorageQuotaIsCustom: clinic.StorageQuotaBytes is not null));
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return Result<PlatformStorageQuotaChangedDto>.Failure(
-                $"Le quota doit être compris entre {Clinic.MinStorageQuotaBytes / (1024L * 1024 * 1024)} Go et "
-                + $"{Clinic.MaxStorageQuotaBytes / (1024L * 1024 * 1024 * 1024)} To.");
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

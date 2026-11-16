@@ -21,7 +21,10 @@ namespace ClinicManagement.DesktopShell;
 /// </summary>
 public static class PhysicalDisks
 {
-    public static bool ShareADisk(string first, string second)
+    public static bool ShareADisk(string first, string second) => ShareADisk(first, second, DisksOf);
+
+    /// <summary>The same rule with the disk reader passed in — what a test drives with two volumes it invents.</summary>
+    public static bool ShareADisk(string first, string second, Func<string, IReadOnlySet<int>?> disksOf)
     {
         try
         {
@@ -38,8 +41,8 @@ public static class PhysicalDisks
                 return true;
             }
 
-            var disksA = DisksOf(rootA);
-            var disksB = DisksOf(rootB);
+            var disksA = disksOf(rootA);
+            var disksB = disksOf(rootB);
             return disksA is not null && disksB is not null && disksA.Overlaps(disksB);
         }
         catch
@@ -48,8 +51,30 @@ public static class PhysicalDisks
         }
     }
 
+    /// <summary>
+    /// The serial number of the file system holding <paramref name="path"/> — what tells the archive disk from a card
+    /// that took its letter. Null for a share (nothing local to name) and for a volume Windows will not describe.
+    /// </summary>
+    public static uint? VolumeSerial(string path)
+    {
+        try
+        {
+            var root = VolumeRoot(path);
+            if (root is null || IsShare(root))
+            {
+                return null;
+            }
+
+            return GetVolumeInformationW(root, null, 0, out var serial, out _, out _, null, 0) ? serial : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>The mount point holding <paramref name="path"/> (« C:\ », or a folder a volume is mounted on), or null.</summary>
-    private static string? VolumeRoot(string path)
+    public static string? VolumeRoot(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -70,10 +95,13 @@ public static class PhysicalDisks
     private static string Normalize(string root) =>
         root.EndsWith('\\') ? root : root + "\\";
 
+    private static bool IsShare(string root) =>
+        root.StartsWith(@"\\", StringComparison.Ordinal) && !root.StartsWith(@"\\?\", StringComparison.Ordinal);
+
     /// <summary>The disk numbers a volume spans, or null when Windows will not say (a share, an odd driver).</summary>
-    private static HashSet<int>? DisksOf(string root)
+    public static IReadOnlySet<int>? DisksOf(string root)
     {
-        if (root.StartsWith(@"\\", StringComparison.Ordinal) && !root.StartsWith(@"\\?\", StringComparison.Ordinal))
+        if (IsShare(root))
         {
             return null; // A UNC share has no local disk.
         }
@@ -132,6 +160,18 @@ public static class PhysicalDisks
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetVolumeNameForVolumeMountPointW(
         string volumeMountPoint, StringBuilder volumeName, int bufferLength);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetVolumeInformationW(
+        string rootPathName,
+        StringBuilder? volumeNameBuffer,
+        int volumeNameSize,
+        out uint volumeSerialNumber,
+        out uint maximumComponentLength,
+        out uint fileSystemFlags,
+        StringBuilder? fileSystemNameBuffer,
+        int fileSystemNameSize);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(

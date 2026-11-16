@@ -2,8 +2,13 @@ using ClinicManagement.Domain.Enums;
 
 namespace ClinicManagement.Domain.Repositories;
 
-/// <summary>A camera shot this cabinet has already filed, and where — the « déjà importées » line of an import.</summary>
-public sealed record ImportedCaptureRow(string CaptureKey, Guid FileId, Guid PatientId, string PatientName);
+/// <summary>
+/// A camera shot this cabinet has already filed, and where — the « déjà importées » line of an import. Also which PC
+/// keeps its full-size original (null when none reported one), so the Windows app can keep the original of a photo
+/// whose filing answer it never received.
+/// </summary>
+public sealed record ImportedCaptureRow(
+    string CaptureKey, Guid FileId, Guid PatientId, string PatientName, string? OriginalHeldBy);
 
 /// <summary>
 /// One booked visit, as much of it as matching a burst of photos to a patient needs. Times are UTC; the reader that

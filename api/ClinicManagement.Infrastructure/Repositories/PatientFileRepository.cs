@@ -137,7 +137,8 @@ public class PatientFileRepository : IPatientFileRepository
                     file.CaptureKey!,
                     file.Id,
                     file.PatientId,
-                    patient.FirstName + " " + patient.LastName))
+                    patient.FirstName + " " + patient.LastName,
+                    file.OriginalHeldBy))
             .ToListAsync(cancellationToken);
     }
 

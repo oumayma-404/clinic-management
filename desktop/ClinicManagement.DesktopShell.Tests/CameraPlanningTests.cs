@@ -373,6 +373,131 @@ public class CameraPlanningTests
         Assert.Equal(new[] { one }, CameraMessages.FileIdsOf($$"""{"fileIds":["{{one}}","{{one}}","x",3,"{{Guid.Empty}}"]}"""));
         Assert.Equal(CameraMessages.MaxFileIds, CameraMessages.FileIdsOf($$"""{"fileIds":[{{many}}]}""").Count);
     }
+
+    // ── Which connected devices one scan reads ───────────────────────────────────────────────────────────
+
+    private static readonly ICameraSource CanonCard = new NamedSource("card:0badcafe");
+    private static readonly ICameraSource Phone = new NamedSource("wpd:0123456789abcdef");
+    private static readonly string[] PhoneIgnored = { "wpd:0123456789abcdef" };
+
+    private static string[] Keys(CameraScanChoice choice) => choice.Sources.Select(s => s.SourceKey).ToArray();
+
+    [Fact]
+    public void A_Scan_Never_Reads_A_Device_Somebody_Ignored_Whatever_The_Page_Asks()
+    {
+        var connected = new[] { CanonCard, Phone };
+
+        var search = new CameraScanRequest(null, false).Choose(connected, PhoneIgnored, Array.Empty<string>());
+        var older = new CameraScanRequest(null, true).Choose(connected, PhoneIgnored, new[] { CanonCard.SourceKey, Phone.SourceKey });
+        var named = new CameraScanRequest(Phone.SourceKey, false).Choose(connected, PhoneIgnored, Array.Empty<string>());
+
+        Assert.Equal(new[] { CanonCard.SourceKey }, Keys(search));
+        Assert.Equal(1, search.Ignored);
+        Assert.Equal(new[] { CanonCard.SourceKey }, Keys(older));
+        Assert.Empty(named.Sources);
+    }
+
+    [Fact]
+    public void A_Named_Device_That_Has_Gone_Answers_Unplugged_Rather_Than_Reading_The_Others()
+    {
+        var choice = new CameraScanRequest(CanonCard.SourceKey, false).Choose(new[] { Phone }, Array.Empty<string>(), Array.Empty<string>());
+
+        Assert.Empty(choice.Sources);
+        Assert.Equal(CameraScanRequest.Unplugged, choice.Refusal);
+        Assert.Equal(new[] { CanonCard.SourceKey }, Keys(new CameraScanRequest(CanonCard.SourceKey, true)
+            .Choose(new[] { CanonCard, Phone }, Array.Empty<string>(), Array.Empty<string>())));
+    }
+
+    [Fact]
+    public void Plus_Anciennes_Reads_Only_The_Devices_The_Batch_On_Screen_Came_From()
+    {
+        var connected = new[] { CanonCard, Phone };
+
+        Assert.Equal(new[] { CanonCard.SourceKey }, Keys(new CameraScanRequest(null, true)
+            .Choose(connected, Array.Empty<string>(), new[] { CanonCard.SourceKey })));
+        Assert.Empty(new CameraScanRequest(null, true).Choose(connected, Array.Empty<string>(), Array.Empty<string>()).Sources);
+        Assert.Equal(2, new CameraScanRequest(null, false).Choose(connected, Array.Empty<string>(), Array.Empty<string>()).Sources.Count);
+    }
+
+    // ── What a capped listing keeps ──────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void A_Capped_Listing_Keeps_The_Newest_And_Breaks_A_Tie_By_The_Later_Name()
+    {
+        var items = new[]
+        {
+            Jpeg("IMG_0001.JPG", Today.AddDays(-9)),
+            Jpeg("IMG_0003.JPG", Today.AddHours(9)),
+            Jpeg("IMG_0002.JPG", Today.AddHours(9)),
+            Jpeg("IMG_0004.JPG", null),
+        };
+
+        var kept = CameraListing.KeepNewest(items, i => i.TakenLocal, i => i.ObjectId, 2);
+
+        Assert.Equal(new[] { "IMG_0003.JPG", "IMG_0002.JPG" }, kept.Select(i => i.Name));
+        Assert.Equal(4, CameraListing.KeepNewest(items, i => i.TakenLocal, i => i.ObjectId, 4).Count);
+    }
+
+    [Fact]
+    public void A_Device_That_Dates_Nothing_Keeps_Its_Last_Numbered_Photos()
+    {
+        var items = Enumerable.Range(1, 5).Select(i => Jpeg($"IMG_{i:D4}.JPG", null)).ToList();
+
+        var kept = CameraListing.KeepNewest(items, i => i.TakenLocal, i => i.ObjectId, 2);
+
+        Assert.Equal(new[] { "IMG_0005.JPG", "IMG_0004.JPG" }, kept.Select(i => i.Name));
+    }
+
+    // ── The journal, saved per burst ─────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void A_Journal_Saved_Soon_Reaches_The_Disk_On_Its_Own()
+    {
+        using var temp = new TempFolder();
+        var path = temp.Sub("journal.json");
+        var journal = new CameraJournal(path, TimeSpan.FromMilliseconds(50));
+
+        journal.Record("card:0badcafe", Jpeg("IMG_0001.JPG", Today), CameraItemState.Delivered, null, null, DateTime.UtcNow);
+        journal.SaveSoon();
+        journal.SaveSoon();
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (new CameraJournal(path).Count == 0 && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(20);
+        }
+
+        Assert.Equal(1, new CameraJournal(path).Count);
+    }
+
+    [Fact]
+    public void A_Journal_Held_For_Flush_Writes_Nothing_Until_Then()
+    {
+        using var temp = new TempFolder();
+        var path = temp.Sub("journal.json");
+        var journal = new CameraJournal(path, Timeout.InfiniteTimeSpan);
+
+        journal.Record("card:0badcafe", Jpeg("IMG_0001.JPG", Today), CameraItemState.Delivered, null, null, DateTime.UtcNow);
+        journal.SaveSoon();
+        Assert.False(File.Exists(path));
+
+        journal.Flush();
+        Assert.Equal(1, new CameraJournal(path).Count);
+    }
+
+    /// <summary>A device as the scan's choice sees it: a key, nothing to read.</summary>
+    private sealed class NamedSource(string key) : ICameraSource
+    {
+        public string SourceKey => key;
+
+        public string Label => key;
+
+        public Task<IReadOnlyList<CameraItem>> ListAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<CameraItem>>(Array.Empty<CameraItem>());
+
+        public Task CopyToAsync(CameraItem item, Stream destination, CancellationToken cancellationToken) =>
+            throw new IOException("Nothing to read.");
+    }
 }
 
 /// <summary>A scratch folder per test, removed afterwards.</summary>

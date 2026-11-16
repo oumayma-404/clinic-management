@@ -1,5 +1,6 @@
 using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Exceptions;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Interfaces;
 using MediatR;
 using Microsoft.Extensions.Logging;
@@ -22,6 +23,7 @@ public class DeletePatientFolderCommandHandler : IRequestHandler<DeletePatientFo
     private readonly IFileStorage _fileStorage;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ClinicStorageAllowance _storage;
     private readonly ILogger<DeletePatientFolderCommandHandler> _logger;
 
     public DeletePatientFolderCommandHandler(
@@ -31,6 +33,7 @@ public class DeletePatientFolderCommandHandler : IRequestHandler<DeletePatientFo
         IFileStorage fileStorage,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
+        ClinicStorageAllowance storage,
         ILogger<DeletePatientFolderCommandHandler> logger)
     {
         _folderRepository = folderRepository;
@@ -39,6 +42,7 @@ public class DeletePatientFolderCommandHandler : IRequestHandler<DeletePatientFo
         _fileStorage = fileStorage;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _storage = storage;
         _logger = logger;
     }
 
@@ -104,6 +108,9 @@ public class DeletePatientFolderCommandHandler : IRequestHandler<DeletePatientFo
                         storageKey, request.FolderId);
                 }
             }
+
+            // Post-commit, best-effort: the 80 / 95 % bell follows the space this freed (features/camera-photo-import).
+            await _storage.AfterChangeAsync(patient.ClinicId, cancellationToken);
 
             return Result<bool>.Success(true);
         }

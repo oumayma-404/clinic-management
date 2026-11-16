@@ -200,6 +200,21 @@ public class StaffNotification : AggregateRoot<Guid>
         return notification;
     }
 
+    /// <summary>
+    /// « Stockage presque plein » (<c>features/camera-photo-import</c>), for the clinic's administrators only: both ways
+    /// out — deleting large files, asking APEXA for more space from « Abonnement » — are theirs, and reception can use
+    /// neither. No actor (nobody « did » a disk filling up) and no target user.
+    /// </summary>
+    public static StaffNotification ForStorageNearlyFull(
+        Guid id, Guid clinicId, string title, string message, DateTime effectiveFeedTimeUtc)
+    {
+        var notification = new StaffNotification(
+            id, clinicId, NotificationCategory.StorageNearlyFull, title, message,
+            effectiveFeedTimeUtc, NotificationTargetKind.Subscription);
+        notification.TargetRole = User.RoleAdmin;
+        return notification;
+    }
+
     /// <summary>A congé event: for one secretary (<paramref name="targetUserId"/>) or, when null, for every admin.</summary>
     public static StaffNotification ForStaffLeave(
         Guid id, Guid clinicId, NotificationCategory category, string title, string message,

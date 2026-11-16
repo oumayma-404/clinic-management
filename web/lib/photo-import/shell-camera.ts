@@ -49,10 +49,12 @@ interface ShellCameraState {
   detected: { sourceKey: string; label: string; at: number } | null
   /** « Importer » is copying photos off the source, or the page is opening what the shell posted. */
   busy: boolean
+  /** How far the copy is (`camera-progress`, at most once a second) — null before the first count and after it ends. */
+  progress: { copied: number; total: number } | null
 }
 
-const SERVER_STATE: ShellCameraState = { batch: null, detected: null, busy: false }
-let state: ShellCameraState = { batch: null, detected: null, busy: false }
+const SERVER_STATE: ShellCameraState = { batch: null, detected: null, busy: false, progress: null }
+let state: ShellCameraState = { batch: null, detected: null, busy: false, progress: null }
 const listeners = new Set<() => void>()
 
 function set(patch: Partial<ShellCameraState>) {
@@ -89,7 +91,7 @@ export function scanShellCamera(request: { sourceKey?: string; includeOlder?: bo
   if (!shell) return Promise.resolve()
   if (pendingScan) return pendingScan
 
-  set({ busy: true })
+  set({ busy: true, progress: null })
   pendingScan = (async () => {
     try {
       const result = await shell.cameraScan(request)
@@ -98,6 +100,7 @@ export function scanShellCamera(request: { sourceKey?: string; includeOlder?: bo
       toast.info("L'appareil ne répond plus. Débranchez-le, rebranchez-le, puis réessayez.")
     } finally {
       pendingScan = null
+      set({ progress: null })
       // A batch posted before the reply is still being opened (`receiveBatch`); it clears `busy` itself.
       if (!receiving) set({ busy: false })
     }
@@ -207,6 +210,14 @@ export function installShellCamera(openImport: (sourceKey: string | null) => voi
       case "camera-detected": {
         const { sourceKey, label } = message as unknown as { sourceKey: string; label: string }
         set({ detected: { sourceKey, label, at: Date.now() } })
+        break
+      }
+      case "camera-progress": {
+        // The shell's own script already restarted its wait; this is only the count. A late one is ignored.
+        const { copied, total } = message as unknown as { copied: number; total: number }
+        if (pendingScan && Number.isFinite(copied) && Number.isFinite(total) && total > 0) {
+          set({ progress: { copied: Math.min(copied, total), total } })
+        }
         break
       }
       case "camera-original-kept":

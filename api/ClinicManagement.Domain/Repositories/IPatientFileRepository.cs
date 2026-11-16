@@ -70,10 +70,6 @@ public interface IPatientFileRepository
     Task<bool> CaptureKeyExistsAsync(Guid clinicId, string captureKey, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Per PC, how many camera originals the server was told it keeps and how many bytes — the figures a PC's
-    /// archive-disk copy is checked against, exactly as <see cref="GetVaultTotalsAsync"/> is for the coffre.
-    /// </summary>
-    /// <summary>
     /// The originals <paramref name="heldBy"/> reported keeping after <paramref name="afterUtc"/> (every one when null):
     /// what its last complete copy did not cover yet.
     /// </summary>
@@ -83,6 +79,10 @@ public interface IPatientFileRepository
         DateTime? afterUtc,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Per PC, how many camera originals the server was told it keeps and how many bytes — the figures a PC's
+    /// archive-disk copy is checked against, exactly as <see cref="GetVaultTotalsAsync"/> is for the coffre.
+    /// </summary>
     Task<IReadOnlyList<CameraOriginalTotals>> GetCameraOriginalTotalsAsync(
         Guid clinicId,
         CancellationToken cancellationToken = default);

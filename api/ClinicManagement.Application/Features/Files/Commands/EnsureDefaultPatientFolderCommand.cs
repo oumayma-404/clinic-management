@@ -3,22 +3,22 @@ using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
-using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 
 namespace ClinicManagement.Application.Features.Files.Commands;
 
 /// <summary>
-/// Finds one of a patient's default folders, creating it — and only it — when it is missing
+/// Finds one of a patient's default folders, creating it when it is missing
 /// (<c>features/camera-photo-import</c>: a camera photo lands in « Photographie »).
 ///
 /// <para>⚠️ <b>Why not <c>InitializeDefaultFoldersCommand</c>:</b> that creates every missing default folder, so it
-/// would bring back « Lettres de Liaisons » for a cabinet that deleted it — on every photo import, silently.</para>
+/// would bring back « Lettres de Liaisons » for a cabinet that deleted it — on every photo import, silently. The one
+/// exception is a patient with no folder at all, who gets the whole set (<see cref="DefaultPatientFolders.EnsureAsync"/>).</para>
 ///
-/// <para>⚠️ The folder's id is <see cref="DefaultPatientFolders.IdFor"/>, so two imports reaching the same new
-/// patient at once collide on the primary key; the loser re-reads and returns the winner's folder.</para>
+/// <para>⚠️ Found by id first, then by name, and created under <see cref="DefaultPatientFolders.IdFor"/> — a renamed
+/// « Photographie » is still the one photos go to, and two imports reaching the same new patient at once collide on the
+/// primary key; the loser re-reads and returns the winner's folder.</para>
 /// </summary>
 public class EnsureDefaultPatientFolderCommand : IRequest<Result<PatientFolderDto>>
 {
@@ -70,44 +70,12 @@ public class EnsureDefaultPatientFolderCommandHandler
                 return Result<PatientFolderDto>.Failure("Patient introuvable.");
             }
 
-            var existing = await FindRootFolderAsync(request.PatientId, name, cancellationToken);
-            if (existing is not null)
-            {
-                return Result<PatientFolderDto>.Success(DefaultPatientFolders.ToDto(existing));
-            }
-
-            var folder = new PatientFolder(
-                DefaultPatientFolders.IdFor(request.PatientId, name), request.PatientId, patient.ClinicId, name);
-
-            try
-            {
-                await _folders.AddAsync(folder, cancellationToken);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateException ex) when (UniqueViolation.Is(ex))
-            {
-                // Another request created it a moment ago under the same deterministic id.
-                _unitOfWork.StopTracking(folder);
-                var winner = await FindRootFolderAsync(request.PatientId, name, cancellationToken);
-                if (winner is not null)
-                {
-                    return Result<PatientFolderDto>.Success(DefaultPatientFolders.ToDto(winner));
-                }
-
-                throw;
-            }
-
+            var folder = await DefaultPatientFolders.EnsureAsync(_folders, _unitOfWork, patient, name, cancellationToken);
             return Result<PatientFolderDto>.Success(DefaultPatientFolders.ToDto(folder));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<PatientFolderDto>.Failure(ErrorMessages.Generic, ex);
         }
-    }
-
-    private async Task<PatientFolder?> FindRootFolderAsync(Guid patientId, string name, CancellationToken cancellationToken)
-    {
-        var roots = await _folders.GetRootFoldersByPatientIdAsync(patientId, cancellationToken);
-        return roots.FirstOrDefault(folder => string.Equals(folder.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 }

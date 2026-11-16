@@ -34,13 +34,13 @@ One global, `window.__clinicShell`, installed **before the page's own scripts ru
 | `notify({ title, body, tag, urgent })` | `void` | Windows 1.7 | staff-chat AC-4.3: a Windows notification and a flashing taskbar button for a chat message, while the window is not in front. `tag` is the conversation; a click brings the window forward and calls the page's `window.__clinicShellOpenStaffChat(tag)`. Silent — the page already played its tone. Only from the cloud's page or the PC de secours's. |
 | `cameraStatus()` | `Promise<CameraStatus \| null>` | Windows 1.8 | `camera-photo-import`: whether this PC notices a camera (`autoImport`), how many photos wait (`pending`), what it keeps of the originals and how the last copy to the archive disk went. Never rejects. |
 | `setCameraAutoImport(on)` | `Promise<CameraStatus \| null>` | Windows 1.8 | « Détecter l'appareil photo branché sur ce PC » — per PC and Windows account, **off by default**. A detection only raises a notice; nothing is copied before « Importer ». |
-| `cameraScan({ sourceKey?, includeOlder? })` | `Promise<{ delivered, older, failed, sentence }>` | Windows 1.8 | Copies the new photos of every connected card or camera (or the named one) onto the PC and **posts** them as a `camera-batch` message with one read-only `FileSystemFileHandle` per photo — handles travel only with a message, so the reply is a count. Includes the photos still waiting from an earlier batch. Never rejects. |
+| `cameraScan({ sourceKey?, includeOlder? })` | `Promise<{ delivered, older, failed, sentence }>` | Windows 1.8 | Copies the new photos of every connected card or camera (or the named one) onto the PC and **posts** them as a `camera-batch` message with one read-only `FileSystemFileHandle` per photo — handles travel only with a message, so the reply is a count. Includes the photos still waiting from an earlier batch. **Never reads an ignored device**; a named device that is gone answers « n'est plus branché » (no other device instead); `includeOlder` with no device reads only the devices of the batch on screen. While copying it posts `camera-progress` `{ requestId, copied, total }` (≤ 1/s, never queued), and the 15-minute wait counts from the last one. Never rejects. |
 | `cameraAck({ itemId, outcome, fileId?, patientId?, patientName?, keepOriginal? })` | `void` | Windows 1.8 | One photo's outcome: `filed` (with where it went; `keepOriginal` when the cloud stored a reduced copy, so the PC keeps the full-size one) · `already` · `skipped` · `failed` (offered again). |
 | `cameraOriginalRecorded(fileId)` | `void` | Windows 1.8 | The server wrote down that this PC keeps that original; the shell stops re-announcing it on each page load. |
 | `ignoreCamera(sourceKey)` | `void` | Windows 1.8 | « Ignorer cet appareil » — no more notices for that device on this PC. |
 | `openOriginal(fileId)` | `Promise<boolean>` | Windows 1.8 | Opens the full-size original in Windows' own viewer; `false` when this PC does not hold it. The path is the shell's own, built from the parsed id. |
 | `originalsHeld(fileIds)` | `Promise<string[]>` | Windows 1.8 | Which of these files' originals this PC holds (at most 500 ids). |
-| `copyOriginalsNow()` | `Promise<CopyResult \| null>` | Windows 1.8 | Copies the kept originals to `{dossier de copie}\photos-originales\` now (add-only, refused on the same physical disk). A complete copy is also posted as `originals-copy`, which the page reports to the server. |
+| `copyOriginalsNow()` | `Promise<CopyResult \| null>` | Windows 1.8 | Copies the kept originals to `{dossier de copie}\photos-originales\` now (add-only, refused on the same physical disk, on a camera's card and on a disk that is not the archive disk). A complete copy is also posted as `originals-copy`, which the page reports to the server. |
 | `relaySwitch()` | `Promise<boolean>` | Windows 1.6 · Android 1.3.0 | Part 3: the cloud says the cabinet works on the PC — or the open page lost the cloud (`offline`, a request with no reply) — ask the PC and move the window there if it holds. Otherwise, if the shell's own check finds the cloud really silent, it shows the cut at once: « disponible dans N secondes », then « Travailler sur le PC de secours », updated in place every 3 s (manual takeover, 2026-10-12). Never rejects. |
 
 ### The per-phase method set (FR-6)
@@ -328,6 +328,22 @@ that TLS session is « reached »; a refusal, a timeout or another certificate i
 this probe alone**: the WebView's own TLS never sees it. ⚠️ Answered only for the configured server's own page (Windows:
 `IsExpectedOrigin`; Android: the page's URL against `ServerConfig.isSameOrigin`), through
 `__clinicShellDeliverRelayResult(id, value)` — the id interpolated only after it matched `r` + digits.
+
+## The camera's messages (Windows 1.8)
+
+The shell posts these with `PostWebMessageAsJson` to `window.__clinicShellDeliverCamera(payload, handles)`; until the
+page installs that function they wait in `window.__clinicShellPendingCamera` (a queue of at most 50 — never a single
+slot, or a second batch would overwrite the first). `camera-progress` is the exception: never queued, since a stale
+count is worth nothing. Reader: `web/lib/photo-import/shell-camera.ts`.
+
+| `kind` | Payload | Handles |
+|---|---|---|
+| `camera-batch` | `batchId`, `label`, `items[{ itemId, name }]`, `older`, `failed`, `skipped{ raw, heic, video, other }` | one read-only `FileSystemFileHandle` per item, same order |
+| `camera-progress` | `requestId`, `copied`, `total` — at most once a second while « Importer » copies; the injected script restarts that request's 15-minute wait on each | none |
+| `camera-detected` | `sourceKey`, `label` — a notice only, nothing is copied | none |
+| `camera-original-kept` | `fileId`, `patientId`, `sha256`, `sizeBytes`, `heldBy` — the page writes it down (`PUT …/files/{id}/original`) and answers `cameraOriginalRecorded`; a 404 is final | none |
+| `camera-original-refused` | `fileId`, `sentence` — the PC could not keep it (disk full, another account's store) | none |
+| `originals-copy` | `heldBy`, `files`, `bytes` — a complete copy to the archive disk, reported by the page | none |
 
 ## Version history
 

@@ -175,10 +175,15 @@ export async function batchOfDirectory(root: FileSystemDirectoryHandle): Promise
       if (batch.photos.length >= MAX_SOURCE_FILES) return
       if (entry.kind === "directory") {
         if (!isIgnoredFolder(entry.name)) {
-          await walk(entry as FileSystemDirectoryHandle, depth + 1, folder ? `${folder}/${entry.name}` : entry.name)
+          // One unreadable folder (a damaged entry, a permission revoked mid-walk) costs that folder, not the card.
+          await walk(entry as FileSystemDirectoryHandle, depth + 1, folder ? `${folder}/${entry.name}` : entry.name).catch(
+            () => void batch.skipped.other++,
+          )
         }
       } else {
-        addToBatch(batch, await (entry as FileSystemFileHandle).getFile(), folder)
+        const file = await (entry as FileSystemFileHandle).getFile().catch(() => null)
+        if (file) addToBatch(batch, file, folder)
+        else batch.skipped.other++
       }
     }
   }
@@ -229,11 +234,18 @@ export async function batchOfDrop(items: DataTransferItemList): Promise<SourceBa
     if (batch.photos.length >= MAX_SOURCE_FILES || depth > 5) return
     if (entry.isDirectory) {
       if (isIgnoredFolder(entry.name)) return
-      for (const child of await readAll((entry as FileSystemDirectoryEntry).createReader())) await visit(child, depth + 1)
+      const children = await readAll((entry as FileSystemDirectoryEntry).createReader()).catch(() => null)
+      if (!children) {
+        batch.skipped.other++
+        return
+      }
+      for (const child of children) await visit(child, depth + 1)
     } else if (entry.isFile) {
       // `fullPath` is « /Carte/DCIM/100CANON/IMG_0001.JPG » — its folder is what pairs a RAW with its JPEG.
       const folder = entry.fullPath.split("/").filter(Boolean).slice(0, -1).join("/")
-      addToBatch(batch, await fileOf(entry as FileSystemFileEntry), folder)
+      const file = await fileOf(entry as FileSystemFileEntry).catch(() => null)
+      if (file) addToBatch(batch, file, folder)
+      else batch.skipped.other++
     }
   }
 

@@ -1,6 +1,7 @@
 using ClinicManagement.Application.Common;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using ClinicManagement.Application.Common.Files;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common.Exceptions;
 using ClinicManagement.Application.Common.Interfaces;
@@ -21,6 +22,7 @@ public class DeletePatientFileCommandHandler : IRequestHandler<DeletePatientFile
     private readonly IFileStorage _fileStorage;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ClinicStorageAllowance _storage;
     private readonly ILogger<DeletePatientFileCommandHandler> _logger;
 
     public DeletePatientFileCommandHandler(
@@ -29,6 +31,7 @@ public class DeletePatientFileCommandHandler : IRequestHandler<DeletePatientFile
         IFileStorage fileStorage,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
+        ClinicStorageAllowance storage,
         ILogger<DeletePatientFileCommandHandler> logger)
     {
         _fileRepository = fileRepository;
@@ -36,6 +39,7 @@ public class DeletePatientFileCommandHandler : IRequestHandler<DeletePatientFile
         _fileStorage = fileStorage;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
+        _storage = storage;
         _logger = logger;
     }
 
@@ -90,6 +94,10 @@ public class DeletePatientFileCommandHandler : IRequestHandler<DeletePatientFile
                     _logger.LogWarning(ex, "Failed to delete blob {StorageKey} after removing file {FileId}; the record is already deleted.", storageKey, file.Id);
                 }
             }
+
+            // Post-commit, best-effort: freeing space is one of the two ways out the 80 / 95 % bell names, so it must
+            // lower or withdraw it (features/camera-photo-import).
+            await _storage.AfterChangeAsync(patient.ClinicId, cancellationToken);
 
             return Result<bool>.Success(true);
         }

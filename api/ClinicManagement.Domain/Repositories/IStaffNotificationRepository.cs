@@ -97,8 +97,12 @@ public interface IStaffNotificationRepository
     /// <summary>The cabinet's live « photos originales à copier » alert, if it has one (<c>features/camera-photo-import</c>).</summary>
     Task<StaffNotification?> GetPhotoOriginalsCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
-    /// <summary>The cabinet's live « stockage presque plein » alert, if it has one.</summary>
-    Task<StaffNotification?> GetStorageNearlyFullAsync(Guid clinicId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The cabinet's live « stockage presque plein » rows — normally none or one. A list, so a duplicate left by a race
+    /// is withdrawn with the rest instead of standing for ever beside the row the writer found first.
+    /// </summary>
+    Task<IReadOnlyList<StaffNotification>> GetStorageNearlyFullAlertsAsync(
+        Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The cabinet's warning row for one expiry threshold, if it has one (<c>clinic-subscription</c> FR-5).

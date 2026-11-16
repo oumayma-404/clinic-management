@@ -17,6 +17,7 @@ import {
   PHOTO_IMPORT_LIMITS,
   PhotoImportCode,
   photoImportApi,
+  type ImportedCaptureDto,
   type PhotoImportContextDto,
 } from "@/lib/api/photo-import"
 import { uploadPolicyApi, type UploadPolicy } from "@/lib/api/upload-policy"
@@ -58,8 +59,6 @@ import {
 /** A camera that wrote no make or model (a screenshot, a messaging app's re-encode) — never registered. */
 export const UNKNOWN_CAMERA = "unknown"
 
-/** Tunisia; replaced by the server's own figure as soon as the context arrives. */
-const DEFAULT_CLINIC_OFFSET = 60
 
 /** A first import shows the last week; later ones start half a day before the last import. */
 const FIRST_IMPORT_DAYS = 7
@@ -77,7 +76,7 @@ export interface ImportPhoto {
   /** The camera's own face (EXIF), or the file's date when there was none. */
   rawTime: WallClock | null
   uncertainTime: boolean
-  /** OffsetTimeOriginal, when the camera wrote it. */
+  /** OffsetTimeOriginal, when the camera wrote it — kept as read, deliberately not applied (`correctedTime`). */
   zoneMinutes: number | null
   /** An object URL over the EXIF thumbnail's bytes — no copy, no decode. */
   thumbUrl: string | null
@@ -102,6 +101,8 @@ export interface ImportCamera {
   /** What the photos say on top of the stored correction; 0 when nothing is proposed. */
   detectedOffset: number
   offsetAccepted: boolean
+  /** The correction the dentist turned down (« Annuler la correction ») — a recount must not put it back. */
+  refusedOffset: number | null
   photoCount: number
 }
 
@@ -148,6 +149,7 @@ export interface ImportState {
   groups: ReviewGroup[]
   choices: Record<string, PatientRef>
   ignored: Record<string, true>
+  /** « Couper » — keyed by the photo that starts the second half, so a recount cuts at the same photo or not at all. */
   splits: Record<string, true>
   excluded: Record<string, true>
   /** Photos taken out of their group (« Ranger chez un autre patient »), with the patient that group was going to. */
@@ -214,10 +216,6 @@ export function importSnapshot(): ImportState {
 
 // ── Times ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-function clinicOffset(): number {
-  return state.context?.clinicUtcOffsetMinutes ?? DEFAULT_CLINIC_OFFSET
-}
-
 function cameraOf(key: string): ImportCamera | undefined {
   return state.cameras.find((camera) => camera.key === key)
 }
@@ -234,10 +232,12 @@ export function needsOwner(camera: ImportCamera, current = state): boolean {
 /** The photo's time on the clinic's wall clock, with the camera's zone and clock correction applied. */
 export function correctedTime(photo: ImportPhoto, camera = cameraOf(photo.cameraKey)): WallClock | null {
   if (photo.rawTime === null) return null
-  let time = photo.rawTime
-  if (photo.zoneMinutes !== null) time = time - photo.zoneMinutes * MINUTE_MS + clinicOffset() * MINUTE_MS
+  // ⚠️ The clock FACE is the clinic's time; the camera's zone setting is not applied. Measured on real files: cameras
+  // write a zone that ignores summer time or was never set (a body showing Tunis time, its menu on « Londres »), so
+  // converting by it moved every photo an hour onto the neighbouring visit. A face that is really off is what the
+  // clock-offset detection is for.
   const offset = (camera?.storedOffset ?? 0) + (camera?.offsetAccepted ? camera.detectedOffset : 0)
-  return time + offset * MINUTE_MS
+  return photo.rawTime + offset * MINUTE_MS
 }
 
 function windowStart(camera: ImportCamera): WallClock {
@@ -273,40 +273,105 @@ export async function startImport(batch: SourceBatch): Promise<void> {
   })
 
   try {
-    const fingerprints = new Map<string, Promise<string | null>>()
-    const photos: ImportPhoto[] = []
-    let done = 0
+    const read = await readBatch(batch, run, new Set())
+    if (!read) return
+    const cameras = await registerCameras(read.fresh)
+    if (run !== runId) return revokeAll(read.fresh)
 
-    const readOne = async (file: File) => {
-      const exif = await readExif(file)
-      const identity = `${exif.make ?? ""}|${exif.model ?? ""}|${exif.bodySerialNumber ?? ""}`
-      if (!fingerprints.has(identity)) fingerprints.set(identity, cameraFingerprintOf(exif))
-      const fingerprint = await fingerprints.get(identity)!
-      const id = await captureKeyOf(fingerprint, exif, file)
+    set({ photos: read.fresh, cameras, alreadyImported: read.known })
+    await loadContextAndMatch(run)
+  } catch (error) {
+    if (run !== runId) return
+    set({ phase: "failed", error: getErrorMessage(error, "Les photos n'ont pas pu être lues.") })
+  }
+}
 
-      const exifTime = parseExifDateTime(exif.dateTimeOriginal, exif.subSecTimeOriginal)
-      const fileTime = file.lastModified > 0 ? wallClockOfInstant(file.lastModified) : null
+/**
+ * More photos for the review on screen — the Windows app's « plus anciennes restées sur l'appareil », or a batch it
+ * delivers while the dentist is sorting. Merged, never restarted: a choice, a cut, a photo set aside or taken out all
+ * stand on a group that still holds the same photos.
+ */
+export async function addToImport(batch: SourceBatch): Promise<void> {
+  if (state.phase !== "review") return startImport(batch)
+  const run = runId
+  set({ phase: "reading", read: { done: 0, total: batch.photos.length } })
 
-      photos.push({
-        id,
-        file,
-        exif,
-        cameraKey: fingerprint ?? UNKNOWN_CAMERA,
-        rawTime: exifTime ?? fileTime,
-        uncertainTime: exifTime === null,
-        zoneMinutes: exifTime === null ? null : parseExifOffset(exif.offsetTimeOriginal),
-        thumbUrl: exif.thumbnail
-          ? URL.createObjectURL(file.slice(exif.thumbnail.start, exif.thumbnail.start + exif.thumbnail.length, "image/jpeg"))
-          : null,
-        shellItemId: batch.shell?.itemIds.get(file) ?? null,
-      })
+  try {
+    const read = await readBatch(batch, run, new Set(state.photos.map((photo) => photo.id)))
+    if (!read) return
+    const added = await registerCameras(
+      read.fresh.filter((photo) => !state.cameras.some((camera) => camera.key === photo.cameraKey)),
+    )
+    if (run !== runId) return revokeAll(read.fresh)
 
-      done++
-      if (run === runId && (done % 25 === 0 || done === batch.photos.length)) {
-        set({ read: { done, total: batch.photos.length } })
-      }
+    const counts = new Map<string, number>()
+    for (const photo of read.fresh) counts.set(photo.cameraKey, (counts.get(photo.cameraKey) ?? 0) + 1)
+    const skipped = { ...state.skipped }
+    for (const kind of Object.keys(batch.skipped) as SkippedKind[]) skipped[kind] += batch.skipped[kind]
+    set({
+      photos: [...state.photos, ...read.fresh].sort((a, b) => (a.rawTime ?? 0) - (b.rawTime ?? 0)),
+      cameras: [
+        ...state.cameras.map((camera) => ({ ...camera, photoCount: camera.photoCount + (counts.get(camera.key) ?? 0) })),
+        ...added,
+      ],
+      alreadyImported: state.alreadyImported + read.known,
+      skipped,
+      shell: batch.shell ? { label: batch.shell.label, older: batch.shell.older, failed: batch.shell.failed } : state.shell,
+    })
+    await loadContextAndMatch(run)
+  } catch (error) {
+    if (run !== runId) return
+    // The review the dentist was half-way through stays; only the added photos are missing.
+    set({ phase: "review" })
+    showErrorToast(error, "Les photos ajoutées n'ont pas pu être lues.")
+  }
+}
+
+/**
+ * EXIF, capture keys and the duplicate check over one batch: the photos that are new, and how many were already filed.
+ * Null when a reset or another import overtook it. Every thumbnail it made is released on every way out but the one
+ * that hands the photos over.
+ */
+async function readBatch(
+  batch: SourceBatch,
+  run: number,
+  alreadyHere: ReadonlySet<string>,
+): Promise<{ fresh: ImportPhoto[]; known: number } | null> {
+  const fingerprints = new Map<string, Promise<string | null>>()
+  const photos: ImportPhoto[] = []
+  let done = 0
+
+  const readOne = async (file: File) => {
+    const exif = await readExif(file)
+    const identity = `${exif.make ?? ""}|${exif.model ?? ""}|${exif.bodySerialNumber ?? ""}`
+    if (!fingerprints.has(identity)) fingerprints.set(identity, cameraFingerprintOf(exif))
+    const fingerprint = await fingerprints.get(identity)!
+    const id = await captureKeyOf(fingerprint, exif, file)
+
+    const exifTime = parseExifDateTime(exif.dateTimeOriginal, exif.subSecTimeOriginal)
+    const fileTime = file.lastModified > 0 ? wallClockOfInstant(file.lastModified) : null
+    // A thumbnail that runs past the end of the file (a truncated copy, an editor's stale offset) is not one.
+    const thumb = exif.thumbnail && exif.thumbnail.start + exif.thumbnail.length <= file.size ? exif.thumbnail : null
+
+    photos.push({
+      id,
+      file,
+      exif,
+      cameraKey: fingerprint ?? UNKNOWN_CAMERA,
+      rawTime: exifTime ?? fileTime,
+      uncertainTime: exifTime === null,
+      zoneMinutes: exifTime === null ? null : parseExifOffset(exif.offsetTimeOriginal),
+      thumbUrl: thumb ? URL.createObjectURL(file.slice(thumb.start, thumb.start + thumb.length, "image/jpeg")) : null,
+      shellItemId: batch.shell?.itemIds.get(file) ?? null,
+    })
+
+    done++
+    if (run === runId && (done % 25 === 0 || done === batch.photos.length)) {
+      set({ read: { done, total: batch.photos.length } })
     }
+  }
 
+  try {
     // A few at a time: a card reader is the bottleneck, and a burst of 500 reads helps nobody.
     const queue = [...batch.photos]
     await Promise.all(
@@ -314,41 +379,81 @@ export async function startImport(batch: SourceBatch): Promise<void> {
         for (let file = queue.shift(); file; file = queue.shift()) await readOne(file)
       }),
     )
-    if (run !== runId) return revokeAll(photos)
+    if (run !== runId) {
+      revokeAll(photos)
+      return null
+    }
 
-    // The same shot twice in one batch (a folder and its copy) is one photo.
+    // The same shot twice in one batch (a folder and its copy) is one photo; one already on screen is that one.
     const unique = new Map<string, ImportPhoto>()
     for (const photo of photos) {
-      if (unique.has(photo.id)) {
+      if (alreadyHere.has(photo.id)) revoke(photo)
+      else if (unique.has(photo.id)) {
         revoke(photo)
         // The same shot twice (two cards of one camera) is covered by the first: the shell need not offer it again.
         ackShellPhoto(photo.shellItemId, "already")
       } else unique.set(photo.id, photo)
     }
+    photos.length = 0
+    photos.push(...unique.values())
 
-    const known = new Set(
-      unique.size > 0 ? (await photoImportApi.known([...unique.keys()])).map((row) => row.captureKey) : [],
-    )
-    if (run !== runId) return revokeAll([...unique.values()])
+    const rows = unique.size > 0 ? await photoImportApi.known([...unique.keys()]) : []
+    if (run !== runId) {
+      revokeAll(photos)
+      return null
+    }
 
+    const known = new Map(rows.map((row) => [row.captureKey, row]))
     const fresh: ImportPhoto[] = []
     for (const photo of unique.values()) {
-      if (known.has(photo.id)) {
-        revoke(photo)
-        ackShellPhoto(photo.shellItemId, "already")
-      } else fresh.push(photo)
+      const row = known.get(photo.id)
+      if (!row) {
+        fresh.push(photo)
+        continue
+      }
+      revoke(photo)
+      await ackFiledBefore(photo, row)
     }
     fresh.sort((a, b) => (a.rawTime ?? 0) - (b.rawTime ?? 0))
-
-    const cameras = await registerCameras(fresh)
-    if (run !== runId) return revokeAll(fresh)
-
-    set({ photos: fresh, cameras, alreadyImported: known.size })
-    await loadContextAndMatch(run)
+    return { fresh, known: known.size }
   } catch (error) {
-    if (run !== runId) return
-    set({ phase: "failed", error: getErrorMessage(error, "Les photos n'ont pas pu être lues.") })
+    revokeAll(photos)
+    throw error
   }
+}
+
+/**
+ * The Windows app's answer for a photo this cabinet had already filed. « already » makes it drop its copy — right when
+ * the server holds the full photo or another PC keeps the original, wrong when the cloud kept only the 2 560 px copy
+ * and no PC has the original yet (a filing whose answer was lost on the way back): then it is « filed », and kept.
+ */
+async function ackFiledBefore(photo: ImportPhoto, row: ImportedCaptureDto): Promise<void> {
+  if (!photo.shellItemId) return
+  const reducedCopy = row.originalHeldBy ? false : await cloudKeepsOnlyACopy()
+  if (reducedCopy) {
+    ackShellPhoto(photo.shellItemId, "filed", {
+      fileId: row.fileId,
+      patientId: row.patientId,
+      patientName: row.patientName,
+      keepOriginal: true,
+    })
+  } else {
+    ackShellPhoto(photo.shellItemId, "already")
+  }
+}
+
+/** Whether this server stores a reduced copy of a camera photo (the upload policy's `cameraCopy`); asked once per page. */
+let copyRule: Promise<boolean> | null = null
+function cloudKeepsOnlyACopy(): Promise<boolean> {
+  copyRule ??= uploadPolicyApi
+    .get()
+    .then((policy) => policy.cameraCopy != null)
+    .catch(() => {
+      copyRule = null
+      // Unknown: keeping a full original on this PC loses nothing, dropping it might.
+      return true
+    })
+  return copyRule
 }
 
 async function registerCameras(photos: ImportPhoto[]): Promise<ImportCamera[]> {
@@ -371,6 +476,7 @@ async function registerCameras(photos: ImportPhoto[]): Promise<ImportCamera[]> {
       storedOffset: 0,
       detectedOffset: 0,
       offsetAccepted: false,
+      refusedOffset: null,
       photoCount: list.length,
     }
 
@@ -497,7 +603,7 @@ function detectOffsets() {
       .filter((time): time is WallClock => time !== null)
     const { visits, walkIns } = agendaOf(camera)
     const detected = detectClockOffset(times, visits, walkIns)
-    return { ...camera, detectedOffset: detected, offsetAccepted: detected !== 0 }
+    return { ...camera, detectedOffset: detected, offsetAccepted: detected !== 0 && detected !== camera.refusedOffset }
   })
   set({ cameras })
   recompute(previous)
@@ -520,17 +626,20 @@ function recompute(previous?: ReviewGroup[]) {
     if (photos.length === 0) continue
 
     const { visits, walkIns } = agendaOf(camera)
+    const byId = new Map(photos.map((photo) => [photo.id, photo]))
     const cut: ReviewGroup[] = []
     for (const group of matchPhotosToVisits(photos, visits, walkIns)) {
-      if (state.splits[group.key] && group.splitAt !== null) {
-        const byId = new Map(photos.map((photo) => [photo.id, photo]))
-        const halves = [group.photoIds.slice(0, group.splitAt), group.photoIds.slice(group.splitAt)]
-        for (const half of halves) {
-          const decided = matchBurst(half.map((id) => byId.get(id)!), visits, walkIns)
-          cut.push({ key: `burst-${half[0]}`, ...decided, cameraKey: camera.key, splitFrom: group.key })
-        }
-      } else {
+      // A cut stands at the photo the dentist cut before — wherever the matcher's own proposal has moved since.
+      const at = group.photoIds.map((id, index) => (index > 0 && state.splits[id] ? index : -1)).filter((index) => index > 0)
+      if (at.length === 0) {
         cut.push({ ...group, cameraKey: camera.key, splitFrom: null })
+        continue
+      }
+      const bounds = [0, ...at, group.photoIds.length]
+      for (let index = 0; index < bounds.length - 1; index++) {
+        const half = group.photoIds.slice(bounds[index], bounds[index + 1])
+        const decided = matchBurst(half.map((id) => byId.get(id)!), visits, walkIns)
+        cut.push({ key: `burst-${half[0]}`, ...decided, cameraKey: camera.key, splitFrom: group.key })
       }
     }
     const decided = withPhotosTakenOut(cut, photos, visits, walkIns, state.takenOut)
@@ -580,7 +689,9 @@ export function toggleExcluded(photoId: string) {
 }
 
 export function splitGroup(groupKey: string) {
-  set({ splits: { ...state.splits, [groupKey]: true } })
+  const group = state.groups.find((item) => item.key === groupKey)
+  if (!group || group.splitAt === null) return
+  set({ splits: { ...state.splits, [group.photoIds[group.splitAt]]: true } })
   recompute()
 }
 
@@ -610,20 +721,26 @@ export function putPhotoBack(photoId: string) {
 
 export async function setShowOlder(on: boolean) {
   if (state.phase !== "review") return
-  set({ showOlder: on })
   const run = runId
+  set({ showOlder: on, phase: "reading" })
   try {
-    set({ phase: "reading" })
     await loadContextAndMatch(run)
   } catch (error) {
-    if (run === runId) set({ phase: "failed", error: getErrorMessage(error, "L'agenda n'a pas pu être lu.") })
+    if (run !== runId) return
+    // A network blip must not cost the review: back to it as it was, and say why nothing changed.
+    set({ showOlder: !on, phase: "review" })
+    showErrorToast(error, "L'agenda n'a pas pu être lu.")
   }
 }
 
 export function setOffsetAccepted(cameraKey: string, accepted: boolean) {
   const previous = state.groups
   set({
-    cameras: state.cameras.map((camera) => (camera.key === cameraKey ? { ...camera, offsetAccepted: accepted } : camera)),
+    cameras: state.cameras.map((camera) =>
+      camera.key === cameraKey
+        ? { ...camera, offsetAccepted: accepted, refusedOffset: accepted ? null : camera.detectedOffset }
+        : camera,
+    ),
   })
   recompute(previous)
 }
@@ -770,7 +887,8 @@ async function runFiling(given: UploadPolicy | null) {
         const dto = await patientFilesApi.uploadFile(item.patientId, upload, folderId, undefined, preview, {
           captureKey: photo.id,
           capturedAtLocal: item.time !== null ? toWallClockIso(item.time) : null,
-          cameraModel: camera && camera.key !== UNKNOWN_CAMERA ? camera.label : null,
+          // The model the camera wrote, not the registry's editable name: the file keeps it for good.
+          cameraModel: camera && camera.key !== UNKNOWN_CAMERA ? camera.model || camera.label : null,
         })
         setItem(item.photoId, { status: "filed", fileId: dto.id })
         // The Windows app keeps the full-size original only where the cloud stored a reduced copy.
@@ -783,7 +901,10 @@ async function runFiling(given: UploadPolicy | null) {
       } catch (error) {
         if (error instanceof ApiError && error.code === PhotoImportCode.AlreadyImported) {
           setItem(item.photoId, { status: "already" })
-          ackShellPhoto(photo.shellItemId, "already")
+          // Often an earlier send of this very photo whose answer was lost: ask where it went before the shell drops it.
+          const row = photo.shellItemId ? (await photoImportApi.known([photo.id]).catch(() => []))[0] : undefined
+          if (row) await ackFiledBefore(photo, row)
+          else ackShellPhoto(photo.shellItemId, "already")
         } else if (error instanceof ApiError && error.code === PhotoImportCode.StorageFull) {
           stopped = true
           set({ storageFullMessage: error.message })
@@ -844,7 +965,9 @@ async function recordImports() {
     const offset = camera.storedOffset + (camera.offsetAccepted ? camera.detectedOffset : 0)
     try {
       let dto = camera.dto
-      if (camera.isNew && !camera.doctorChosen && dto.doctorId === null && camera.doctorId !== null) {
+      // The guessed agenda is saved only where there was nothing to guess (one practitioner): with several, a camera
+      // nobody confirmed stays unassigned rather than become the importer's for good.
+      if (camera.isNew && !camera.doctorChosen && !needsOwner(camera) && dto.doctorId === null && camera.doctorId !== null) {
         dto = await clinicCamerasApi.update(dto.id, { doctorId: camera.doctorId, version: dto.version })
       }
       if (times.length > 0 || offset !== camera.storedOffset) {

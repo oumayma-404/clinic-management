@@ -15,9 +15,11 @@ namespace ClinicManagement.Application.Features.Files.Commands;
 /// (<c>features/camera-photo-import</c>). It is how a photo filed to the wrong person is corrected: deleting is
 /// doctor/admin only and loses the capture facts, so without this a secretary had no way to fix her own mistake.
 ///
-/// <para>⚠️ <b>A file in a default folder lands in the target's folder of the same name</b> (created if missing), any
-/// other at the target's root — a folder belongs to one patient, so keeping the old <c>FolderId</c> would point the
-/// file into somebody else's tree.</para>
+/// <para>⚠️ <b>A file in a default folder lands in the target's same default folder</b>, any other at the target's
+/// root — a folder belongs to one patient, so keeping the old <c>FolderId</c> would point the file into somebody else's
+/// tree. Both sides are recognised by id first, then by name (<see cref="DefaultPatientFolders"/>), so a renamed
+/// « Photographie » counts on either side; a missing target folder is created in its own save before the file moves,
+/// with the whole default set for a target that has no folder yet.</para>
 /// </summary>
 public class MovePatientFileToPatientCommand : IRequest<Result<PatientFileDto>>
 {
@@ -119,9 +121,11 @@ public class MovePatientFileToPatientCommandHandler
                     FileMoveRefusals.LinkedDocument(), FileMoveRefusals.LinkedDocumentCode);
             }
 
-            _unitOfWork.SetExpectedVersion(file, request.Version);
-
+            // Before the version is pinned: a missing default folder is saved on its own first, and the file must not
+            // be part of that save.
             var folderId = await TargetFolderAsync(file, target, cancellationToken);
+
+            _unitOfWork.SetExpectedVersion(file, request.Version);
             file.MoveToPatient(target.Id, folderId);
 
             await _files.UpdateAsync(file, cancellationToken);
@@ -135,26 +139,16 @@ public class MovePatientFileToPatientCommandHandler
         }
     }
 
-    /// <summary>The target's folder of the same default name, created in this same save when missing; else its root.</summary>
+    /// <summary>The target's same default folder (found or created, <see cref="DefaultPatientFolders.EnsureAsync"/>); else its root.</summary>
     private async Task<Guid?> TargetFolderAsync(PatientFile file, Patient target, CancellationToken cancellationToken)
     {
-        var sourceName = file.Folder?.Name;
-        if (!DefaultPatientFolders.IsDefaultName(sourceName))
+        var name = DefaultPatientFolders.DefaultNameOf(file.Folder);
+        if (name is null)
         {
             return null;
         }
 
-        var roots = await _folders.GetRootFoldersByPatientIdAsync(target.Id, cancellationToken);
-        var match = roots.FirstOrDefault(folder => string.Equals(folder.Name, sourceName, StringComparison.OrdinalIgnoreCase));
-        if (match is not null)
-        {
-            return match.Id;
-        }
-
-        var name = DefaultPatientFolders.All.First(folder =>
-            string.Equals(folder.Name, sourceName, StringComparison.OrdinalIgnoreCase)).Name;
-        var created = new PatientFolder(DefaultPatientFolders.IdFor(target.Id, name), target.Id, target.ClinicId, name);
-        await _folders.AddAsync(created, cancellationToken);
-        return created.Id;
+        var folder = await DefaultPatientFolders.EnsureAsync(_folders, _unitOfWork, target, name, cancellationToken);
+        return folder.Id;
     }
 }

@@ -306,15 +306,35 @@ test.describe("photo import — the dentist's corrections", () => {
     expect(moved?.candidates[0]?.patientId).toBe("B")
   })
 
-  test("a new camera whose owner nobody confirmed is never sure, but still offers its match first", () => {
-    const visits = [visit("A", "09:00")]
-    const photos = burst("A", "09:10")
+  test("a new camera whose owner nobody confirmed is never sure, and offers nobody from the guessed agenda", () => {
+    const visits = [visit("A", "09:00"), visit("B", "11:00")]
+    const photos = [...burst("A", "09:10"), ...burst("X", "10:20")]
 
     const groups = askUntilOwnerKnown(matchPhotosToVisits(photos, visits, []))
 
-    expect(groups[0].decision).toBe("ask")
-    expect(groups[0].reason).toBe("owner")
-    expect(groups[0].candidates[0]?.patientId).toBe("A")
+    // The sure group and the one that was asking both ask for the owner — one answer at the top lifts them all.
+    expect(groups.every((group) => group.decision === "ask" && group.reason === "owner")).toBe(true)
+    expect(groups.every((group) => group.candidates.length === 0)).toBe(true)
+  })
+
+  test("a fiche charted at the end of the day does not stretch its visit over the afternoon", () => {
+    // A was seen 09:00–09:30 and her fiche written at 17:30; B came at 10:00. A walk-in nobody booked is photographed at 15:00.
+    const visits = [visit("A", "09:00", 30, { ficheAt: "17:30" }), visit("B", "10:00")]
+    const photos = [...burst("A", "09:10"), ...burst("B", "10:10"), ...burst("W", "15:00")]
+
+    const groups = matchPhotosToVisits(photos, visits, [])
+
+    expect(groupOf(groups, "B@10:10#0").decision).toBe("sure")
+    expect(groupOf(groups, "W@15:00#0").decision).toBe("ask")
+    assertNeverSureAndWrong(groups, photos)
+  })
+
+  test("one walk-in burst falling into a visit is not a wrong clock", () => {
+    // Eight shots of a walk-in at 13:30; an offset of +100 min would drop them into R's visit. One burst proves nothing.
+    const visits = [visit("Q", "11:00"), visit("R", "15:00")]
+    const photos = burst("W", "13:30", 8, 20)
+
+    expect(detectClockOffset(photos.map((photo) => photo.takenAt), visits)).toBe(0)
   })
 
   test("a recount keeps a choice only on a group that still holds the same photos", () => {
@@ -360,6 +380,76 @@ test.describe("photo import — reading a card", () => {
 
 /** A minimal camera JPEG: SOI, APP1 « Exif » with IFD0 (Make, Model, Orientation, Exif pointer), the Exif IFD
  *  (DateTimeOriginal, SubSec, OffsetTime, BodySerialNumber) and IFD1 with a 4-byte « thumbnail ». */
+/**
+ * A Nikon DSLR's JPEG as the real ones are laid out (D3500, D5600…): no 0xA431, the body's serial in the maker notes —
+ * « Nikon\0 », a version, then a TIFF header of their own (in `noteLittle` order) whose offsets count from it.
+ */
+function nikonJpeg(little: boolean, noteLittle: boolean, serial: string): Uint8Array {
+  const bytesOf = (le: boolean) => ({
+    u16: (value: number) => (le ? [value & 0xff, value >> 8] : [value >> 8, value & 0xff]),
+    u32: (value: number) =>
+      le
+        ? [value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >>> 24) & 0xff]
+        : [(value >>> 24) & 0xff, (value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff],
+  })
+  const outer = bytesOf(little)
+  const inner = bytesOf(noteLittle)
+  const ascii = (text: string) => [...Array.from(text, (char) => char.charCodeAt(0)), 0]
+  const entry = (b: ReturnType<typeof bytesOf>, tag: number, type: number, count: number, value: number[]) => [
+    ...b.u16(tag),
+    ...b.u16(type),
+    ...b.u32(count),
+    ...value,
+  ]
+
+  // The maker note: signature + version, its own TIFF header at +10, one IFD at +8 of that header, then the serial.
+  const serialBytes = ascii(serial)
+  const note = [
+    ...[0x4e, 0x69, 0x6b, 0x6f, 0x6e, 0x00, 0x02, 0x11, 0x00, 0x00],
+    ...(noteLittle ? [0x49, 0x49] : [0x4d, 0x4d]),
+    ...inner.u16(0x2a),
+    ...inner.u32(8),
+    ...inner.u16(1),
+    ...entry(inner, 0x001d, 2, serialBytes.length, inner.u32(8 + 2 + 12 + 4)),
+    ...inner.u32(0),
+    ...serialBytes,
+  ]
+
+  // The main TIFF: IFD0 (make, model, Exif pointer) at 8, the Exif IFD (date, maker note), then the data.
+  const ifd0At = 8
+  const exifAt = ifd0At + 2 + 3 * 12 + 4
+  const dataAt = exifAt + 2 + 2 * 12 + 4
+  const data: number[] = []
+  const place = (bytes: number[]) => {
+    const offset = dataAt + data.length
+    data.push(...bytes)
+    return offset
+  }
+  const make = place(ascii("NIKON CORPORATION"))
+  const model = place(ascii("NIKON D5600"))
+  const date = place(ascii("2026:11:12 18:20:00"))
+  const noteAt = place(note)
+
+  const tiff = [
+    ...(little ? [0x49, 0x49] : [0x4d, 0x4d]),
+    ...outer.u16(0x2a),
+    ...outer.u32(ifd0At),
+    ...outer.u16(3),
+    ...entry(outer, 0x010f, 2, 18, outer.u32(make)),
+    ...entry(outer, 0x0110, 2, 12, outer.u32(model)),
+    ...entry(outer, 0x8769, 4, 1, outer.u32(exifAt)),
+    ...outer.u32(0),
+    ...outer.u16(2),
+    ...entry(outer, 0x9003, 2, 20, outer.u32(date)),
+    ...entry(outer, 0x927c, 7, note.length, outer.u32(noteAt)),
+    ...outer.u32(0),
+    ...data,
+  ]
+  const app1 = [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff]
+  const length = app1.length + 2
+  return new Uint8Array([0xff, 0xd8, 0xff, 0xe1, length >> 8, length & 0xff, ...app1, 0xff, 0xda, 0, 2, 0xff, 0xd9])
+}
+
 function cameraJpeg(little: boolean): Uint8Array {
   const tiff: number[] = []
   const u16 = (value: number) => (little ? [value & 0xff, value >> 8] : [value >> 8, value & 0xff])
@@ -438,6 +528,23 @@ test.describe("photo import — reading EXIF", () => {
       expect(Array.from(bytes.slice(start, start + length))).toEqual([0xff, 0xd8, 0xff, 0xd9])
     })
   }
+
+  for (const [little, noteLittle] of [[true, false], [false, true], [true, true]] as const) {
+    test(`a Nikon DSLR's serial is read from its maker notes (${little ? "II" : "MM"} file, ${noteLittle ? "II" : "MM"} note)`, () => {
+      const exif = parseExif(nikonJpeg(little, noteLittle, "3459256"))
+      expect(exif.make).toBe("NIKON CORPORATION")
+      expect(exif.dateTimeOriginal).toBe("2026:11:12 18:20:00")
+      expect(exif.bodySerialNumber).toBe("3459256")
+    })
+  }
+
+  test("two Nikon bodies of one model are two cameras, and a maker note cut short never throws", async () => {
+    const one = await cameraFingerprintOf(parseExif(nikonJpeg(true, false, "3177951")))
+    const two = await cameraFingerprintOf(parseExif(nikonJpeg(true, false, "3459256")))
+    expect(one).not.toBe(two)
+    const whole = nikonJpeg(false, true, "3459256")
+    for (let cut = 4; cut < whole.length; cut += 3) expect(() => parseExif(whole.slice(0, cut))).not.toThrow()
+  })
 
   test("a file that is not a JPEG, or a JPEG with no EXIF, reads as nothing — never throws", () => {
     expect(parseExif(new Uint8Array([0x89, 0x50, 0x4e, 0x47])).dateTimeOriginal).toBeNull()

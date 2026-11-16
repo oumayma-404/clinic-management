@@ -50,6 +50,8 @@ export interface ImportedCaptureDto {
   fileId: string;
   patientId: string;
   patientName: string;
+  /** The clinic PC that keeps this photo's full-size original, when one does. */
+  originalHeldBy?: string | null;
 }
 
 /** The server's caps — mirrored here only to split a request, never to refuse one. */

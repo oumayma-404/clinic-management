@@ -88,7 +88,7 @@ public class PatientFileConfiguration : IEntityTypeConfiguration<PatientFile>
             .HasMaxLength(PhotoCaptureFactsLength);
 
         builder.Property(f => f.CameraModel)
-            .HasMaxLength(100);
+            .HasMaxLength(Domain.Common.PhotoCaptureFacts.MaxCameraModelLength);
 
         builder.Property(f => f.OriginalSha256)
             .HasMaxLength(PhotoCaptureFactsLength);

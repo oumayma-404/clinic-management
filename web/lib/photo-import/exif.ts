@@ -18,7 +18,12 @@ export const EXIF_READ_BYTES = 192 * 1024
 export interface ExifFacts {
   make: string | null
   model: string | null
-  /** 0xA431. Older Canons keep the serial in the maker notes instead, so this is often absent. */
+  /**
+   * 0xA431, else — for a Nikon — tag 0x001D of its maker notes. Measured on real files: every Canon, the Nikon Z
+   * bodies and Fujifilm write 0xA431; the Nikon DSLRs (D3500, D5600, D7500, D750) keep it in the maker notes only, so
+   * without this two bodies of one model were one camera. Sony (encrypted), Olympus, Panasonic and phones still give
+   * none: their bodies are told apart by make and model alone.
+   */
   bodySerialNumber: string | null
   /** 0x9003 as written, « 2026:11:12 09:14:03 » — kept raw because the capture key hashes it as written. */
   dateTimeOriginal: string | null
@@ -51,6 +56,7 @@ const TAG = {
   dateTimeOriginal: 0x9003,
   offsetTimeOriginal: 0x9011,
   subSecTimeOriginal: 0x9291,
+  makerNote: 0x927c,
   bodySerialNumber: 0xa431,
   thumbnailOffset: 0x0201,
   thumbnailLength: 0x0202,
@@ -132,6 +138,8 @@ export function parseExif(bytes: Uint8Array): ExifFacts {
     } else if (tag === TAG.exifPointer) exifIfd = number(type, valueAt) ?? 0
   })
 
+  // Assigned inside the walk's callback, which TypeScript's narrowing cannot see — hence the cast.
+  let makerNote = null as { at: number; length: number } | null
   if (exifIfd > 0) {
     walk(exifIfd, (tag, type, count, valueAt) => {
       if (type !== 2 && type !== 7) return
@@ -139,7 +147,11 @@ export function parseExif(bytes: Uint8Array): ExifFacts {
       else if (tag === TAG.subSecTimeOriginal) facts.subSecTimeOriginal = ascii(valueAt, count)
       else if (tag === TAG.offsetTimeOriginal) facts.offsetTimeOriginal = ascii(valueAt, count)
       else if (tag === TAG.bodySerialNumber) facts.bodySerialNumber = ascii(valueAt, count)
+      else if (tag === TAG.makerNote && type === 7) makerNote = { at: valueAt, length: count }
     })
+  }
+  if (!facts.bodySerialNumber && makerNote && /^nikon/i.test(facts.make ?? "")) {
+    facts.bodySerialNumber = nikonSerial(bytes, makerNote)
   }
 
   if (nextIfd > 0) {
@@ -157,6 +169,45 @@ export function parseExif(bytes: Uint8Array): ExifFacts {
   }
 
   return facts
+}
+
+/**
+ * A Nikon body's serial, from its maker notes (« Nikon\0 », a version, then a TIFF header of their own whose offsets
+ * count from it): tag 0x001D, plain text. Null for anything else, and never a read past the note or the slice.
+ */
+function nikonSerial(bytes: Uint8Array, note: { at: number; length: number }): string | null {
+  const at = note.at
+  const end = Math.min(bytes.byteLength, at + note.length)
+  const signature = [0x4e, 0x69, 0x6b, 0x6f, 0x6e, 0x00] // « Nikon\0 »
+  if (end - at < 18 || signature.some((byte, index) => bytes[at + index] !== byte) || bytes[at + 6] !== 0x02) return null
+
+  const base = at + 10
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const order = view.getUint16(base)
+  const little = order === 0x4949
+  if ((!little && order !== 0x4d4d) || view.getUint16(base + 2, little) !== 0x002a) return null
+
+  const ifd = base + view.getUint32(base + 4, little)
+  if (ifd < base || ifd + 2 > end) return null
+  const entries = view.getUint16(ifd, little)
+  if (entries > 512 || ifd + 2 + entries * 12 > end) return null
+
+  for (let index = 0; index < entries; index++) {
+    const entry = ifd + 2 + index * 12
+    if (view.getUint16(entry, little) !== 0x001d) continue
+    const count = view.getUint32(entry + 4, little)
+    if (view.getUint16(entry + 2, little) !== 2 || count === 0) return null
+    const valueAt = count <= 4 ? entry + 8 : base + view.getUint32(entry + 8, little)
+    if (valueAt < base || valueAt + count > end) return null
+    let text = ""
+    for (let offset = 0; offset < count; offset++) {
+      const code = bytes[valueAt + offset]
+      if (code === 0) break
+      text += String.fromCharCode(code)
+    }
+    return text.trim() || null
+  }
+  return null
 }
 
 /** The offset of the TIFF header inside APP1 « Exif\0\0 », or -1. Walks the segments from SOI. */
@@ -208,12 +259,13 @@ export function orientationTransform(orientation: number): string | undefined {
       return "rotate(180deg)"
     case 4:
       return "scaleY(-1)"
+    // 5 and 7 were the wrong way round — checked against libvips on a real thumbnail tagged with each value.
     case 5:
-      return "rotate(90deg) scaleX(-1)"
+      return "rotate(-90deg) scaleX(-1)"
     case 6:
       return "rotate(90deg)"
     case 7:
-      return "rotate(-90deg) scaleX(-1)"
+      return "rotate(90deg) scaleX(-1)"
     case 8:
       return "rotate(-90deg)"
     default:

@@ -145,11 +145,12 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
                 _fileStorage, _logger, fileId, session.ClinicId,
                 request.PreviewStream, request.PreviewFileName, request.PreviewSize, cancellationToken);
 
+            PatientFile file;
             try
             {
                 var entry = FileTypeCatalog.TryGet(FileNameSanitizer.ExtensionOf(session.FileName));
 
-                var file = new PatientFile(
+                file = new PatientFile(
                     fileId,
                     session.PatientId,
                     session.ClinicId,
@@ -173,11 +174,6 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
                 // The session's whole purpose is spent; the file row is the record from here.
                 await _sessions.RemoveAsync(session, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-                // Post-commit, best-effort: the 80 / 95 % storage bell (features/camera-photo-import, phase 3).
-                await _storage.AfterChangeAsync(session.ClinicId, cancellationToken);
-
-                return Result<PatientFileDto>.Success(file.ToDto());
             }
             catch
             {
@@ -194,6 +190,12 @@ public class CompleteFileUploadCommandHandler : IRequestHandler<CompleteFileUplo
 
                 throw;
             }
+
+            // ⚠️ Outside the cleanup scope: the row is committed from here, so nothing that follows may take its
+            // bytes with it. Post-commit, best-effort: the 80 / 95 % storage bell (features/camera-photo-import).
+            await _storage.AfterChangeAsync(session.ClinicId, cancellationToken);
+
+            return Result<PatientFileDto>.Success(file.ToDto());
         }
         catch (DbUpdateException ex) when (UniqueViolation.Is(ex))
         {

@@ -151,13 +151,21 @@ public interface INotificationGenerator
     Task ClearPhotoOriginalsCopyStaleAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// « Stockage presque plein » at <paramref name="percent"/> (80 or 95) of the cabinet's ceiling. A different level
-    /// than the row already up REPLACES it with a new row, so the 95 % warning badges the bell again.
+    /// « Stockage presque plein » at <paramref name="percent"/> (80 or 95) of the cabinet's ceiling, for its admins. A
+    /// level HIGHER than any announced since the alert was last withdrawn replaces the row with a new one, so the 95 %
+    /// warning badges the bell again; the same or a lower level restates the row silently (files deleted, 95 → 85 %).
     /// </summary>
     Task EnsureStorageNearlyFullAsync(
         Guid clinicId, int percent, long usedBytes, long quotaBytes, CancellationToken cancellationToken = default);
 
-    /// <summary>Removes the storage alert — usage is back under the re-arm level.</summary>
+    /// <summary>
+    /// Inside the 75–80 % band: restates a row that says more than <paramref name="percent"/> down to it, silently.
+    /// Never creates a row and never raises one — the band announces nothing.
+    /// </summary>
+    Task LowerStorageNearlyFullAsync(
+        Guid clinicId, int percent, long usedBytes, long quotaBytes, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the storage alert — usage is back under the re-arm level, which re-arms both levels.</summary>
     Task ClearStorageNearlyFullAsync(Guid clinicId, CancellationToken cancellationToken = default);
 
     /// <summary>

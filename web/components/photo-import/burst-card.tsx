@@ -33,7 +33,6 @@ const ASK_REASON: Partial<Record<MatchReason, string>> = {
   none: "Aucun rendez-vous ce jour-là.",
   "no-date": "Pas d'heure dans la photo.",
   moved: "Photo sortie de son groupe.",
-  owner: "Nouvel appareil : confirmez son agenda en haut de la page.",
 }
 
 /** Thumbnails shown before « +N » — a long burst is still one glance. */
@@ -53,6 +52,11 @@ interface BurstCardProps {
   doctorNames: Map<string, string> | null
   /** The camera's name, only when the import holds more than one camera. */
   cameraLabel: string | null
+  /**
+   * A new camera nobody has said whose it is: the agenda it was matched against is a guess, and the answer is one
+   * press for every group — here, or in the prompt at the top of the page.
+   */
+  owner?: { agendaName: string; onConfirm: () => void; onChooseOther: () => void } | null
 }
 
 function timeRange(start: WallClock | null, end: WallClock | null): string {
@@ -93,11 +97,14 @@ export function BurstCard({
   showDay,
   doctorNames,
   cameraLabel,
+  owner = null,
 }: BurstCardProps) {
   const unresolved = !ignored && !patient
   const [choosing, setChoosing] = useState(unresolved)
   const [searching, setSearching] = useState(false)
   const [creating, setCreating] = useState<string | null>(null)
+  /** The name last typed in the search — still there when « Nouveau patient » is cancelled. */
+  const [typed, setTyped] = useState("")
   const [showAll, setShowAll] = useState(false)
   const [viewing, setViewing] = useState<string | null>(null)
 
@@ -171,18 +178,20 @@ export function BurstCard({
       </div>
 
       <ul className={cn("flex flex-wrap gap-1.5", ignored && "opacity-50")} aria-label="Photos du groupe">
-        {shown.map((id) => {
+        {shown.map((id, index) => {
           const photo = photos.get(id)
           if (!photo) return null
           const out = Boolean(excluded[id])
           const at = correctedTime(photo)
           const name = at !== null ? formatWallClockTime(at) : photo.file.name
+          // A burst is seconds apart, so the minute alone names several tiles the same: the rank tells them apart.
+          const rank = single ? "" : ` (${index + 1} sur ${group.photoIds.length})`
           return (
             <li key={id}>
               <button
                 type="button"
                 onClick={() => setViewing(id)}
-                aria-label={out ? `Voir la photo de ${name}, écartée` : `Voir la photo de ${name}`}
+                aria-label={`Voir la photo de ${name}${rank}${out ? ", écartée" : ""}`}
                 className="relative block size-16 overflow-hidden rounded-md border border-border bg-muted focus-visible:ring-2 focus-visible:ring-ring coarse:size-[4.5rem]"
               >
                 <PhotoThumb photo={photo} />
@@ -217,11 +226,12 @@ export function BurstCard({
         <div className="space-y-2">
           {patient && !choosing && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <p className="flex min-w-0 items-center gap-2 text-sm">
+              {/* Wraps rather than overflows: at 320 px a long name and « · RDV 09:30 · Dr … » do not share a line. */}
+              <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
                 <User className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <PatientNameLink patientId={patient.patientId} name={patient.patientName} />
+                <PatientNameLink patientId={patient.patientId} name={patient.patientName} className="min-w-0" />
                 {!chosen && group.match && (
-                  <span className="text-muted-foreground">· {candidateLine(group.match, doctorNames)}</span>
+                  <span className="min-w-0 text-muted-foreground">· {candidateLine(group.match, doctorNames)}</span>
                 )}
               </p>
               <Button type="button" variant="outline" size="sm" className="coarse:min-h-11" onClick={() => setChoosing(true)}>
@@ -232,6 +242,19 @@ export function BurstCard({
 
           {choosing && (
             <div className="space-y-2">
+              {!patient && group.reason === "owner" && owner && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="basis-full text-sm text-warning-ink">
+                    Nouvel appareil : ses photos suivent-elles l&apos;agenda de {owner.agendaName} ?
+                  </p>
+                  <Button type="button" size="sm" className="coarse:min-h-11" onClick={owner.onConfirm}>
+                    Oui, confirmer
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="coarse:min-h-11" onClick={owner.onChooseOther}>
+                    Autre agenda
+                  </Button>
+                </div>
+              )}
               {!patient && ASK_REASON[group.reason] && (
                 <p className="text-sm text-warning-ink">{ASK_REASON[group.reason]}</p>
               )}
@@ -273,19 +296,42 @@ export function BurstCard({
                   onPickExisting={() => setCreating(null)}
                 />
               ) : searching ? (
-                <PatientSearchList
-                  label={`Patient du ${label.toLowerCase()}`}
-                  onPick={pick}
-                  onCreate={(typed) => setCreating(typed)}
-                  autoFocus
-                />
+                <div className="space-y-2">
+                  <PatientSearchList
+                    label={`Patient du ${label.toLowerCase()}`}
+                    onPick={pick}
+                    initialTerm={typed}
+                    onTermChange={setTyped}
+                    onCreate={(name) => setCreating(name)}
+                    autoFocus
+                  />
+                  {/* A way back out of the search: to the patient already chosen, or to the proposals. */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto min-h-8 whitespace-normal text-start coarse:min-h-11"
+                    onClick={() => {
+                      setSearching(false)
+                      if (patient) setChoosing(false)
+                    }}
+                  >
+                    {patient ? `Garder ${patient.patientName}` : "Fermer la recherche"}
+                  </Button>
+                </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="ghost" size="sm" className="coarse:min-h-11" onClick={() => setSearching(true)}>
                     Autre patient…
                   </Button>
                   {patient && (
-                    <Button type="button" variant="ghost" size="sm" className="coarse:min-h-11" onClick={() => setChoosing(false)}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto min-h-8 whitespace-normal text-start coarse:min-h-11"
+                      onClick={() => setChoosing(false)}
+                    >
                       Garder {patient.patientName}
                     </Button>
                   )}
@@ -349,15 +395,18 @@ export function BurstCard({
  */
 function PhotoThumb({ photo }: { photo: ImportPhoto }) {
   const [fallback, setFallback] = useState<string | null>(null)
+  // An embedded thumbnail that does not decode (a damaged card, an editor's stale offset) gives way to the photo.
+  const [thumbBroken, setThumbBroken] = useState(false)
+  const embedded = photo.thumbUrl !== null && !thumbBroken
 
   useEffect(() => {
-    if (photo.thumbUrl) return
+    if (embedded) return
     const url = URL.createObjectURL(photo.file)
     setFallback(url)
     return () => URL.revokeObjectURL(url)
-  }, [photo])
+  }, [photo, embedded])
 
-  const src = photo.thumbUrl ?? fallback
+  const src = embedded ? photo.thumbUrl : fallback
   if (!src) return null
   return (
     // eslint-disable-next-line @next/next/no-img-element -- a local object URL; next/image cannot optimise it
@@ -368,8 +417,9 @@ function PhotoThumb({ photo }: { photo: ImportPhoto }) {
       decoding="async"
       draggable={false}
       className="size-full object-cover"
+      onError={embedded ? () => setThumbBroken(true) : undefined}
       // An embedded thumbnail lies the way the sensor did; the photo itself is turned by the browser.
-      style={photo.thumbUrl ? { transform: orientationTransform(photo.exif.orientation) } : undefined}
+      style={embedded ? { transform: orientationTransform(photo.exif.orientation) } : undefined}
     />
   )
 }

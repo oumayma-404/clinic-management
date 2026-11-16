@@ -305,6 +305,10 @@ public sealed class PushNotificationGeneratorDecorator : INotificationGenerator
         Guid clinicId, int percent, long usedBytes, long quotaBytes, CancellationToken cancellationToken = default) =>
         _inner.EnsureStorageNearlyFullAsync(clinicId, percent, usedBytes, quotaBytes, cancellationToken);
 
+    public Task LowerStorageNearlyFullAsync(
+        Guid clinicId, int percent, long usedBytes, long quotaBytes, CancellationToken cancellationToken = default) =>
+        _inner.LowerStorageNearlyFullAsync(clinicId, percent, usedBytes, quotaBytes, cancellationToken);
+
     public Task ClearStorageNearlyFullAsync(Guid clinicId, CancellationToken cancellationToken = default) =>
         _inner.ClearStorageNearlyFullAsync(clinicId, cancellationToken);
 

@@ -54,6 +54,8 @@ public sealed record CameraAck(
 /// <summary>« Chercher l'appareil » — every connected source, or the one a notice named; older photos on request.</summary>
 public sealed record CameraScanRequest(string? SourceKey, bool IncludeOlder)
 {
+    public const string Unplugged = "L'appareil photo n'est plus branché. Rebranchez-le (ou insérez sa carte), puis réessayez.";
+
     public static CameraScanRequest Parse(string? json)
     {
         if (CameraMessages.Object(json) is not { } root)
@@ -66,7 +68,39 @@ public sealed record CameraScanRequest(string? SourceKey, bool IncludeOlder)
             CameraMessages.IsSourceKey(sourceKey) ? sourceKey : null,
             root.TryGetProperty("includeOlder", out var older) && older.ValueKind == JsonValueKind.True);
     }
+
+    /// <summary>
+    /// Which connected sources this scan may read.
+    ///
+    /// <para>⚠️ <b>Never a device somebody chose to ignore</b>, whatever the page asks: « Ignorer cet appareil » is
+    /// said about a colleague's phone, and the scan copies up to a thousand photos off whatever it reads.</para>
+    ///
+    /// <para>⚠️ <b>A named device is read alone or not at all</b> — gone, it answers <see cref="Unplugged"/>, never
+    /// « every other device instead ». And « plus anciennes », which names none, reads only what the batch on
+    /// screen came from (<paramref name="lastLook"/>).</para>
+    /// </summary>
+    public CameraScanChoice Choose(
+        IReadOnlyList<ICameraSource> connected, IReadOnlyCollection<string> ignored, IReadOnlyCollection<string> lastLook)
+    {
+        var allowed = connected.Where(s => !ignored.Contains(s.SourceKey)).ToList();
+        var skipped = connected.Count - allowed.Count;
+
+        if (SourceKey is { } named)
+        {
+            var only = allowed.Where(s => s.SourceKey == named).ToList();
+            return only.Count == 0
+                ? new CameraScanChoice(Array.Empty<ICameraSource>(), skipped, Unplugged)
+                : new CameraScanChoice(only, skipped, null);
+        }
+
+        return IncludeOlder
+            ? new CameraScanChoice(allowed.Where(s => lastLook.Contains(s.SourceKey)).ToList(), skipped, null)
+            : new CameraScanChoice(allowed, skipped, null);
+    }
 }
+
+/// <summary>What one scan reads, how many connected devices it left alone, and why it reads nothing.</summary>
+public sealed record CameraScanChoice(IReadOnlyList<ICameraSource> Sources, int Ignored, string? Refusal);
 
 /// <summary>
 /// Parsing for the page's <c>camera-*</c> messages. The page is web content and some of this text lands in a file

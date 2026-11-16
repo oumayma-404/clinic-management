@@ -5,6 +5,7 @@ import { Camera, FolderOpen, Images, Usb } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useDemo } from "@/lib/demo/demo-context"
 import { refuseInDemo } from "@/lib/demo/refuse-in-demo"
+import { ApiError } from "@/lib/api/client"
 import { showErrorToast } from "@/lib/errors"
 import { startImport } from "@/lib/photo-import/session"
 import { scanShellCamera, useCameraShell } from "@/lib/photo-import/shell-camera"
@@ -59,7 +60,7 @@ export function SourceStep() {
     try {
       begin(await pickFolder())
     } catch (error) {
-      showErrorToast(error)
+      reportReadFailure(error)
     }
   }
 
@@ -85,7 +86,7 @@ export function SourceStep() {
       // `dataTransfer.files` alone cannot see into a dropped folder; the entries can, and must be taken now.
       begin(event.dataTransfer.items?.length ? await batchOfDrop(event.dataTransfer.items) : batchOfFiles(Array.from(event.dataTransfer.files)))
     } catch (error) {
-      showErrorToast(error)
+      reportReadFailure(error)
     }
   }
 
@@ -167,4 +168,13 @@ export function SourceStep() {
       />
     </div>
   )
+}
+
+/**
+ * A cancelled folder dialog is not an error, and anything else the browser throws while reading a card (« A requested
+ * file or directory could not be found… ») is said in French.
+ */
+function reportReadFailure(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return
+  showErrorToast(error instanceof ApiError ? error : null, "Le dossier de la carte n'a pas pu être lu.")
 }

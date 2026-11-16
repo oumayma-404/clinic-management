@@ -105,6 +105,26 @@ public class PhotoOriginalsCopyTests
         Assert.Empty(_copies.Rows);
     }
 
+    /// <summary>
+    /// The alert's re-read runs after the report is saved. It used to share the handler's one try, so a failing read
+    /// turned a report already on record into a failure — and the page sent it again.
+    /// </summary>
+    [Fact]
+    public async Task A_Failing_Alert_Read_Never_Turns_A_Recorded_Report_Into_A_Failure()
+    {
+        _files.Setup(f => f.GetUncoveredOriginalsAsync(ClinicId, "PC ACCUEIL", It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("database gone"));
+
+        var result = await Handler().Handle(
+            new ReportPhotoOriginalsCopyCommand { HeldBy = "PC ACCUEIL", FileCount = 41, TotalBytes = 330_000_000 },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.True(result.Value);
+        Assert.NotNull(_copies.Rows.Single().LastCompleteCopyAtUtc);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     // ── The 7-day check ─────────────────────────────────────────────────────────────────────────────────
 
     [Fact]

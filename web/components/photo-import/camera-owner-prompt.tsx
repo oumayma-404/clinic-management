@@ -24,7 +24,12 @@ export function CameraOwnerPrompt({ camera, doctors }: { camera: ImportCamera; d
   const id = useId()
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+    // Wraps on its own width, not the viewport's: beside the rail at 820 px a `sm:` row squeezed the label to a word
+    // per line. `id` is where the review's « Voir » and each card's « Autre agenda » bring the dentist.
+    <div
+      id={`appareil-${camera.key}`}
+      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-border bg-card p-3"
+    >
       <p className="flex min-w-0 items-start gap-2 text-sm">
         <Camera className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
         <span>
@@ -32,7 +37,7 @@ export function CameraOwnerPrompt({ camera, doctors }: { camera: ImportCamera; d
           {camera.serialSuffix && <span className="text-muted-foreground"> (n° …{camera.serialSuffix})</span>}
         </span>
       </p>
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Label htmlFor={id} className="text-sm font-normal text-muted-foreground">
           Ses photos suivent l&apos;agenda de
         </Label>

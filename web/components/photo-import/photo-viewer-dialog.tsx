@@ -83,7 +83,13 @@ export function PhotoViewerDialog({
         <DialogHeader>
           <DialogTitle>Photo de {label}</DialogTitle>
           <DialogDescription>
-            {[photo?.file.name, patientName ? `groupe de ${patientName}` : null, out ? "écartée" : null]
+            {[
+              // Where in the burst: shots seconds apart all carry the same minute.
+              ids.length > 1 && index >= 0 ? `${index + 1} / ${ids.length}` : null,
+              photo?.file.name,
+              patientName ? `groupe de ${patientName}` : null,
+              out ? "écartée" : null,
+            ]
               .filter(Boolean)
               .join(" · ")}
           </DialogDescription>
@@ -97,7 +103,12 @@ export function PhotoViewerDialog({
                 src={url}
                 alt={`Photo de ${label}`}
                 decoding="async"
-                className={cn("m-auto max-h-[62dvh] w-auto max-w-full rounded-md object-contain", out && "opacity-50")}
+                // Capped by what is left of the screen too: on a landscape phone 62 % of the height is taller than the
+                // dialog's own body, and the face at the bottom of the photo had to be scrolled to.
+                className={cn(
+                  "m-auto max-h-[min(62dvh,calc(100dvh-15rem))] w-auto max-w-full rounded-md object-contain",
+                  out && "opacity-50",
+                )}
               />
             )}
             {index > 0 && (

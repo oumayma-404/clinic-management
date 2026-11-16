@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -29,6 +30,9 @@ public sealed class OriginalsStore
     public const long MinFreeBytes = 10L * 1024 * 1024 * 1024;
 
     private readonly object _indexGate = new();
+
+    /// <summary>Index lines not written yet — the sheet was open elsewhere. Written before the next one.</summary>
+    private readonly List<string> _unwrittenLines = new();
 
     public OriginalsStore(string root)
     {
@@ -64,6 +68,7 @@ public sealed class OriginalsStore
     public KeepOutcome Keep(
         string stagedPath, string sha256, Guid fileId, string? patientName, DateTime? takenLocal, string originalName)
     {
+        long size;
         try
         {
             var target = PathFor(fileId);
@@ -73,7 +78,7 @@ public sealed class OriginalsStore
                 return new KeepOutcome(null, "La copie de la photo a disparu de ce PC avant d'être gardée.");
             }
 
-            var size = staged.Length;
+            size = staged.Length;
 
             // The same acknowledgement twice (a page that re-sent it after a reload) keeps nothing twice.
             var existing = new FileInfo(target);
@@ -94,9 +99,6 @@ public sealed class OriginalsStore
             Prepare();
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Move(stagedPath, target, overwrite: true);
-
-            AppendIndexLine(OriginalsPathPlanner.IndexLine(fileId, patientName, takenLocal, originalName, size, sha256));
-            return new KeepOutcome(new KeptOriginal(fileId, sha256, size), null);
         }
         catch (UnauthorizedAccessException)
         {
@@ -105,11 +107,20 @@ public sealed class OriginalsStore
                 "Le dossier des photos originales appartient à un autre compte Windows de ce PC : l'original n'est pas "
                 + "gardé ici. La photo est rangée dans le dossier du patient.");
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return new KeepOutcome(null, $"L'original n'a pas pu être gardé sur ce PC : {ex.Message}");
+            return new KeepOutcome(
+                null, "L'original n'a pas pu être gardé sur ce PC. La photo est rangée dans le dossier du patient.");
         }
+
+        // ⚠️ Kept from here on, whatever the index says: the sheet is the secondary artefact, and a technician who left
+        // it open in a spreadsheet must not make the screen say an original that is on disk was not kept.
+        WriteIndexLine(OriginalsPathPlanner.IndexLine(fileId, patientName, takenLocal, originalName, size, sha256));
+        return new KeepOutcome(new KeptOriginal(fileId, sha256, size), null);
     }
+
+    /// <summary>Writes the index lines a locked sheet held back. Never throws; what still cannot be written waits.</summary>
+    public void FlushIndex() => WriteIndexLine(null);
 
     /// <summary>The originals this store holds — what a copy to the archive disk must cover.</summary>
     public (int Files, long Bytes) Totals()
@@ -167,32 +178,58 @@ public sealed class OriginalsStore
         ArchiveCopyService.HardenFolder(Root);
     }
 
-    /// <summary>Rewrites the index whole through a temp file, so a reader never meets half a line.</summary>
-    private void AppendIndexLine(string line)
+    /// <summary>
+    /// Appends <paramref name="line"/> (and any held back) to the index, which only grows — a rewrite per photo read
+    /// and wrote the whole sheet each time. Held back in memory when the sheet cannot be opened.
+    /// </summary>
+    private void WriteIndexLine(string? line)
     {
         lock (_indexGate)
         {
-            var index = Path.Combine(Root, OriginalsPathPlanner.IndexFileName);
-            var builder = new StringBuilder();
-            if (File.Exists(index))
+            if (line != null)
             {
-                builder.Append(File.ReadAllText(index, Encoding.UTF8));
-                if (builder.Length > 0 && builder[^1] != '\n')
+                _unwrittenLines.Add(line);
+            }
+
+            if (_unwrittenLines.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var index = Path.Combine(Root, OriginalsPathPlanner.IndexFileName);
+                using var stream = new FileStream(index, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+                var text = new StringBuilder();
+                if (stream.Length == 0)
                 {
-                    builder.Append("\r\n");
+                    // A BOM, or Excel on Windows reads « Béchir » as « BÃ©chir » (CsvTable's lesson).
+                    stream.Write(Encoding.UTF8.GetPreamble());
+                    text.Append(OriginalsPathPlanner.IndexHeader).Append("\r\n");
                 }
+                else
+                {
+                    // A line cut short by a power cut must not swallow the next one.
+                    stream.Seek(-1, SeekOrigin.End);
+                    if (stream.ReadByte() != '\n')
+                    {
+                        text.Append("\r\n");
+                    }
+                }
+
+                foreach (var held in _unwrittenLines)
+                {
+                    text.Append(held).Append("\r\n");
+                }
+
+                stream.Seek(0, SeekOrigin.End);
+                stream.Write(Encoding.UTF8.GetBytes(text.ToString()));
+                _unwrittenLines.Clear();
             }
-            else
+            catch
             {
-                builder.Append(OriginalsPathPlanner.IndexHeader).Append("\r\n");
+                // Open in a spreadsheet, most likely: the lines wait for the next original or the next copy.
             }
-
-            builder.Append(line).Append("\r\n");
-
-            // A BOM, or Excel on Windows reads « Béchir » as « BÃ©chir » (CsvTable's lesson).
-            var temp = $"{index}.{Guid.NewGuid():N}.tmp";
-            File.WriteAllText(temp, builder.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            File.Move(temp, index, overwrite: true);
         }
     }
 

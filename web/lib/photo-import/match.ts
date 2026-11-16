@@ -24,6 +24,8 @@ export const MATCH_RULES = {
   leadMinutes: 15,
   /** …and this much after. */
   tailMinutes: 20,
+  /** A fiche saved within this long of a visit's expected end stretches the visit to the save; later is charting. */
+  ficheTailMaxMinutes: 60,
   /** A fiche saved with no appointment (a walk-in) stands for a visit this long before its save… */
   walkInBeforeMinutes: 45,
   /** …and this long after. */
@@ -32,10 +34,12 @@ export const MATCH_RULES = {
   offsetSearchMinutes: 180,
   /** A proposed offset smaller than this is noise, not a wrong clock. */
   offsetMinimumMinutes: 3,
-  /** A proposed offset must explain this many photos more than no offset does… */
+  /** A proposed offset must explain this many bursts more than no offset does… */
   offsetGainRatio: 1.3,
-  /** …and at least this many photos. */
-  offsetMinimumPhotos: 5,
+  /** …at least this many bursts… */
+  offsetMinimumBursts: 3,
+  /** …landing on at least this many different patients: one walk-in falling into a visit is not a wrong clock. */
+  offsetMinimumPatients: 2,
   /** Candidates further than this from a burst are not offered — they are not plausible, only present. */
   candidateWindowMinutes: 180,
   /** At most this many candidates under a burst to check. */
@@ -124,19 +128,32 @@ interface Holder {
 
 const minutes = (value: number) => value * MINUTE_MS
 
-/** A visit's core: from the real arrival to the later of the expected end and the fiche's save. */
-export function coreOf(visit: MatchVisit): { from: WallClock; to: WallClock } {
+/**
+ * A visit's core: from the real arrival to the later of the expected end and the fiche's save.
+ *
+ * ⚠️ **A late save is not presence.** Fiches are often charted at the end of the day or the next morning (« À
+ * clôturer » makes exactly those), and an unbounded save stretched one visit over every unbooked hour after it — a
+ * walk-in photographed at 15:00 came out « sûr » for the 09:00 patient. So the save counts up to
+ * {@link MATCH_RULES.ficheTailMaxMinutes} after the expected end, and never past the next patient's arrival.
+ */
+export function coreOf(visit: MatchVisit, nextArrival: WallClock | null = null): { from: WallClock; to: WallClock } {
   const from = visit.start + minutes(Math.max(0, visit.lateArrivalMinutes))
-  const to = Math.max(visit.expectedEnd, visit.ficheSavedAt ?? visit.expectedEnd, from)
+  const saved =
+    visit.ficheSavedAt === null
+      ? visit.expectedEnd
+      : Math.min(visit.ficheSavedAt, visit.expectedEnd + minutes(MATCH_RULES.ficheTailMaxMinutes), nextArrival ?? Infinity)
+  const to = Math.max(visit.expectedEnd, saved, from)
   return { from, to }
 }
 
 function holders(visits: MatchVisit[], walkIns: MatchWalkIn[]) {
   const cores: Holder[] = []
   const margins: Holder[] = []
+  const arrivals = visits.map((visit) => visit.start + minutes(Math.max(0, visit.lateArrivalMinutes))).sort((a, b) => a - b)
 
   for (const visit of visits) {
-    const core = coreOf(visit)
+    const arrival = visit.start + minutes(Math.max(0, visit.lateArrivalMinutes))
+    const core = coreOf(visit, arrivals.find((other) => other > arrival) ?? null)
     const candidate: MatchCandidate = {
       patientId: visit.patientId,
       patientName: visit.patientName,
@@ -213,9 +230,14 @@ function ranked(cores: Holder[], time: WallClock, limit: number = MATCH_RULES.ma
 /**
  * How many minutes to add to a camera's clock, when its photos say it is wrong — or 0.
  *
- * Every whole-minute offset in ±{@link MATCH_RULES.offsetSearchMinutes} is scored by how many photos it puts inside a
- * visit's core. One is proposed only when it explains clearly more photos than leaving the clock alone, and when it is
- * big enough to be a wrong clock rather than a slow visit.
+ * Every whole-minute offset in ±{@link MATCH_RULES.offsetSearchMinutes} is scored by how many BURSTS it puts inside a
+ * visit's core. One is proposed only when it explains clearly more bursts than leaving the clock alone, when those
+ * bursts land on {@link MATCH_RULES.offsetMinimumPatients} different patients, and when it is big enough to be a
+ * wrong clock rather than a slow visit.
+ *
+ * ⚠️ **Bursts, not photos.** A wrong clock shifts every burst of the day together; one series of eight shots of a
+ * walk-in that happens to fall into some visit an hour and a half away is not evidence of one — counted by photos it
+ * cleared the bar alone, and its correction was then applied, made the burst « sûr », and was saved on the camera.
  *
  * ⚠️ **The middle of the best run, never its smallest member.** Many offsets tie at the best score — every one that
  * keeps each photo inside its visit — and the smallest of them lands every photo on the very first minute of its
@@ -227,28 +249,34 @@ function ranked(cores: Holder[], time: WallClock, limit: number = MATCH_RULES.ma
  * (phase 2) is the real fix.
  */
 export function detectClockOffset(times: WallClock[], visits: MatchVisit[], walkIns: MatchWalkIn[] = []): number {
-  if (times.length < MATCH_RULES.offsetMinimumPhotos) return 0
+  const bursts = groupIntoBursts(times.map((time) => ({ takenAt: time }))).map((burst) =>
+    median(burst.map((photo) => photo.takenAt!)),
+  )
+  if (bursts.length < MATCH_RULES.offsetMinimumBursts) return 0
   const { cores } = holders(visits, walkIns)
   if (cores.length === 0) return 0
 
-  const score = (offset: number) => {
+  const landed = (offset: number) => {
+    const patients = new Set<string>()
     let count = 0
-    for (const time of times) {
-      const shifted = time + minutes(offset)
-      if (cores.some((core) => inside(core, shifted))) count++
+    for (const at of bursts) {
+      const holder = cores.find((core) => inside(core, at + minutes(offset)))
+      if (!holder) continue
+      count++
+      patients.add(holder.candidate.patientId)
     }
-    return count
+    return { count, patients: patients.size }
   }
 
   const range = MATCH_RULES.offsetSearchMinutes
   const scores: number[] = []
-  for (let offset = -range; offset <= range; offset++) scores.push(score(offset))
+  for (let offset = -range; offset <= range; offset++) scores.push(landed(offset).count)
 
   const atZero = scores[range]
   const best = Math.max(...scores)
   // Leaving the clock alone explains as much as anything else: nothing to correct.
   if (best <= atZero) return 0
-  if (best < Math.max(MATCH_RULES.offsetMinimumPhotos, MATCH_RULES.offsetGainRatio * atZero)) return 0
+  if (best < Math.max(MATCH_RULES.offsetMinimumBursts, MATCH_RULES.offsetGainRatio * atZero)) return 0
 
   // The runs of consecutive offsets reaching the best score; the widest wins, then the one nearest zero.
   let chosen: { from: number; to: number } | null = null
@@ -272,7 +300,8 @@ export function detectClockOffset(times: WallClock[], visits: MatchVisit[], walk
   }
 
   const middle = chosen ? Math.round((chosen.from + chosen.to) / 2) : 0
-  return Math.abs(middle) < MATCH_RULES.offsetMinimumMinutes ? 0 : middle
+  if (Math.abs(middle) < MATCH_RULES.offsetMinimumMinutes) return 0
+  return landed(middle).patients < MATCH_RULES.offsetMinimumPatients ? 0 : middle
 }
 
 /** Photos in time order, cut where two consecutive ones are more than {@link MATCH_RULES.burstGapMinutes} apart. */
@@ -511,12 +540,17 @@ export function withPhotosTakenOut<G extends PhotoGroup>(
  * practitioner by default; when it is in fact a colleague's, its photos meet the wrong day, and a wrong clock makes it
  * worse — the offset search can « explain » them by sliding them into the guessed agenda's visits, so a colleague's
  * camera an hour behind, imported by the other dentist, can come out « sûr » for her own afternoon patients. So every
- * sure group asks, its match still first among the candidates, until the owner is confirmed — one press, once in the
- * camera's life — and no clock correction is looked for before then.
+ * group asks for the owner — one press, once in the camera's life — and no clock correction is looked for before then.
+ *
+ * ⚠️ **No candidate either.** They come from the guessed agenda: offered, they turned one press at the top of the page
+ * into a pick per group among another practitioner's patients. A photo taken out (`moved`) or with no time keeps its
+ * own question; « Autre patient… » stays for a group the dentist wants to answer by hand.
  */
 export function askUntilOwnerKnown<G extends PhotoGroup>(groups: G[]): G[] {
   return groups.map((group) =>
-    group.decision === "sure" ? { ...group, decision: "ask" as const, reason: "owner" as const, match: null } : group,
+    group.reason === "moved" || group.reason === "no-date"
+      ? group
+      : { ...group, decision: "ask" as const, reason: "owner" as const, match: null, candidates: [] },
   )
 }
 

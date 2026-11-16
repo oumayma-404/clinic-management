@@ -106,6 +106,27 @@ public class CameraContractTests
         Assert.Contains("'1.8.0'", script);
     }
 
+    /// <summary>
+    /// « Importer » over a slow cable outlasted the page's fixed 15-minute wait, which then told the dentist to unplug
+    /// a camera that was still copying. The wait now restarts on each <c>camera-progress</c>, and a progress message
+    /// never takes a place in the queue a batch needs.
+    /// </summary>
+    [Fact]
+    public void Importer_Waits_On_Progress_Not_On_The_Clock_And_Progress_Is_Never_Queued()
+    {
+        var script = VaultBridge.Script("1.8.0");
+
+        var progress = Regex.Match(
+            script, @"if \(payload\.kind === 'camera-progress'\) \{(?<body>.*?)return;\s*\}", RegexOptions.Singleline);
+        Assert.True(progress.Success, "the listener no longer handles camera-progress on its own");
+        Assert.Contains("relayAlive[payload.requestId]", progress.Groups["body"].Value);
+        Assert.DoesNotContain("queue", progress.Groups["body"].Value);
+        Assert.True(progress.Index < script.IndexOf("queue.push", StringComparison.Ordinal));
+
+        Assert.Matches(new Regex(@"relayAlive\[id\] = arm;"), script);
+        Assert.Matches(new Regex(@"var arm = function \(\) \{\s*clearTimeout\(timer\);"), script);
+    }
+
     private static string RepoFile(params string[] parts) =>
         Path.Combine(new[] { RepoRoot() }.Concat(parts).ToArray());
 

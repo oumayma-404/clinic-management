@@ -32,14 +32,16 @@ public class CameraImportFlowTests
     private static string Sha256Of(string content) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
 
+    // The page's answers are saved per burst: a test that reads the disk back says when, with Flush.
     private static CameraImportService Service(TempFolder temp) =>
         new(
-            new CameraJournal(temp.Sub("journal.json")),
+            new CameraJournal(temp.Sub("journal.json"), Timeout.InfiniteTimeSpan),
             new PhotoStaging(temp.Sub("staging")),
             new OriginalsStore(temp.Sub("photos")),
             () => NowUtc);
 
-    private static CardCameraSource Card(TempFolder temp) => new(temp.Sub("card"), "card:0badcafe", "Carte (T:)");
+    private static CardCameraSource Card(TempFolder temp, int maxFiles = CardCameraSource.MaxFiles) =>
+        new(temp.Sub("card"), "card:0badcafe", "Carte (T:)", maxFiles);
 
     [Fact]
     public async Task A_Card_Offers_Its_Recent_Photos_Copied_Under_Their_Own_Names()
@@ -161,11 +163,13 @@ public class CameraImportFlowTests
         var batch = await service.BuildBatchAsync(new[] { Card(temp) }, includeOlder: false);
         var fileId = Guid.NewGuid();
         service.Acknowledge(new CameraAck(batch.Items[0].ItemId, CameraAck.Filed, fileId, Guid.NewGuid(), "X", true));
+        service.Flush();
 
-        Assert.Equal(fileId, Assert.Single(Service(temp).UnrecordedOriginals()).FileId);
+        Assert.Equal(fileId, Assert.Single(Service(temp).OriginalsToAnnounce()).FileId);
 
         service.MarkOriginalRecorded(fileId);
-        Assert.Empty(Service(temp).UnrecordedOriginals());
+        service.Flush();
+        Assert.Empty(Service(temp).OriginalsToAnnounce());
     }
 
     [Fact]
@@ -287,6 +291,7 @@ public class CameraImportFlowTests
         var batch = await service.BuildBatchAsync(new[] { Card(temp) }, includeOlder: false);
         var fileId = Guid.NewGuid();
         service.Acknowledge(new CameraAck(batch.Items[0].ItemId, CameraAck.Filed, fileId, Guid.NewGuid(), "X", true));
+        Directory.CreateDirectory(temp.Sub("archive")); // The archive copy made it on the archive disk.
 
         var outcome = await OriginalsCopyService.CopyNowAsync(
             service.Originals, temp.Sub("archive"), sameDiskRefusal: (_, _) => null);
@@ -304,6 +309,7 @@ public class CameraImportFlowTests
         using var temp = new TempFolder();
         var store = new OriginalsStore(temp.Sub("photos"));
         Directory.CreateDirectory(store.Root);
+        Directory.CreateDirectory(temp.Sub("archive"));
 
         var sameDisk = await OriginalsCopyService.CopyNowAsync(store, temp.Sub("archive"));
         var nowhere = await OriginalsCopyService.CopyNowAsync(store, "");
@@ -313,5 +319,293 @@ public class CameraImportFlowTests
         Assert.Contains("même disque", sameDisk.Sentence);
         Assert.False(nowhere.Complete);
         Assert.True(nothingKept.Complete);
+    }
+
+    [Fact]
+    public async Task An_Originals_Copy_Refused_By_The_Archive_Disk_Creates_Nothing_There()
+    {
+        using var temp = new TempFolder();
+        var store = new OriginalsStore(temp.Sub("photos"));
+        Directory.CreateDirectory(store.Root);
+        Directory.CreateDirectory(temp.Sub("card"));
+
+        // The archive disk is unplugged and the camera's card took its letter.
+        var outcome = await OriginalsCopyService.CopyNowAsync(
+            store, temp.Sub("card"), diskRefusal: _ => "carte", sameDiskRefusal: (_, _) => null);
+
+        Assert.False(outcome.Complete);
+        Assert.Equal("carte", outcome.Sentence);
+        Assert.False(Directory.Exists(temp.Sub("card", OriginalsCopyService.DestinationFolderName)));
+    }
+
+    [Fact]
+    public async Task A_Locked_Index_On_The_Archive_Disk_Does_Not_Fail_A_Copy_Whose_Originals_Arrived()
+    {
+        using var temp = new TempFolder();
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0001.JPG", TodayLocal.AddHours(10), "full size");
+        var service = Service(temp);
+        var batch = await service.BuildBatchAsync(new[] { Card(temp) }, includeOlder: false);
+        service.Acknowledge(new CameraAck(batch.Items[0].ItemId, CameraAck.Filed, Guid.NewGuid(), Guid.NewGuid(), "X", true));
+        var destination = temp.Sub("archive", OriginalsCopyService.DestinationFolderName);
+        Directory.CreateDirectory(destination);
+
+        // A technician left the archive disk's index open in a spreadsheet.
+        await using (new FileStream(
+                         Path.Combine(destination, OriginalsPathPlanner.IndexFileName),
+                         FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+        {
+            var outcome = await OriginalsCopyService.CopyNowAsync(
+                service.Originals, temp.Sub("archive"), diskRefusal: _ => null, sameDiskRefusal: (_, _) => null);
+
+            Assert.True(outcome.Complete);
+            Assert.Equal(1, outcome.Files);
+            Assert.Contains("index.csv", outcome.Sentence);
+        }
+
+        Assert.Empty(Directory.EnumerateFiles(destination, "*.part", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task An_Index_Open_Elsewhere_Does_Not_Undo_A_Kept_Original_And_Gets_Its_Line_Later()
+    {
+        using var temp = new TempFolder();
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0001.JPG", TodayLocal.AddHours(10), "full size");
+        var service = Service(temp);
+        var batch = await service.BuildBatchAsync(new[] { Card(temp) }, includeOlder: false);
+        var fileId = Guid.NewGuid();
+        service.Originals.Prepare();
+        var index = temp.Sub("photos", OriginalsPathPlanner.IndexFileName);
+
+        CameraAckResult filed;
+        using (new FileStream(index, FileMode.Create, FileAccess.ReadWrite, FileShare.Read))
+        {
+            filed = service.Acknowledge(new CameraAck(batch.Items[0].ItemId, CameraAck.Filed, fileId, Guid.NewGuid(), "Ben Salah Amine", true));
+        }
+
+        Assert.NotNull(filed.Kept);
+        Assert.Null(filed.Refusal);
+        Assert.True(service.Originals.Holds(fileId));
+        Assert.Empty(Directory.EnumerateFiles(temp.Sub("photos"), "*.tmp"));
+
+        service.Originals.FlushIndex();
+        Assert.StartsWith($"{fileId:D};Ben Salah Amine;", File.ReadAllLines(index)[1]);
+    }
+
+    [Fact]
+    public async Task Keeping_Originals_Appends_To_The_Index_And_Never_Rewrites_It()
+    {
+        using var temp = new TempFolder();
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0001.JPG", TodayLocal.AddHours(10), "one");
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0002.JPG", TodayLocal.AddHours(11), "two");
+        var service = Service(temp);
+        var batch = await service.BuildBatchAsync(new[] { Card(temp) }, includeOlder: false);
+        var index = temp.Sub("photos", OriginalsPathPlanner.IndexFileName);
+
+        service.Acknowledge(new CameraAck(batch.Items[0].ItemId, CameraAck.Filed, Guid.NewGuid(), Guid.NewGuid(), "A", true));
+        var first = File.ReadAllBytes(index);
+        service.Acknowledge(new CameraAck(batch.Items[1].ItemId, CameraAck.Filed, Guid.NewGuid(), Guid.NewGuid(), "B", true));
+        var second = File.ReadAllBytes(index);
+
+        Assert.Equal(first, second.Take(first.Length));
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, second.Take(3)); // Once, at the start: Excel reads « é ».
+        Assert.Equal(3, File.ReadAllLines(index).Length);
+    }
+
+    [Fact]
+    public async Task A_Burst_Of_Answers_Is_Written_Once_And_A_Flush_Puts_It_On_Disk()
+    {
+        using var temp = new TempFolder();
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0001.JPG", TodayLocal.AddHours(10), "one");
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0002.JPG", TodayLocal.AddHours(10), "two");
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0003.JPG", TodayLocal.AddHours(10), "three");
+        var service = Service(temp);
+        var batch = await service.BuildBatchAsync(new[] { Card(temp) }, includeOlder: false);
+
+        foreach (var item in batch.Items)
+        {
+            service.Acknowledge(new CameraAck(item.ItemId, CameraAck.Already, null, null, null, false));
+        }
+
+        // Not one write per answer: the disk still has the batch as it was handed over.
+        var before = new CameraJournal(temp.Sub("journal.json"));
+        Assert.All(batch.Items, i => Assert.Equal(CameraItemState.Delivered, before.ByItemId(i.ItemId)!.State));
+
+        service.Flush();
+
+        var after = new CameraJournal(temp.Sub("journal.json"));
+        Assert.All(batch.Items, i => Assert.Equal(CameraItemState.AlreadyImported, after.ByItemId(i.ItemId)!.State));
+    }
+
+    [Fact]
+    public async Task A_Full_Card_Still_Offers_Todays_Photos()
+    {
+        using var temp = new TempFolder();
+        for (var i = 1; i <= 6; i++)
+        {
+            WritePhoto(temp.Sub("card"), $@"DCIM\100CANON\IMG_{i:D4}.JPG", TodayLocal.AddDays(-30).AddMinutes(i), $"old {i}");
+        }
+
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0007.JPG", TodayLocal.AddHours(9), "today 1");
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0008.JPG", TodayLocal.AddHours(10), "today 2");
+
+        // A cap of five on a card of eight: listed in the card's own order, today's two were never seen.
+        var batch = await Service(temp).BuildBatchAsync(new[] { Card(temp, maxFiles: 5) }, includeOlder: false);
+
+        Assert.Equal(new[] { "IMG_0007.JPG", "IMG_0008.JPG" }, batch.Items.Select(i => i.Name));
+    }
+
+    [Fact]
+    public async Task A_Card_Lists_Its_Newest_Folder_And_Files_When_It_Holds_More_Than_It_Reads()
+    {
+        using var temp = new TempFolder();
+        for (var i = 1; i <= 6; i++)
+        {
+            WritePhoto(temp.Sub("card"), $@"DCIM\100CANON\IMG_{i:D4}.JPG", TodayLocal.AddDays(-20).AddMinutes(i), "old");
+            WritePhoto(temp.Sub("card"), $@"DCIM\101CANON\IMG_{i:D4}.JPG", TodayLocal.AddDays(-1).AddMinutes(i), "new");
+        }
+
+        // Two kept of twelve, and only eight read: the newest folder first, its newest files kept.
+        var listing = await Card(temp, maxFiles: 2).ListAsync(CancellationToken.None);
+
+        Assert.Equal(
+            new[] { @"DCIM\101CANON\IMG_0006.JPG", @"DCIM\101CANON\IMG_0005.JPG" },
+            listing.Select(i => i.ObjectId));
+    }
+
+    [Fact]
+    public async Task A_Source_That_Fails_Mid_Copy_Leaves_No_Part_And_Does_Not_Stop_The_Rest()
+    {
+        using var temp = new TempFolder();
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0001.JPG", TodayLocal.AddHours(9), "one");
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0002.JPG", TodayLocal.AddHours(10), "two — the cable comes out here");
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0003.JPG", TodayLocal.AddHours(11), "three");
+
+        var batch = await Service(temp).BuildBatchAsync(
+            new ICameraSource[] { new FailingSource(Card(temp), "IMG_0002.JPG") }, includeOlder: false);
+
+        Assert.Equal(1, batch.Failed);
+        Assert.Equal(new[] { "IMG_0001.JPG", "IMG_0003.JPG" }, batch.Items.Select(i => i.Name));
+        Assert.All(batch.Items, i => Assert.True(File.Exists(i.Path)));
+        Assert.Empty(Directory.EnumerateFiles(temp.Sub("staging"), "*.part", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Importer_Says_It_Is_Alive_Before_Each_Photo_It_Copies()
+    {
+        using var temp = new TempFolder();
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0001.JPG", TodayLocal.AddHours(9), "one");
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0002.JPG", TodayLocal.AddHours(10), "two");
+        var reports = new List<CameraScanProgress>();
+
+        await Service(temp).BuildBatchAsync(
+            new[] { Card(temp) }, includeOlder: false, new InlineProgress<CameraScanProgress>(reports.Add));
+
+        Assert.Equal(
+            new[] { new CameraScanProgress(0, 2), new CameraScanProgress(0, 2), new CameraScanProgress(1, 2) },
+            reports);
+    }
+
+    // ── Originals the server will not write down ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task A_Kept_Original_The_Server_Never_Writes_Down_Stops_Being_Announced_But_Stays()
+    {
+        using var temp = new TempFolder();
+        WritePhoto(temp.Sub("card"), @"DCIM\100CANON\IMG_0001.JPG", TodayLocal.AddHours(10), "photo");
+        var service = Service(temp);
+        var batch = await service.BuildBatchAsync(new[] { Card(temp) }, includeOlder: false);
+        var fileId = Guid.NewGuid();
+        service.Acknowledge(new CameraAck(batch.Items[0].ItemId, CameraAck.Filed, fileId, Guid.NewGuid(), "X", true));
+
+        for (var load = 0; load < CameraImportService.MaxAnnouncements; load++)
+        {
+            Assert.Single(service.OriginalsToAnnounce());
+        }
+
+        Assert.Empty(service.OriginalsToAnnounce());
+        service.Flush();
+        Assert.Single(new CameraJournal(temp.Sub("journal.json")).UnrecordedOriginals());
+        Assert.True(service.Originals.Holds(fileId));
+    }
+
+    [Fact]
+    public void One_Page_Load_Announces_Less_Than_The_Pages_Queue_And_The_Least_Sent_First()
+    {
+        using var temp = new TempFolder();
+        var journal = new CameraJournal(temp.Sub("journal.json"), Timeout.InfiniteTimeSpan);
+        var store = new OriginalsStore(temp.Sub("photos"));
+        var fresh = new HashSet<Guid>();
+        for (var i = 0; i < CameraImportService.MaxAnnouncedPerLoad + 5; i++)
+        {
+            var item = new CameraItem($@"DCIM\100CANON\IMG_{i:D4}.JPG", $"IMG_{i:D4}.JPG", 10, TodayLocal, CameraFileKind.Jpeg);
+            var entry = journal.Record("card:0badcafe", item, CameraItemState.Filed, null, "ab", NowUtc);
+            var fileId = Guid.NewGuid();
+            var stale = i < 5;
+            journal.Update(
+                entry.ItemId,
+                e =>
+                {
+                    e.OriginalKept = true;
+                    e.FileId = fileId;
+                    e.PatientId = Guid.NewGuid();
+                    e.Announced = stale ? 3 : 0;
+                },
+                NowUtc);
+            Directory.CreateDirectory(Path.GetDirectoryName(store.PathFor(fileId))!);
+            File.WriteAllText(store.PathFor(fileId), "original");
+            if (!stale)
+            {
+                fresh.Add(fileId);
+            }
+        }
+
+        var announced = new CameraImportService(journal, new PhotoStaging(temp.Sub("staging")), store, () => NowUtc)
+            .OriginalsToAnnounce();
+
+        Assert.True(announced.Count < 50); // VaultBridge's queue for a page that is not listening yet.
+        Assert.Equal(fresh.OrderBy(g => g), announced.Select(n => n.FileId).OrderBy(g => g));
+    }
+
+    // ── One rule for « this is a camera's card » ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void A_Fixed_Disk_Holding_DCIM_Is_Not_A_Camera_Card()
+    {
+        using var temp = new TempFolder();
+        Directory.CreateDirectory(temp.Sub("DCIM", "100CANON"));
+
+        // The watcher and « Chercher l'appareil » ask the same question: a notice for a disk the scan cannot find
+        // sent the scan to every other device.
+        Assert.False(CameraSources.IsCard(temp.Path));
+        Assert.Null(CameraSources.CardAt(temp.Path));
+    }
+
+    /// <summary>A card whose cable comes out on one photo, after part of it was read.</summary>
+    private sealed class FailingSource(ICameraSource inner, string failingName) : ICameraSource
+    {
+        public string SourceKey => inner.SourceKey;
+
+        public string Label => inner.Label;
+
+        public Task<IReadOnlyList<CameraItem>> ListAsync(CancellationToken cancellationToken) =>
+            inner.ListAsync(cancellationToken);
+
+        public async Task CopyToAsync(CameraItem item, Stream destination, CancellationToken cancellationToken)
+        {
+            if (item.Name != failingName)
+            {
+                await inner.CopyToAsync(item, destination, cancellationToken);
+                return;
+            }
+
+            await destination.WriteAsync(Encoding.UTF8.GetBytes("half a"), cancellationToken);
+            throw new IOException("Le périphérique a été débranché.");
+        }
+    }
+
+    /// <summary>An <see cref="IProgress{T}"/> that reports where it is called — <see cref="Progress{T}"/> posts.</summary>
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

@@ -99,9 +99,19 @@ public class ReportPhotoOriginalsCopyCommandHandler : IRequestHandler<ReportPhot
                     clinic.Value, request.FileCount, request.TotalBytes, expected!.Files, expected.Bytes);
             }
 
-            // Post-commit and best-effort: the copy happened whatever the bell does.
-            var stale = await PhotoOriginalsCopyCheck.FindStaleAsync(_files, _copies, clinic.Value, now, cancellationToken);
-            await PhotoOriginalsCopyCheck.ApplyAsync(_notifications, clinic.Value, stale, cancellationToken);
+            // Post-commit and best-effort, in its own guard: the report is recorded whatever the bell's read does, and
+            // answering a failure here would make the page send a report that is already on record again.
+            try
+            {
+                var stale = await PhotoOriginalsCopyCheck.FindStaleAsync(_files, _copies, clinic.Value, now, cancellationToken);
+                await PhotoOriginalsCopyCheck.ApplyAsync(_notifications, clinic.Value, stale, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Clinic {ClinicId}: the photo-originals copy report was recorded, but the alert was not re-evaluated.",
+                    clinic.Value);
+            }
 
             return Result<bool>.Success(covered);
         }

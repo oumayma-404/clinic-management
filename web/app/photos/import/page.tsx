@@ -12,7 +12,8 @@ import { ImportScreen } from "@/components/photo-import/import-screen"
 export default function PhotoImportPage() {
   return (
     <ClinicGuard>
-      <AppShell width="5xl">
+      {/* The sticky « Ranger » bar covers the bottom of the scroller: focus and « Voir » stop above it. */}
+      <AppShell width="5xl" mainClassName="overflow-y-auto scroll-pb-36 sm:scroll-pb-24">
         <ImportScreen />
       </AppShell>
     </ClinicGuard>

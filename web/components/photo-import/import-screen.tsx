@@ -1,8 +1,18 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Images, Loader2 } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
@@ -15,14 +25,18 @@ import { replaceUrl } from "@/lib/history"
 import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import {
   UNKNOWN_CAMERA,
+  addToImport,
   filingPlan,
+  needsOwner,
   patientOf,
   resetImport,
+  setCameraDoctor,
   setShowOlder,
   startFiling,
   startImport,
   unresolvedGroups,
   useImportSession,
+  type ImportCamera,
   type ImportPhoto,
   type ImportState,
 } from "@/lib/photo-import/session"
@@ -49,26 +63,40 @@ export function ImportScreen() {
   const policy = useUploadPolicy()
   const photos = useMemo(() => new Map(state.photos.map((photo) => [photo.id, photo])), [state.photos])
   const shell = useCameraShell()
-  const { batch: shellBatch, busy: shellBusy } = useShellCamera()
+  const { batch: shellBatch, busy: shellBusy, progress: shellProgress } = useShellCamera()
 
   // The Windows app's photos start as soon as they arrive — they come only because somebody asked for them — except
-  // over a batch still being read or sent, which they wait behind.
+  // over a batch still being read or sent, which they wait behind. During a review they JOIN it: restarting would
+  // throw away every choice the dentist has made (« plus anciennes restées sur l'appareil » is a button of that review).
   useEffect(() => {
     if (!shellBatch || state.phase === "reading" || state.phase === "filing") return
     const batch = takeShellBatch()
-    if (batch) void startImport(batch)
+    if (batch) void (state.phase === "review" ? addToImport(batch) : startImport(batch))
   }, [shellBatch, state.phase])
 
   // `?appareil=<device>` — « Importer » in a notice: copy that device's photos now, once, and drop the key.
   // Read through `useSearchParams` in the browser only (the `useUrlFilterSeed` pattern), so the page stays static.
+  // Never while photos are being sent: the shell would re-deliver the ones being filed, and drop their copies as
+  // each is acknowledged.
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const routed = typeof window === "undefined" ? null : useSearchParams()
   const appareil = routed?.get("appareil") ?? null
+  const sending = state.phase === "filing"
   useEffect(() => {
-    if (appareil === null) return
+    if (appareil === null || sending) return
     replaceUrl(window.location.pathname)
     void scanShellCamera({ sourceKey: appareil || undefined })
-  }, [appareil])
+  }, [appareil, sending])
+
+  // « Autre carte » over a review holding decisions asks first: the photos stay on the card, the sorting does not.
+  const [confirmReset, setConfirmReset] = useState(false)
+  const decided =
+    Object.keys(state.choices).length +
+    Object.keys(state.ignored).length +
+    Object.keys(state.splits).length +
+    Object.keys(state.excluded).length +
+    Object.keys(state.takenOut).length
+  const askReset = () => (state.phase === "review" && decided > 0 ? setConfirmReset(true) : resetImport())
 
   const subtitle =
     state.phase === "review"
@@ -84,16 +112,35 @@ export function ImportScreen() {
         subtitle={subtitle}
         actions={
           state.phase === "review" || state.phase === "failed" ? (
-            <Button type="button" variant="outline" className="coarse:min-h-11" onClick={resetImport}>
+            <Button type="button" variant="outline" className="coarse:min-h-11" onClick={askReset}>
               Autre carte
             </Button>
           ) : undefined
         }
       />
 
+      <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Abandonner le tri de {plural(state.photos.length, "photo", "photos")} ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Les patients choisis, les photos écartées et les groupes coupés seront perdus. Les photos restent sur la carte.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="coarse:min-h-11">Continuer le tri</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" className="coarse:min-h-11" onClick={resetImport}>
+              Abandonner
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <StorageUsageLine policy={policy} />
 
-      {state.phase === "idle" && shellBusy && <ShellCopyingNotice />}
+      {state.phase === "idle" && shellBusy && <ShellCopyingNotice progress={shellProgress} />}
       {state.phase === "idle" && !shellBusy && <SourceStep />}
 
       {state.phase === "reading" && (
@@ -128,11 +175,18 @@ export function ImportScreen() {
 }
 
 /** « Importer » in the Windows app: the photos are being copied off the camera onto this PC. */
-function ShellCopyingNotice() {
+function ShellCopyingNotice({ progress }: { progress: { copied: number; total: number } | null }) {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-6 font-medium" role="status">
-      <Loader2 className="size-4 text-primary motion-safe:animate-spin" aria-hidden="true" />
-      Copie des photos de l&apos;appareil sur ce PC…
+      <Loader2 className="size-4 shrink-0 text-primary motion-safe:animate-spin" aria-hidden="true" />
+      <span className="min-w-0">
+        Copie des photos de l&apos;appareil sur ce PC…
+        {progress && (
+          <span className="ms-1 tabular-nums text-muted-foreground">
+            {progress.copied} sur {progress.total}
+          </span>
+        )}
+      </span>
     </div>
   )
 }
@@ -153,7 +207,8 @@ function emptyReview(state: ImportState): { title: string; description: string }
     title: "Aucune nouvelle photo à ranger",
     description:
       state.olderCount > 0
-        ? "Les photos de la carte sont plus anciennes que la dernière importation."
+        ? // A camera whose clock went back (a dead battery) dates today's photos years ago: they land here.
+          "Les photos de la carte sont plus anciennes que la dernière importation. Si elles datent d'aujourd'hui, la date de l'appareil est fausse : corrigez-la dans son menu."
         : "Toutes les photos de la carte sont déjà rangées.",
   }
 }
@@ -196,9 +251,32 @@ function ReviewStep({
   const shellOlder = state.shell?.older ?? 0
   const shellFailed = state.shell?.failed ?? 0
 
+  // A new camera nobody confirmed holds every one of its groups on ONE question — whose camera it is — asked at the
+  // top of the page and in each card. The bar and « Voir » say that, not « choose a patient for 12 groups ».
+  const focusOwnerPrompt = (cameraKey: string) => {
+    const prompt = document.getElementById(`appareil-${cameraKey}`)
+    prompt?.scrollIntoView({ behavior: "smooth", block: "center" })
+    prompt?.querySelector<HTMLElement>("[role='combobox'], button")?.focus({ preventScroll: true })
+  }
+  const ownerOf = (camera: ImportCamera | undefined) => {
+    if (!camera || !needsOwner(camera, state)) return null
+    const agendaName = camera.doctorId
+      ? (doctors.find((doctor) => doctor.id === camera.doctorId)?.name ?? "ce praticien")
+      : "tout le cabinet"
+    return {
+      agendaName,
+      onConfirm: () => void setCameraDoctor(camera.key, camera.doctorId),
+      onChooseOther: () => focusOwnerPrompt(camera.key),
+    }
+  }
+  const ownerHeld = unresolved.length > 0 && unresolved.every((group) => group.reason === "owner")
+  const ownerCamera = ownerHeld ? state.cameras.find((camera) => camera.key === unresolved[0].cameraKey) : undefined
+
   const goToFirstUnresolved = () => {
     const first = unresolved[0]
-    if (first) document.getElementById(`groupe-${first.key}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+    if (!first) return
+    if (first.reason === "owner") return focusOwnerPrompt(first.cameraKey)
+    document.getElementById(`groupe-${first.key}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
   }
 
   return (
@@ -282,6 +360,7 @@ function ReviewStep({
                 showDay={days.size > 1}
                 doctorNames={doctorNames}
                 cameraLabel={cameraLabelOf(group.cameraKey)}
+                owner={group.reason === "owner" ? ownerOf(state.cameras.find((camera) => camera.key === group.cameraKey)) : null}
               />
             )
           })}
@@ -289,11 +368,19 @@ function ReviewStep({
       )}
 
       {state.groups.length > 0 && (
-        // Sticky to the page scroller, so « Ranger » is on screen at 730 px tall however long the list is.
-        <div className="sticky bottom-0 z-20 -mx-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur-sm md:-mx-6 md:px-6">
+        // Sticky to the page scroller, so « Ranger » is on screen at 730 px tall however long the list is — flush
+        // with its bottom edge (the negative offset spends `<main>`'s own padding, where cards used to show through).
+        <div className="sticky -bottom-4 z-20 -mx-4 -mb-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur-sm md:-bottom-6 md:-mx-6 md:-mb-6 md:px-6">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 space-y-0.5 text-sm" role="status">
-              {unresolved.length > 0 ? (
+              {ownerCamera ? (
+                <p className="text-warning-ink">
+                  Nouvel appareil : confirmez à qui est {ownerCamera.label}.{" "}
+                  <Button type="button" variant="link" className="h-auto p-0 text-sm text-warning-ink underline" onClick={goToFirstUnresolved}>
+                    Voir
+                  </Button>
+                </p>
+              ) : unresolved.length > 0 ? (
                 <p className="text-warning-ink">
                   Choisissez le patient de {plural(unresolved.length, "groupe", "groupes")}, ou ignorez-
                   {unresolved.length > 1 ? "les" : "le"}.{" "}

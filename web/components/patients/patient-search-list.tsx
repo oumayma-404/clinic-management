@@ -28,6 +28,10 @@ interface PatientSearchListProps {
    * nobody registered. Below the results too: a namesake on file is not the person in the photo.
    */
   onCreate?: (typed: string) => void
+  /** What the box opens with — the name typed before « Nouveau patient » was cancelled. */
+  initialTerm?: string
+  /** Told every change, so a host can give the name back when the list is shown again. */
+  onTermChange?: (term: string) => void
 }
 
 const SEARCH_DELAY_MS = 250
@@ -39,8 +43,16 @@ const SEARCH_DELAY_MS = 250
  *
  * ⚠️ A failed search renders « Réessayer », never « Aucun patient » — the two look alike and mean opposite things.
  */
-export function PatientSearchList({ label, onPick, excludeId, autoFocus = false, onCreate }: PatientSearchListProps) {
-  const [term, setTerm] = useState("")
+export function PatientSearchList({
+  label,
+  onPick,
+  excludeId,
+  autoFocus = false,
+  onCreate,
+  initialTerm = "",
+  onTermChange,
+}: PatientSearchListProps) {
+  const [term, setTerm] = useState(initialTerm)
   const [results, setResults] = useState<PatientDto[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -88,7 +100,10 @@ export function PatientSearchList({ label, onPick, excludeId, autoFocus = false,
           autoFocus={autoFocus}
           value={term}
           placeholder="Nom ou téléphone du patient"
-          onChange={(event) => setTerm(event.target.value)}
+          onChange={(event) => {
+            setTerm(event.target.value)
+            onTermChange?.(event.target.value)
+          }}
           className="ps-8"
           autoComplete="off"
         />

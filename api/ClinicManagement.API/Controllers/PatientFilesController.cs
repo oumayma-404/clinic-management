@@ -498,7 +498,9 @@ public class PatientFilesController : ApiControllerBase
 
     /// <summary>
     /// Records that a clinic PC kept this photo's full-size original — sent by the page on the Windows app's behalf,
-    /// right after the photo's own upload (which the same gate already let through).
+    /// right after the photo's own upload (which the same gate already let through). A file gone since answers 404
+    /// (<c>file-not-found</c>), the one status the page treats as final; the route's patient is not checked, because
+    /// « Changer de patient » may have moved the photo after the report was queued.
     /// </summary>
     [HttpPut("{fileId}/original")]
     public async Task<ActionResult<Application.DTOs.PatientFileDto>> RecordOriginal(
@@ -516,7 +518,11 @@ public class PatientFilesController : ApiControllerBase
             HeldBy = request.HeldBy
         }, cancellationToken);
 
-        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : HandleFailure(result, result.Code == Application.Features.Files.CameraImportRefusals.FileNotFoundCode
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status400BadRequest);
     }
 
     [HttpPut("folders/{folderId}")]

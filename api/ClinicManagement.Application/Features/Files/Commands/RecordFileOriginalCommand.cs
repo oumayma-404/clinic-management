@@ -18,6 +18,12 @@ namespace ClinicManagement.Application.Features.Files.Commands;
 ///
 /// <para>⚠️ <b>Sent by the page on the Windows app's behalf</b>: the page owns the session, and the shell's only
 /// credential is refused outside <c>[AcceptsScopedToken]</c>. A re-report after a restart is a no-op.</para>
+///
+/// <para>⚠️ <b>The file is found by id and cabinet, never by the patient in the route.</b> The original belongs to the
+/// file, and the shell queued its report under the patient the photo was filed to — after « Changer de patient » that
+/// patient is the wrong one, and refusing would leave the report re-sent on every page load for ever. A file that no
+/// longer exists answers <see cref="CameraImportRefusals.FileNotFoundCode"/> (404), the one answer the page treats as
+/// final.</para>
 /// </summary>
 public class RecordFileOriginalCommand : IRequest<Result<PatientFileDto>>
 {
@@ -55,9 +61,10 @@ public class RecordFileOriginalCommandHandler : IRequestHandler<RecordFileOrigin
             }
 
             var file = await _files.GetByIdAsync(request.FileId, cancellationToken);
-            if (file == null || file.ClinicId != clinic.Value || file.PatientId != request.PatientId)
+            if (file == null || file.ClinicId != clinic.Value)
             {
-                return Result<PatientFileDto>.Failure("Fichier introuvable.");
+                return Result<PatientFileDto>.Failure(
+                    CameraImportRefusals.FileNotFound(), CameraImportRefusals.FileNotFoundCode);
             }
 
             if (file.Origin != FileOrigin.Camera)

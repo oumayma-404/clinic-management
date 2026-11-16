@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage;
@@ -38,10 +39,32 @@ public sealed class WpdCameraSource : ICameraSource
     public async Task<IReadOnlyList<CameraItem>> ListAsync(CancellationToken cancellationToken)
     {
         _files.Clear();
-        var items = new List<CameraItem>();
+        var found = new List<(string ObjectId, StorageFile File)>();
         foreach (var (prefix, dcim) in _dcims)
         {
-            await WalkAsync(dcim, prefix.Length == 0 ? "DCIM" : prefix + "\\DCIM", items, cancellationToken);
+            await WalkAsync(dcim, prefix.Length == 0 ? "DCIM" : prefix + "\\DCIM", found, cancellationToken);
+        }
+
+        // ⚠️ Chosen on the date the folder listing already carries, BEFORE the per-photo property read: on a cable that
+        // read is a round trip per file, and a cap applied in walk order dropped the newest folder.
+        var newest = CameraListing.KeepNewest(
+            found, f => DateOf(f.File.DateCreated), f => f.ObjectId, CardCameraSource.MaxFiles);
+
+        var items = new List<CameraItem>();
+        foreach (var (objectId, file) in newest)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var properties = await file.GetBasicPropertiesAsync();
+
+            // A device that reports no date answers year 1601; its creation date is the next best fact.
+            items.Add(new CameraItem(
+                objectId,
+                file.Name,
+                (long)properties.Size,
+                DateOf(properties.DateModified) ?? DateOf(file.DateCreated),
+                CameraFileKinds.Of(file.Name)));
+            _files[objectId] = file;
         }
 
         return items;
@@ -58,10 +81,14 @@ public sealed class WpdCameraSource : ICameraSource
         await input.CopyToAsync(destination, cancellationToken);
     }
 
-    private async Task WalkAsync(
-        StorageFolder folder, string relative, List<CameraItem> items, CancellationToken cancellationToken)
+    /// <summary>Names only — no per-file read. Newest DCF folder first, so the read limit leaves the oldest.</summary>
+    private static async Task WalkAsync(
+        StorageFolder folder,
+        string relative,
+        List<(string ObjectId, StorageFile File)> found,
+        CancellationToken cancellationToken)
     {
-        if (items.Count >= CardCameraSource.MaxFiles)
+        if (found.Count >= CardCameraSource.MaxFiles * CardCameraSource.ReadAhead)
         {
             return;
         }
@@ -70,36 +97,21 @@ public sealed class WpdCameraSource : ICameraSource
 
         foreach (var file in await folder.GetFilesAsync())
         {
-            if (CameraFileKinds.IsIgnoredName(file.Name))
+            if (!CameraFileKinds.IsIgnoredName(file.Name))
             {
-                continue;
-            }
-
-            var properties = await file.GetBasicPropertiesAsync();
-            var objectId = relative + "\\" + file.Name;
-
-            // A device that reports no date answers year 1601; its creation date is the next best fact.
-            var taken = properties.DateModified.Year > 1980 ? properties.DateModified : file.DateCreated;
-            items.Add(new CameraItem(
-                objectId,
-                file.Name,
-                (long)properties.Size,
-                taken.Year > 1980 ? DateTime.SpecifyKind(taken.LocalDateTime, DateTimeKind.Unspecified) : null,
-                CameraFileKinds.Of(file.Name)));
-            _files[objectId] = file;
-
-            if (items.Count >= CardCameraSource.MaxFiles)
-            {
-                return;
+                found.Add((relative + "\\" + file.Name, file));
             }
         }
 
-        foreach (var sub in await folder.GetFoldersAsync())
+        foreach (var sub in (await folder.GetFoldersAsync()).OrderByDescending(f => f.Name, StringComparer.OrdinalIgnoreCase))
         {
             if (!CameraFileKinds.IsIgnoredFolder(sub.Name))
             {
-                await WalkAsync(sub, relative + "\\" + sub.Name, items, cancellationToken);
+                await WalkAsync(sub, relative + "\\" + sub.Name, found, cancellationToken);
             }
         }
     }
+
+    private static DateTime? DateOf(DateTimeOffset date) =>
+        date.Year > 1980 ? DateTime.SpecifyKind(date.LocalDateTime, DateTimeKind.Unspecified) : null;
 }
