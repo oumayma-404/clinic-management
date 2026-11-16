@@ -56,3 +56,35 @@ reception — who is exactly the person who knows whether the patient came and w
 realtime key `clinic-hub.ts` does not declare, and `RealtimeResourceResolverTests` compares the two sets in both
 directions. ⚠️ The end-of-slot test runs **in memory** over a bounded window for `GetRunningNotStartedAsync`'s
 reason (`Duration` is ticks behind a value converter, and `AppointmentEndDateTime` is deliberately unmapped).
+
+## A fiche saved before its visit is linked by the save that books the visit (`fiche-visit-link-after-booking`)
+
+⚠️ **The rule above was asked ONCE, at the fiche's creation, and a walk-in is charted first and booked after.**
+Production, November 2026: a fiche saved at 12:08, its visit booked at 12:31 for that same morning. Nothing asked
+again, so « À clôturer » asked for a fiche the patient already had, and `verify-schema`'s
+`dental-record-visit-links-backfill` failed the next deploy (the deploy itself had gone through). The dev copy held
+16 such rows.
+⚠️ **The second asking lives in the SAVE, not in the handlers** — `Infrastructure/Persistence/DentalRecordVisitLinks`,
+called first thing in `ApplicationDbContext.SaveChangesAsync`. The condition is created by seven kinds of write
+across five handlers (a visit booked, one or a series · moved to another day · cancelled or marked absent leaving
+one twin · reactivated · reassigned by the calendar-import merge) plus a fiche whose date is corrected; wiring each
+is the `fixes-dont-propagate` shape. A save sees all of them, and a new writer needs no knowledge of the file.
+⚠️ **The DbContext and not an interceptor**: `ClinicChangeCapture` and the audit chain read the tracker in
+`SaveChangesAsync` before the base save runs the interceptors, so an interceptor's link would reach neither the PC
+de secours nor the journal. `DentalRecordVisitLinksTests.The_Save_Links_Before_Anything_Else_Reads_The_Tracker`
+holds the position against the file's own source (proven red by moving the call).
+⚠️ **Same rule, same limits**: exactly one non-cancelled, non-missed visit on the fiche's Tunisian day
+(`DentalRecordVisitLink.OnlyCandidate` / `CanBeDocumented` / `DayOf`); the column and nothing else — **no status,
+no prompt withdrawn** (the backfill's rule; the presence question stays human); a fiche already linked is never
+re-pointed (`DentalRecord.LinkToVisit`). It judges on the **pending** values: the two reads only bring the stored
+rows into the tracker, and identity resolution hands back an already-tracked row with its pending state.
+⚠️ **Free on the hot path**: `AppointmentProgressJob` writes every open visit every minute, but every status it
+writes keeps the visit a candidate on the same day, so `DaysToAskAgain` is empty and nothing is read.
+⚠️ **A failure costs the link, never the save**: logged as « A fiche could not be linked to its visit », and
+`verify-schema` names the row — whose message now says a write bypassed the save (raw SQL) or this step failed.
+The relay's row store and handback write through raw SQL, so a PC de secours mirroring the cloud derives nothing.
+**`RelinkOrphanDentalRecordVisits`** reruns the original backfill's statement — character for character, held by a
+test — for the rows written before this existed, which no save will ever touch again.
+Measured on a copy of the dev database through the branch API: the migration linked 16 → 0; a booking after a
+fiche linked it with an audit row naming the person and `AppointmentId`, status untouched; cancelling one of two
+visits linked the fiche to the other; `verify-schema` read 0.

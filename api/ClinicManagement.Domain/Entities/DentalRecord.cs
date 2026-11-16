@@ -39,6 +39,25 @@ public class DentalRecord : Entity<Guid>, IAuditable
     /// </para>
     /// </summary>
     public Guid? AppointmentId { get; private set; }
+
+    /// <summary>
+    /// Ties a fiche saved with no visit to the visit that has since become its day's only one — the walk-in charted
+    /// at 12:08 whose visit the desk booked at 12:31. Only <c>DentalRecordVisitLinks</c> calls it.
+    ///
+    /// <para>Never overwrites: a link already made was supplied by a deep link or resolved when the day had one
+    /// visit, and a later booking is not evidence against it. Returns whether anything changed.</para>
+    /// </summary>
+    public bool LinkToVisit(Guid appointmentId)
+    {
+        if (AppointmentId.HasValue || appointmentId == Guid.Empty)
+        {
+            return false;
+        }
+
+        AppointmentId = appointmentId;
+        return true;
+    }
+
     /// <summary>
     /// Which practitioner earned this — nullable, and nullable means nullable (L9 attribution).
     ///

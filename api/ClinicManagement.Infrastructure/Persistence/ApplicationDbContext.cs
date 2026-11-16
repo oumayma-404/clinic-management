@@ -7,6 +7,7 @@ using ClinicManagement.Domain.Common;
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Infrastructure.Persistence.Configurations;
 using ClinicManagement.Infrastructure.Security;
+using Microsoft.Extensions.Logging;
 
 namespace ClinicManagement.Infrastructure.Persistence;
 
@@ -31,6 +32,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     private readonly IAuditChainKeyProvider? _auditChainKey;
     private readonly ClinicChangeCapture? _changeCapture;
     private readonly NumberPromiseCoordinator? _numberPromises;
+    private readonly ILogger<ApplicationDbContext>? _logger;
 
     // D16: the numbers a save in this transaction promised a PC de secours, confirmed just before the commit.
     private List<PlannedPromise> _plannedPromises = new();
@@ -44,12 +46,14 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         ICurrentClinicProvider? clinicProvider = null,
         IAuditChainKeyProvider? auditChainKey = null,
         ClinicChangeCapture? changeCapture = null,
-        NumberPromiseCoordinator? numberPromises = null) : base(options)
+        NumberPromiseCoordinator? numberPromises = null,
+        ILogger<ApplicationDbContext>? logger = null) : base(options)
     {
         _clinicProvider = clinicProvider;
         _auditChainKey = auditChainKey;
         _changeCapture = changeCapture;
         _numberPromises = numberPromises;
+        _logger = logger;
     }
 
     /// <summary>D16: what this transaction's saves promised, handed over (and forgotten) once — at its commit or its end.</summary>
@@ -736,6 +740,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
         ConvertDateTimesToUtc();
 
+        // ⚠️ FIRST, before anything below reads the tracker: a fiche this save links has to reach the change log (the
+        // PC de secours) and the audit row like any other change. See DentalRecordVisitLinks.
+        await LinkWaitingFichesAsync(cancellationToken);
+
         // A PC de secours holding a cut gives no legal number: they become provisional, the cloud renumbers at the return.
         if (_changeCapture?.WithholdsLegalNumbers == true)
         {
@@ -786,6 +794,25 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         var written = await SaveAndPlanAsync(numbers, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return written;
+    }
+
+    /// <summary>
+    /// Links the fiches this save made linkable (<see cref="DentalRecordVisitLinks"/>). A link is derived, so a
+    /// failure here must not cost the booking or the fiche being saved: it is logged, the save goes on unlinked, and
+    /// <c>verify-schema</c>'s <c>dental-record-visit-links-backfill</c> is what reports the row. Cancellation is not a
+    /// failure and is let through. Not on the synchronous <see cref="SaveChanges()"/>, which the application never
+    /// uses for a clinic's rows (it refuses them — see there).
+    /// </summary>
+    private async Task LinkWaitingFichesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await DentalRecordVisitLinks.LinkAsync(this, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger?.LogWarning(ex, "A fiche could not be linked to its visit during this save; the save continues unlinked");
+        }
     }
 
     /// <summary>A save with no audit row that touches a relay-scoped row: the change log rides the save's transaction (D1).</summary>
