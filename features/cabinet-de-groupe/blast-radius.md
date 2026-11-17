@@ -19,3 +19,4 @@ must re-test.
 | 12 | `use-doctors.ts` current-dentist match | shared hook | create/edit dialog, document editor, congé card + dialog | must re-test the document prescriber default |
 | 13 | migration `AddStaffNotificationAlsoTarget` | schema (shape 8) | archive / PC de secours copy derive columns from the model | must re-test: `verify-schema` diff; the relay copy and the archive carry the new column |
 | 14 | e2e helpers `createAppointment` / `booking()` | test plumbing | ~12 specs book through them | must change |
+| 15 | edit dialog's dentist field (`effectiveDoctorId`, `offersUnassigned`) — run 4 | display + the save's `doctorId` | this dialog only; the merge snapshot and the carried draft keep the raw state | must change (the field, the récap, the payload) · must re-test B2, O5, new O6 |

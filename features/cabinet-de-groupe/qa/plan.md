@@ -51,4 +51,5 @@ only) — the shape of every cabinet on prod today.
 | O2 | A | browser+sql | One dentist. Secretary: « Nouveau » → patient → « Créer » without touching Praticien | dialog opens on « Salma Ben Youssef »; saved RDV has DoctorId = Salma |
 | O3 | B | browser | One dentist. Agenda Semaine at 1440 + « Filtres » | no initials on blocks; no « Praticien » section in the legend |
 | O4 | B | browser | One dentist. « À clôturer » | no « Praticien » select |
-| O5 | B | browser+sql | One dentist. Open the old RDV with no dentist → « Enregistrer » | saved without a refusal; DoctorId = Salma |
+| O5 | B | browser+sql | One dentist. Open the old RDV with no dentist → « Enregistrer » | opens on « Salma Ben Youssef » with no « Aucun praticien » offered (run 4); saved without a refusal; DoctorId = Salma |
+| O6 | B | browser | One dentist. Open the cabinet-wide block (`arrange.block`) | still reads « Aucun praticien », and offers it (run 4 — a blocked slot keeps its cabinet-wide choice) |

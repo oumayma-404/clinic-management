@@ -393,12 +393,32 @@ const ONE_DENTIST_SCENARIOS = [
       await page.goto(`${WEB}/appointments?appointmentId=${OLD_UNASSIGNED}`, { waitUntil: 'domcontentloaded' })
       await page.waitForSelector('[role=dialog] #doctor', { timeout: 30000 }); await settle(2500)
       const start = (await page.locator('[role=dialog] #doctor').innerText()).trim()
+      await page.locator('[role=dialog] #doctor').click(); await settle(400)
+      const options = await page.getByRole('option').allInnerTexts()
+      await page.keyboard.press('Escape'); await settle(300)
+      await shot(page, 'O5-one-dentist-old-rdv')
       await submitDialog('Enregistrer')
       const refused = (await page.locator('[role=dialog]:visible').count()) > 0
         && (await page.locator('[role=dialog]').last().innerText()).includes('Choisissez le praticien')
-      await shot(page, 'O5-one-dentist-old-rdv')
       const doc = sql(`select coalesce("DoctorId"::text,'NULL') from "Appointments" where "Id"='${OLD_UNASSIGNED}'`)
-      !refused && doc === SALMA_DOC ? ok('O5', `opened on « ${start} », saved with Salma`) : bad('O5', 'old RDV at a one-dentist cabinet', `start « ${start} », refused ${refused}, DoctorId ${doc}`)
+      const noNone = !options.some(o => o.includes('Aucun praticien'))
+      start.includes('Salma Ben Youssef') && noNone && !refused && doc === SALMA_DOC
+        ? ok('O5', `opened on « ${start} », no « Aucun praticien », saved with Salma`)
+        : bad('O5', 'old RDV at a one-dentist cabinet', `start « ${start} », options ${options.join(' | ')}, refused ${refused}, DoctorId ${doc}`)
+  } },
+  { id: 'O6', run: async () => {
+      await page.goto(`${WEB}/appointments?appointmentId=${A.block}`, { waitUntil: 'domcontentloaded' })
+      await page.waitForSelector('[role=dialog] #doctor', { timeout: 30000 }); await settle(2500)
+      const start = (await page.locator('[role=dialog] #doctor').innerText()).trim()
+      await page.locator('[role=dialog] #doctor').click(); await settle(400)
+      const options = await page.getByRole('option').allInnerTexts()
+      await page.keyboard.press('Escape'); await settle(300)
+      await shot(page, 'O6-one-dentist-blocked-slot')
+      start.includes('Aucun praticien') && options.some(o => o.includes('Aucun praticien'))
+        ? ok('O6', 'a cabinet-wide block still reads and offers « Aucun praticien »')
+        : bad('O6', 'blocked slot lost its cabinet-wide choice', `start « ${start} », options ${options.join(' | ')}`)
+      await page.keyboard.press('Escape'); await settle(600)
+      if (await page.locator('[role=alertdialog]:visible').count()) await page.locator('[role=alertdialog] button').last().click()
   } },
 ]
 

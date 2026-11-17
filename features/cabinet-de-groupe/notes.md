@@ -20,6 +20,11 @@ Plan: [plan.md](./plan.md) · blast radius: [blast-radius.md](./blast-radius.md)
   RDV will carry — a secretary's booking now meets the dentist's congés and hours, which a null dentist skipped.
 - A « créneau occupé » (no patient) may stay cabinet-wide: the dialog offers « Tout le cabinet » (a sentinel, since a
   Radix item cannot carry ""), because it now pre-picks a dentist.
+- **The edit dialog shows the dentist the save will name** (QA run 3 observation): a patient RDV with none, at a
+  one-dentist cabinet, opens on that dentist — it read « Aucun praticien » while the server stored the dentist.
+  ⚠️ **Derived on render, never written into the form state**: opening a visit must not make it dirty, so the merge
+  snapshot and the carried draft keep the raw value. « Aucun praticien » stays for a « créneau occupé » and for a
+  cabinet with no dentist.
 - **The visit prompt goes to the dentist AND whoever booked** (owner's call, 2026-11-16): `StaffNotification.AlsoTargetUserId`
   (migration `AddStaffNotificationAlsoTarget`, one nullable column, no backfill), read by the single audience clause
   `AddressedTo`. The secretary at a cabinet where she fills the fiches keeps her prompts once the RDV names the dentist.

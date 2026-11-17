@@ -90,7 +90,7 @@ import { doctorsForPicker, useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
 import { specialtyLabel } from "@/lib/specialties"
-import { PRACTITIONER_REQUIRED_MESSAGE, practitionerRequired } from "@/lib/appointments/practitioner"
+import { PRACTITIONER_REQUIRED_MESSAGE, initialDoctorId, practitionerRequired } from "@/lib/appointments/practitioner"
 import Link from "next/link"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { MANUALLY_SETTABLE_STATUSES, admitsLateArrival, appointmentStatusLabel } from "@/components/appointment-labels"
@@ -551,14 +551,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   // The picker: the active roster plus this visit's own practitioner, even retired (I3).
   const doctors = useMemo(() => doctorsForPicker(allDoctors, selectedDoctorId), [allDoctors, selectedDoctorId])
   const activeDoctors = useMemo(() => allDoctors.filter((d) => d.isActive !== false), [allDoctors])
-  /**
-   * « Aucun praticien » unassigns, which a patient RDV may no longer do once the cabinet has several dentists; a
-   * « créneau occupé » keeps it, since that is how a slot is blocked for every chair (cabinet-de-groupe D3).
-   */
-  const offersUnassigned = !practitionerRequired(activeDoctors, Boolean(source?.patientId))
+  // A patient RDV with no dentist is saved with the cabinet's only one: show and send that, derived so opening changes nothing.
+  const effectiveDoctorId = selectedDoctorId || (source?.patientId ? initialDoctorId(activeDoctors) : "")
+  // « Aucun praticien » stays for a « créneau occupé » (blocks every chair) and a cabinet with no dentist (D3).
+  const offersUnassigned = !source?.patientId || !activeDoctors.some((d) => d.id)
   const selectedDoctorName = useMemo(
-    () => allDoctors.find((d) => d.id === selectedDoctorId)?.name ?? null,
-    [allDoctors, selectedDoctorId],
+    () => allDoctors.find((d) => d.id === effectiveDoctorId)?.name ?? null,
+    [allDoctors, effectiveDoctorId],
   )
 
   /** Everything the récapitulatif states, all of it derived from this form. See `appointment-recap.tsx`. */
@@ -985,7 +984,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         // Omitted when nothing is attached, so a séance that never had a devis link keeps not having one —
         // every nullable field on this payload is tri-state.
         treatmentPlanId: attachedPlan.planId,
-        doctorId: selectedDoctorId || null,
+        doctorId: effectiveDoctorId || null,
         notes: appointmentNotes || null,
         /*
          * ⚠️ Sent **only when the user changed it** — omitted otherwise, which the server reads as "leave the
@@ -1481,7 +1480,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     Praticien
                   </Label>
                   <Select
-                    value={selectedDoctorId || (offersUnassigned ? UNASSIGNED_DOCTOR : "")}
+                    value={effectiveDoctorId || (offersUnassigned ? UNASSIGNED_DOCTOR : "")}
                     onValueChange={(value) =>
                       setSelectedDoctorId(value === UNASSIGNED_DOCTOR ? "" : value)
                     }
