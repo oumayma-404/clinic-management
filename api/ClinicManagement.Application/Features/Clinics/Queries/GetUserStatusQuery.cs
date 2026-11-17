@@ -71,7 +71,8 @@ public class GetUserStatusQueryHandler : IRequestHandler<GetUserStatusQuery, Res
                 CodeProfessionnelSante = d.CodeProfessionnelSante,
                 OrdreNumberCnomdt = d.OrdreNumberCnomdt,
                 HasCachet = d.CachetStorageKey != null,
-                IsActive = d.IsActive
+                IsActive = d.IsActive,
+                CreatedAt = d.CreatedAt
             }).ToList();
             
             var dto = new UserStatusDto

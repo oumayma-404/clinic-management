@@ -89,6 +89,12 @@ import {
 import { NewPatientFields } from "@/components/patients/new-patient-fields"
 import { DuplicatePatientDialog } from "@/components/patients/duplicate-patient-dialog"
 import { specialtyLabel } from "@/lib/specialties"
+import {
+  CABINET_WIDE,
+  PRACTITIONER_REQUIRED_MESSAGE,
+  initialDoctorId,
+  practitionerRequired,
+} from "@/lib/appointments/practitioner"
 
 /**
  * A treatment-plan act offered for booking, as the plan workspace hands it over.
@@ -194,6 +200,12 @@ interface CreateAppointmentDialogProps {
   onCreated?: (appointmentId: string) => void
   /** Preselect an existing patient when booking from a patient's page ("Planifier un rendez-vous"). */
   defaultPatientId?: string
+  /**
+   * The dentist this booking is for, when the caller knows — the agenda's « Praticien » filter, a waiting-list
+   * entry's preferred dentist. Ignored when not on the active roster; a carried draft and a choice made in the
+   * form both win over it (cabinet-de-groupe US-1).
+   */
+  defaultDoctorId?: string
   /** When scheduling a treatment-plan step ("Planifier"): fixes the patient and links the appointment. */
   presetPatientId?: string
   presetPatientName?: string
@@ -243,6 +255,7 @@ export function CreateAppointmentDialog({
   onSuccess,
   onCreated,
   defaultPatientId,
+  defaultDoctorId,
   presetPatientId,
   presetPatientName,
   presetPlanId,
@@ -464,13 +477,22 @@ export function CreateAppointmentDialog({
   
   // Load doctors list
   const { doctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
-  
-  // Auto-select current user's doctor if they are a doctor
+
+  /**
+   * Has the dentist been decided for this opening — by the seed below, a carried draft or the user? Once it has,
+   * nothing re-seeds it: a « créneau occupé » set to « Tout le cabinet » must stay empty.
+   */
+  const doctorDecidedRef = useRef(false)
+
+  // The dentist a new booking opens on, decided once the roster is read: the caller's (the agenda filter), else the
+  // signed-in dentist, else the cabinet's only one. A secretary used to start on an empty field, which is how 90 of
+  // 121 secretary-booked RDV on prod named no dentist (cabinet-de-groupe US-1).
   useEffect(() => {
-    if (open && currentUserDoctor && !selectedDoctorId) {
-      setSelectedDoctorId(currentUserDoctor.id || "")
-    }
-  }, [open, currentUserDoctor, selectedDoctorId])
+    if (!open || doctorDecidedRef.current || loadingDoctors) return
+    doctorDecidedRef.current = true
+    const seed = initialDoctorId(doctors, defaultDoctorId, currentUserDoctor?.id)
+    if (seed) setSelectedDoctorId(seed)
+  }, [open, loadingDoctors, doctors, defaultDoctorId, currentUserDoctor])
 
   /**
    * The time the form opens on: the caller's, else **the next quarter-hour from now**.
@@ -693,6 +715,7 @@ export function CreateAppointmentDialog({
       // reusing an id across two openings would attach an unrelated appointment to whoever was created last.
       newPatient.reset()
       setSelectedDoctorId("")
+      doctorDecidedRef.current = false
       setSelectedActs([])
       // Back to the caller's own defaults, not to the hardcoded pair: this dialog is a long-lived instance the
       // agenda re-opens with a different span each time, so resetting to « 30 · untouched » would discard the
@@ -844,6 +867,12 @@ export function CreateAppointmentDialog({
         }
       } else if (!selectedPatientId) {
         setError("Sélectionnez un patient.")
+        return false
+      }
+
+      // A patient RDV in a cabinet of several dentists names one — the server refuses it otherwise.
+      if (practitionerRequired(doctors, true) && !selectedDoctorId) {
+        setError(PRACTITIONER_REQUIRED_MESSAGE)
         return false
       }
     }
@@ -1084,6 +1113,7 @@ export function CreateAppointmentDialog({
       setSelectedActs(s.acts)
       setDurationTouched(s.durationTouched)
       if (s.day) setDate(new Date(s.day))
+      doctorDecidedRef.current = true
       setSelectedDoctorId(s.doctorId)
       setStartHour(s.startHour)
       setStartMinute(s.startMinute)
@@ -1593,14 +1623,22 @@ export function CreateAppointmentDialog({
                   Praticien
                 </Label>
                 <Select
-                  value={selectedDoctorId}
-                  onValueChange={setSelectedDoctorId}
+                  // A « créneau occupé » with no dentist blocks the whole cabinet, and says so — a Radix item cannot
+                  // carry "", hence the sentinel.
+                  value={isBusySlot && !selectedDoctorId ? CABINET_WIDE : selectedDoctorId}
+                  onValueChange={(value) => {
+                    doctorDecidedRef.current = true
+                    setSelectedDoctorId(value === CABINET_WIDE ? "" : value)
+                  }}
                   disabled={loadingDoctors || loading}
                 >
                   <SelectTrigger className="h-10 w-full" id="doctor">
                     <SelectValue placeholder={loadingDoctors ? "Chargement des médecins…" : doctors.length === 0 ? "Aucun médecin enregistré" : "Choisir un médecin…"} />
                   </SelectTrigger>
                   <SelectContent className="max-h-[200px]">
+                    {isBusySlot && doctors.length > 0 && (
+                      <SelectItem value={CABINET_WIDE}>Tout le cabinet</SelectItem>
+                    )}
                     {doctors.length === 0 && !loadingDoctors ? (
                       <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun médecin disponible</div>
                     ) : (

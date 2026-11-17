@@ -92,6 +92,8 @@ export const appointmentsApi = {
     patientId?: string;
     doctorId?: string;
     doctorName?: string;
+    /** With `doctorId`: keep the RDV that name no dentist too. */
+    includeUnassigned?: boolean;
   }): Promise<AppointmentDto[]> => {
     return apiGet<AppointmentDto[]>('/appointments', params);
   },

@@ -776,7 +776,7 @@ public class NotificationGenerator : INotificationGenerator
 
     public async Task EnsurePostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, Guid? doctorId, string patientName, DateTime appointmentEndUtc,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string? bookedByUserId = null)
     {
         await SafelyAsync(clinicId, async () =>
         {
@@ -788,6 +788,8 @@ public class NotificationGenerator : INotificationGenerator
             if (existing != null)
             {
                 existing.MovePostVisitReview(appointmentEndUtc, targetUserId, title, message);
+                // The booker is known on create only; an update keeps the one already recorded (D6).
+                existing.SetAlsoTarget(targetUserId is null ? null : bookedByUserId ?? existing.AlsoTargetUserId);
             }
             else
             {
@@ -800,6 +802,7 @@ public class NotificationGenerator : INotificationGenerator
                     appointmentId: appointmentId,
                     stockItemId: null,
                     targetUserId: targetUserId);
+                notification.SetAlsoTarget(targetUserId is null ? null : bookedByUserId);
                 await _notifications.AddAsync(notification, cancellationToken);
             }
 

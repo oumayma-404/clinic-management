@@ -28,6 +28,14 @@ public class ClinicUserDto
     /// </summary>
     public bool InvitationPending { get; set; }
 
+    /// <summary>
+    /// The practitioner record linked to this account, and its name (cabinet-de-groupe US-3) — what lets the admin see
+    /// who is a dentist and offer « Lier à un praticien » to an admin or doctor account that has none. Set by the list
+    /// read from one roster read, like <see cref="InvitationPending"/>.
+    /// </summary>
+    public Guid? DoctorId { get; set; }
+    public string? PractitionerName { get; set; }
+
     /// <summary>Whether the account holds a second factor — what decides if « Réinitialiser le second facteur » is offered on its row.</summary>
     public bool HasSecondFactor { get; set; }
 

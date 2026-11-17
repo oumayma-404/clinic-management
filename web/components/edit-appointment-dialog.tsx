@@ -90,6 +90,7 @@ import { doctorsForPicker, useDoctors } from "@/lib/hooks/use-doctors"
 import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
 import { specialtyLabel } from "@/lib/specialties"
+import { PRACTITIONER_REQUIRED_MESSAGE, initialDoctorId, practitionerRequired } from "@/lib/appointments/practitioner"
 import Link from "next/link"
 import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { MANUALLY_SETTABLE_STATUSES, admitsLateArrival, appointmentStatusLabel } from "@/components/appointment-labels"
@@ -549,9 +550,14 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
 
   // The picker: the active roster plus this visit's own practitioner, even retired (I3).
   const doctors = useMemo(() => doctorsForPicker(allDoctors, selectedDoctorId), [allDoctors, selectedDoctorId])
+  const activeDoctors = useMemo(() => allDoctors.filter((d) => d.isActive !== false), [allDoctors])
+  // A patient RDV with no dentist is saved with the cabinet's only one: show and send that, derived so opening changes nothing.
+  const effectiveDoctorId = selectedDoctorId || (source?.patientId ? initialDoctorId(activeDoctors) : "")
+  // « Aucun praticien » stays for a « créneau occupé » (blocks every chair) and a cabinet with no dentist (D3).
+  const offersUnassigned = !source?.patientId || !activeDoctors.some((d) => d.id)
   const selectedDoctorName = useMemo(
-    () => allDoctors.find((d) => d.id === selectedDoctorId)?.name ?? null,
-    [allDoctors, selectedDoctorId],
+    () => allDoctors.find((d) => d.id === effectiveDoctorId)?.name ?? null,
+    [allDoctors, effectiveDoctorId],
   )
 
   /** Everything the récapitulatif states, all of it derived from this form. See `appointment-recap.tsx`. */
@@ -854,6 +860,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
       return false
     }
 
+    // A patient RDV in a cabinet of several dentists names one — the server refuses it otherwise. With exactly one,
+    // the server fills it in, so an old RDV with none saves as it is (cabinet-de-groupe US-1).
+    if (practitionerRequired(activeDoctors, Boolean(source?.patientId)) && !selectedDoctorId) {
+      setError(PRACTITIONER_REQUIRED_MESSAGE)
+      return false
+    }
+
     if (useEndTime) {
       const startTotalMinutes = Number.parseInt(startHour) * 60 + Number.parseInt(startMinute)
       const endTotalMinutes = Number.parseInt(endHour) * 60 + Number.parseInt(endMinute)
@@ -971,7 +984,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         // Omitted when nothing is attached, so a séance that never had a devis link keeps not having one —
         // every nullable field on this payload is tri-state.
         treatmentPlanId: attachedPlan.planId,
-        doctorId: selectedDoctorId || null,
+        doctorId: effectiveDoctorId || null,
         notes: appointmentNotes || null,
         /*
          * ⚠️ Sent **only when the user changed it** — omitted otherwise, which the server reads as "leave the
@@ -1467,7 +1480,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     Praticien
                   </Label>
                   <Select
-                    value={selectedDoctorId || UNASSIGNED_DOCTOR}
+                    value={effectiveDoctorId || (offersUnassigned ? UNASSIGNED_DOCTOR : "")}
                     onValueChange={(value) =>
                       setSelectedDoctorId(value === UNASSIGNED_DOCTOR ? "" : value)
                     }
@@ -1479,7 +1492,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                     <SelectContent className="max-h-[200px]">
                       {/* Unassigning is now a real operation server-side (an explicit null clears DoctorId),
                           so it needs an option. Radix Select cannot hold value="" — hence the sentinel. */}
-                      <SelectItem value={UNASSIGNED_DOCTOR}>Aucun praticien</SelectItem>
+                      {offersUnassigned && <SelectItem value={UNASSIGNED_DOCTOR}>Aucun praticien</SelectItem>}
                       {doctors.length === 0 && !loadingDoctors ? (
                         <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun médecin disponible</div>
                       ) : (

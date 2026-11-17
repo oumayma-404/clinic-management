@@ -17,6 +17,8 @@ export interface DoctorDto {
   hasCachet?: boolean;
   /** False once retired from the roster (I3): off every picker, still named on history. */
   isActive?: boolean;
+  /** When the practitioner joined the roster — the agenda tints dentists in this order (cabinet-de-groupe D7). */
+  createdAt?: string | null;
 }
 
 export interface UserStatusDto {

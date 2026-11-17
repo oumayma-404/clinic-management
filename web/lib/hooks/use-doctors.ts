@@ -36,12 +36,17 @@ export function useDoctors(): UseDoctorsResult {
 
   // The practitioner can hold ANY role — in a single-dentist cabinet it is an "admin" with a linked Doctor — so match
   // on the linked user id first (mirrors the backend GetByUserIdAsync), then email/name for records predating the link.
+  // ⚠️ The id match is searched across the WHOLE roster before the fallbacks are tried (cabinet-de-groupe US-3): in one
+  // `find` an unlinked record sharing the person's e-mail or name — a duplicate, or a colleague's twin — could win
+  // over their own linked one, and the wrong dentist was pre-filled on bookings and ordonnances.
   const currentUserDoctor = useMemo(() => {
     const currentUser = status?.user
     if (!currentUser) return null
+    const linked = allDoctors.find((doctor) => doctor.userId && doctor.userId === currentUser.id)
+    if (linked) return linked
     return (
       allDoctors.find((doctor) => {
-        if (doctor.userId && doctor.userId === currentUser.id) return true
+        if (doctor.userId) return false
         if (currentUser.email && doctor.email && doctor.email.toLowerCase() === currentUser.email.toLowerCase()) return true
         return Boolean(currentUser.fullName && doctor.name && doctor.name.toLowerCase() === currentUser.fullName.toLowerCase())
       }) ?? null

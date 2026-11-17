@@ -134,6 +134,14 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     return Result<RecurringSeriesResultDto>.Failure("Praticien introuvable.");
             }
 
+            // Which dentist the series is for (cabinet-de-groupe US-1) — written back onto the request so the
+            // series row, every occurrence, the overlap test and the hours check all read the same one.
+            var practitioner = await AppointmentPractitioner.ResolveAsync(
+                _doctorRepository, clinicId, patient.Id, request.DoctorId, cancellationToken);
+            if (practitioner.IsFailure)
+                return Result<RecurringSeriesResultDto>.FailureFrom(practitioner);
+            request.DoctorId = practitioner.Value;
+
             // The series' act, resolved once and applied to every occurrence through `SetProcedures` below.
             //
             // A series carries **one** act, deliberately: it repeats the same appointment, and « ces trois actes
@@ -320,7 +328,7 @@ public class CreateRecurringSeriesCommandHandler : IRequestHandler<CreateRecurri
                     clinicId, appointment.Id, patientName, appointment.AppointmentDateTime, cancellationToken);
                 await _notificationGenerator.EnsurePostVisitReviewAsync(
                     clinicId, appointment.Id, appointment.DoctorId, patientName,
-                    appointment.ExpectedEndUtc, cancellationToken);
+                    appointment.ExpectedEndUtc, cancellationToken, bookedByUserId: actorUserId);
                 await _reminderScheduler.ScheduleForAppointmentAsync(
                     clinicId, appointment.Id, patient.Id, patientName, appointment.AppointmentDateTime, cancellationToken);
                 _googleSyncDispatcher.Dispatch(appointment.Id, clinicId);

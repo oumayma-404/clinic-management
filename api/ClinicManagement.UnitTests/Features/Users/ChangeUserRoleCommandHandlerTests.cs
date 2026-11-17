@@ -304,6 +304,74 @@ public class ChangeUserRoleCommandHandlerTests
         _staffMessages.Verify(r => r.AddMarkerAsync(It.IsAny<StaffChatReadMarker>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // [cabinet-de-groupe D12] A practitioner added in Paramètres with this e-mail IS the promoted person: linked, not
+    // duplicated — a second record could never be merged and would split their cachet and history.
+    [Fact]
+    public async Task Promotion_Links_The_One_Unlinked_Practitioner_With_The_Same_Email()
+    {
+        var admin = Local(User.RoleAdmin, ClinicId);
+        var secretary = Local(User.RoleSecretary, ClinicId);
+        AsAdmin(admin, admin, secretary);
+        _users.Setup(r => r.GetByIdAsync(secretary.Id, It.IsAny<CancellationToken>())).ReturnsAsync(secretary);
+        var onRoster = new Doctor(Guid.NewGuid(), ClinicId, "Karim", "Haddad", "General",
+            email: secretary.Email.ToUpperInvariant());
+        _doctors.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync([onRoster]);
+
+        var result = await ChangeAsync(secretary.Id, User.RoleDoctor);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(secretary.Id, onRoster.UserId);
+        _doctors.Verify(r => r.Update(onRoster), Times.Once);
+        _doctors.Verify(r => r.AddAsync(It.IsAny<Doctor>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // Two unlinked records share the e-mail: picking one would be a guess, so a fresh record is created and neither
+    // existing one is touched.
+    [Fact]
+    public async Task Promotion_Creates_A_Record_When_Two_Unlinked_Practitioners_Share_The_Email()
+    {
+        var admin = Local(User.RoleAdmin, ClinicId);
+        var secretary = Local(User.RoleSecretary, ClinicId);
+        AsAdmin(admin, admin, secretary);
+        _users.Setup(r => r.GetByIdAsync(secretary.Id, It.IsAny<CancellationToken>())).ReturnsAsync(secretary);
+        var first = new Doctor(Guid.NewGuid(), ClinicId, "A", "One", "General", email: secretary.Email);
+        var second = new Doctor(Guid.NewGuid(), ClinicId, "B", "Two", "General", email: secretary.Email);
+        _doctors.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync([first, second]);
+        Doctor? created = null;
+        _doctors.Setup(r => r.AddAsync(It.IsAny<Doctor>(), It.IsAny<CancellationToken>()))
+            .Callback<Doctor, CancellationToken>((d, _) => created = d);
+
+        var result = await ChangeAsync(secretary.Id, User.RoleDoctor);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(first.UserId);
+        Assert.Null(second.UserId);
+        Assert.NotNull(created);
+        Assert.Equal(secretary.Id, created!.UserId);
+    }
+
+    // A colleague's linked record with the same e-mail is never taken over — linking is not a way to inherit
+    // somebody else's cachet.
+    [Fact]
+    public async Task Promotion_Never_Takes_A_Record_Already_Linked_To_Another_Account()
+    {
+        var admin = Local(User.RoleAdmin, ClinicId);
+        var secretary = Local(User.RoleSecretary, ClinicId);
+        AsAdmin(admin, admin, secretary);
+        _users.Setup(r => r.GetByIdAsync(secretary.Id, It.IsAny<CancellationToken>())).ReturnsAsync(secretary);
+        var colleagues = new Doctor(Guid.NewGuid(), ClinicId, "Nadia", "Trabelsi", "General", email: secretary.Email);
+        colleagues.LinkToUser(admin.Id);
+        _doctors.Setup(r => r.GetByClinicIdAsync(ClinicId, It.IsAny<CancellationToken>())).ReturnsAsync([colleagues]);
+
+        var result = await ChangeAsync(secretary.Id, User.RoleDoctor);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(admin.Id, colleagues.UserId);
+        _doctors.Verify(r => r.Update(colleagues), Times.Never);
+        _doctors.Verify(r => r.AddAsync(It.Is<Doctor>(d => d.UserId == secretary.Id), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     // Tenant isolation: another clinic's user reads as not found and is not touched.
     [Fact]
     public async Task Handle_Does_Not_Touch_A_User_In_Another_Clinic()

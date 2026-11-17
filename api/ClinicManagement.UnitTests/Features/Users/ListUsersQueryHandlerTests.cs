@@ -16,6 +16,7 @@ public class ListUsersQueryHandlerTests
     private readonly Mock<IUserRepository> _users = new();
     private readonly Mock<IClinicContext> _context = new();
     private readonly Mock<IStaffInvitationRepository> _invitations = new();
+    private readonly Mock<IDoctorRepository> _doctors = new();
 
     public ListUsersQueryHandlerTests()
     {
@@ -24,7 +25,7 @@ public class ListUsersQueryHandlerTests
             .ReturnsAsync(new HashSet<string>());
     }
 
-    private ListUsersQueryHandler Handler() => new(_users.Object, _context.Object, _invitations.Object);
+    private ListUsersQueryHandler Handler() => new(_users.Object, _context.Object, _invitations.Object, _doctors.Object);
 
     private static User Local(string role) =>
         User.CreateLocalUser(ClinicId, role, $"{role}@clinic.com", "HASH", $"{role} name");

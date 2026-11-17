@@ -28,6 +28,7 @@ import { useConnectivity } from "@/lib/connectivity/connectivity"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useDoctors } from "@/lib/hooks/use-doctors"
+import { readDoctorView, resolveDoctorView, writeDoctorView } from "@/lib/agenda/doctor-view"
 import { useSession } from "@/lib/auth/session"
 import { ActiveFilterChip } from "@/components/ui/list-toolbar"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
@@ -159,10 +160,36 @@ export default function AppointmentsPage() {
   const { user } = useSession()
   const isAdmin = user?.role === "admin"
   // Per-practitioner filter (AC-3.2): "all" = no filter. Passed down to the calendar's fetch.
-  const { doctors, allDoctors } = useDoctors()
+  const { doctors, allDoctors, currentUserDoctor, isLoading: loadingDoctors } = useDoctors()
   // Seeded from the URL for the same reason as the day and the statuses above it — see `useUrlFilters` below.
-  const [selectedDoctorId, setSelectedDoctorId] = useState<string>(
-    () => (typeof window === "undefined" ? "all" : new URLSearchParams(window.location.search).get("doctorId") ?? "all"),
+  const urlDoctorRef = useRef<string | null>(
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("doctorId"),
+  )
+  const [selectedDoctorId, setSelectedDoctorIdState] = useState<string>(() => urlDoctorRef.current ?? "all")
+  /**
+   * Without a `?doctorId=` the view is decided once the roster is read: what this person last chose on this device,
+   * else their own RDV when they are one of several dentists, else everyone's (cabinet-de-groupe D8). The URL wins,
+   * so a shared link still opens on what it names.
+   */
+  const doctorViewDecidedRef = useRef(Boolean(urlDoctorRef.current))
+  useEffect(() => {
+    if (doctorViewDecidedRef.current || loadingDoctors || !user) return
+    doctorViewDecidedRef.current = true
+    setSelectedDoctorIdState(
+      resolveDoctorView({
+        stored: readDoctorView(user.email),
+        activeDoctors: doctors,
+        ownDoctorId: currentUserDoctor?.id,
+      }),
+    )
+  }, [loadingDoctors, user, doctors, currentUserDoctor])
+  const setSelectedDoctorId = useCallback(
+    (value: string) => {
+      doctorViewDecidedRef.current = true
+      setSelectedDoctorIdState(value)
+      writeDoctorView(user?.email, value)
+    },
+    [user?.email],
   )
   const doctorFilterId = selectedDoctorId === "all" ? undefined : selectedDoctorId
   /** Is there anything for the chip row to say? See the row itself for why it must not render otherwise. */
@@ -622,6 +649,8 @@ export default function AppointmentsPage() {
         defaultTime={selectedDate ? `${String(selectedDate.getHours()).padStart(2, '0')}:${String(selectedDate.getMinutes()).padStart(2, '0')}` : undefined}
         defaultDurationMinutes={selectedDurationMinutes}
         defaultPatientId={bookingPatientId}
+        // A booking made while the agenda shows one dentist is that dentist's (cabinet-de-groupe US-1).
+        defaultDoctorId={doctorFilterId}
         onSuccess={handleAppointmentCreated}
       />
 

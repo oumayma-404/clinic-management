@@ -311,19 +311,32 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
             }
 
             // Tri-state. An explicit null unassigns the practitioner — previously unreachable, because null
-            // was read as "not provided".
-            if (request.DoctorIdSpecified && request.DoctorId != appointment.DoctorId)
+            // was read as "not provided". Only a save that SENDS the field is asked which dentist a patient RDV is
+            // for (cabinet-de-groupe US-1): a drag, « Reporter » or a status change omits it and must keep working
+            // on an old RDV that has none.
+            if (request.DoctorIdSpecified)
             {
-                if (request.DoctorId.HasValue)
+                var practitioner = await AppointmentPractitioner.ResolveAsync(
+                    _doctorRepository, clinicResult.Value, appointment.PatientId, request.DoctorId, cancellationToken);
+                if (practitioner.IsFailure)
                 {
-                    var doctor = await _doctorRepository.GetByIdAsync(request.DoctorId.Value, cancellationToken);
-                    if (doctor == null || doctor.ClinicId != clinicResult.Value)
-                    {
-                        return Result<AppointmentDto>.Failure("Praticien introuvable.");
-                    }
+                    return Result<AppointmentDto>.FailureFrom(practitioner);
                 }
 
-                appointment.SetDoctorId(request.DoctorId);
+                var doctorId = practitioner.Value;
+                if (doctorId != appointment.DoctorId)
+                {
+                    if (doctorId.HasValue)
+                    {
+                        var doctor = await _doctorRepository.GetByIdAsync(doctorId.Value, cancellationToken);
+                        if (doctor == null || doctor.ClinicId != clinicResult.Value)
+                        {
+                            return Result<AppointmentDto>.Failure("Praticien introuvable.");
+                        }
+                    }
+
+                    appointment.SetDoctorId(doctorId);
+                }
             }
 
             // Tri-state: an explicit null clears the notes. Emptying the notes box used to be a silent no-op.

@@ -28,15 +28,18 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<Clin
     private readonly IUserRepository _userRepository;
     private readonly IClinicContext _clinicContext;
     private readonly IStaffInvitationRepository _invitations;
+    private readonly IDoctorRepository _doctors;
 
     public ListUsersQueryHandler(
         IUserRepository userRepository,
         IClinicContext clinicContext,
-        IStaffInvitationRepository invitations)
+        IStaffInvitationRepository invitations,
+        IDoctorRepository doctors)
     {
         _userRepository = userRepository;
         _clinicContext = clinicContext;
         _invitations = invitations;
+        _doctors = doctors;
     }
 
     public async Task<Result<ClinicUsersPageDto>> Handle(ListUsersQuery request, CancellationToken cancellationToken)
@@ -78,6 +81,20 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<Clin
             foreach (var dto in dtos.Items)
             {
                 dto.InvitationPending = pending.Contains(dto.Id);
+            }
+
+            // Who is a practitioner — one roster read for the page (cabinet-de-groupe US-3).
+            var linked = ((await _doctors.GetByClinicIdAsync(currentUser.ClinicId, cancellationToken)) ?? [])
+                .Where(d => d.UserId != null)
+                .GroupBy(d => d.UserId!)
+                .ToDictionary(g => g.Key, g => g.First());
+            foreach (var dto in dtos.Items)
+            {
+                if (linked.TryGetValue(dto.Id, out var doctor))
+                {
+                    dto.DoctorId = doctor.Id;
+                    dto.PractitionerName = doctor.FullName;
+                }
             }
 
             // Counted over the whole clinic and outside the search term (I5). The figure exists to tell an admin

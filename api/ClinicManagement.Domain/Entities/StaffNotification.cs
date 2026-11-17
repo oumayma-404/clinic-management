@@ -48,6 +48,14 @@ public class StaffNotification : AggregateRoot<Guid>
     public string? TargetUserId { get; private set; }
 
     /// <summary>
+    /// A second user who sees a targeted row besides <see cref="TargetUserId"/> — today only the person who booked
+    /// the RDV a post-visit review is about (<c>cabinet-de-groupe</c> D6, owner's call 2026-11-16): in a cabinet where
+    /// the secretary fills the fiches she keeps the prompt once the RDV names the dentist. Meaningless while
+    /// <see cref="TargetUserId"/> is null, since the row is then clinic-wide.
+    /// </summary>
+    public string? AlsoTargetUserId { get; private set; }
+
+    /// <summary>
     /// Which subscription-expiry threshold this row announces — 7, 3, 1 or 0 days
     /// (<c>clinic-subscription</c> FR-5). The dedupe key for « one genuinely new unread row per threshold », and a
     /// real column rather than a French message prefix, because recovering behaviour by matching prose is the
@@ -283,6 +291,15 @@ public class StaffNotification : AggregateRoot<Guid>
         TargetUserId = targetUserId;
         Title = title ?? throw new ArgumentNullException(nameof(title));
         Message = message ?? throw new ArgumentNullException(nameof(message));
+    }
+
+    /// <summary>
+    /// Sets the second recipient of a targeted row (<see cref="AlsoTargetUserId"/>). Cleared when it is the target
+    /// itself, so one person never reads one prompt as two.
+    /// </summary>
+    public void SetAlsoTarget(string? userId)
+    {
+        AlsoTargetUserId = string.IsNullOrWhiteSpace(userId) || userId == TargetUserId ? null : userId;
     }
 
     /// <summary>

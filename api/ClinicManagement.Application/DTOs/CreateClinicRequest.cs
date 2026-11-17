@@ -29,5 +29,10 @@ public class DoctorDto
     public bool HasCachet { get; set; } // whether a cachet/signature image is on file (FR-3.1)
     /// <summary>False for a retired practitioner (I3): off the pickers, still named on history. Ignored on a roster save.</summary>
     public bool IsActive { get; set; } = true;
+    /// <summary>
+    /// When the practitioner joined the roster — the stable order the agenda tints dentists by (cabinet-de-groupe
+    /// D7), so a colleague arriving later never repaints the others. Ignored on a roster save.
+    /// </summary>
+    public DateTime? CreatedAt { get; set; }
 }
 

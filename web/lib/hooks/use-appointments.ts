@@ -74,6 +74,9 @@ export function useAppointments(
       }
       if (doctorId) {
         params.doctorId = doctorId;
+        // A dentist's agenda still shows the « créneaux occupés » and the RDV that name nobody: they block that
+        // dentist's chair too (cabinet-de-groupe D10).
+        params.includeUnassigned = true;
       }
 
       const data = await appointmentsApi.list(params);

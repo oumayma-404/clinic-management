@@ -225,8 +225,23 @@ export class ClinicApi {
   deletePatient = (id: string) => this.call("DELETE", `/patients/${id}`)
 
   // ── Appointments ─────────────────────────────────────────────────────────────────────────────────────────
-  createAppointment = (a: Record<string, unknown>) =>
-    this.ok<any>("POST", "/appointments", { allowOutsideWorkingHours: true, allowOverlap: true, ...a })
+  /**
+   * A patient booking names a dentist unless the arrange step names one itself — the QA clinic has several (the
+   * staff-chat spec creates them), and the server refuses a patient RDV with none there (cabinet-de-groupe US-1).
+   * A scenario about that refusal posts through `post("/appointments", …)` and is untouched by this default.
+   */
+  createAppointment = async (a: Record<string, unknown>) => {
+    const dentist = a.patientId && !("doctorId" in a) ? { doctorId: await this.defaultDentistId() } : {}
+    return this.ok<any>("POST", "/appointments", { allowOutsideWorkingHours: true, allowOverlap: true, ...dentist, ...a })
+  }
+
+  private dentistId?: Promise<string | undefined>
+
+  /** The clinic's first active dentist, read once per client. */
+  defaultDentistId = () =>
+    (this.dentistId ??= this.ok<any>("GET", "/clinics/user-status").then(
+      (status) => (status?.doctors ?? []).find((d: any) => d?.id && d.isActive !== false)?.id as string | undefined,
+    ))
 
   appointment = (id: string) => this.ok<any>("GET", `/appointments/${id}`)
 

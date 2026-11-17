@@ -59,8 +59,9 @@ public class PushFanOutTests
                 .Returns(Task.CompletedTask);
             feed.Setup(f => f.GetReminderByAppointmentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((StaffNotification?)null);
+            // The row this harness's own generator wrote, which is what the decorator reads its audience off.
             feed.Setup(f => f.GetPostVisitReviewByAppointmentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync((StaffNotification?)null);
+                .ReturnsAsync(() => FeedRows.LastOrDefault(r => r.Category == NotificationCategory.PostVisitReview));
 
             var doctors = new Mock<IDoctorRepository>();
             doctors.Setup(d => d.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
@@ -94,6 +95,7 @@ public class PushFanOutTests
                     Mock.Of<IRealtimeNotifier>(), NullLogger<NotificationGenerator>.Instance),
                 users.Object,
                 doctors.Object,
+                feed.Object,
                 Devices.Object,
                 deliveries.Object,
                 UnitOfWork.Object,
@@ -304,6 +306,50 @@ public class PushFanOutTests
 
         Assert.Equal(DentistId, feedRow.TargetUserId);
         Assert.Equal(DentistId, pushRow.RecipientUserId);
+    }
+
+    // [cabinet-de-groupe D6] The secretary who booked keeps the prompt once the RDV names the dentist — on the bell
+    // and on her phone, read off the same row.
+    [Fact]
+    public async Task A_Post_Visit_Review_Also_Reaches_Whoever_Booked_It()
+    {
+        var doctor = new Doctor(DoctorId, ClinicId, "Amine", "Trabelsi", "Dentiste");
+        doctor.LinkToUser(DentistId);
+
+        var harness = new Harness(
+            staff: new[] { Actor(), Colleague(), Dentist() },
+            devices: new[] { Device(ColleagueId), Device(DentistId), Device(ActorId) },
+            doctor: doctor);
+
+        await harness.Generator.EnsurePostVisitReviewAsync(
+            ClinicId, AppointmentId, DoctorId, "Ben Salah", DateTime.UtcNow.AddHours(1), bookedByUserId: ColleagueId);
+
+        var feedRow = Assert.Single(harness.FeedRows);
+        Assert.Equal(DentistId, feedRow.TargetUserId);
+        Assert.Equal(ColleagueId, feedRow.AlsoTargetUserId);
+        Assert.Equal(
+            new[] { ColleagueId, DentistId },
+            harness.PushRows.Select(p => p.RecipientUserId).OrderBy(id => id, StringComparer.Ordinal));
+    }
+
+    // …and a dentist booking their own patient is one recipient, not two copies of the same prompt.
+    [Fact]
+    public async Task A_Dentist_Who_Booked_Their_Own_Visit_Gets_One_Prompt()
+    {
+        var doctor = new Doctor(DoctorId, ClinicId, "Amine", "Trabelsi", "Dentiste");
+        doctor.LinkToUser(DentistId);
+
+        var harness = new Harness(
+            staff: new[] { Actor(), Colleague(), Dentist() },
+            devices: new[] { Device(ColleagueId), Device(DentistId) },
+            doctor: doctor);
+
+        await harness.Generator.EnsurePostVisitReviewAsync(
+            ClinicId, AppointmentId, DoctorId, "Ben Salah", DateTime.UtcNow.AddHours(1), bookedByUserId: DentistId);
+
+        var feedRow = Assert.Single(harness.FeedRows);
+        Assert.Null(feedRow.AlsoTargetUserId);
+        Assert.Equal(DentistId, Assert.Single(harness.PushRows).RecipientUserId);
     }
 
     // pointage-obligatoire AC-6: « Départ non pointé » reaches her phone alone, with the bell's own title and no hour.

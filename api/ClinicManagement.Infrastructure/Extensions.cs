@@ -511,6 +511,7 @@ public static class Extensions
                 provider.GetRequiredService<ILogger<NotificationGenerator>>()),
             provider.GetRequiredService<IUserRepository>(),
             provider.GetRequiredService<IDoctorRepository>(),
+            provider.GetRequiredService<IStaffNotificationRepository>(),
             provider.GetRequiredService<IDeviceRegistrationRepository>(),
             provider.GetRequiredService<IPushDeliveryRepository>(),
             provider.GetRequiredService<IUnitOfWork>(),

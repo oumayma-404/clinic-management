@@ -19,6 +19,16 @@ import { useUserStatus } from "@/lib/hooks/use-user-status"
 // The seven English storage keys + their French labels — the same list the setup and join wizards offer, so a
 // practitioner created here is filed under a value every other screen already renders.
 import { DOCTOR_SPECIALTIES, specialtyLabel } from "@/lib/specialties"
+import { useDoctors } from "@/lib/hooks/use-doctors"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  PractitionerChoice,
+  defaultPractitionerChoice,
+  linkablePractitioners,
+  practitionerChoiceReady,
+  practitionerPayload,
+} from "@/components/users/practitioner-choice"
+import { LinkPractitionerDialog } from "@/components/users/link-practitioner-dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,7 +48,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal, Send, ShieldOff, CalendarOff } from "lucide-react"
+import { Users, KeyRound, UserX, UserCheck, UserPlus, RefreshCw, Copy, Check, MoreHorizontal, Send, ShieldOff, CalendarOff, Stethoscope } from "lucide-react"
 import { StepUpDialog } from "@/components/security/step-up-dialog"
 import { securityApi } from "@/lib/api/security"
 import { ZONES, zoneChipClass } from "@/lib/zones"
@@ -171,7 +181,19 @@ export function UserManagement() {
   const [createFirstName, setCreateFirstName] = useState("")
   const [createLastName, setCreateLastName] = useState("")
   const [createSpecialty, setCreateSpecialty] = useState<string>(DOCTOR_SPECIALTIES[0])
+  /** An « Administrateur » who is also a dentist gets a practitioner record too (cabinet-de-groupe US-3). */
+  const [createAdminIsDentist, setCreateAdminIsDentist] = useState(false)
+  /** Link a roster record or create one; null = not chosen yet, so the e-mail match decides. */
+  const [createPractitionerChoice, setCreatePractitionerChoice] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
+  // The roster's practitioners with no account yet — the ones an invitation may link instead of duplicating.
+  const { allDoctors } = useDoctors()
+  const linkable = linkablePractitioners(allDoctors)
+  const createIsPractitioner = createRole === "doctor" || (createRole === "admin" && createAdminIsDentist)
+  const createChoice = createPractitionerChoice ?? defaultPractitionerChoice(linkable, createEmail)
+  const createFields = { firstName: createFirstName, lastName: createLastName, specialty: createSpecialty }
+  /** « Lier à un praticien » — the account it is open for. */
+  const [linkFor, setLinkFor] = useState<ClinicUserDto | null>(null)
   const [creating, setCreating] = useState(false)
 
   /*
@@ -340,17 +362,9 @@ export function UserManagement() {
         email: createEmail.trim(),
         fullName: createFullName.trim(),
         role: createRole,
-        // Only for the practitioner role — the server ignores it otherwise, and sending a half-filled object for a
-        // secretary would be a doctor record nobody asked for.
-        ...(createRole === "doctor"
-          ? {
-              doctorInfo: {
-                firstName: createFirstName.trim(),
-                lastName: createLastName.trim(),
-                specialty: createSpecialty,
-              },
-            }
-          : {}),
+        // Only for a practitioner — a « médecin », or an admin who said so. Sending it for a secretary would be a
+        // doctor record nobody asked for. An existing roster record is LINKED rather than created a second time.
+        ...(createIsPractitioner ? practitionerPayload(createChoice, createFields) : {}),
       })
       setCreateOpen(false)
       setCreateEmail("")
@@ -359,6 +373,8 @@ export function UserManagement() {
       setCreateFirstName("")
       setCreateLastName("")
       setCreateSpecialty(DOCTOR_SPECIALTIES[0])
+      setCreateAdminIsDentist(false)
+      setCreatePractitionerChoice(null)
       // The response says which door was used, not the mode probe: online without a public address the server
       // still hands back a temporary password, because a link to nowhere is worse.
       if (created.temporaryPassword) {
@@ -434,6 +450,13 @@ export function UserManagement() {
                 <CalendarOff className="size-4" aria-hidden="true" />
                 {staffFileLabel(u)}
               </Link>
+            </DropdownMenuItem>
+          )}
+          {(u.role === "admin" || u.role === "doctor") && !u.doctorId && u.isActive && (
+            // An admin or doctor account with no practitioner record prints no cachet and is credited nothing.
+            <DropdownMenuItem onSelect={() => setLinkFor(u)}>
+              <Stethoscope className="size-4" aria-hidden="true" />
+              Lier à un praticien
             </DropdownMenuItem>
           )}
           {canResendInvitation(u) ? (
@@ -686,6 +709,7 @@ export function UserManagement() {
                   getKey={(u) => u.id}
                   title={(u) => u.fullName || u.email || "Compte sans nom"}
                   subtitle={(u) => (u.fullName ? u.email : null)}
+                  underTitle={(u) => <PractitionerLine user={u} />}
                   muted={(u) => !u.isActive}
                   status={(u) => (
                     <>
@@ -784,6 +808,7 @@ export function UserManagement() {
                             ) : (
                               user.fullName || "-"
                             )}
+                            <PractitionerLine user={user} />
                           </TableCell>
                           <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
                           <TableCell>
@@ -936,6 +961,13 @@ export function UserManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <LinkPractitionerDialog
+        user={linkFor}
+        linkable={linkable}
+        onClose={() => setLinkFor(null)}
+        onLinked={() => void loadData()}
+      />
+
       {/* The step-up IS the confirmation: its sentence names who loses what, so a second dialog would only repeat it. */}
       <StepUpDialog
         open={totpResetFor !== null}
@@ -1028,54 +1060,34 @@ export function UserManagement() {
               « Mon profil » had nothing to edit, the money they collected was unattributed, and their ordonnances
               and certificats printed with **no** cachet and no n° d'ordre CNOMDT.
             */}
-            {createRole === "doctor" && (
-              <div className="space-y-4 rounded-lg border bg-muted/40 p-3">
-                <p className="text-xs text-muted-foreground">
-                  Ces informations créent la fiche praticien : elles apparaissent sur les ordonnances et les
-                  certificats.
-                </p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="create-user-firstname">Prénom du praticien</Label>
-                    <Input
-                      id="create-user-firstname"
-                      value={createFirstName}
-                      onChange={(e) => setCreateFirstName(e.target.value)}
-                      autoComplete="off"
-                      disabled={creating}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="create-user-lastname">Nom du praticien</Label>
-                    <Input
-                      id="create-user-lastname"
-                      value={createLastName}
-                      onChange={(e) => setCreateLastName(e.target.value)}
-                      autoComplete="off"
-                      disabled={creating}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="create-user-specialty">Spécialité</Label>
-                  <Select
-                    value={createSpecialty}
-                    onValueChange={setCreateSpecialty}
-                    disabled={creating}
-                  >
-                    <SelectTrigger id="create-user-specialty" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DOCTOR_SPECIALTIES.map((specialty) => (
-                        <SelectItem key={specialty} value={specialty}>
-                          {specialtyLabel(specialty)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            {createRole === "admin" && (
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="create-user-admin-dentist"
+                  checked={createAdminIsDentist}
+                  onCheckedChange={(checked) => setCreateAdminIsDentist(checked === true)}
+                  disabled={creating}
+                  className="mt-0.5"
+                />
+                <Label htmlFor="create-user-admin-dentist" className="font-normal">
+                  C&apos;est aussi un praticien (dentiste)
+                </Label>
               </div>
+            )}
+            {createIsPractitioner && (
+              <PractitionerChoice
+                idPrefix="create-user"
+                linkable={linkable}
+                choice={createChoice}
+                onChoiceChange={setCreatePractitionerChoice}
+                fields={createFields}
+                onFieldsChange={(f) => {
+                  setCreateFirstName(f.firstName)
+                  setCreateLastName(f.lastName)
+                  setCreateSpecialty(f.specialty)
+                }}
+                disabled={creating}
+              />
             )}
           </div>
           {/* `coarse:h-11` — the default Button is `h-9` (36 px), under the § 2 floor on a finger. */}
@@ -1098,8 +1110,7 @@ export function UserManagement() {
                 creating ||
                 !createEmail.trim() ||
                 !createFullName.trim() ||
-                (createRole === "doctor" &&
-                  (!createFirstName.trim() || !createLastName.trim() || !createSpecialty))
+                (createIsPractitioner && !practitionerChoiceReady(createChoice, createFields))
               }
             >
               {invitesByLink
@@ -1212,4 +1223,18 @@ function useTrackedIds(enabled: boolean): ReadonlySet<string> {
   }, [load])
   useClinicRealtime(RealtimeResource.Team, () => void load())
   return ids
+}
+
+/**
+ * Who this account is on the roster (cabinet-de-groupe US-3): the practitioner's name, or — on an admin or doctor
+ * account — that it has no practitioner record, which is what « Lier à un praticien » in the row menu repairs.
+ */
+function PractitionerLine({ user }: { user: ClinicUserDto }) {
+  if (user.practitionerName) {
+    return <span className="block text-xs font-normal text-muted-foreground">Praticien : {user.practitionerName}</span>
+  }
+  if (user.role === "admin" || user.role === "doctor") {
+    return <span className="block text-xs font-normal text-muted-foreground">Sans fiche praticien</span>
+  }
+  return null
 }

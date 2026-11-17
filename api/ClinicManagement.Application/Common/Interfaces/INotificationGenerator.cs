@@ -240,12 +240,15 @@ public interface INotificationGenerator
     /// Ensures a "post-visit review" notification for an appointment matches its current state — created if
     /// missing, otherwise moved. It becomes visible at the appointment's end (<paramref name="appointmentEndUtc"/> =
     /// start + duration; deferred visibility). The target user is resolved from <paramref name="doctorId"/>
-    /// (→ Doctor → linked User): if a linked user exists, only they see it; otherwise all clinic staff do.
+    /// (→ Doctor → linked User): if a linked user exists, only they — and <paramref name="bookedByUserId"/>, the
+    /// person who booked the RDV — see it; otherwise all clinic staff do (<c>cabinet-de-groupe</c> D6). A null
+    /// <paramref name="bookedByUserId"/> keeps the booker already recorded on the row, so an update that does not
+    /// know who booked changes nothing about it.
     /// Idempotent — safe to call on create, reschedule, duration/doctor change and reactivation.
     /// </summary>
     Task EnsurePostVisitReviewAsync(
         Guid clinicId, Guid appointmentId, Guid? doctorId, string patientName, DateTime appointmentEndUtc,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, string? bookedByUserId = null);
 
     /// <summary>Removes the post-visit review notification for an appointment, if one exists (cancel / fulfilled).</summary>
     Task CancelPostVisitReviewAsync(

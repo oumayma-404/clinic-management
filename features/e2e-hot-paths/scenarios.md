@@ -239,6 +239,9 @@ Route `/appointments` → `button[data-size="sm"]:has-text('Nouveau')`.
 | BOOK-48 | 1 | ∅ | Edit an act's price inside « Actes du devis » | It saves to the **treatment**; the échéancier re-spreads server-side | the act is priced once |
 | BOOK-49 | 0 | a fiche billed on a note, partly paid | « Continuer un traitement » → the past séance's « Continuer » card (or « Suite d'une séance précédente… ») → « Prix du reste » → **Annuler** the booking | **No devis**, no appointment, and the séance is still offered as continuable | the devis is minted by the SAVE (`materialiseTreatments`), never by the dialog's own press |
 | BOOK-50 | 0 | BOOK-49's arrange | Same, but **save** the booking | Exactly one devis, numbered + `Accepted`, and the appointment carries its id | `planIdByItem` merged from the materialiser, else « Le plan de traitement est requis pour lier l'acte. » |
+| BOOK-51 | 1 | a cabinet with 2+ active dentists | Book a patient with no « Praticien » | Refused: « Choisissez le praticien de ce rendez-vous… » (`practitioner_required`) — in the dialog **before** the request, and by the server | cabinet-de-groupe US-1: an RDV with no dentist blocks every chair, can't announce « Patient arrivé » and credits a secretary's fiche to nobody |
+| BOOK-52 | 1 | ∅ | « Créneau occupé » → Praticien « Tout le cabinet » → save | Booked with **no** dentist, blocking every chair | the dialog pre-picks a dentist, so « Tout le cabinet » is the way back to a cabinet-wide block |
+| BOOK-53 | 1 | a cabinet with ONE active dentist | A secretary books a patient | The dentist is filled in — by the dialog, and by the server for any surface that sends none | 90 of 121 secretary RDV on prod named no dentist |
 
 ---
 

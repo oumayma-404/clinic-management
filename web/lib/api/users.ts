@@ -34,6 +34,12 @@ export interface ClinicUserDto {
   invitationPending?: boolean;
   /** Holds a second factor — what offers « Réinitialiser le second facteur ». Optional, read `=== true` (rolling deploy). */
   hasSecondFactor?: boolean;
+  /**
+   * The practitioner record linked to this account, and its name (cabinet-de-groupe US-3). Absent on an admin or
+   * doctor account with none — which is what offers « Lier à un praticien ».
+   */
+  doctorId?: string | null;
+  practitionerName?: string | null;
   lastLoginAt?: string;
   /** Optimistic-concurrency token — see `PatientDto.version`. Round-trip it on the role / activation actions. */
   version: number;
@@ -113,8 +119,22 @@ export const usersApi = {
     fullName: string;
     role: UserRole;
     doctorInfo?: { firstName: string; lastName: string; specialty: string; phone?: string };
+    /** A practitioner already on the roster to LINK instead of creating a second record (cabinet-de-groupe US-3). */
+    existingDoctorId?: string;
   }): Promise<CreatedClinicUserDto> => {
     return apiPost<CreatedClinicUserDto>('/users', data);
+  },
+
+  /**
+   * « Lier à un praticien » (cabinet-de-groupe US-3): give an admin or doctor account its practitioner record — an
+   * existing one of the roster (`existingDoctorId`), or a new one (`doctorInfo`). Refused for an account that
+   * already has one, and for a record linked to somebody else.
+   */
+  linkPractitioner: async (
+    id: string,
+    body: { existingDoctorId?: string; doctorInfo?: { firstName: string; lastName: string; specialty: string } },
+  ): Promise<void> => {
+    await apiPut<void>(`/users/${id}/practitioner`, body);
   },
 
   /** guided-first-days C: a new invitation for a colleague who never signed in. 404 where nobody is invited by link. */
