@@ -26,6 +26,22 @@ const call = async (method, path, body) => {
   const raw = await r.text(); let j = null; try { j = JSON.parse(raw) } catch {}
   return { status: r.status, body: j?.value ?? j, raw }
 }
+// A re-run starts from two dentists again (run 3's last phase leaves the copy with one).
+sql(`update "Doctors" set "IsActive"=true where "Id"='${NADIA_DOC}'`)
+
+// The secretary signs in with no second factor; her token drives S3 and is the booker of record.
+const SECRETARY_USER = 'local|22222222-2222-4222-8222-222222222222'
+const sres = await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ email: 'qa.secretary@ibnkhaldoun.test', password: 'QaAudit2026!y' }) })
+const sj = JSON.parse((await sres.text()) || '{}')
+const secToken = sj.value?.accessToken ?? sj.accessToken
+if (!secToken) { console.log('secretary login failed', sres.status, JSON.stringify(sj).slice(0, 300)); process.exit(1) }
+const callAs = async (tok, method, path, body) => {
+  const r = await fetch(`${API}${path}`, { method, headers: { Authorization: `Bearer ${tok}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined })
+  const raw = await r.text(); let j = null; try { j = JSON.parse(raw) } catch {}
+  return { status: r.status, body: j?.value ?? j, raw }
+}
+
 const d = new Date(); d.setUTCDate(d.getUTCDate() + 1); const day = d.toISOString().slice(0, 10)
 const at = (h, m = 0) => `${day}T${String(h - 1).padStart(2, '0')}:${String(m).padStart(2, '0')}:00Z`
 out.day = day
@@ -68,6 +84,30 @@ const strict = await call('GET', `/appointments?${q}`), wide = await call('GET',
 const ids = (wide.body ?? []).map(x => x.id)
 log('D4', strict.status === 200 && (strict.body ?? []).every(x => x.doctorId === NADIA_DOC) && ids.includes(out.block) && ids.includes(out.forNadia) && !ids.includes(out.forSalma),
   `strict ${strict.body?.length} rows (all Nadia) · wide ${ids.length}: block ${ids.includes(out.block)}, Nadia's ${ids.includes(out.forNadia)}, Salma's ${ids.includes(out.forSalma)}`)
+
+// S3 — the post-visit prompt reaches whoever booked. Two visits that ended an hour or more ago.
+const ago = h => { const t = new Date(Date.now() - h * 3600e3); t.setUTCSeconds(0, 0); return t.toISOString() }
+const salmasOwn = await call('POST', '/appointments', { patientId: PATIENT, doctorId: SALMA_DOC, appointmentDateTime: ago(3), durationMinutes: 30, allowOverlap: true, allowOutsideWorkingHours: true })
+const secBooked = await callAs(secToken, 'POST', '/appointments', { patientId: PATIENT, doctorId: SALMA_DOC, appointmentDateTime: ago(2), durationMinutes: 30, allowOverlap: true, allowOutsideWorkingHours: true })
+const secList = await callAs(secToken, 'GET', '/notifications/pending-reviews')
+const salmaList = await call('GET', '/notifications/pending-reviews')
+const apptIds = l => (Array.isArray(l.body) ? l.body : []).map(x => x.appointmentId)
+const secSees = apptIds(secList), salmaSees = apptIds(salmaList)
+log('S3', salmasOwn.status < 300 && secBooked.status < 300 && secSees.includes(secBooked.body?.id) && !secSees.includes(salmasOwn.body?.id)
+    && salmaSees.includes(secBooked.body?.id) && salmaSees.includes(salmasOwn.body?.id),
+  `booked ${salmasOwn.status}/${secBooked.status} · secretary sees hers ${secSees.includes(secBooked.body?.id)}, Salma's ${secSees.includes(salmasOwn.body?.id)} · Salma sees both ${salmaSees.includes(secBooked.body?.id) && salmaSees.includes(salmasOwn.body?.id)} ${secBooked.status >= 300 ? secBooked.raw.slice(0, 160) : ''}`)
+
+// Arrange S4: a secretary whose e-mail matches a practitioner already on the roster with no account.
+out.promoEmail = `promo.${STAMP}@qa.test`; out.promoName = `QA Promo ${STAMP}`; out.promoLast = `Promo${STAMP}`
+const promo = await call('POST', '/users', { email: out.promoEmail, fullName: out.promoName, role: 'secretary' })
+sql(`insert into "Doctors" ("Id","ClinicId","FirstName","LastName","Specialty","Email","CreatedAt","IsActive") values (gen_random_uuid(),'${CLINIC}','Yosra','${out.promoLast}','General','${out.promoEmail}', now(), true)`)
+log('arrange-S4', promo.status < 300, `${promo.status} ${promo.raw.slice(0, 100)}`)
+
+// Arrange S6: a waiting-list entry that prefers Nadia, on a patient of its own so the row is findable.
+out.waitLast = `Attente${STAMP}`
+const wp = await call('POST', '/patients', { firstName: 'QA', lastName: out.waitLast, phone: null })
+const we = await call('POST', '/waiting-list', { patientId: wp.body?.id, preferredDoctorId: NADIA_DOC, priority: 'Normal' })
+log('arrange-S6', wp.status < 300 && we.status < 300, `patient ${wp.status} · entry ${we.status} ${we.status >= 300 ? we.raw.slice(0, 160) : ''}`)
 
 writeFileSync('arrange.json', JSON.stringify(out, null, 2))
 writeFileSync('api-results.json', JSON.stringify(res, null, 2))

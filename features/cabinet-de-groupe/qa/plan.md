@@ -32,3 +32,23 @@ The post-visit popup is served empty (`pending-reviews` → `[]`), per `/clinic-
 | D2 | D | browser | /documents/prescription as Salma | the prescriber defaults to Salma (row 12) |
 | D3 | D | browser | Patient page loads « Travail non facturé » / RDV tab with no error (row 6) | page renders the patient's name, no error banner |
 | D4 | D | api | Export /appointments/export?doctorId=Nadia | contains no unassigned row (strict filter kept, row 5) |
+
+## Added for run 3 — the people the change is for
+
+Login for S1–S3 and O1–O5: **the secretary** `qa.secretary@ibnkhaldoun.test` (no dentist record). Rows O1–O5 run
+after the copy is turned into a **one-dentist cabinet** (every practitioner but Salma set inactive, SQL on `cdg_qa`
+only) — the shape of every cabinet on prod today.
+
+| ID | Tier | Layer | Steps | Expected (observable) |
+|---|---|---|---|---|
+| S1 | A | browser | Secretary's first visit to /appointments (empty storage) | the Praticien filter reads « Tous les praticiens » (she is not a dentist) |
+| S2 | A | browser+sql | Secretary: « Nouveau » → patient → « Créer » with no dentist, then pick « Nadia Trabelsi » → « Créer » | first press refused with « Choisissez le praticien de ce rendez-vous… »; saved RDV has DoctorId = Nadia and its review row AlsoTargetUserId = the secretary |
+| S3 | A | api | An RDV that ended 1 h ago, booked by the secretary for Salma; another booked by Salma for herself | `GET /notifications/pending-reviews` as the secretary lists the first and NOT the second; as Salma lists both |
+| S4 | B | browser+sql | Users → a secretary whose e-mail matches an unlinked practitioner → Rôle « Médecin » → Confirmer | one practitioner record with that e-mail, now linked to the account; the row reads « Praticien : … » |
+| S5 | D | browser | Agenda « Mois » at 1440, « Tous les praticiens » | « SB » / « NT » initials on the month entries |
+| S6 | D | browser | Waiting list: an entry with preferred dentist Nadia → « Promouvoir » | the booking dialog's Praticien reads « Nadia Trabelsi » |
+| O1 | A | api | One dentist. Secretary: POST /appointments with a patient and no `doctorId` | 201, `doctorId` = Salma's record |
+| O2 | A | browser+sql | One dentist. Secretary: « Nouveau » → patient → « Créer » without touching Praticien | dialog opens on « Salma Ben Youssef »; saved RDV has DoctorId = Salma |
+| O3 | B | browser | One dentist. Agenda Semaine at 1440 + « Filtres » | no initials on blocks; no « Praticien » section in the legend |
+| O4 | B | browser | One dentist. « À clôturer » | no « Praticien » select |
+| O5 | B | browser+sql | One dentist. Open the old RDV with no dentist → « Enregistrer » | saved without a refusal; DoctorId = Salma |
