@@ -738,6 +738,27 @@ export interface AppointmentProcedureDto {
   sequenceNumber: number;
 }
 
+/**
+ * One row of « À encaisser » (`seance-au-fauteuil`). `kind`: `Unbilled` (fiche saved, no note — « Facturer et
+ * encaisser »), `NoteBalance` (an issued note with money still owed — « Encaisser »), `DraftNote` (a draft holds no
+ * money: it is issued from the patient's « Factures », never billed a second time).
+ */
+export interface SeanceToCollectDto {
+  appointmentId: string;
+  patientId: string;
+  patientName: string;
+  startUtc: string;
+  practitionerName?: string | null;
+  dentalRecordId: string;
+  kind: "Unbilled" | "NoteBalance" | "DraftNote" | "Treatment";
+  amountDue: number;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  /** The devis a `Treatment` row collects on — an échéance of it is due now. */
+  treatmentPlanId?: string | null;
+  treatmentPlanNumber?: string | null;
+}
+
 export interface AppointmentDto {
   /**
    * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
@@ -1382,6 +1403,12 @@ export interface DentalRecordDto {
    */
   collectedOnTreatment?: number | null;
   /**
+   * What the séance's note has collected for this fiche — the chair's « Payé » and the desk's payments alike. Null
+   * when no issued note bills it. « Payé » reopens on this figure (`seance-au-fauteuil`): the desk's money is never
+   * written back onto the fiche.
+   */
+  collectedOnNote?: number | null;
+  /**
    * The devis act's own **id**, so a reopened fiche can re-establish « Acte planifié ».
    *
    * ⚠️ Without it an edited fiche of a devis-carried act read as un-carried — no « Suivi comme traitement »
@@ -1434,6 +1461,12 @@ export interface DentalRecordDto {
    * ids, and both doors have to be offered. See `DocumentTypes.Examens`.
    */
   examensDocumentId?: string | null;
+  /**
+   * The two ordonnances' versions after the save that returned this fiche (0 = none, or not from a save). A fiche
+   * kept open after « Enregistrer » sends them back on its next save, so it never 409s against its own last save.
+   */
+  prescriptionDocumentVersion?: number;
+  examensDocumentVersion?: number;
 
   /**
    * Row-sized labels of the examens requested. Served, for `prescriptionSummary`'s reasons.

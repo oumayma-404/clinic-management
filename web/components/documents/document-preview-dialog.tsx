@@ -17,6 +17,7 @@ import { pdfSourceUrl } from "@/lib/pdf-sources"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
 import type { MedicalDocumentDto } from "@/lib/api/types"
 import { downloadBlob } from "@/lib/download"
+import { printPdfBlob } from "@/lib/print"
 import { documentTypeLabel, isExamenLine, isWithdrawnDocumentType, type PrescriptionLine } from "@/lib/documents"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { formatDate } from "@/lib/format"
@@ -48,8 +49,8 @@ import { formatDate } from "@/lib/format"
  * <p>The document editor has an on-screen A4 block built from its own form state, and lifting that here was
  * the obvious move. It would have been a <b>second renderer of a legal document</b> — the drift this feature
  * already carries three guards against, one per copy of the printed médicament line. The bytes a pharmacist
- * reads are the only honest preview, so this frames them. It also means print is `contentWindow.print()` on
- * the real PDF rather than a cloned DOM subtree.</p>
+ * reads are the only honest preview, so this frames them. It also means print is those same bytes, through
+ * `lib/print.ts`, rather than a cloned DOM subtree.</p>
  *
  * <p>⚠️ <b>« Modifier » routes by `dentalRecordId`, and that is a correctness fix, not a nicety.</b> A
  * document a fiche owns is recomposed from the section on the fiche's next save, so editing it in the
@@ -98,7 +99,6 @@ export function DocumentPreviewDialog({
 
   /** The rendered bytes, kept for « Télécharger » and for the coarse-pointer hand-off. */
   const blobRef = useRef<Blob | null>(null)
-  const frameRef = useRef<HTMLIFrameElement | null>(null)
   /** The object URL currently painted, so it is revoked exactly once and never while still in the frame. */
   const urlRef = useRef<string | null>(null)
 
@@ -199,19 +199,20 @@ export function DocumentPreviewDialog({
   }, [fileName])
 
   /**
-   * ⚠️ The frame is printed only when it is really rendered. Below a coarse pointer `PatientFilePdfPreview`
-   * hides it in CSS and shows the hand-off instead, so the ref is non-null and the window unprintable — the
-   * file is delivered to the platform viewer, which is where it can be printed on a phone anyway.
+   * Prints the bytes already in hand. ⚠️ Never the visible frame: pressed before its PDF had painted it printed a
+   * blank page, and below a coarse pointer it is hidden altogether — `printPdfBlob` handles both.
    */
-  const print = useCallback(() => {
-    const frame = frameRef.current
-    if (frame && frame.offsetParent !== null && frame.contentWindow) {
-      frame.contentWindow.focus()
-      frame.contentWindow.print()
-      return
+  const print = useCallback(async () => {
+    if (!blobRef.current) return
+    try {
+      // `lib/print.ts` — the one way a PDF reaches a printer. It waits for its own off-screen frame to load (the
+      // visible frame here could be pressed before its PDF had painted, which printed a blank page) and hands the
+      // file to the system viewer on a finger, exactly as this dialog used to by hand.
+      await printPdfBlob(blobRef.current, fileName)
+    } catch (error) {
+      showErrorToast(error, "L'impression a échoué.")
     }
-    void deliver()
-  }, [deliver])
+  }, [fileName])
 
   const isApercu = target?.mode === "apercu"
   const title = document
@@ -271,7 +272,6 @@ export function DocumentPreviewDialog({
                 }
                 fileName={fileName}
                 onDeliver={deliver}
-                frameRef={frameRef}
               />
             ) : null}
           </div>

@@ -29,6 +29,7 @@ import { DisregardVisitsDialog } from "./disregard-visits-dialog"
 import { visitClosureDayGroups, type VisitClosureDayGroup } from "./visit-closure-days"
 import { PatientNameLink } from "@/components/patient-name-link"
 import { visitActsLine } from "@/components/appointment-labels"
+import { ficheHref } from "@/lib/visits/fiche-door"
 
 /**
  * « À clôturer » — the séances still owing a presence, a fiche or a money document.
@@ -150,11 +151,7 @@ export function VisitClosureList({
    */
   const openFiche = (visit: VisitToCloseDto) => {
     if (!visit.patientId) return
-    router.push(
-      `/patients/${encodeURIComponent(visit.patientId)}?addRecord=1&appointmentId=${encodeURIComponent(
-        visit.appointmentId,
-      )}`,
-    )
+    router.push(ficheHref(visit.patientId, visit.appointmentId))
   }
 
   /**
@@ -768,6 +765,22 @@ function RowActions({
         >
           <FileText aria-hidden="true" className="me-1.5 size-4" />
           Remplir la fiche de soins
+        </Button>
+        {setAside}
+      </>
+    )
+  }
+
+  // A draft note already names the séance (`seance-au-fauteuil`): it is issued from the patient's « Factures »,
+  // never billed a second time from here — the server would refuse that with `seance_has_note`.
+  if (visit.invoiceId && !visit.invoiceNumber && visit.patientId) {
+    return (
+      <>
+        <Button size="sm" asChild>
+          <Link href={`/patients/${encodeURIComponent(visit.patientId)}?tab=invoices`}>
+            <Receipt aria-hidden="true" className="me-1.5 size-4" />
+            Émettre la note
+          </Link>
         </Button>
         {setAside}
       </>

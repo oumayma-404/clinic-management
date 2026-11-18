@@ -36,6 +36,14 @@ public class RecordInstallmentPaymentCommand : IRequest<Result<TreatmentPlanDto>
 
     /// <inheritdoc cref="CancelTreatmentPlanCommand.Version"/>
     public uint Version { get; set; }
+
+    /// <summary>
+    /// The fiche de soins this money was taken for, when the desk collects a séance from « À encaisser »
+    /// (`seance-au-fauteuil`). It is the key <c>TreatmentPlan.CollectedOnRecord</c> reads, so the dentist re-saving
+    /// that fiche later adds only the difference instead of taking the money a second time. Null for an ordinary
+    /// payment.
+    /// </summary>
+    public Guid? DentalRecordId { get; set; }
 }
 
 public class RecordInstallmentPaymentCommandHandler : IRequestHandler<RecordInstallmentPaymentCommand, Result<TreatmentPlanDto>>
@@ -43,6 +51,7 @@ public class RecordInstallmentPaymentCommandHandler : IRequestHandler<RecordInst
     private readonly ITreatmentPlanRepository _planRepository;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly IPatientRepository _patientRepository;
+    private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<RecordInstallmentPaymentCommandHandler> _logger;
@@ -51,6 +60,7 @@ public class RecordInstallmentPaymentCommandHandler : IRequestHandler<RecordInst
         ITreatmentPlanRepository planRepository,
         IInvoiceRepository invoiceRepository,
         IPatientRepository patientRepository,
+        IDentalRecordRepository dentalRecordRepository,
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         ILogger<RecordInstallmentPaymentCommandHandler> logger)
@@ -58,6 +68,7 @@ public class RecordInstallmentPaymentCommandHandler : IRequestHandler<RecordInst
         _planRepository = planRepository;
         _invoiceRepository = invoiceRepository;
         _patientRepository = patientRepository;
+        _dentalRecordRepository = dentalRecordRepository;
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _logger = logger;
@@ -124,7 +135,19 @@ public class RecordInstallmentPaymentCommandHandler : IRequestHandler<RecordInst
             var cheque = ChequeDetails.For(
                 method, request.ChequeNumber, request.ChequeBankName, request.ChequeDueDate);
 
-            plan.RecordInstallmentPayment(request.InstallmentId, request.Amount, method, request.PaidOn, cheque);
+            // The séance the desk took this for must be this patient's: a stranger's fiche would read the money as
+            // already taken on its next save.
+            if (request.DentalRecordId is { } dentalRecordId)
+            {
+                var record = await _dentalRecordRepository.GetByIdAsync(dentalRecordId, cancellationToken);
+                if (record == null || record.PatientId != plan.PatientId)
+                {
+                    return Result<TreatmentPlanDto>.Failure("Fiche de soins introuvable.");
+                }
+            }
+
+            plan.RecordInstallmentPayment(
+                request.InstallmentId, request.Amount, method, request.PaidOn, cheque, request.DentalRecordId);
 
             _unitOfWork.SetExpectedVersion(plan, request.Version);
             await _planRepository.UpdateAsync(plan, cancellationToken);

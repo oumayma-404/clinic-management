@@ -1,6 +1,6 @@
 "use client"
 
-import { Eye, Pill, Plus } from "lucide-react"
+import { Eye, Loader2, Pill, Plus, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -67,6 +67,14 @@ interface PrescriptionSectionProps {
    */
   onPreview?: (kind: PrescriptionKind) => void
   /**
+   * « Imprimer » — saves the fiche, then prints the sheet the save wrote. Printing is offered here, where the
+   * ordonnance is written, because the paper is handed over before the patient leaves the chair; the saved
+   * document is the only thing printed, so a paper never exists without its record.
+   */
+  onPrint?: (kind: PrescriptionKind) => void
+  /** The sheet being saved and printed right now, if any. */
+  printingKind?: PrescriptionKind | null
+  /**
    * The ordonnance exists and could not be read. Rendered as its own state, never as an empty list: « rien de
    * prescrit » beside a real prescription is the reassuring half of a wrong pair, and here it is one save away
    * from being written over the truth.
@@ -102,6 +110,8 @@ export function PrescriptionSection({
   existingDocumentId,
   existingExamensDocumentId,
   onPreview,
+  onPrint,
+  printingKind = null,
   readFailed,
   disabled,
   patient,
@@ -231,10 +241,49 @@ export function PrescriptionSection({
         documents; nothing is shown when the section is empty, since there is no sheet to look at.
 
         ⚠️ It works before the first save, which is the whole point: « montre-moi l'ordonnance avant de la
-        donner » is asked at the chair. What it deliberately does NOT offer is Imprimer — the dialog says why.
+        donner » is asked at the chair. The aperçu itself never prints (the dialog says why); « Imprimer » beside
+        it SAVES the fiche first and prints the document that save wrote — `seance-au-fauteuil`, because the paper
+        is handed over before the patient leaves and hunting for it in the patient's file afterwards was the
+        complaint.
         ⚠️ `min-w-0 shrink grow basis-40` + `flex-wrap` for § 10.1's reason, same as the add row above: a
         `whitespace-nowrap shrink-0` Button in this grid sizes the track for every sibling.
       */}
+      {!readFailed && onPrint && (hasMedication || hasExamen) && (
+        <div className="flex flex-wrap gap-2">
+          {hasMedication && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={disabled || printingKind !== null}
+              onClick={() => onPrint(PRESCRIPTION_KINDS.medicament)}
+              className="h-9 min-w-0 shrink grow basis-40 justify-start px-3 text-xs coarse:h-11"
+            >
+              {printingKind === PRESCRIPTION_KINDS.medicament ? (
+                <Loader2 className="me-1.5 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+              ) : (
+                <Printer className="me-1.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              )}
+              <span className="truncate">Imprimer l&apos;ordonnance</span>
+            </Button>
+          )}
+          {hasExamen && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={disabled || printingKind !== null}
+              onClick={() => onPrint(PRESCRIPTION_KINDS.examen)}
+              className="h-9 min-w-0 shrink grow basis-40 justify-start px-3 text-xs coarse:h-11"
+            >
+              {printingKind === PRESCRIPTION_KINDS.examen ? (
+                <Loader2 className="me-1.5 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+              ) : (
+                <Printer className="me-1.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              )}
+              <span className="truncate">Imprimer la demande d&apos;examens</span>
+            </Button>
+          )}
+        </div>
+      )}
       {!readFailed && onPreview && (hasMedication || hasExamen) && (
         <div className="flex flex-wrap gap-2">
           {hasMedication && (

@@ -1,9 +1,10 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { format, parseISO } from "date-fns"
 import { fr } from "date-fns/locale"
-import { CalendarClock, Loader2, MoreHorizontal, Trash2 } from "lucide-react"
+import { CalendarClock, ClipboardPlus, Loader2, MoreHorizontal, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -25,7 +26,8 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { showErrorToast } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import type { AppointmentDto } from "@/lib/api/types"
-import { quoteFr } from "@/lib/format"
+import { quoteFr, todayLocalIso } from "@/lib/format"
+import { canRecordFiche, ficheHref } from "@/lib/visits/fiche-door"
 import { ArrivalPopoverButton, useArrivalAction } from "@/components/staff-chat/arrival-action"
 
 /**
@@ -82,6 +84,11 @@ export function AppointmentQuickActions({
   const arrival = useArrivalAction(appointment, open, () => setOpen(false))
   const [postponeOpen, setPostponeOpen] = useState(false)
   const canPostpone = isPostponable(appointment.status)
+  // The fiche is written while the patient is in the chair, so the agenda offers it from the visit's day.
+  const ficheLink =
+    appointment.patientId && canRecordFiche(appointment, todayLocalIso())
+      ? ficheHref(appointment.patientId, appointment.id)
+      : null
   const canRecordLate = admitsLateArrival(appointment.status)
   const lateArrival = appointment.lateArrivalMinutes ?? null
 
@@ -187,6 +194,17 @@ export function AppointmentQuickActions({
           className="w-[min(15rem,calc(100vw-2rem))] p-1"
           onClick={(e) => e.stopPropagation()}
         >
+          {ficheLink && (
+            <>
+              <Button asChild variant="ghost" className="w-full justify-start coarse:min-h-11">
+                <Link href={ficheLink} onClick={() => setOpen(false)}>
+                  <ClipboardPlus className="size-4" aria-hidden="true" />
+                  Fiche de soins
+                </Link>
+              </Button>
+              <div role="separator" className="my-1 h-px bg-border" />
+            </>
+          )}
           {/* An empty transition set renders no heading either — a lone « Marquer comme » over nothing reads as a
               failed load, where the truth is that this visit has nowhere left to go. */}
           {options.length > 0 && (

@@ -93,6 +93,101 @@ public class InvoiceFromDentalRecordTests
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
     }
 
+    // ---- One note per séance (seance-au-fauteuil) -------------------------------
+
+    /// <summary>The fiche of a booked visit, as the agenda's « Fiche de soins » creates it.</summary>
+    private static DentalRecord RecordOfVisit(Guid visitId)
+    {
+        var record = new DentalRecord(Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, true, appointmentId: visitId);
+        record.SetActs(new[] { new DentalRecordActInput(null, "Consultation", 60m, null, false, Array.Empty<int>(), null, null, null) });
+        return record;
+    }
+
+    /// <summary>A note on the visit, as the RDV window's « Facturer cette consultation » raises it — or a fiche's.</summary>
+    private Invoice NoteOnVisit(Guid visitId, bool issued, Guid? ficheId = null)
+    {
+        var note = new Invoice(Guid.NewGuid(), ClinicId, PatientId, dentalRecordId: ficheId, appointmentId: visitId);
+        note.SetLines(new[] { ("Consultation", 1, 60m, ficheId) });
+        if (issued)
+        {
+            note.Issue("2026-0142");
+        }
+        _invoices.Setup(r => r.GetAppointmentLinksAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (visitId, note.Id, note.Number, note.Status) });
+        _invoices.Setup(r => r.GetByIdAsync(note.Id, It.IsAny<CancellationToken>())).ReturnsAsync(note);
+        return note;
+    }
+
+    // A note raised from the RDV window names the VISIT and none of the fiche's lines; billing the fiche on top of it
+    // would bill the séance twice. Refused by name, before a number is consumed.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_Seance_Already_Holding_A_Note_Is_Not_Billed_A_Second_Time(bool issued)
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        NoteOnVisit(visitId, issued);
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                PaidNow = new DentalRecordPaymentRequest { Amount = 60m, Method = "Cash" },
+            },
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.SeanceHasNoteCode, result.Code);
+        Assert.Contains(issued ? "n° 2026-0142" : "brouillon", result.Error);
+        Assert.Null(_saved);
+        _invoices.Verify(r => r.GetMaxSequenceForYearAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // A cancelled note bills nothing: the séance can be billed again.
+    [Fact]
+    public async Task A_Cancelled_Note_On_The_Visit_Does_Not_Block_Billing()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        _invoices.Setup(r => r.GetAppointmentLinksAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (visitId, Guid.NewGuid(), (string?)"2026-0100", InvoiceStatus.Cancelled) });
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                PaidNow = new DentalRecordPaymentRequest { Amount = 60m, Method = "Cash" },
+            },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.NotNull(_saved);
+    }
+
+    // A visit may carry several fiches, each billing its own acts: another fiche's note is not « the séance's note ».
+    [Fact]
+    public async Task Another_Fiches_Note_On_The_Same_Visit_Does_Not_Block_Billing()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        NoteOnVisit(visitId, issued: true, ficheId: Guid.NewGuid());
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                PaidNow = new DentalRecordPaymentRequest { Amount = 60m, Method = "Cash" },
+            },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.NotNull(_saved);
+    }
+
     // ---- The whole point --------------------------------------------------------
 
     [Fact]

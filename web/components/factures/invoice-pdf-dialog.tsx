@@ -17,6 +17,7 @@ import { pdfSourceUrl } from "@/lib/pdf-sources"
 import { invoicesApi } from "@/lib/api/invoices"
 import type { InvoiceDto } from "@/lib/api/types"
 import { downloadBlob } from "@/lib/download"
+import { printPdfBlob } from "@/lib/print"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { formatDate } from "@/lib/format"
 
@@ -30,7 +31,7 @@ import { formatDate } from "@/lib/format"
  * module has come to do.</p>
  *
  * <p>⚠️ It frames the <b>server-rendered PDF</b>, never a second HTML rendering of a legal document — the rule
- * `DocumentPreviewDialog` already carries, and the reason print is `contentWindow.print()` on the real bytes.</p>
+ * `DocumentPreviewDialog` already carries, and the reason print sends the real bytes through `lib/print.ts`.</p>
  *
  * <p>⚠️ <b>A draft has no paper.</b> It carries no number, `GET /invoices/{id}/pdf` has nothing to issue, and the
  * product's own rule is that a number is minted at emission — so a draft is edited, never previewed, and the
@@ -51,7 +52,6 @@ export function InvoicePdfDialog({
 
   /** The rendered bytes, kept for « Télécharger » and for the coarse-pointer hand-off. */
   const blobRef = useRef<Blob | null>(null)
-  const frameRef = useRef<HTMLIFrameElement | null>(null)
   /** The object URL currently painted, so it is revoked exactly once and never while still in the frame. */
   const urlRef = useRef<string | null>(null)
 
@@ -121,16 +121,18 @@ export function InvoicePdfDialog({
     }
   }, [fileName])
 
-  /** The frame is printed only when it is really rendered — below a coarse pointer it is hidden by CSS. */
-  const print = useCallback(() => {
-    const frame = frameRef.current
-    if (frame && frame.offsetParent !== null && frame.contentWindow) {
-      frame.contentWindow.focus()
-      frame.contentWindow.print()
-      return
+  /**
+   * Prints the bytes already in hand through `lib/print.ts`. ⚠️ Never the visible frame: pressed before its PDF had
+   * painted it printed a blank page, and below a coarse pointer it is hidden altogether.
+   */
+  const print = useCallback(async () => {
+    if (!blobRef.current) return
+    try {
+      await printPdfBlob(blobRef.current, fileName)
+    } catch (error) {
+      showErrorToast(error, "L'impression a échoué.")
     }
-    void deliver()
-  }, [deliver])
+  }, [fileName])
 
   const title = invoice?.number ? `Note d'honoraires ${invoice.number}` : "Note d'honoraires"
 
@@ -169,7 +171,6 @@ export function InvoicePdfDialog({
                 previewUrl={pdfSourceUrl('invoice', invoiceId!, fileName)}
                 fileName={fileName}
                 onDeliver={deliver}
-                frameRef={frameRef}
               />
             ) : null}
           </div>

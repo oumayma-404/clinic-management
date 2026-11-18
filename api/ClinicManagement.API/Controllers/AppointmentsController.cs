@@ -37,6 +37,24 @@ public class AppointmentsController : ApiControllerBase
     ///
     /// <para>No <c>[AllowsWithoutSubscription]</c>: it is a GET, and the subscription gate never inspects one.</para>
     /// </summary>
+    /// <summary>
+    /// « À encaisser » — the day's séances whose fiche is saved and whose money the desk still has to take
+    /// (`seance-au-fauteuil`). Clinic-wide amounts, so hidden while « Mode discret » is on; the per-séance
+    /// « Encaisser » on the patient and in the RDV window stays available.
+    /// </summary>
+    [HttpGet("to-collect")]
+    [HiddenWhenMoneyMasked]
+    public async Task<ActionResult<IReadOnlyList<SeanceToCollectDto>>> GetSeancesToCollect([FromQuery] string? day = null)
+    {
+        var result = await _mediator.Send(new GetSeancesToCollectQuery { Day = day });
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        return Ok(result.Value);
+    }
+
     [HttpGet("to-close")]
     public async Task<ActionResult<VisitsToCloseDto>> GetVisitsToClose(
         [FromQuery] int? days = null,

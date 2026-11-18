@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.Extensions.Logging;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.Common;
@@ -114,6 +114,13 @@ public class CreateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     /// </para>
     /// </summary>
     public PrescriptionInput? Prescription { get; set; }
+
+    /// <summary>
+    /// « Terminer la séance » — the dentist says the séance is over, so the visit becomes « Terminé » now. Absent
+    /// (false), the clock decides: a fiche saved while its séance is still running leaves the visit as it is. See
+    /// <see cref="FicheVisitCompletion"/>.
+    /// </summary>
+    public bool FinishSeance { get; set; }
 }
 
 public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalRecordCommand, Result<DentalRecordDto>>
@@ -397,13 +404,15 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             // (finding #10) — best-effort, never rolls back the committed record.
             //
             // ⚠️ Since the link is now also INFERRED, this fires for a fiche charted from the patient's page —
-            // charting the séance marks that day's visit « Terminé » and withdraws its post-visit prompt. That is
-            // the loop, not a side effect of it: filling the record *is* the evidence the patient came. It stays
-            // safe because MarkVisitCompleted returns Contradicted rather than throwing for a visit the schedule
-            // says was cancelled or missed, and because the inference refuses every ambiguous day.
+            // charting the séance withdraws that day's post-visit prompt, and marks the visit « Terminé » once the
+            // séance is over (or when the dentist presses « Terminer la séance »). Filling the record *is* the
+            // evidence the patient came; it is not evidence the séance has ended. See FicheVisitCompletion.
             if (appointmentId.HasValue)
             {
-                await CompleteReviewedAppointmentAsync(appointmentId.Value, clinicResult.Value, cancellationToken);
+                await FicheVisitCompletion.ApplyAsync(
+                    appointmentId.Value, clinicResult.Value, request.FinishSeance, isCreate: true, DateTime.UtcNow,
+                    _appointmentRepository, _unitOfWork, _notificationGenerator, _realtimeNotifier, _logger,
+                    cancellationToken);
             }
 
             // AC-P4.10 — draw each recorded act's material list out of stock. Post-commit and best-effort, so a
@@ -427,6 +436,9 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
             // both or neither, and the two are separate papers with separate ids.
             dto.ExamensDocumentId = ordonnance.ExamensDocumentId;
             dto.ExamensSummary = ordonnance.ExamensSummary.ToList();
+            // Read after the commit: a fiche kept open after « Enregistrer » sends these back on its next save.
+            dto.PrescriptionDocumentVersion = ordonnance.Document?.Version ?? 0;
+            dto.ExamensDocumentVersion = ordonnance.ExamensDocument?.Version ?? 0;
             dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
                 _sender, record, request.AmountPaid, _logger, cancellationToken);
 
@@ -451,55 +463,6 @@ public class CreateDentalRecordCommandHandler : IRequestHandler<CreateDentalReco
         {
             _logger.LogError(ex, "Unhandled failure creating a dental record");
             return Result<DentalRecordDto>.Failure("Erreur lors de l'enregistrement de la fiche de soins. Veuillez réessayer.");
-        }
-    }
-
-    // Marks the documented appointment Completed (if it resolves in the caller's clinic) and removes its
-    // pending post-visit review — mirrors CreateMedicalDocumentCommand.CompleteReviewedAppointmentAsync.
-    // A cross-clinic/missing id is a silent no-op. Wrapped so any failure only logs — never rolls back the
-    // already-committed dental record.
-    private async Task CompleteReviewedAppointmentAsync(Guid appointmentId, Guid clinicId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var appointment = await _appointmentRepository.GetByIdAsync(appointmentId, cancellationToken);
-            if (appointment == null || appointment.ClinicId != clinicId)
-            {
-                return; // cross-clinic or unknown id → leave everything unchanged
-            }
-
-            // AC-P1.12: three outcomes, not two. `Contradicted` means the fiche documents a visit the schedule
-            // says was cancelled or missed — logged as a Warning so it is discoverable, and the appointment is
-            // deliberately NOT reopened (silently un-cancelling a visit is the invisible state change this part
-            // exists to remove).
-            var outcome = appointment.MarkVisitCompleted();
-            if (outcome == VisitCompletionOutcome.Contradicted)
-            {
-                _logger.LogWarning(
-                    "Fiche de soins recorded against appointment {AppointmentId}, which is {Status}. The "
-                    + "appointment was left unchanged; its post-visit review is cleared regardless.",
-                    appointmentId, appointment.Status);
-            }
-
-            // Only Completed actually changed the row; the other two outcomes have nothing to persist, so the
-            // save is skipped rather than issuing an UPDATE that sets nothing.
-            if (outcome == VisitCompletionOutcome.Completed)
-            {
-                // Change-tracked from GetByIdAsync, so SaveChanges persists MarkVisitCompleted().
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
-            }
-
-            // The review is fulfilled either way — including on AlreadyCompleted (idempotent) and on
-            // Contradicted, where leaving the prompt up would nag about a visit that is not going to happen.
-            await _notificationGenerator.CancelPostVisitReviewAsync(appointment.ClinicId, appointmentId, cancellationToken);
-
-            // This command broadcasts "patients"; also tell "appointments" consumers so the calendar reflects
-            // the now-Completed status.
-            await _realtimeNotifier.NotifyEntityChangedAsync(appointment.ClinicId, "appointments", cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Post-visit completion side-effect failed for appointment {AppointmentId}", appointmentId);
         }
     }
 

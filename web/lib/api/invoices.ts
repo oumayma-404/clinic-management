@@ -95,7 +95,14 @@ export const invoicesApi = {
    */
   createFromDentalRecord: async (
     dentalRecordId: string,
-    paidNow: { amount: number; method: string; paidOn: string } | null,
+    paidNow: {
+      amount: number
+      method: string
+      paidOn: string
+      chequeNumber?: string
+      chequeBankName?: string
+      chequeDueDate?: string
+    } | null,
   ): Promise<InvoiceDto> =>
     apiPost<InvoiceDto>(`/invoices/from-dental-record/${dentalRecordId}`, paidNow),
 

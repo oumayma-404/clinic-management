@@ -34,6 +34,8 @@ interface InstallmentPaymentModalProps {
   planId: string | null
   installment: InstallmentDto | null
   onSuccess?: () => void
+  /** The séance this payment is taken for (« À encaisser »): tags it so the fiche's re-save does not take it twice. */
+  dentalRecordId?: string | null
 }
 
 /**
@@ -54,7 +56,14 @@ function conflictMessage(err: unknown, fallback: string, consecutive: React.Muta
   return err instanceof ApiError ? err.message : fallback
 }
 
-export function InstallmentPaymentModal({ open, onOpenChange, planId, installment, onSuccess }: InstallmentPaymentModalProps) {
+export function InstallmentPaymentModal({
+  open,
+  onOpenChange,
+  planId,
+  installment,
+  onSuccess,
+  dentalRecordId,
+}: InstallmentPaymentModalProps) {
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState<string>("Cash")
   const [paidOn, setPaidOn] = useState("")
@@ -104,6 +113,7 @@ export function InstallmentPaymentModal({ open, onOpenChange, planId, installmen
         method,
         paidOn: new Date(paidOn).toISOString(),
         ...chequePaymentFields(method, cheque),
+        ...(dentalRecordId ? { dentalRecordId } : {}),
       })
 
       // The receipt is per-PAYMENT now, so find the row we just created rather than the échéance total —

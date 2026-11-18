@@ -17,10 +17,11 @@ namespace ClinicManagement.API.BackgroundJobs;
 /// the <i>passage of time</i>, and no write happens at the minute it starts. A write-triggered implementation
 /// would fire for every visit except the one case it exists for.
 ///
-/// <b>What it deliberately does not do.</b> It never marks a visit « Terminé » and never marks an absence:
-/// leaving a slot is not evidence the patient came, so both stay human decisions. Its second pass moves an
-/// elapsed visit to <see cref="AppointmentStatus.AwaitingClosure"/> — « Séance passée » — which asserts only
-/// that the slot has ended, and closes a « créneau occupé » outright, that having nobody to ask about.
+/// <b>What it deliberately does not do.</b> It never marks an absence, and it marks a visit « Terminé » only
+/// when a fiche de soins documents it: leaving a slot is not evidence the patient came, a saved fiche is. Its
+/// second pass moves any other elapsed visit to <see cref="AppointmentStatus.AwaitingClosure"/> — « Séance
+/// passée » — which asserts only that the slot has ended, and closes a « créneau occupé » outright, that having
+/// nobody to ask about.
 ///
 /// Runs unconditionally and is <b>not</b> connectivity-gated: it writes a status, so it must work on an offline
 /// LAN install. It is also not gated on the cabinet's entitlement — like the backup and expiry passes it records
@@ -53,6 +54,8 @@ public class AppointmentProgressJob
         RealtimeResourceResolver.Resolve(typeof(UpdateAppointmentCommand))!;
 
     private readonly IAppointmentRepository _appointmentRepository;
+    // Read only to answer « does a fiche document this visit? » at the end of its séance.
+    private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IRealtimeNotifier _realtime;
     private readonly IAuditActorProvider _auditActor;
@@ -63,6 +66,7 @@ public class AppointmentProgressJob
 
     public AppointmentProgressJob(
         IAppointmentRepository appointmentRepository,
+        IDentalRecordRepository dentalRecordRepository,
         IUnitOfWork unitOfWork,
         IRealtimeNotifier realtime,
         IAuditActorProvider auditActor,
@@ -74,6 +78,7 @@ public class AppointmentProgressJob
         _fence = fence;
         _demoBuilds = demoBuilds;
         _appointmentRepository = appointmentRepository;
+        _dentalRecordRepository = dentalRecordRepository;
         _unitOfWork = unitOfWork;
         _realtime = realtime;
         _auditActor = auditActor;
@@ -138,8 +143,10 @@ public class AppointmentProgressJob
     /// to close and nobody to ask about.</para>
     ///
     /// <para>This does <b>not</b> weaken the pass's standing rule that « Terminé » and « Absent » are human
-    /// decisions: neither is what a patient-bearing visit gets here. What it fixes is that the alternative used to
-    /// be « En cours », which asserts somebody is in the chair.</para>
+    /// decisions. The one visit it completes is one a human already answered: a fiche de soins was saved for it
+    /// while its séance was running (a fiche filled during the séance no longer completes the visit on its first
+    /// save — see <c>FicheVisitCompletion</c>), so the séance's end is all that was left to say. What it fixes
+    /// otherwise is that the alternative used to be « En cours », which asserts somebody is in the chair.</para>
     /// </summary>
     public async Task CloseElapsedAppointments(DateTime nowUtc)
     {
@@ -192,13 +199,21 @@ public class AppointmentProgressJob
     {
         var closed = 0;
 
+        // One read per clinic per pass: which of these visits a fiche de soins already documents.
+        var patientVisitIds = appointments.Where(a => a.PatientId.HasValue).Select(a => a.Id).ToList();
+        var documented = patientVisitIds.Count == 0
+            ? new HashSet<Guid>()
+            : (await _dentalRecordRepository.GetAppointmentLinksAsync(clinicId, patientVisitIds))
+                .Select(link => link.AppointmentId)
+                .ToHashSet();
+
         foreach (var appointment in appointments)
         {
-            // A blocked slot is time the practitioner reserved, so its passing closes it outright; a visit keeps
-            // its presence question open for a human.
-            var target = appointment.PatientId.HasValue
-                ? AppointmentStatus.AwaitingClosure
-                : AppointmentStatus.Completed;
+            // A blocked slot is time the practitioner reserved, so its passing closes it outright; a visit with a
+            // fiche is « Terminé » (the fiche answered « venu ? »); any other visit keeps its presence question open.
+            var target = !appointment.PatientId.HasValue || documented.Contains(appointment.Id)
+                ? AppointmentStatus.Completed
+                : AppointmentStatus.AwaitingClosure;
 
             // Both terms, for the start pass's reason: `CanTransition` counts a self-assignment as legal, so the
             // guard alone would let an already-closed visit through to an empty save and an audit row a minute.

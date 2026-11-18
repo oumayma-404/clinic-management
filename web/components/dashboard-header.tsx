@@ -41,6 +41,7 @@ import { Bell, Search, LogOut, KeyRound, Loader2, UserCircle, Monitor, Sun, Moon
 import { useTheme } from "next-themes"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { useUserStatus } from "@/lib/hooks/use-user-status"
+import { ficheHref } from "@/lib/visits/fiche-door"
 
 /** Paramètres → « Équipe », where the bornes and the schémas are set up. */
 const TEAM_SETTINGS_HREF = "/settings#equipe"
@@ -252,7 +253,7 @@ export function DashboardHeader() {
           return // keep it pending rather than navigate to a dead page (mirrors the popup)
         }
         if (!patientId) return
-        router.push(`/patients/${patientId}?addRecord=1&appointmentId=${encodeURIComponent(appointmentId)}`)
+        router.push(ficheHref(patientId, appointmentId))
       })()
       return
     }

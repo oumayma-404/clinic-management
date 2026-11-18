@@ -35,6 +35,7 @@ import {
   UserX,
   MoreHorizontal,
   Unlink,
+  Wallet,
 } from "lucide-react"
 import { format, addDays, startOfWeek, endOfWeek, addWeeks, subWeeks, subDays, startOfDay, endOfDay, isToday, startOfMonth, endOfMonth, addMonths, subMonths, isSameMonth, isSameDay } from "date-fns"
 import { AgendaPhoneHeader } from "@/components/agenda-phone-header"
@@ -59,6 +60,7 @@ import {
 import { useSession } from "@/lib/auth/session"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
+import { formatDT } from "@/lib/format"
 import type { DoctorDto } from "@/lib/api/clinics"
 import { doctorsApi, type DoctorLeaveDto } from "@/lib/api/doctors"
 import { useClinicLeaves } from "@/lib/hooks/use-doctor-leaves"
@@ -662,9 +664,14 @@ interface AppointmentCalendarProps {
    * away scroll position and flashed the grid empty every time anyone in the clinic touched an appointment.
    */
   reloadToken?: unknown
+  /**
+   * The séances waiting at the desk — appointment id → amount (`seance-au-fauteuil`): the page's one « À encaisser »
+   * read, so a block's mark and the pill cannot disagree. Empty while « Mode discret » hides money.
+   */
+  toCollect?: ReadonlyMap<string, number>
 }
 
-export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, onChanged, doctorId, reloadToken, onViewChange, onNewAppointment, doctorFilter, googleControls }: AppointmentCalendarProps) {
+export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSlotClick, onAppointmentClick, onSelectDay, onChanged, doctorId, reloadToken, onViewChange, onNewAppointment, doctorFilter, googleControls, toCollect }: AppointmentCalendarProps) {
   const { internetReachable } = useConnectivity()
   // `md:` — the same boundary the rest of this feature splits devices at. Declared here rather than beside the
   // scroll refs because the fetch window below reads it: Mois on a phone spans several months, not one grid.
@@ -1804,9 +1811,13 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const bookedActPrefix = canonicalStatus === "Completed" ? "prévu : " : ""
     // The booked slot never moves for a retard; this mark is the only place the agenda states one.
     const lateArrival = appointment.lateArrivalMinutes ?? 0
+    // Waiting at the desk (`seance-au-fauteuil`): the fiche is saved and the money is still to take.
+    const dueAtDesk = toCollect?.get(appointment.id)
     const blockLabel = `${appointment.patientName} · ${format(aptStart, "HH:mm")} · ${durationMinutes} min · ${statusLabel}${
       lateArrival > 0 ? ` · arrivé avec ${lateArrival} min de retard` : ""
-    }${actsSummary ? ` · ${bookedActPrefix}${actsSummary}` : ""}${planSeance ? " · séance d'un devis" : ""}`
+    }${actsSummary ? ` · ${bookedActPrefix}${actsSummary}` : ""}${planSeance ? " · séance d'un devis" : ""}${
+      dueAtDesk !== undefined ? ` · ${formatDT(dueAtDesk)} à encaisser` : ""
+    }`
 
     /*
      * The phone block is a different shape, not the desktop block scaled down.
@@ -1895,6 +1906,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
                 +{lateArrival}
               </span>
             )}
+            {!narrowColumn && dueAtDesk !== undefined && (
+              <Wallet aria-hidden="true" className="size-3 shrink-0 text-warning-ink" />
+            )}
           </span>
           {/* 30, not 40. A 30-minute visit — the default — is exactly 32 px at `HOUR_HEIGHT_PHONE`, so a 40 px
               gate excluded the single most common appointment in the app from ever showing its start time, and
@@ -1974,6 +1988,16 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               className="inline-flex h-4 shrink-0 items-center gap-0.5 rounded-full bg-white/60 px-1 text-2xs font-semibold leading-none tabular-nums text-warning-ink dark:bg-background/50"
             >
               <Clock className="size-2.5" />+{lateArrival}
+            </span>
+          )}
+          {/* « À encaisser » — the séance is waiting at the desk. The amount is in the block's name; at this width a
+              figure would push the patient's name out. */}
+          {!isVerySmall && dueAtDesk !== undefined && (
+            <span
+              aria-hidden="true"
+              className="inline-flex h-4 shrink-0 items-center rounded-full bg-white/60 px-1 text-warning-ink dark:bg-background/50"
+            >
+              <Wallet className="size-2.5" />
             </span>
           )}
           {/* The multi-act signal stays a badge: it is a *count*, so it must not be mistaken for the act's name,

@@ -127,6 +127,11 @@ export interface RecordInstallmentPaymentRequest {
   chequeBankName?: string;
   /** A bare `YYYY-MM-DD` calendar day — see the invoice-side note on why not an ISO instant. */
   chequeDueDate?: string;
+  /**
+   * The fiche de soins this money was taken for — sent by « À encaisser » for a devis séance, so the dentist's later
+   * re-save of that fiche does not take it a second time (`seance-au-fauteuil`).
+   */
+  dentalRecordId?: string;
 }
 
 export const treatmentPlansApi = {

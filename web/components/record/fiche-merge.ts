@@ -79,6 +79,8 @@ export const FICHE_PAYLOAD_SECTION = {
   additionalTreatmentPlanItems: "derived",
   // Sent on create only.
   appointmentId: "derived",
+  // « Terminer la séance » — an instruction for this one press, not a value of the fiche: nothing to reconcile.
+  finishSeance: "derived",
   prescription: "prescription",
 } as const satisfies Record<string, ReconciledPart | "derived">
 
@@ -112,7 +114,9 @@ export function ficheFormValuesOf(record: DentalRecordDto, offeredPlanItemIds: R
     acts: sessionActsOf(record),
     planItemId: link && offeredPlanItemIds.has(link) ? link : null,
     // `formatAmount`, never `String(...)` (J8) — the field accepts the comma form the product prints with.
-    amountPaid: formatAmount(record.amountPaid),
+    // ⚠️ The NOTE's figure when one bills the fiche (`seance-au-fauteuil`): the desk takes the money there now and
+    // nothing writes it back onto the fiche, so the stored « Payé » read 0 on a séance settled at reception.
+    amountPaid: formatAmount(record.collectedOnNote ?? record.amountPaid),
     /*
      * ⚠️ **Hydrated, and the note that used to say « deliberately NOT hydrated » was reasoning from a premise
      * that has since become false.** It argued that what a fiche collected onto a treatment lives on the

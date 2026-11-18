@@ -19,7 +19,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { formatDT, formatDate, formatDateFr, formatDateTime, formatFileSize, quoteFr } from "@/lib/format"
+import { formatDT, formatDate, formatDateFr, formatDateTime, formatFileSize, quoteFr, todayLocalIso } from "@/lib/format"
+import { canRecordFiche, ficheHref } from "@/lib/visits/fiche-door"
 import { CREATABLE_DOCUMENT_TEMPLATES, documentTypeLabel } from "@/lib/documents"
 import {
   ArrowLeft,
@@ -528,7 +529,6 @@ function appointmentVisitState(appointment: AppointmentDto, hasFiche = false) {
     ? parseInt(appointment.duration.split(":")[0]) * 60 + parseInt(appointment.duration.split(":")[1] || "0")
     : 0
   const status = normalizeStatus(appointment.status)
-  const endedAt = new Date(appointment.appointmentDateTime).getTime() + durationMinutes * 60_000
 
   return {
     durationMinutes,
@@ -536,7 +536,8 @@ function appointmentVisitState(appointment: AppointmentDto, hasFiche = false) {
     canRecordVisit:
       status !== "Cancelled"
       && status !== "NoShow"
-      && (status === "Completed" ? !hasFiche : endedAt < Date.now()),
+      // From the visit's day, not from the end of its slot: the fiche is written while the patient is in the chair.
+      && (status === "Completed" ? !hasFiche : canRecordFiche(appointment, todayLocalIso())),
   }
 }
 

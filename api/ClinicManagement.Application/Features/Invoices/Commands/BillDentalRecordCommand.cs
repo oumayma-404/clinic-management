@@ -78,6 +78,13 @@ public class BillDentalRecordCommand : IRequest<Result<DentalRecordBillingResult
     /// two notes would be wired together as a correction that never happened.
     /// </summary>
     public Guid? SupersedesInvoiceId { get; set; }
+
+    /// <summary>
+    /// On a correction, the retired note's payments to re-record on the replacement — with their own date, method and
+    /// cheque — as <see cref="NoteCorrectionCarry"/> decided them pre-commit. Empty otherwise. Whatever is left of
+    /// <see cref="PaidNow"/> once they are counted is new money taken at the chair.
+    /// </summary>
+    public IReadOnlyList<CarriedPayment> CarriedPayments { get; set; } = Array.Empty<CarriedPayment>();
 }
 
 /// <summary>What the patient handed over at the end of the session.</summary>
@@ -184,6 +191,19 @@ public class BillDentalRecordCommandHandler
                 return await TopUpAsync(request, record, patient, billed, cancellationToken);
             }
 
+            // ⚠️ One note per séance (`seance-au-fauteuil`). A note raised from the RDV window (« Facturer cette
+            // consultation ») names the VISIT and no fiche, so the read above cannot see it — and a second note for
+            // the same séance would bill it twice. Refused by name; the remedy is the note that already exists.
+            // A note bound to ANOTHER fiche of the same visit is not in the way: a visit may carry several fiches,
+            // and each bills its own acts.
+            if (record.AppointmentId is { } visitId
+                && await FindVisitOnlyNoteAsync(clinicId, visitId, cancellationToken) is { } visitNote)
+            {
+                return Result<DentalRecordBillingResult>.Failure(
+                    DentalRecordBillingRefusals.SeanceHasNote(visitNote.Number),
+                    DentalRecordBillingRefusals.SeanceHasNoteCode);
+            }
+
             return await RaiseNewNoteAsync(request, record, patient, clinic, clinicId, cancellationToken);
         }
         catch (InvalidOperationException ex)
@@ -199,6 +219,28 @@ public class BillDentalRecordCommandHandler
             _logger.LogError(ex, "Error billing dental record {RecordId}", request.DentalRecordId);
             return Result<DentalRecordBillingResult>.Failure("Erreur lors de la facturation de la fiche de soins.");
         }
+    }
+
+    /// <summary>
+    /// The live note naming this visit and no fiche — the RDV window's « Facturer cette consultation » — or null.
+    /// A visit holds zero or one such note in practice, so each candidate is loaded rather than projected.
+    /// </summary>
+    private async Task<Invoice?> FindVisitOnlyNoteAsync(Guid clinicId, Guid visitId, CancellationToken cancellationToken)
+    {
+        var links = await _invoiceRepository.GetAppointmentLinksAsync(clinicId, new[] { visitId }, cancellationToken);
+        foreach (var link in links.Where(l => l.Status != InvoiceStatus.Cancelled))
+        {
+            var note = await _invoiceRepository.GetByIdAsync(link.InvoiceId, cancellationToken);
+            if (note is { DentalRecordId: null }
+                && note.ClinicId == clinicId
+                && note.Status != InvoiceStatus.Cancelled
+                && note.Lines.All(l => l.DentalRecordId is null))
+            {
+                return note;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -335,16 +377,37 @@ public class BillDentalRecordCommandHandler
         // command, so the link is all that is left to record. It is written on both sides — a cancelled note
         // whose reader cannot reach its replacement is a dead end, and « qu'est-ce qui a remplacé celle-ci » is
         // the first question anyone asks of one.
+        Invoice? superseded = null;
         if (request.SupersedesInvoiceId is { } supersededId)
         {
             invoice.MarkSupersedes(supersededId, "Correction de la séance.");
-            var superseded = await _invoiceRepository.GetByIdAsync(supersededId, cancellationToken);
-            if (superseded is not null && superseded.ClinicId == clinicId && superseded.SupersededByInvoiceId is null)
+            superseded = await _invoiceRepository.GetByIdAsync(supersededId, cancellationToken);
+            if (superseded is not null && superseded.ClinicId != clinicId)
+            {
+                superseded = null;
+            }
+            if (superseded is not null && superseded.SupersededByInvoiceId is null)
             {
                 superseded.MarkSupersededBy(invoice.Id);
                 await _invoiceRepository.UpdateAsync(superseded, cancellationToken);
             }
         }
+
+        // The rows the correction carries (`seance-au-fauteuil`), read off the retired note, where the update command
+        // voided them pre-commit. Only a row that note really holds is carried — an id it does not hold is ignored.
+        var carried = superseded is null
+            ? new List<(Payment Row, decimal Amount)>()
+            : request.CarriedPayments
+                .Select(c => (Row: superseded.Payments.FirstOrDefault(p => p.Id == c.PaymentId), c.Amount))
+                .Where(c => c.Row is not null && c.Amount > 0m)
+                .Select(c => (Row: c.Row!, Amount: InvoiceCalculator.RoundMoney(c.Amount)))
+                .ToList();
+        var carriedTotal = InvoiceCalculator.RoundMoney(carried.Sum(c => c.Amount));
+
+        // What is left of the fiche's « Payé » once the carried rows are counted is new money, taken at the chair.
+        var newMoney = request.PaidNow is null
+            ? 0m
+            : InvoiceCalculator.RoundMoney(Math.Max(0m, request.PaidNow.Amount - carriedTotal));
 
         // One transaction around the whole create → issue → pay chain (see the type remarks).
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
@@ -363,13 +426,22 @@ public class BillDentalRecordCommandHandler
                 {
                     invoice.Issue(number);
 
-                    if (method is { } resolvedMethod)
+                    // The carried rows first, as they were: their date, method, cheque and bank mark. A cheque carried
+                    // as « espèces » would leave « Chèques à encaisser », and one re-dated to the séance would move
+                    // money between two days of la caisse.
+                    foreach (var (row, amount) in carried)
+                    {
+                        invoice.RecordPayment(
+                            amount, row.Method, row.PaidOn, row.SourceInstallmentPaymentId,
+                            row.ToChequeDetails(), row.ToBankedStamp(), row.DentalRecordId);
+                    }
+
+                    if (method is { } resolvedMethod && newMoney > 0m)
                     {
                         // Already bounded above; the aggregate refuses an over-payment too, so a drift between the
                         // pre-check and `Issue`'s own arithmetic surfaces as a rolled-back failure rather than a
                         // wrong total.
-                        invoice.RecordPayment(
-                            request.PaidNow!.Amount, resolvedMethod, paidOn, cheque: cheque);
+                        invoice.RecordPayment(newMoney, resolvedMethod, paidOn, cheque: cheque);
                     }
                 }
                 else
@@ -394,7 +466,12 @@ public class BillDentalRecordCommandHandler
                     {
                         Outcome = DentalRecordBillingOutcome.Billed,
                         Invoice = invoice.ToDto(patient.GetFullName()),
-                        AmountCollected = invoice.AmountCollected
+                        // What this call put in the till: a carried row moved between two notes, it did not arrive.
+                        AmountCollected = InvoiceCalculator.RoundMoney(invoice.AmountCollected - carriedTotal),
+                        Message = carriedTotal > 0m && superseded is not null
+                            ? $"Les paiements déjà reçus ({FormatAmount(carriedTotal)} DT) sont reportés de la note "
+                              + $"n° {superseded.Number} sur la note n° {invoice.Number}."
+                            : null,
                     });
                 }
                 catch (DbUpdateException) when (attempt < MaxNumberingAttempts)
@@ -433,6 +510,10 @@ public class BillDentalRecordCommandHandler
     /// the séance's whole settled total, so bounding that against what the note has *left* to take would refuse
     /// every ordinary « le patient a fini de payer » edit.
     /// </param>
+    /// <summary>Millimes, French decimal comma — what every money sentence in the product prints.</summary>
+    private static string FormatAmount(decimal amount) =>
+        amount.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture).Replace('.', ',');
+
     private static Result<(PaymentMethod Method, DateTime PaidOn, ChequeDetails? Cheque)> ResolvePayment(
         BillDentalRecordCommand request, DentalRecord record, decimal amount, decimal collectable)
     {

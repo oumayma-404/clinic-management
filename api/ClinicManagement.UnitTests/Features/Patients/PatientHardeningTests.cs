@@ -300,8 +300,14 @@ public class GetDentalRecordsQueryHandlerTests
     /// </summary>
     private readonly Mock<IMedicalDocumentRepository> _medicalDocuments = new();
 
+    /// <summary>The séance's note, read for « Payé » (`seance-au-fauteuil`). Empty for <c>_plans</c>' reason.</summary>
+    private readonly Mock<IInvoiceRepository> _invoices = new();
+
     private GetDentalRecordsQueryHandler Handler()
     {
+        _invoices.Setup(r => r.GetByPatientIdsAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Invoice>());
         _plans.Setup(r => r.GetCollectedByDentalRecordAsync(
                 It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<DentalRecordCollectedRow>());
@@ -310,7 +316,7 @@ public class GetDentalRecordsQueryHandlerTests
                 It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<MedicalDocument>());
         return new(
-            _dentalRecords.Object, _patients.Object, _plans.Object, _medicalDocuments.Object,
+            _dentalRecords.Object, _patients.Object, _plans.Object, _medicalDocuments.Object, _invoices.Object,
             _clinicResolver.Object);
     }
 

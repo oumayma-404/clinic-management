@@ -67,7 +67,8 @@ public class ClinicalRecordTenantIsolationTests
         // unstubbed mocks are right here and their absence is itself part of what this asserts.
         var handler = new GetDentalRecordsQueryHandler(
             records.Object, _patients.Object, new Mock<ITreatmentPlanRepository>().Object,
-            new Mock<IMedicalDocumentRepository>().Object, _clinicResolver.Object);
+            new Mock<IMedicalDocumentRepository>().Object, new Mock<IInvoiceRepository>().Object,
+            _clinicResolver.Object);
 
         var result = await handler.Handle(
             new GetDentalRecordsQuery { PatientId = _foreignPatient.Id }, CancellationToken.None);

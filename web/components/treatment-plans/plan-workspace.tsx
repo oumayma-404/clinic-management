@@ -118,6 +118,7 @@ import { PlanTimeline } from "./plan-timeline"
 import { seanceCountLabel } from "./plan-act-pips"
 import { InstallmentPaymentModal } from "./installment-payment-modal"
 import { ReviseInstallmentsModal } from "./revise-installments-modal"
+import { ficheHref } from "@/lib/visits/fiche-door"
 import { VoidInstallmentPayment } from "./void-installment-payment"
 import { SettlePlanModal } from "./settle-plan-modal"
 import { TreatmentPlanFormModal } from "./treatment-plan-form-modal"
@@ -1593,7 +1594,7 @@ export function PlanWorkspace({ plan, onChanged }: PlanWorkspaceProps) {
             kind: "record",
             label: `Enregistrer la fiche : ${step?.label ?? nextAct.designationFr}`,
             icon: FilePlus2,
-            run: () => router.push(`/patients/${plan.patientId}?addRecord=1&appointmentId=${appointmentId}`),
+            run: () => router.push(ficheHref(plan.patientId, appointmentId)),
           }
         }
         return null

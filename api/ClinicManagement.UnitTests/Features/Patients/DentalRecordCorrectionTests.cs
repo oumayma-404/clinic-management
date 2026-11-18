@@ -121,6 +121,27 @@ public class DentalRecordCorrectionTests
             return invoice;
         }
 
+        /// <summary>A live note holding several payments — the chair's and the desk's (`seance-au-fauteuil`).</summary>
+        public Invoice GiveItANoteWithPayments(
+            decimal total,
+            params (decimal Amount, PaymentMethod Method, DateTime On, ChequeDetails? Cheque)[] payments)
+        {
+            var invoice = new Invoice(Guid.NewGuid(), ClinicId, Patient.Id, dentalRecordId: Record.Id);
+            invoice.SetLines(new[] { ("Soin de carie / obturation", 2, total / 2m, (Guid?)Record.Id) });
+            invoice.Issue("2026-0073");
+            foreach (var payment in payments)
+            {
+                invoice.RecordPayment(payment.Amount, payment.Method, payment.On, cheque: payment.Cheque);
+            }
+
+            Invoices.Setup(r => r.GetDentalRecordLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[] { (Record.Id, invoice.Id, (string?)"2026-0073", invoice.Status) });
+            Invoices.Setup(r => r.GetByIdAsync(invoice.Id, It.IsAny<CancellationToken>())).ReturnsAsync(invoice);
+
+            Note = invoice;
+            return invoice;
+        }
+
         /// <summary>
         /// Read only so the linker can answer « which steps did this séance carry out? ». Unstubbed, so
         /// `GetByIdAsync` returns null and the linker falls through to the named step — which is this
@@ -142,7 +163,15 @@ public class DentalRecordCorrectionTests
         public Mock<IDoctorRepository> Doctors { get; } = new();
 
         /// <inheritdoc cref="MedicalDocuments"/>
-        public Mock<IClinicContext> Context { get; } = new();
+        // A doctor, by default: a correction cancels payments, which the fiche allows a doctor or an admin only.
+        public Mock<IClinicContext> Context { get; } = DoctorContext();
+
+        private static Mock<IClinicContext> DoctorContext()
+        {
+            var context = new Mock<IClinicContext>();
+            context.Setup(c => c.GetUserRole()).Returns(User.RoleDoctor);
+            return context;
+        }
 
         /// <summary>Consulted by `TreatmentPlanStepProtocol` for an act added to the devis from the fiche.</summary>
         public Mock<IProcedureTypeRepository> ProcedureTypes { get; } = new();
@@ -151,7 +180,8 @@ public class DentalRecordCorrectionTests
             Records.Object, Patients.Object, ToothStates.Object, Plans.Object, ProcedureTypes.Object,
             Appointments.Object, Invoices.Object,
             CreditNotes.Object, MedicalDocuments.Object, Clinics.Object, Doctors.Object, Context.Object,
-            Resolver.Object, Uow.Object, Stock.Object, Sender.Object,
+            Resolver.Object, Uow.Object, Stock.Object, new Mock<INotificationGenerator>().Object,
+            new Mock<IRealtimeNotifier>().Object, Sender.Object,
             NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 
         public UpdateDentalRecordCommand Command(decimal cost, decimal paid, DateTime? on = null,
@@ -212,6 +242,25 @@ public class DentalRecordCorrectionTests
     }
 
     // ── the correction ────────────────────────────────────────────────────────────────────────────────
+
+    // [seance-au-fauteuil] A correction cancels every payment on the note, the secretary's included — the note's
+    // own « Corriger » is AdminOrDoctor, and the fiche (open to reception) must not be a way around it.
+    [Fact]
+    public async Task A_Secretary_Cannot_Correct_The_Note_From_The_Fiche()
+    {
+        var h = new Harness();
+        h.Context.Setup(c => c.GetUserRole()).Returns(User.RoleSecretary);
+        var note = h.GiveItANote();
+
+        var result = await h.Handler().Handle(
+            h.Command(cost: 150m, paid: 150m, correctionReason: "Erreur de tarif"), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(UpdateDentalRecordCommandHandler.CorrectionRequiresDoctorCode, result.Code);
+        Assert.Equal(InvoiceStatus.Paid, note.Status);
+        Assert.False(note.Payments.Single().IsVoided);
+        h.Uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
 
     [Fact]
     public async Task Correcting_Voids_The_Payment_And_Cancels_The_Note()
@@ -274,6 +323,106 @@ public class DentalRecordCorrectionTests
 
         Assert.True(result.IsSuccess);
         Assert.True(Assert.Single(h.Billed).IsAutomatic);
+    }
+
+    // ── seance-au-fauteuil: the correction carries the desk's money instead of voiding it ───────────────
+
+    // The desk took a cheque on the note, then the dentist corrected the acts. Every row is planned for the
+    // replacement in the order it came — the cheque stays a cheque, nothing is voided into nothing.
+    [Fact]
+    public async Task A_Correction_Carries_The_Desk_Payments_In_The_Order_They_Came()
+    {
+        var h = new Harness();
+        var deskCheque = ChequeDetails.For(PaymentMethod.Cheque, "4512873", "BIAT", Intervention.AddDays(15));
+        var note = h.GiveItANoteWithPayments(
+            180m,
+            (100m, PaymentMethod.Cash, Intervention, null),
+            (80m, PaymentMethod.Cheque, Intervention.AddDays(1), deskCheque));
+
+        var result = await h.Handler().Handle(
+            h.Command(cost: 200m, paid: 180m, correctionReason: "Erreur de tarif"), CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.All(note.Payments, p => Assert.True(p.IsVoided));
+        Assert.Equal(InvoiceStatus.Cancelled, note.Status);
+        var rebill = Assert.Single(h.Billed);
+        Assert.Equal(
+            note.Payments.OrderBy(p => p.PaidOn).Select(p => (p.Id, p.Amount)).ToList(),
+            rebill.CarriedPayments.Select(c => (c.PaymentId, c.Amount)).ToList());
+    }
+
+    // « Le patient n'a pas payé » — the correction's original purpose. Nothing is carried: the money was never
+    // received, and the replacement is issued unpaid.
+    [Fact]
+    public async Task Correcting_To_Nothing_Paid_Carries_Nothing()
+    {
+        var h = new Harness();
+        var note = h.GiveItANote();
+
+        var result = await h.Handler().Handle(
+            h.Command(cost: 180m, paid: 0m, correctionReason: "Le patient n'a pas payé"), CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.True(note.Payments.Single().IsVoided);
+        Assert.Empty(Assert.Single(h.Billed).CarriedPayments);
+    }
+
+    // A deposited cheque is at the bank: a correction that would void it is refused before anything is written.
+    [Fact]
+    public async Task A_Deposited_Cheque_The_Correction_Would_Drop_Is_Refused()
+    {
+        var h = new Harness();
+        var note = h.GiveItANote(
+            method: PaymentMethod.Cheque,
+            cheque: ChequeDetails.For(PaymentMethod.Cheque, "4512873", "BIAT", Intervention.AddDays(15)),
+            banked: ChequeBankedStamp.For(PaymentMethod.Cheque, Intervention.AddDays(2), "local|abc", "Dr B"));
+
+        var result = await h.Handler().Handle(
+            h.Command(cost: 180m, paid: 0m, correctionReason: "Erreur"), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.PaymentBankedCode, result.Code);
+        Assert.False(note.Payments.Single().IsVoided);
+        Assert.NotEqual(InvoiceStatus.Cancelled, note.Status);
+        h.Uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Empty(h.Billed);
+    }
+
+    // Carried in full, the same deposited cheque moves with its bank mark, so it does not block the correction.
+    [Fact]
+    public async Task A_Deposited_Cheque_Carried_In_Full_Does_Not_Block_The_Correction()
+    {
+        var h = new Harness();
+        var note = h.GiveItANote(
+            method: PaymentMethod.Cheque,
+            cheque: ChequeDetails.For(PaymentMethod.Cheque, "4512873", "BIAT", Intervention.AddDays(15)),
+            banked: ChequeBankedStamp.For(PaymentMethod.Cheque, Intervention.AddDays(2), "local|abc", "Dr B"));
+
+        var result = await h.Handler().Handle(
+            h.Command(cost: 200m, paid: 180m, correctionReason: "Erreur de tarif"), CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        var carried = Assert.Single(Assert.Single(h.Billed).CarriedPayments);
+        Assert.Equal(note.Payments.Single().Id, carried.PaymentId);
+        Assert.Equal(180m, carried.Amount);
+    }
+
+    // A note attached to a devis is the treatment's as much as this fiche's: a replacement raised from here would be
+    // attached to nothing, and the devis would come back into every balance. Refused, nothing written.
+    [Fact]
+    public async Task A_Note_Carrying_A_Treatment_Is_Not_Corrected_From_The_Fiche()
+    {
+        var h = new Harness();
+        var note = h.GiveItANote();
+        note.AttachToTreatmentPlan(Guid.NewGuid());
+
+        var result = await h.Handler().Handle(
+            h.Command(cost: 200m, paid: 180m, correctionReason: "Erreur de tarif"), CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.NoteCarriesTreatmentCode, result.Code);
+        Assert.False(note.Payments.Single().IsVoided);
+        h.Uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // ── L4: the séance's date carries its money ───────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPut } from './client';
 import type {
+  SeanceToCollectDto,
   AppointmentDto,
   FreeSlotsDto,
   RecurringAppointmentDto,
@@ -124,6 +125,14 @@ export const appointmentsApi = {
     },
   ): Promise<VisitsToCloseResponse> =>
     apiGet<VisitsToCloseResponse>('/appointments/to-close', params),
+
+  /**
+   * « À encaisser » (`seance-au-fauteuil`): the day's séances whose fiche is saved and whose money the desk still has to
+   * take — the amount is the server's (the fiche's total, the note's balance), never summed here. `day` is a
+   * clinic-local `YYYY-MM-DD`, today by default. ⚠️ 403 while « Mode discret » hides money.
+   */
+  toCollect: (day?: string): Promise<SeanceToCollectDto[]> =>
+    apiGet<SeanceToCollectDto[]>('/appointments/to-collect', day ? { day } : undefined),
 
   /**
    * « Retirer de la liste » — take séances off « À clôturer » without claiming anything clinical about them,

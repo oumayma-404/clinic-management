@@ -140,6 +140,7 @@ public class MoneyMaskGateMiddlewareTests
     /// <summary>The spec's « Refused while hidden » list, keyed <c>Controller.Action</c>.</summary>
     private static readonly HashSet<string> ExpectedMarked = new()
     {
+        "Appointments.GetSeancesToCollect",
         "Billing.ExportReceivables",
         "Billing.ExportCaisseLedger",
         "Billing.GetReceivables",

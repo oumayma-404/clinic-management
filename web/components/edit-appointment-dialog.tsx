@@ -40,6 +40,7 @@ import {
 } from "@/components/appointment-merge"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { canRecordFiche, ficheHref } from "@/lib/visits/fiche-door"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -71,9 +72,11 @@ import {
   type SelectedAct,
 } from "@/components/appointment-acts-picker"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
-import { formatAmount, quoteFr } from "@/lib/format"
+import { formatAmount, formatDT, localDayIso, quoteFr, todayLocalIso } from "@/lib/format"
 import { toast } from "sonner"
-import type { AppointmentDto, ContinuableActDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
+import type { AppointmentDto, ContinuableActDto, ProcedureTypeDto, SeanceToCollectDto, TreatmentPlanDto } from "@/lib/api/types"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
+import { useSeanceCollection } from "@/components/visits/use-seance-collection"
 import { ApiError } from "@/lib/api/client"
 import type { PlanStepSuggestion } from "@/components/treatment-plans/plan-next-action"
 import {
@@ -296,6 +299,36 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    */
   const [refreshed, setRefreshed] = useState<AppointmentDto | null>(null)
   const source = refreshed ?? appointment
+
+  /*
+   * « À encaisser » for THIS séance (`seance-au-fauteuil`): the dentist saved the fiche with « Payé » empty, so the
+   * desk takes the money here. The row is the server's (the fiche's total, or the note's balance) — the same read
+   * as the agenda's « À encaisser », so the two cannot disagree. Hidden while « Mode discret » hides money.
+   */
+  const { moneyShown } = useMoneyVisibility()
+  const [collectRow, setCollectRow] = useState<SeanceToCollectDto | null>(null)
+  const collectDay = source?.appointmentDateTime ? localDayIso(source.appointmentDateTime) : ""
+  const collectVisitId = source?.patientId ? source.id : null
+  const loadCollectRow = useCallback(async () => {
+    if (!open || !moneyShown || !collectVisitId || !collectDay) {
+      setCollectRow(null)
+      return
+    }
+    try {
+      const rows = await appointmentsApi.toCollect(collectDay)
+      setCollectRow(rows.find((row) => row.appointmentId === collectVisitId) ?? null)
+    } catch {
+      // No row rather than a wrong one: the line below falls back to what the visit itself says.
+      setCollectRow(null)
+    }
+  }, [open, moneyShown, collectVisitId, collectDay])
+  useEffect(() => {
+    void loadCollectRow()
+  }, [loadCollectRow])
+  const collection = useSeanceCollection(() => {
+    void loadCollectRow()
+    onSuccess?.()
+  })
 
   // ⚠️ Loaded through the SHARED hook, not an effect of its own. The create dialog needs the same three
   // derivations — the acts, which devis each belongs to, and the one to suggest — and a second copy of
@@ -1195,6 +1228,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 {/* « Signaler l'arrivée » is the first thing reception does with today's visit: a real button here,
                     not an entry in the « ⋯ » menu (owner's call, 2026-10-15). */}
                 {arrival.control && <ArrivalButton control={arrival.control} className="basis-full sm:basis-auto" />}
+                {/* The fiche of THIS visit, written while the patient is in the chair (`seance-au-fauteuil`): it
+                    opens the visit's existing fiche when there is one, a new one otherwise. */}
+                {canRecordFiche(source, todayLocalIso()) && (
+                  <Button asChild variant="outline" size="sm" className="basis-full sm:basis-auto coarse:min-h-11">
+                    <Link href={ficheHref(source.patientId, source.id)}>Fiche de soins</Link>
+                  </Button>
+                )}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Créneau occupé — aucun patient</p>
@@ -1506,7 +1546,27 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             {source?.patientId && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t pt-3 text-sm">
                 <Receipt className="h-4 w-4 shrink-0 text-muted-foreground" />
-                {source.invoiceId ? (
+                {collectRow && collectRow.kind !== "DraftNote" ? (
+                  <>
+                    <span className="font-medium">À encaisser</span>
+                    <span className="font-semibold tabular-nums">{formatDT(collectRow.amountDue)}</span>
+                    {collectRow.invoiceNumber && (
+                      <span className="text-muted-foreground">· note n° {collectRow.invoiceNumber}</span>
+                    )}
+                    {collectRow.kind === "Treatment" && collectRow.treatmentPlanNumber && (
+                      <span className="text-muted-foreground">· devis n° {collectRow.treatmentPlanNumber}</span>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 coarse:min-h-11"
+                      onClick={() => void collection.collect(collectRow)}
+                      disabled={loading || collection.opening !== null}
+                    >
+                      Encaisser
+                    </Button>
+                  </>
+                ) : source.invoiceId ? (
                   <>
                     <span className="font-medium">Facturé</span>
                     <span className="text-muted-foreground">
@@ -1666,6 +1726,8 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
           Rendered as a sibling of the dialog rather than inside it — nesting a Dialog inside a Dialog fights
           over the focus trap. */}
       {source?.patientId && (
+        <>
+        {collection.dialogs}
         <InvoiceFormModal
           open={billingOpen}
           onOpenChange={setBillingOpen}
@@ -1678,6 +1740,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             onSuccess?.()
           }}
         />
+        </>
       )}
 
       {arrival.dialog}

@@ -1,9 +1,11 @@
 using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.Common.Models;
+using ClinicManagement.Application.Features.Invoices;
 using ClinicManagement.Application.Features.Invoices.Commands;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Enums;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.ValueObjects;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -61,6 +63,101 @@ public class BillDentalRecordSupersedeTests
         invoice.Cancel("Erreur de tarif");
         _invoices.Setup(r => r.GetByIdAsync(invoice.Id, It.IsAny<CancellationToken>())).ReturnsAsync(invoice);
         return invoice;
+    }
+
+    /// <summary>
+    /// A retired note that held the chair's cash and the desk's cheque — both voided by the correction
+    /// (`seance-au-fauteuil`).
+    /// </summary>
+    private (Invoice Note, Payment Cash, Payment Cheque) RetiredNoteWithDeskCheque(Guid recordId)
+    {
+        var invoice = new Invoice(Guid.NewGuid(), ClinicId, PatientId, dentalRecordId: recordId);
+        invoice.SetLines(new[] { ("Soin de carie / obturation", 2, 90m) });
+        invoice.Issue("2026-0073");
+        invoice.RecordPayment(100m, PaymentMethod.Cash, InterventionDate);
+        invoice.RecordPayment(
+            50m, PaymentMethod.Cheque, InterventionDate.AddDays(1),
+            cheque: ChequeDetails.For(PaymentMethod.Cheque, "4512873", "BIAT", InterventionDate.AddDays(20)));
+        var cash = invoice.Payments.Single(p => p.Method == PaymentMethod.Cash);
+        var cheque = invoice.Payments.Single(p => p.Method == PaymentMethod.Cheque);
+        foreach (var payment in invoice.Payments.ToList())
+        {
+            invoice.VoidPayment(payment.Id, "Erreur de tarif", creditedTotal: 0m);
+        }
+        invoice.Cancel("Erreur de tarif");
+        _invoices.Setup(r => r.GetByIdAsync(invoice.Id, It.IsAny<CancellationToken>())).ReturnsAsync(invoice);
+        return (invoice, cash, cheque);
+    }
+
+    private Task<Result<DentalRecordBillingResult>> BillCorrection(
+        DentalRecord record, Guid supersedes, decimal paid, params CarriedPayment[] carried) =>
+        CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                IsAutomatic = false,
+                SupersedesInvoiceId = supersedes,
+                PaidNow = new DentalRecordPaymentRequest { Amount = paid, Method = "Cash" },
+                CarriedPayments = carried,
+            },
+            CancellationToken.None);
+
+    // The desk's cheque lands on the replacement as the same cheque — number, bank, the day it was handed in — and
+    // the chair's cash keeps its own day. La caisse nets to zero: nothing new reached the till.
+    [Fact]
+    public async Task The_Replacement_Re_Records_The_Carried_Payments_As_They_Were()
+    {
+        var record = RecordFixture();
+        Arrange(record);
+        var (retired, cash, cheque) = RetiredNoteWithDeskCheque(record.Id);
+
+        var result = await BillCorrection(
+            record, retired.Id, 150m, new CarriedPayment(cash.Id, 100m), new CarriedPayment(cheque.Id, 50m));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(2, _saved!.Payments.Count);
+        var carriedCheque = Assert.Single(_saved.Payments, p => p.Method == PaymentMethod.Cheque);
+        Assert.Equal(50m, carriedCheque.Amount);
+        Assert.Equal(InterventionDate.AddDays(1), carriedCheque.PaidOn);
+        Assert.Equal("4512873", carriedCheque.ChequeNumber);
+        Assert.Equal("BIAT", carriedCheque.ChequeBankName);
+        var carriedCash = Assert.Single(_saved.Payments, p => p.Method == PaymentMethod.Cash);
+        Assert.Equal(100m, carriedCash.Amount);
+        Assert.Equal(InterventionDate, carriedCash.PaidOn);
+        Assert.Equal(150m, _saved.AmountCollected);
+        Assert.Equal(0m, result.Value!.AmountCollected);
+        Assert.Contains("reportés", result.Value.Message);
+    }
+
+    // What the corrected « Payé » holds beyond the carried rows is new money taken at the chair, recorded once.
+    [Fact]
+    public async Task Money_Beyond_The_Carry_Is_Recorded_Once_As_New()
+    {
+        var record = RecordFixture();
+        Arrange(record);
+        var (retired, cash, _) = RetiredNoteWithDeskCheque(record.Id);
+
+        var result = await BillCorrection(record, retired.Id, 150m, new CarriedPayment(cash.Id, 100m));
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(2, _saved!.Payments.Count);
+        Assert.Equal(150m, _saved.AmountCollected);
+        Assert.Equal(50m, result.Value!.AmountCollected);
+    }
+
+    // An id the retired note does not hold is ignored, never trusted: the carry is read off that note.
+    [Fact]
+    public async Task A_Carried_Id_The_Retired_Note_Does_Not_Hold_Is_Ignored()
+    {
+        var record = RecordFixture();
+        Arrange(record);
+        var (retired, _, _) = RetiredNoteWithDeskCheque(record.Id);
+
+        var result = await BillCorrection(record, retired.Id, 150m, new CarriedPayment(Guid.NewGuid(), 100m));
+
+        Assert.True(result.IsSuccess, result.Error);
+        var payment = Assert.Single(_saved!.Payments);
+        Assert.Equal(150m, payment.Amount);
     }
 
     private void Arrange(DentalRecord record)

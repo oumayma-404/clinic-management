@@ -232,7 +232,8 @@ public class TreatmentPlanTenantIsolationTests
         var installmentId = foreign.Installments.First().Id;
 
         var handler = new RecordInstallmentPaymentCommandHandler(
-            _plans.Object, _invoices.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+            _plans.Object, _invoices.Object, _patients.Object, new Mock<IDentalRecordRepository>().Object,
+            _clinicResolver.Object, _uow.Object,
             NullLogger<RecordInstallmentPaymentCommandHandler>.Instance);
 
         var result = await handler.Handle(

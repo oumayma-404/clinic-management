@@ -58,6 +58,11 @@ export interface CreateDentalRecordRequest {
   amountCollectedOnPlan?: number;
   // Optional: the appointment this record documents — completes it + dismisses its post-visit prompt.
   appointmentId?: string | null;
+  /**
+   * « Terminer la séance » — the visit becomes « Terminé » now. Absent or false, the server decides by the clock:
+   * a fiche saved while its séance is still running leaves the visit « En cours » (`FicheVisitCompletion`).
+   */
+  finishSeance?: boolean;
 
   /**
    * What was prescribed at this séance — médicaments and/or examens. Becomes the séance's own **ordonnance**

@@ -1,4 +1,4 @@
-using ClinicManagement.Application.Common.Interfaces;
+﻿using ClinicManagement.Application.Common.Interfaces;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
@@ -118,10 +118,14 @@ public static class FicheOrdonnanceEmitter
             cancellationToken);
 
         return new FicheOrdonnanceResult(
-            ordonnance.DocumentId,
+            ordonnance.Document?.Id,
             ordonnance.Summary,
-            demande.DocumentId,
-            demande.Summary);
+            demande.Document?.Id,
+            demande.Summary)
+        {
+            Document = ordonnance.Document,
+            ExamensDocument = demande.Document,
+        };
     }
 
     /// <summary>
@@ -152,7 +156,7 @@ public static class FicheOrdonnanceEmitter
     /// One document's half of the save. Identical logic for both types; what differs is the content shape,
     /// which <see cref="ComposeAsync"/> owns.
     /// </summary>
-    private static async Task<(Guid? DocumentId, IReadOnlyList<string> Summary)> EmitOneAsync(
+    private static async Task<(MedicalDocument? Document, IReadOnlyList<string> Summary)> EmitOneAsync(
         string documentType,
         IReadOnlyList<PrescriptionLineInput> lines,
         uint expectedVersion,
@@ -172,7 +176,7 @@ public static class FicheOrdonnanceEmitter
         {
             // Nothing prescribed of this kind. An existing document is deliberately untouched — see the type
             // remark — and its summary is read back off what it actually says.
-            return (existing?.Id, existing is null ? Array.Empty<string>() : SummaryOf(documentType, existing.ContentJson));
+            return (existing, existing is null ? Array.Empty<string>() : SummaryOf(documentType, existing.ContentJson));
         }
 
         var composed = await ComposeAsync(
@@ -208,11 +212,11 @@ public static class FicheOrdonnanceEmitter
             unitOfWork.SetExpectedVersion(existing, expectedVersion);
             existing.Update(record.InterventionDate, composed.Document.ContentJson);
             await documents.UpdateAsync(existing, cancellationToken);
-            return (existing.Id, composed.Summary);
+            return (existing, composed.Summary);
         }
 
         await documents.AddAsync(composed.Document, cancellationToken);
-        return (composed.Document.Id, composed.Summary);
+        return (composed.Document, composed.Summary);
     }
 
     /// <summary>
@@ -434,4 +438,13 @@ public sealed record FicheOrdonnanceResult(
     /// </summary>
     public static readonly FicheOrdonnanceResult None = new(
         null, Array.Empty<string>(), null, Array.Empty<string>());
+
+    /// <summary>
+    /// The ordonnance itself, as this save left it — read for its <c>Version</c> <b>after</b> the commit, so a
+    /// fiche kept open after « Enregistrer » can save again without a 409 against its own last save.
+    /// </summary>
+    public MedicalDocument? Document { get; init; }
+
+    /// <summary>The demande d'examens, read after the commit for the same reason as <see cref="Document"/>.</summary>
+    public MedicalDocument? ExamensDocument { get; init; }
 }

@@ -20,6 +20,7 @@ import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import type { DentalRecordDto } from "@/lib/api/types"
 import { PAYMENT_METHODS, paymentMethodLabel } from "./invoice-labels"
+import { CHEQUE_METHOD, ChequeFields, EMPTY_CHEQUE_FIELDS, chequePaymentFields, type ChequeFieldsValue } from "./cheque-fields"
 
 /**
  * « Facturer cette intervention » — raise the note d'honoraires for a fiche de soins and, optionally, record the
@@ -54,6 +55,9 @@ export function BillDentalRecordDialog({
   const [collectNow, setCollectNow] = useState(true)
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState<string>("Cash")
+  // The desk takes cheques as often as cash; without these fields a cheque landed with no number, no bank and no
+  // date — absent from « Chèques à encaisser » (`seance-au-fauteuil`).
+  const [cheque, setCheque] = useState<ChequeFieldsValue>(EMPTY_CHEQUE_FIELDS)
   const [paidOn, setPaidOn] = useState(todayLocalIso())
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -74,6 +78,7 @@ export function BillDentalRecordDialog({
     // editable for a part-payment.
     setAmount(record.cost > 0 ? formatAmount(record.cost) : "")
     setMethod("Cash")
+    setCheque(EMPTY_CHEQUE_FIELDS)
     // The session's own date, not today: a fiche recorded two days late was paid on the day it happened, and
     // booking that cash to today puts it in the wrong day's caisse.
     setPaidOn((record.interventionDate ?? "").slice(0, 10) || todayLocalIso())
@@ -84,14 +89,15 @@ export function BillDentalRecordDialog({
     if (!record) return
     setError(null)
 
-    let paidNow: { amount: number; method: string; paidOn: string } | null = null
+    let paidNow: Parameters<typeof invoicesApi.createFromDentalRecord>[1] = null
     if (collectNow) {
       const parsed = parseAmountInput(amount)
       if (!Number.isFinite(parsed) || parsed <= 0) {
         setError("Saisissez un montant encaissé supérieur à 0, ou décochez « Encaisser maintenant ».")
         return
       }
-      paidNow = { amount: parsed, method, paidOn }
+      // The one cheque builder: it clears the three fields unless the method is a cheque.
+      paidNow = { amount: parsed, method, paidOn, ...chequePaymentFields(method, cheque) }
     }
 
     try {
@@ -236,6 +242,9 @@ export function BillDentalRecordDialog({
                 />
               </div>
             </div>
+          )}
+          {collectNow && method === CHEQUE_METHOD && (
+            <ChequeFields idPrefix="bill-record" value={cheque} onChange={setCheque} disabled={submitting} />
           )}
         </div>
 

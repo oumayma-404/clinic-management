@@ -1,0 +1,147 @@
+{
+  "results": [
+    {
+      "id": "A1",
+      "outcome": "❌",
+      "m": "threw locator.waitFor: Timeout 10000ms exceeded."
+    },
+    {
+      "id": "A2",
+      "outcome": "✅",
+      "m": "footer « Enregistrer » + « Terminer la séance — 40,000 DT »; « Payé » empty"
+    },
+    {
+      "id": "A3",
+      "outcome": "✅",
+      "m": "stays open (« Enregistré à 19:47 »); 1 fiche; visit InProgress"
+    },
+    {
+      "id": "A4",
+      "outcome": "✅",
+      "m": "saved, fetched the PDF, print() called once; ordonnance 7daa17d1…; still 1 fiche"
+    },
+    {
+      "id": "A5",
+      "outcome": "✅",
+      "m": "closed; visit Completed; no note (Payé empty)"
+    },
+    {
+      "id": "A6",
+      "outcome": "✅",
+      "m": "row « Fauteuil Un1846 19:36 · à facturer 40,000 DT Encaisser »"
+    },
+    {
+      "id": "A7",
+      "outcome": "✅",
+      "m": "note + cheque: 2026-0789|3|40.000|7781234|BIAT; pill 9 → 8 without a reload"
+    },
+    {
+      "id": "A8",
+      "outcome": "✅",
+      "m": "« Payé » = 40,000 (desk money); re-save added nothing (1 live payment)"
+    },
+    {
+      "id": "B1",
+      "outcome": "✅",
+      "m": "« Tout payé » = 40,000; note paid at the chair (3|40.000)"
+    },
+    {
+      "id": "B2",
+      "outcome": "✅",
+      "m": "refused 400: Cette séance a déjà un brouillon de note d'honoraires, créé depuis son rendez-vous : émettez-le depuis les factures du patient, puis encaissez dessus."
+    },
+    {
+      "id": "B3",
+      "outcome": "✅",
+      "m": "« Fauteuil Trois1846 19:31 · note en brouillon, à émettre 40,000 DT Ouvrir les factures » → /patients/0483ba17-45a0-4e4b-a0af-de42a9e6c96c?tab=invoices"
+    },
+    {
+      "id": "B4",
+      "outcome": "✅",
+      "m": "refused 400 for the desk"
+    },
+    {
+      "id": "B5",
+      "outcome": "✅",
+      "m": "old note cancelled; new note carries the cheque — 2026-0791|2|7781234:40.000:2026-11-18"
+    },
+    {
+      "id": "B7",
+      "outcome": "✅",
+      "m": "« Fauteuil Quatre1846 19:26 · échéance du devis n° 2026-0957 100,000 DT Encaisser » → payment 100.000|f78544ea-e574-4a92-9cb1-0b2b588116f6"
+    },
+    {
+      "id": "C1",
+      "outcome": "✅",
+      "m": "320px: no overflow; save + « Tout payé » in view"
+    },
+    {
+      "id": "C1",
+      "outcome": "✅",
+      "m": "390px: no overflow; save + « Tout payé » in view"
+    },
+    {
+      "id": "C2",
+      "outcome": "✅",
+      "m": "1536×730: the save button is on screen without scrolling"
+    },
+    {
+      "id": "C3",
+      "outcome": "✅",
+      "m": "390px: list as a sheet, action in view"
+    },
+    {
+      "id": "C4",
+      "outcome": "✅",
+      "m": "after 4 saves: 1 act « Consultation / examen bucco-dentaire » 50"
+    },
+    {
+      "id": "D1",
+      "outcome": "✅",
+      "m": "draft-only séance asks « Émettre la note » → /patients/0a6155e4-78a8-4fac-b3bf-1b5ec5104c8e?tab=invoices"
+    },
+    {
+      "id": "D2",
+      "outcome": "✅",
+      "m": "« Remplir la fiche de soins » → /patients/d4581fc9-e3b6-4a32-ab93-17b429e3e24f?addRecord=1&appointmentId=f29cdaeb-5fd7-4db9-bfe8-ba5777a39890"
+    },
+    {
+      "id": "D3",
+      "outcome": "✅",
+      "m": "RDV window: « Fiche de soins » + « À encaisser 10,000 DT · note n° … »"
+    },
+    {
+      "id": "D4",
+      "outcome": "✅",
+      "m": "preview → « Imprimer »: PDF fetched, print() called once"
+    },
+    {
+      "id": "D5",
+      "outcome": "✅",
+      "m": "note 2026-0791 PDF « Imprimer »: print() called once"
+    },
+    {
+      "id": "D6",
+      "outcome": "✅",
+      "m": "« Au fauteuil » opens /patients/81c437d8-ccdd-4d0a-9128-35cce6319dcd?addRecord=1&appointmentId=57ae5473-bc3c-4d6b-9324-1eba105b4f64"
+    },
+    {
+      "id": "D7",
+      "outcome": "✅",
+      "m": "mid-séance fiche left it Scheduled; the job completed it after 19:48:00"
+    },
+    {
+      "id": "B6",
+      "outcome": "✅",
+      "m": "Mode discret: to-collect 403, no pill"
+    }
+  ],
+  "findings": [
+    {
+      "id": "A1",
+      "m": "threw",
+      "d": "locator.waitFor: Timeout 10000ms exceeded."
+    }
+  ],
+  "stamp": "1846"
+}
