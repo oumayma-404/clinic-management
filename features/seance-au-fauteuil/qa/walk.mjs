@@ -230,7 +230,8 @@ let fiche3 = null
 try {
   const draft = await doc.ok("POST", "/invoices", {
     patientId: P3.id, appointmentId: V3.id,
-    lines: [{ designation: act.name, quantity: 1, unitPriceHt: tarif }],
+    // Typed for LESS than the work recorded: the fiche makes the note, so its amount is what is billed.
+    lines: [{ designation: act.name, quantity: 1, unitPriceHt: tarif - 5 }],
   })
   draftNoteId = draft.id
   const r = await doc.call("POST", `/patients/${P3.id}/dental-records`, { patientId: P3.id, ...ficheBody(V3, tarif) })
@@ -239,11 +240,12 @@ try {
 } catch (e) { console.log(`  arrange V3 failed: ${e.message}`) }
 
 // V5 (yesterday, ended): a fiche, and only a DRAFT note on the visit.
+let draft5Id = null
 try {
   await doc.ok("POST", `/patients/${P5.id}/dental-records`, { patientId: P5.id, ...ficheBody(V5, tarif) })
-  await doc.ok("POST", "/invoices", {
+  draft5Id = (await doc.ok("POST", "/invoices", {
     patientId: P5.id, appointmentId: V5.id, lines: [{ designation: act.name, quantity: 1, unitPriceHt: tarif }],
-  })
+  })).id
 } catch (e) { console.log(`  arrange V5 failed: ${e.message}`) }
 
 // V7: ends in ~2 min; a fiche saved now, mid-séance. Its status is read RIGHT AFTER (probe fix, run 1: read at the
@@ -381,20 +383,34 @@ step("A5", async () => {
 })
 
 let collectedAmount = null
+// The séance's live notes and whether the draft still exists — the outcome the money rows assert on.
+const fmt3 = (n) => money(n).toFixed(3).replace(".", ",")
+function liveNotesOf(patientId) {
+  return sql(`select coalesce("Number", ''), "TotalTtc" from "Invoices" where "PatientId"='${patientId}' and "Status"<>4`)
+    .split("\n").filter(Boolean).map((l) => { const [number, total] = l.split("|"); return { number, total: money(total) } })
+}
+const draftExists = (id) => id !== null && sql(`select count(*) from "Invoices" where "Id"='${id}'`) !== "0"
+
 let pillBefore = null
+// « À encaisser » is a tab of « À clôturer » since the owner kept the agenda as it was (2026-11-19): the count is on
+// the tab, the list is inline under it.
+const toCollectTab = (page) => page.getByRole("tab", { name: /À encaisser/ })
+const toCollectList = (page) => page.getByRole("list", { name: /Séances à encaisser/ })
+async function openToCollect(page) {
+  await page.goto(`${WEB}/a-cloturer`, { waitUntil: "domcontentloaded" })
+  await toCollectTab(page).waitFor({ timeout: 30000 })
+  await toCollectTab(page).click()
+  await toCollectList(page).or(page.getByText("Rien à encaisser aujourd'hui")).first().waitFor({ timeout: 20000 })
+  return toCollectList(page)
+}
 const pillCount = async (page) => {
-  const t = await page.getByRole("button", { name: /À encaisser · \d+/ }).innerText({ timeout: 2000 }).catch(() => "")
+  const t = await toCollectTab(page).innerText({ timeout: 2000 }).catch(() => "")
   const m = t.match(/(\d+)\s*$/)
   return m ? Number(m[1]) : 0
 }
 step("A6", async () => {
-  await sp.goto(`${WEB}/appointments`, { waitUntil: "domcontentloaded" })
-  const pill = sp.getByRole("button", { name: /À encaisser · \d+/ })
-  await pill.waitFor({ timeout: 30000 })
+  const list = await openToCollect(sp)
   pillBefore = await pillCount(sp)
-  await pill.click()
-  const list = sp.getByRole("dialog").filter({ hasText: /À encaisser aujourd/ })
-  await list.waitFor({ timeout: 10000 })
   const row = list.locator("li").filter({ hasText: `Un${STAMP}` })
   const text = (await row.innerText().catch(() => "")).replace(/\s+/g, " ")
   await shot(sp, `A6-to-collect-${RUN}`)
@@ -406,7 +422,7 @@ step("A6", async () => {
 })
 
 step("A7", async () => {
-  const list = sp.getByRole("dialog").filter({ hasText: /À encaisser aujourd/ })
+  const list = toCollectList(sp)
   await list.getByRole("button", { name: new RegExp(`Encaisser .*Un${STAMP}`) }).click()
   const bill = sp.getByRole("dialog").filter({ hasText: /Facturer/ }).last()
   await bill.waitFor({ timeout: 15000 })
@@ -473,20 +489,28 @@ step("B2", async () => {
 })
 
 step("B3", async () => {
-  await sp.goto(`${WEB}/appointments`, { waitUntil: "domcontentloaded" })
-  const pill = sp.getByRole("button", { name: /À encaisser · \d+/ })
-  await pill.waitFor({ timeout: 30000 })
-  await pill.click()
-  const list = sp.getByRole("dialog").filter({ hasText: /À encaisser aujourd/ })
+  const list = await openToCollect(sp)
   const row = list.locator("li").filter({ hasText: `Trois${STAMP}` })
   await row.waitFor({ timeout: 10000 })
   const text = (await row.innerText()).replace(/\s+/g, " ")
-  await row.getByRole("button", { name: /Ouvrir les factures/ }).click()
-  await sp.waitForURL((u) => u.pathname === `/patients/${P3.id}`, { timeout: 15000 }).catch(() => {})
-  const url = sp.url()
-  if (/note en brouillon, à émettre/.test(text) && url.includes(`/patients/${P3.id}`) && url.includes("tab=invoices"))
-    ok("B3", `« ${text} » → ${url.replace(WEB, "")}`)
-  else bad("B3", "draft row", `row=«${text}» url=${url}`)
+  // The fiche makes the note (owner, 2026-11-19): one « Encaisser », the fiche's « Facturer cette intervention », which
+  // names the draft it replaces before the press. Asserted on the outcome, never on a URL.
+  await row.getByRole("button", { name: /^Encaisser / }).click()
+  const bill = sp.getByRole("dialog").filter({ hasText: /Facturer cette intervention/ }).last()
+  await bill.waitFor({ timeout: 15000 })
+  const said = (await bill.innerText()).replace(/\s+/g, " ")
+  await shot(sp, `B3-bill-replaces-draft-${RUN}`)
+  await bill.getByRole("button", { name: /Facturer et encaisser/ }).click()
+  await bill.waitFor({ state: "detached", timeout: 20000 }).catch(() => {})
+  await sp.waitForTimeout(1500)
+  const notes = liveNotesOf(P3.id)
+  const listed = await toCollectList(sp).locator("li").filter({ hasText: `Trois${STAMP}` }).count()
+  const ok3 = /à facturer/.test(text) && text.includes(`${fmt3(tarif)} DT`)
+    && said.includes(`Remplace le brouillon de note de ${fmt3(tarif - 5)} DT`)
+    && notes.length === 1 && /^\d{4}-\d+$/.test(notes[0].number) && notes[0].total === tarif
+    && !draftExists(draftNoteId) && listed === 0
+  if (ok3) ok("B3", `« ${text} » → the dialog named the ${fmt3(tarif - 5)} DT draft; note ${notes[0].number} = the fiche's ${fmt3(tarif)} DT, paid; draft gone; row gone`)
+  else bad("B3", "draft row", `row=«${text}» said=«${said.slice(0, 200)}» notes=${JSON.stringify(notes)} draftLeft=${draftExists(draftNoteId)} stillListed=${listed}`)
 })
 
 step("B4", async () => {
@@ -530,11 +554,7 @@ step("B5", async () => {
 
 step("B7", async () => {
   if (!fiche4) return skip("B7", "arrange V4 (devis séance) failed")
-  await sp.goto(`${WEB}/appointments`, { waitUntil: "domcontentloaded" })
-  const pill = sp.getByRole("button", { name: /À encaisser · \d+/ })
-  await pill.waitFor({ timeout: 30000 })
-  await pill.click()
-  const list = sp.getByRole("dialog").filter({ hasText: /À encaisser aujourd/ })
+  const list = await openToCollect(sp)
   const row = list.locator("li").filter({ hasText: `Quatre${STAMP}` })
   await row.waitFor({ timeout: 10000 })
   const text = (await row.innerText()).replace(/\s+/g, " ")
@@ -591,20 +611,16 @@ step("C2", async () => {
 step("C3", async () => {
   const phone = await deskCtx.newPage()
   await phone.setViewportSize({ width: 390, height: 844 })
-  await phone.goto(`${WEB}/appointments`, { waitUntil: "domcontentloaded" })
-  const pill = phone.getByRole("button", { name: /À encaisser · \d+/ })
-  if (!(await pill.waitFor({ timeout: 30000 }).then(() => true).catch(() => false))) {
+  const list = await openToCollect(phone)
+  if ((await list.count()) === 0) {
     await phone.close()
     return skip("C3", "no séance left to collect at this point of the walk")
   }
-  await pill.click()
-  const list = phone.getByRole("dialog").filter({ hasText: /À encaisser aujourd/ })
-  await list.waitFor({ timeout: 10000 })
-  const first = list.getByRole("button", { name: /Encaisser|Ouvrir les factures/ }).first()
+  const first = list.getByRole("button", { name: /Encaisser|Émettre et encaisser/ }).first()
   await first.scrollIntoViewIfNeeded().catch(() => {})
   const o = await overflowOf(phone)
   await shot(phone, `C3-list-390-${RUN}`)
-  if ((await inViewport(phone, first)) && o.dialog <= 0) ok("C3", "390px: list as a sheet, action in view")
+  if ((await inViewport(phone, first)) && o.doc <= 0 && o.main <= 0) ok("C3", "390px: « À encaisser » tab, no sideways scroll, action in view")
   else bad("C3", "390px list", JSON.stringify(o))
   await phone.close()
 })
@@ -618,14 +634,23 @@ step("C4", async () => {
 
 step("D1", async () => {
   await dp.goto(`${WEB}/a-cloturer`, { waitUntil: "domcontentloaded" })
-  const row = dp.locator("tr, li").filter({ hasText: `Cinq${STAMP}` }).filter({ visible: true }).first()
+  const row = dp.locator("tr").filter({ hasText: `Cinq${STAMP}` }).first()
   await row.waitFor({ timeout: 30000 })
-  const action = row.getByRole("link", { name: /Émettre la note/ })
-  const n = await action.count()
-  const href = n ? await action.first().getAttribute("href") : null
   await shot(dp, `D1-a-cloturer-${RUN}`)
-  if (n && href === `/patients/${P5.id}?tab=invoices`) ok("D1", `draft-only séance asks « Émettre la note » → ${href}`)
-  else bad("D1", "draft-only séance in « À clôturer »", `actions=${(await row.innerText()).replace(/\s+/g, " ").slice(0, 160)}`)
+  // One word on a draft-only séance too: « Encaisser » bills the fiche and replaces the draft.
+  await row.getByRole("button", { name: /^Encaisser$/ }).click()
+  const bill = dp.getByRole("dialog").filter({ hasText: /Facturer cette intervention/ }).last()
+  await bill.waitFor({ timeout: 15000 })
+  const said = (await bill.innerText()).replace(/\s+/g, " ")
+  await bill.getByRole("button", { name: /Facturer et encaisser/ }).click()
+  await bill.waitFor({ state: "detached", timeout: 20000 }).catch(() => {})
+  await dp.waitForTimeout(2000)
+  const notes = liveNotesOf(P5.id)
+  const still = await dp.locator("tr").filter({ hasText: `Cinq${STAMP}` }).count()
+  if (/Remplace le brouillon de note/.test(said) && notes.length === 1 && /^\d{4}-\d+$/.test(notes[0].number)
+    && notes[0].total === tarif && !draftExists(draft5Id) && still === 0)
+    ok("D1", `draft-only séance: « Encaisser » → note ${notes[0].number} from the fiche, draft replaced, row answered`)
+  else bad("D1", "draft-only séance in « À clôturer »", `said=«${said.slice(0, 160)}» notes=${JSON.stringify(notes)} draftLeft=${draftExists(draft5Id)} stillListed=${still}`)
 })
 
 step("D2", async () => {
@@ -729,18 +754,47 @@ step("D7", async () => {
   else bad("D7", "the minute job", `afterFiche=${v7AfterFiche} later=${status} (end ${endsAt.toISOString()})`)
 })
 
+step("D8", async () => {
+  const found = []
+  for (const [who, page] of [["desk", sp], ["doctor", dp]]) {
+    await page.goto(`${WEB}/appointments`, { waitUntil: "domcontentloaded" })
+    await page.getByRole("button", { name: /Actions du rendez-vous de/ }).first().waitFor({ state: "attached", timeout: 30000 })
+    await page.waitForTimeout(2000)
+    const pills = await page.getByRole("button", { name: /À encaisser/ }).count()
+    const marks = await page.locator('[aria-label*="à encaisser"]').count()
+    found.push(`${who}: pills=${pills} marks=${marks}`)
+  }
+  await shot(sp, `D8-agenda-${RUN}`)
+  if (found.every((f) => f.endsWith("pills=0 marks=0"))) ok("D8", `agenda as it was — ${found.join(" · ")}`)
+  else bad("D8", "the agenda still carries the desk's money", found.join(" · "))
+})
+
+step("D9", async () => {
+  await dp.goto(`${WEB}/appointments?appointmentId=${V6.id}`, { waitUntil: "domcontentloaded" })
+  const d = dp.getByRole("dialog").filter({ hasText: new RegExp(`Six${STAMP}`) }).first()
+  await d.waitFor({ timeout: 30000 })
+  await dp.waitForTimeout(1500)
+  const text = (await d.innerText()).replace(/\s+/g, " ")
+  const offer = await d.getByRole("button", { name: /Facturer cette consultation/ }).count()
+  await shot(dp, `D9-rdv-window-no-draft-${RUN}`)
+  await dp.keyboard.press("Escape").catch(() => {})
+  if (/Non facturé/.test(text) && offer === 0) ok("D9", "RDV window of a séance with no fiche: « Non facturé », no « Facturer cette consultation »")
+  else bad("D9", "the RDV window still raises a draft", `offer=${offer} text=${text.slice(0, 200)}`)
+})
+
 step("B6", async () => {
   const admin = client(await apiLogin(ADMIN, true))
   const hide = await admin.call("POST", "/clinics/money/hide", {})
   if (hide.status >= 300) return skip("B6", `could not hide money: ${hide.status} ${hide.raw.slice(0, 120)}`)
   const r = await desk.call("GET", "/appointments/to-collect")
-  await sp.goto(`${WEB}/appointments`, { waitUntil: "domcontentloaded" })
-  await sp.waitForTimeout(5000)
-  const pill = await sp.getByRole("button", { name: /À encaisser · \d+/ }).count()
+  await sp.goto(`${WEB}/a-cloturer`, { waitUntil: "domcontentloaded" })
+  await sp.getByRole("tab", { name: /Séances à clôturer/ }).waitFor({ timeout: 30000 }).catch(() => {})
+  await sp.waitForTimeout(3000)
+  const pill = await toCollectTab(sp).count()
   await shot(sp, `B6-mode-discret-${RUN}`)
   // Revert this walk's own mask on the QA copy (SQL, stated in the report).
   sql(`update "Clinics" set "IsMoneyHidden"=false where "IsMoneyHidden"=true`)
-  if (r.status === 403 && pill === 0) ok("B6", "Mode discret: to-collect 403, no pill")
+  if (r.status === 403 && pill === 0) ok("B6", "Mode discret: to-collect 403, no « À encaisser » tab")
   else bad("B6", "Mode discret", `to-collect=${r.status} pill=${pill}`)
 })
 

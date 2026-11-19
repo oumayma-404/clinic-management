@@ -94,7 +94,6 @@ import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
 import { specialtyLabel } from "@/lib/specialties"
 import Link from "next/link"
-import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { MANUALLY_SETTABLE_STATUSES, admitsLateArrival, appointmentStatusLabel } from "@/components/appointment-labels"
 import { LateArrivalChips } from "@/components/appointment-late-arrival-chips"
 import { ArrivalButton, useArrivalAction } from "@/components/staff-chat/arrival-action"
@@ -178,8 +177,6 @@ interface CarriedAppointment {
 export function EditAppointmentDialog({ open, onOpenChange, appointment, onSuccess }: EditAppointmentDialogProps) {
   // State for all appointment fields
   const [patientName, setPatientName] = useState("")
-  // « Facturer cette consultation » — the draft note d'honoraires raised from this visit (AC-P6.12).
-  const [billingOpen, setBillingOpen] = useState(false)
   const [date, setDate] = useState<Date | undefined>(new Date())
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
   // `appointmentType` removed with the `Type: ` prefix (AC-P1.51) — the act is `procedureTypeId` alone.
@@ -303,7 +300,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
   /*
    * « À encaisser » for THIS séance (`seance-au-fauteuil`): the dentist saved the fiche with « Payé » empty, so the
    * desk takes the money here. The row is the server's (the fiche's total, or the note's balance) — the same read
-   * as the agenda's « À encaisser », so the two cannot disagree. Hidden while « Mode discret » hides money.
+   * as « À clôturer »'s « À encaisser » tab, so the two cannot disagree. Hidden while « Mode discret » hides money.
    */
   const { moneyShown } = useMoneyVisibility()
   const [collectRow, setCollectRow] = useState<SeanceToCollectDto | null>(null)
@@ -1535,9 +1532,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               </div>
             </div>
 
-            {/* Facturation (AC-P6.13) — a visit says which note d'honoraires bills it, and offers to raise one
-                when it does not. The link was write-only before: the column existed, nothing populated it, and
-                no screen read it, so « cette consultation a-t-elle été facturée ? » had no answer anywhere. */}
+            {/* Facturation (AC-P6.13) — a visit says which note d'honoraires bills it. The link was write-only before:
+                the column existed, nothing populated it, and no screen read it, so « cette consultation a-t-elle été
+                facturée ? » had no answer anywhere. ⚠️ It no longer RAISES one: « Facturer cette consultation » made a
+                hand-typed draft before the fiche existed, which then blocked the fiche's « Payé » and billed its own
+                amount instead of the dentist's acts. The fiche makes the note (owner's review, 2026-11-19). */}
             {/*
               One line rather than a titled card. The *action* stays in this column deliberately: the
               récapitulatif states the billing status too, but a pane that disappears below `lg:` must never be
@@ -1546,7 +1545,7 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             {source?.patientId && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t pt-3 text-sm">
                 <Receipt className="h-4 w-4 shrink-0 text-muted-foreground" />
-                {collectRow && collectRow.kind !== "DraftNote" ? (
+                {collectRow ? (
                   <>
                     <span className="font-medium">À encaisser</span>
                     <span className="font-semibold tabular-nums">{formatDT(collectRow.amountDue)}</span>
@@ -1590,16 +1589,6 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 ) : (
                   <>
                     <span className="text-muted-foreground">Non facturé</span>
-                    <Button
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0 text-xs"
-                      onClick={() => setBillingOpen(true)}
-                      disabled={loading}
-                    >
-                      Facturer cette consultation
-                    </Button>
                   </>
                 )}
               </div>
@@ -1722,26 +1711,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         </DialogContent>
       </Dialog>
 
-      {/* The invoice draft is raised from an appointment context, so it carries `appointmentId` (AC-P6.12).
-          Rendered as a sibling of the dialog rather than inside it — nesting a Dialog inside a Dialog fights
-          over the focus trap. */}
-      {source?.patientId && (
-        <>
-        {collection.dialogs}
-        <InvoiceFormModal
-          open={billingOpen}
-          onOpenChange={setBillingOpen}
-          presetPatientId={source.patientId}
-          presetPatientName={source.patientName}
-          appointmentId={source.id}
-          onSuccess={() => {
-            setBillingOpen(false)
-            // Refetch so the « Facturé » badge above replaces the button without a manual reload.
-            onSuccess?.()
-          }}
-        />
-        </>
-      )}
+      {/* « Encaisser » on this visit's row opens its dialogs here, as a sibling — nesting a Dialog inside a Dialog
+          fights over the focus trap. */}
+      {source?.patientId && collection.dialogs}
 
       {arrival.dialog}
 

@@ -4748,6 +4748,31 @@ check(
   },
 );
 
+check(
+  "patient-tab-link-exists",
+  "N59",
+  "A link to a patient's tab (`/patients/{id}?tab=…`) names a tab the patient page has",
+  "The patient page honours `?tab=` only for a value of `PATIENT_TABS` or a key of `RETIRED_PATIENT_TABS`; anything " +
+    "else opens the FIRST tab, silently. `seance-au-fauteuil`'s « Émettre la note » linked to `?tab=invoices` while " +
+    "the tab is `factures`, so the desk landed on « Fiches de soins » and issued nothing — and the QA walk, which " +
+    "asserted the URL rather than the tab, was green. `actes` had done the same before. Derived from the page itself.",
+  () => {
+    const OWNER = "app/patients/[id]/page.tsx";
+    const owner = ALL_FILES.find((f) => rel(f) === OWNER);
+    if (!owner) return [{ file: OWNER, text: "missing — the page whose tabs this check reads is gone; retarget it" }];
+    const src = read(owner);
+    const tabs = /const PATIENT_TABS = \[([\s\S]*?)\]/.exec(src);
+    const retired = /const RETIRED_PATIENT_TABS[^=]*= \{([\s\S]*?)\r?\n\}/.exec(src);
+    const known = new Set([...(tabs ? tabs[1].matchAll(/"([a-z-]+)"/g) : [])].map((m) => m[1]));
+    for (const m of retired ? retired[1].matchAll(/^\s+([a-z-]+):/gm) : []) known.add(m[1]);
+    if (known.size < 6) {
+      return [{ file: OWNER, text: `found ${known.size} tab keys — this check cannot read PATIENT_TABS any more, fix it` }];
+    }
+    // `/patients/<one segment>?…tab=<literal>` — a sub-route (`/patients/{id}/files`) has tabs of its own.
+    return scanLines(tsx(), /\/patients\/[^\s"'`?/]*\?(?:[^\s"'`#]*&)?tab=([a-z-]+)/, (_line, _file, m) => !known.has(m[1]));
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

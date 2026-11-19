@@ -148,6 +148,34 @@ test.describe("HP-20 · séance au fauteuil @mutating @t0", () => {
     expect((await api.invoices(`?patientId=${p.id}&pageSize=50`)).items, "no second note").toHaveLength(1)
   })
 
+  test("SEAT-13 · « Encaisser » on that séance bills the FICHE and replaces its draft", async ({
+    api,
+    arrange,
+    patient,
+  }) => {
+    const { p, act, cost, visit, fiche } = await seance(api, arrange, patient, "Fauteuil13")
+    // A draft typed at booking for LESS than the work recorded: the fiche's amount is what gets billed.
+    const draft = await api.call("POST", "/invoices", {
+      patientId: p.id,
+      appointmentId: visit.id,
+      lines: [{ designation: act.name, quantity: 1, unitPriceHt: Math.max(1, cost - 5) }],
+    })
+    expect(draft.status, draft.raw?.slice(0, 300)).toBeLessThan(300)
+    const draftId = body(draft).id
+
+    const billed = await api.call("POST", `/invoices/from-dental-record/${fiche.id}?replacesDraft=${draftId}`, {
+      amount: cost,
+      method: "Cash",
+    })
+    expect(billed.status, billed.raw?.slice(0, 300)).toBe(201)
+
+    const notes = (await api.invoices(`?patientId=${p.id}&pageSize=50`)).items
+    expect(notes, "one note on the séance: the fiche's").toHaveLength(1)
+    expect(notes[0].id, "the draft is gone").not.toBe(draftId)
+    expect(notes[0].totalTtc).toBe(cost)
+    expect(notes[0].amountCollected).toBe(cost)
+  })
+
   test("SEAT-07 · « Corriger la note » carries the desk's cheque onto the replacement", async ({
     api,
     arrange,

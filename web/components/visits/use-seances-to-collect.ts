@@ -8,27 +8,34 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 
 /**
- * Today's « À encaisser » rows, live (`seance-au-fauteuil`). Read ONCE by the agenda page and handed to both the
- * « À encaisser · N » pill and the agenda blocks, so the two cannot disagree about which séance is waiting.
+ * Today's « À encaisser » rows, live (`seance-au-fauteuil`). Read ONCE by « À clôturer » and handed to both its tab's
+ * count and the list under it, so the two cannot disagree.
  *
- * <p>`null` while « Mode discret » hides money (the read is refused then) and after a failed read: both consumers are
- * shortcuts, and « 0 » on a failed read would be a claim they cannot make.</p>
+ * <p>`rows` is `null` while loading, after a failed read (`failed`), and while « Mode discret » hides money (the read
+ * is refused then): « 0 » on a failed read would be a claim the page cannot make.</p>
  *
  * <p>Re-read on the broadcasts a fiche save and a payment emit — the fiche's `appointments` arrives before its note
  * exists, so `invoices` and `treatmentplans` are listened to as well — debounced, since one save emits several.</p>
  */
-export function useSeancesToCollect(): { rows: SeanceToCollectDto[] | null; reload: () => void } {
+export function useSeancesToCollect(): { rows: SeanceToCollectDto[] | null; failed: boolean; reload: () => void } {
   const { moneyShown } = useMoneyVisibility()
   const [rows, setRows] = useState<SeanceToCollectDto[] | null>(null)
+  const [failed, setFailed] = useState(false)
   const ticket = useRef(0)
 
   const load = useCallback(async () => {
     const mine = ++ticket.current
     try {
       const next = await appointmentsApi.toCollect()
-      if (mine === ticket.current) setRows(next)
+      if (mine === ticket.current) {
+        setRows(next)
+        setFailed(false)
+      }
     } catch {
-      if (mine === ticket.current) setRows(null)
+      if (mine === ticket.current) {
+        setRows(null)
+        setFailed(true)
+      }
     }
   }, [])
 
@@ -37,6 +44,7 @@ export function useSeancesToCollect(): { rows: SeanceToCollectDto[] | null; relo
     else {
       ticket.current += 1
       setRows(null)
+      setFailed(false)
     }
   }, [moneyShown, load])
 
@@ -60,5 +68,5 @@ export function useSeancesToCollect(): { rows: SeanceToCollectDto[] | null; relo
     if (moneyShown) void load()
   }, [moneyShown, load])
 
-  return { rows: moneyShown ? rows : null, reload }
+  return { rows: moneyShown ? rows : null, failed: moneyShown && failed, reload }
 }

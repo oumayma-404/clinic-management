@@ -161,17 +161,21 @@ public class GetSeancesToCollectQueryTests
         Assert.Empty(await h.Read());
     }
 
-    // A draft holds no money: it is named, so the desk issues it rather than billing the séance a second time.
+    // A draft holds no money: the desk bills the FICHE and the draft is replaced — so the amount owed is the fiche's,
+    // and the draft's own total is carried only to be stated before the desk confirms (owner's review, 2026-11-19).
     [Fact]
-    public async Task A_Draft_Note_Is_Named_As_A_Draft()
+    public async Task A_Draft_Note_Is_Named_And_The_Fiche_Is_What_Is_Owed()
     {
         var h = new Harness();
         var visit = h.Visit(ficheCost: 120m);
-        h.NoteFor(visit, total: 120m, paid: 0m, issued: false);
+        var draft = h.NoteFor(visit, total: 40m, paid: 0m, issued: false);
 
         var row = Assert.Single(await h.Read());
 
         Assert.Equal(SeanceCollectionKinds.DraftNote, row.Kind);
+        Assert.Equal(120m, row.AmountDue);
+        Assert.Equal(40m, row.DraftTotal);
+        Assert.Equal(draft.Id, row.InvoiceId);
     }
 
     // No fiche: nothing is priced yet — the dentist has not entered the acts.

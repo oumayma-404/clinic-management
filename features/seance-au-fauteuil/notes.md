@@ -13,13 +13,30 @@ la fiche vivante** and **« Payé » starts empty + « Tout payé »** (2026-11-
 | Fiche footer, séance over | One button, « Enregistrer la séance — X » (unchanged) |
 | Fiche « Prescription » | **« Imprimer l'ordonnance »** / **« Imprimer la demande d'examens »**: saves the fiche, then prints the real PDF. The save toast also offers « Imprimer » |
 | Fiche « Payé » | Starts **empty** on a new fiche; **« Tout payé »** fills the total. Reopened, it shows what the séance's note holds, **desk payments included** |
-| Agenda | **« À encaisser · N »** (amber) above the agenda when today has séances to collect; a wallet mark on those blocks. Hidden under « Mode discret » |
+| « À clôturer » → **« À encaisser »** | A tab with a live count: today's séances whose fiche is saved and whose money is still to take. **Nothing on the agenda** (owner, 2026-11-19). Hidden under « Mode discret » |
 | « À encaisser » list | Time · patient · what (« à facturer », « reste sur la note n° … », « note en brouillon, à émettre », « échéance du devis n° … ») · amount · **« Encaisser »** |
 | RDV window | « À encaisser · 120,000 DT · [Encaisser] » for a séance with a saved fiche and money still due |
 | « Facturer cette intervention » | Cheque fields (n°, banque, date) when the method is Chèque |
-| « À clôturer » | A séance whose only note is a **draft** now asks for its money: « Émettre la note » opens the patient's Factures |
+| « À clôturer » / « À encaisser » | One word, **« Encaisser »**, on every row. A séance whose note is still a **draft** is billed from its **fiche** — « Facturer cette intervention » names the draft it replaces before the press |
+| RDV window | No more « Facturer cette consultation »: it made a hand-typed draft before the fiche existed. « Non facturé » until the fiche is saved, then « À encaisser · [Encaisser] » |
 
 ## The rules that are easy to undo by accident
+
+- **« À encaisser » is a tab of « À clôturer », never on the agenda.** It shipped as a pill above the agenda plus a
+  wallet mark on the blocks, and the owner removed both after the demo (2026-11-19): the agenda stays as it was.
+  QA row D8 checks it. The RDV window keeps its « À encaisser · [Encaisser] » line.
+- **The fiche makes the note (owner's call, 2026-11-19).** A draft raised from the RDV window billed its own typed
+  amount — fiche 130 DT, draft 40 DT: the patient was billed 40 and the other 90 never — and it blocked the dentist's
+  « Payé » (`seance_has_note`; the fiche saved, the money recorded nowhere). Now « Encaisser » bills the fiche and the
+  server deletes the draft in the **same transaction** (`BillDentalRecordCommand.ReplacesDraftInvoiceId`). Safe
+  because a draft holds no money (a payment is refused on one) and no number. ⚠️ Only the draft the dialog named, only
+  while it is still a draft, only for this séance, never one a devis carries (the « Supprimer » guard,
+  `NoteCarriedActGuard`), never beside an issued visit note, and **never on the silent path**: a fiche re-save still
+  refuses with `seance_has_note` rather than delete a document nobody looked at. The RDV window no longer raises one.
+- **No link to the patient's « Factures » from these lists.** It used `?tab=invoices`, and the tab is `factures`:
+  the page opened its first tab, while the QA row asserted the URL and stayed green. `check:responsive`'s N59 now
+  derives the valid `?tab=` values from the page.
+- **« Facturer cette intervention » carries no « émise immédiatement » warning** — removed on the owner's request.
 
 ### Saving a fiche does not end the visit
 `FicheVisitCompletion.ShouldComplete` = « Terminer la séance » **or** the slot has ended (`Appointment.HasEndedBy`,
@@ -46,8 +63,9 @@ server would refuse.
 
 ### One note per séance
 `BillDentalRecordCommand` refuses with `seance_has_note` when the visit already holds a live note that names **no
-fiche** (the RDV window's « Facturer cette consultation »). A note bound to another fiche of the same visit does not
-block: a visit may carry several fiches. The auto-billing reports it as a refusal, not a failure.
+fiche** (a note raised from the RDV window, which no longer offers it). A note bound to another fiche of the same visit
+does not block: a visit may carry several fiches. The auto-billing reports it as a refusal, not a failure. The one
+exception is the desk's « Encaisser » naming a **draft** — see « The fiche makes the note » above.
 
 ### A draft note does not settle « À clôturer »
 `VisitClosureReader` counts **issued** notes only, through the visit link (`InvoiceLinkChoice` prefers the numbered

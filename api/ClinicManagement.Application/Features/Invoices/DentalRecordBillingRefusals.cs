@@ -43,6 +43,12 @@ public static class DentalRecordBillingRefusals
     public const string SeanceHasNoteCode = "seance_has_note";
 
     /// <summary>
+    /// « Encaisser » asked to replace a draft note with the fiche's note, and that draft cannot be replaced: it is
+    /// gone, holds money, belongs to another séance, or is carried by a devis (`seance-au-fauteuil`).
+    /// </summary>
+    public const string DraftNotReplaceableCode = "dental_record_draft_not_replaceable";
+
+    /// <summary>
     /// « Corriger la note » from the fiche, on a note that also carries a treatment — attached to a devis, or holding
     /// money later séances collected on it. A replacement raised from one fiche would be attached to neither.
     /// </summary>
@@ -98,10 +104,16 @@ public static class DentalRecordBillingRefusals
     /// <summary>The note to issue or settle instead of raising a second one for the same séance.</summary>
     public static string SeanceHasNote(string? invoiceNumber) =>
         invoiceNumber is null
-            ? "Cette séance a déjà un brouillon de note d'honoraires, créé depuis son rendez-vous : émettez-le depuis "
-              + "les factures du patient, puis encaissez dessus."
+            // The fiche makes the note (owner, 2026-11-19): the remedy is the desk's « Encaisser », which bills the fiche
+            // and replaces the draft — never issuing the draft as typed, which bills its own amount.
+            ? "Un brouillon de note existe pour cette séance : rien n'est encaissé ici. Encaissez depuis « À clôturer » "
+              + "→ « À encaisser », la note y est faite depuis la fiche."
             : $"Cette séance est déjà facturée sur la note n° {invoiceNumber}, créée depuis son rendez-vous : "
               + "encaissez sur cette note.";
+
+    /// <summary>Why the draft the desk was shown cannot be replaced by the fiche's note.</summary>
+    public const string DraftNotReplaceable =
+        "Ce brouillon de note ne peut plus être remplacé par la fiche : rouvrez la liste, elle a changé.";
 
     /// <summary>Why the fiche cannot correct this note, and where it can be corrected instead.</summary>
     public static string NoteCarriesTreatment(string? invoiceNumber) =>

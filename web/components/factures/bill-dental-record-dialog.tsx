@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
-import { AlertTriangle, Loader2, Receipt } from "lucide-react"
+import { Loader2, Receipt } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { getErrorMessage } from "@/lib/errors"
@@ -42,6 +42,11 @@ interface BillDentalRecordDialogProps {
   /** The fiche to bill; null closes the dialog. */
   record: DentalRecordDto | null
   patientName: string
+  /**
+   * The séance's draft note this bill replaces (`seance-au-fauteuil`): the fiche makes the note, and the server
+   * deletes that draft — no number, no money — in the same transaction. Stated in the dialog before the press.
+   */
+  replacesDraft?: { invoiceId: string; total: number } | null
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
 }
@@ -49,6 +54,7 @@ interface BillDentalRecordDialogProps {
 export function BillDentalRecordDialog({
   record,
   patientName,
+  replacesDraft = null,
   onOpenChange,
   onSuccess,
 }: BillDentalRecordDialogProps) {
@@ -102,7 +108,7 @@ export function BillDentalRecordDialog({
 
     try {
       setSubmitting(true)
-      const invoice = await invoicesApi.createFromDentalRecord(record.id, paidNow)
+      const invoice = await invoicesApi.createFromDentalRecord(record.id, paidNow, replacesDraft?.invoiceId)
       toast.success(
         paidNow
           ? `Note n° ${invoice.number} émise — ${formatDT(paidNow.amount)} encaissé`
@@ -165,17 +171,13 @@ export function BillDentalRecordDialog({
             )}
           </div>
 
-          {/* The irreversibility has to be stated before the click, not discovered after it.
-              On the theme's warning family — `--warning-wash` with `--warning-ink` — rather than an `amber-50 /
-              dark:amber-950` pair maintained by hand. `text-warning-ink` and not `text-warning`: the plain step
-              measures ~3.5:1 on its own wash, and this is the one paragraph in the flow that must be read. */}
-          <div className="flex gap-2 rounded-md border border-warning/30 bg-warning-wash p-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning-ink" aria-hidden="true" />
-            <p className="text-xs text-warning-ink">
-              La note d&apos;honoraires est <strong>émise immédiatement</strong> et reçoit un numéro définitif.
-              Une erreur de montant se corrige ensuite par un <strong>avoir</strong>, pas par une modification.
+          {/* No « émise immédiatement » warning here: removed on the owner's request (2026-11-19). */}
+
+          {replacesDraft && (
+            <p role="note" className="text-sm text-muted-foreground">
+              Remplace le brouillon de note de {formatDT(replacesDraft.total)} préparé depuis le rendez-vous.
             </p>
-          </div>
+          )}
 
           {/*
             The `Checkbox` primitive, not a raw `<input type="checkbox">`. `globals.css` deliberately EXCLUDES

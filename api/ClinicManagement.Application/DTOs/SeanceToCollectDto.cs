@@ -9,7 +9,11 @@ public static class SeanceCollectionKinds
     /// <summary>A note is issued and part of it is still owed: « Encaisser » on that note.</summary>
     public const string NoteBalance = "NoteBalance";
 
-    /// <summary>A draft note exists: it holds no money and is issued from the patient's « Factures », never re-billed.</summary>
+    /// <summary>
+    /// A draft note exists for the séance: it holds no money and no number. « Encaisser » bills the FICHE and replaces
+    /// the draft in one step — <see cref="SeanceToCollectDto.AmountDue"/> is the fiche's, and
+    /// <see cref="SeanceToCollectDto.DraftTotal"/> says what the draft held, so the desk is told before confirming.
+    /// </summary>
     public const string DraftNote = "DraftNote";
 
     /// <summary>
@@ -35,6 +39,9 @@ public sealed class SeanceToCollectDto
     public decimal AmountDue { get; set; }
     public Guid? InvoiceId { get; set; }
     public string? InvoiceNumber { get; set; }
+
+    /// <summary>A <see cref="SeanceCollectionKinds.DraftNote"/> row: the total the draft held. Null otherwise.</summary>
+    public decimal? DraftTotal { get; set; }
     /// <summary>The devis a <see cref="SeanceCollectionKinds.Treatment"/> row collects on.</summary>
     public Guid? TreatmentPlanId { get; set; }
     public string? TreatmentPlanNumber { get; set; }

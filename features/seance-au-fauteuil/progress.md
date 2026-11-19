@@ -35,6 +35,16 @@ Committed locally only — no push, no PR (the owner's call). Design: `blueprint
   only; (e) `correction_requires_doctor`.
 
 ## Deviations from the blueprint
+- **2026-11-19, owner's review after the demo:** « À encaisser » left the agenda — no pill, no wallet mark;
+  `app/appointments/page.tsx` and `appointment-calendar.tsx` are back to `main` — and became a tab of « À clôturer »
+  (`to-collect-list.tsx`, renamed from `to-collect-button.tsx`; `useSeancesToCollect` now also says `failed`).
+- **2026-11-19, same review:** « Émettre la note » / « Ouvrir les factures » linked to `?tab=invoices` — no such tab,
+  so the patient page opened its first one (a bug, and QA rows B3/D1 asserted the URL). Both are now **« Émettre et
+  encaisser »** (`useSeanceCollection.issueAndCollect`: issue, then `PaymentModal`). N59 guards `?tab=` values. The
+  « émise immédiatement » warning left « Facturer cette intervention ».
+- **2026-11-19, owner's decision (« the fiche makes the note »):** « Émettre et encaisser » is gone — a draft séance is
+  billed from its fiche and the draft replaced in the same transaction (`ReplacesDraftInvoiceId`, 9 unit tests,
+  e2e SEAT-13); « Facturer cette consultation » left the RDV window; « Encaisser » is the one word at the desk.
 - `to-collect-sheet.tsx` became `to-collect-button.tsx` (a `Dialog` with `mobile="sheet"`, the app's own sheet form).
 - « One note per séance » refuses only a note naming **no fiche**: a visit may carry several fiches, each billing its own
   acts (`VisitClosureReader` sums them), so another fiche's note is not in the way.
@@ -45,5 +55,6 @@ Committed locally only — no push, no PR (the owner's call). Design: `blueprint
 - `DentalRecordPostVisitCompletionTests.cs.deferred` stays parked; `FicheVisitCompletionTests` covers the rule.
 
 ## Open
-- Merge order with PR #116 (cabinet de groupe), which edits `appointment-calendar.tsx` and `edit-appointment-dialog.tsx`.
+- Merge order with PR #116 (cabinet de groupe), which edits `edit-appointment-dialog.tsx` too (this branch no longer
+  touches `appointment-calendar.tsx`).
 - `features/seance-au-fauteuil/blueprint.md` also exists, untracked, in the main checkout — identical to this one.

@@ -134,6 +134,7 @@ public sealed class GetSeancesToCollectQueryHandler
                 var kind = SeanceCollectionKinds.Unbilled;
                 var amountDue = visit.FicheCost;
                 string? invoiceNumber = null;
+                decimal? draftTotal = null;
                 if (visit.InvoiceId is { } invoiceId)
                 {
                     var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
@@ -143,8 +144,10 @@ public sealed class GetSeancesToCollectQueryHandler
                     }
                     if (invoice.Status == InvoiceStatus.Draft)
                     {
+                        // The fiche makes the note: the desk bills the fiche's acts and the draft is replaced, so the
+                        // amount owed is the fiche's — a draft typed at booking used to win over the work recorded.
                         kind = SeanceCollectionKinds.DraftNote;
-                        amountDue = invoice.TotalTtc;
+                        draftTotal = invoice.TotalTtc;
                     }
                     else
                     {
@@ -172,6 +175,7 @@ public sealed class GetSeancesToCollectQueryHandler
                     AmountDue = amountDue,
                     InvoiceId = visit.InvoiceId,
                     InvoiceNumber = invoiceNumber,
+                    DraftTotal = draftTotal,
                 });
             }
 

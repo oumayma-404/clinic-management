@@ -103,8 +103,15 @@ export const invoicesApi = {
       chequeBankName?: string
       chequeDueDate?: string
     } | null,
+    /** « Encaisser » on a séance whose note is a draft: the fiche's note replaces it (`seance-au-fauteuil`). */
+    replacesDraftInvoiceId?: string | null,
   ): Promise<InvoiceDto> =>
-    apiPost<InvoiceDto>(`/invoices/from-dental-record/${dentalRecordId}`, paidNow),
+    apiPost<InvoiceDto>(
+      `/invoices/from-dental-record/${dentalRecordId}${
+        replacesDraftInvoiceId ? `?replacesDraft=${encodeURIComponent(replacesDraftInvoiceId)}` : ""
+      }`,
+      paidNow,
+    ),
 
   update: async (
     id: string,

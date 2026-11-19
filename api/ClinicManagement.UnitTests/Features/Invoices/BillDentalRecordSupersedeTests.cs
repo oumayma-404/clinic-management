@@ -38,8 +38,10 @@ public class BillDentalRecordSupersedeTests
     private Invoice? _saved;
     private readonly List<Invoice> _updated = new();
 
+    private readonly Mock<ITreatmentPlanRepository> _plans = new();
+
     private BillDentalRecordCommandHandler CreateHandler() => new(
-        _invoices.Object, _records.Object, _patients.Object, _clinics.Object, _creditNotes.Object,
+        _invoices.Object, _records.Object, _patients.Object, _clinics.Object, _creditNotes.Object, _plans.Object,
         _clinicResolver.Object, _uow.Object, NullLogger<BillDentalRecordCommandHandler>.Instance);
 
     private static DentalRecord RecordFixture()

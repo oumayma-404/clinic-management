@@ -740,8 +740,9 @@ export interface AppointmentProcedureDto {
 
 /**
  * One row of « À encaisser » (`seance-au-fauteuil`). `kind`: `Unbilled` (fiche saved, no note — « Facturer et
- * encaisser »), `NoteBalance` (an issued note with money still owed — « Encaisser »), `DraftNote` (a draft holds no
- * money: it is issued from the patient's « Factures », never billed a second time).
+ * encaisser »), `NoteBalance` (an issued note with money still owed — « Encaisser »), `DraftNote` (a draft note exists:
+ * it holds no money and no number, so « Encaisser » bills the FICHE and replaces it — `amountDue` is the fiche's, and
+ * `draftTotal` is what the draft held, stated in the dialog before the desk confirms).
  */
 export interface SeanceToCollectDto {
   appointmentId: string;
@@ -754,6 +755,8 @@ export interface SeanceToCollectDto {
   amountDue: number;
   invoiceId?: string | null;
   invoiceNumber?: string | null;
+  /** A `DraftNote` row: the total the draft held. */
+  draftTotal?: number | null;
   /** The devis a `Treatment` row collects on — an échéance of it is due now. */
   treatmentPlanId?: string | null;
   treatmentPlanNumber?: string | null;
@@ -802,8 +805,8 @@ export interface AppointmentDto {
    */
   treatmentPlanItemId?: string | null;
   /**
-   * The note d'honoraires raised against this visit, if any (AC-P6.13). Null = not billed yet, which is what
-   * « Facturer cette consultation » keys off. A cancelled invoice does not count as billing the visit.
+   * The note d'honoraires raised against this visit, if any (AC-P6.13). Null = not billed yet. A cancelled invoice
+   * does not count as billing the visit.
    */
   invoiceId?: string | null;
   /** The billing invoice's number, or null while it is still a draft (a draft consumes no number). */

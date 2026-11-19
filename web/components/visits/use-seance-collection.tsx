@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useState, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { PaymentModal } from "@/components/factures/payment-modal"
@@ -15,8 +14,9 @@ import { showErrorToast } from "@/lib/errors"
 /**
  * **The one « Encaisser » for a séance** (`seance-au-fauteuil`) — the dentist entered the acts, the desk takes the
  * money. A séance with no note opens « Facturer cette intervention » (issues the note and records the payment in one
- * step); a note with a balance opens the ordinary « Enregistrer un paiement » on it; a DRAFT note sends the desk to
- * the patient's « Factures », where it is issued — billing the séance again would raise a second note. A devis séance
+ * step); a note with a balance opens the ordinary « Enregistrer un paiement » on it; a séance whose note is still a
+ * DRAFT opens the same « Facturer cette intervention » on its fiche, which replaces the draft (the fiche makes the
+ * note — owner's review, 2026-11-19). A devis séance
  * opens « Enregistrer un paiement » on the échéance due, tagged with the fiche so the dentist's re-save of that fiche
  * does not take the money a second time.
  *
@@ -25,11 +25,22 @@ import { showErrorToast } from "@/lib/errors"
  */
 export function useSeanceCollection(onSettled: () => void): {
   collect: (row: SeanceToCollectDto) => Promise<void>
+  /** « Encaisser » on a séance's fiche, replacing its draft note when one is named; `key` feeds `opening`. */
+  billFiche: (
+    patientId: string,
+    dentalRecordId: string | null | undefined,
+    patientName: string,
+    key: string,
+    draftInvoiceId?: string | null,
+  ) => Promise<void>
   opening: string | null
   dialogs: ReactNode
 } {
-  const router = useRouter()
-  const [billing, setBilling] = useState<{ record: DentalRecordDto; patientName: string } | null>(null)
+  const [billing, setBilling] = useState<{
+    record: DentalRecordDto
+    patientName: string
+    replacesDraft: { invoiceId: string; total: number } | null
+  } | null>(null)
   const [paying, setPaying] = useState<InvoiceDto | null>(null)
   const [payingInstallment, setPayingInstallment] = useState<
     { planId: string; installment: InstallmentDto; dentalRecordId: string } | null
@@ -37,10 +48,61 @@ export function useSeanceCollection(onSettled: () => void): {
   /** The appointment whose dialog is being opened, so its button can say so. */
   const [opening, setOpening] = useState<string | null>(null)
 
+  /*
+   * « Encaisser » on a séance's FICHE — the one path for « à facturer » and for a séance whose note is still a draft.
+   * The fiche makes the note: a named draft (no number, no money) is replaced by it, server-side, in the same
+   * transaction — and only after the dialog has said so. Both documents are re-read first, never trusted from the row.
+   */
+  const billFiche = useCallback(
+    async (
+      patientId: string,
+      dentalRecordId: string | null | undefined,
+      patientName: string,
+      key: string,
+      draftInvoiceId?: string | null,
+    ) => {
+      setOpening(key)
+      try {
+        const record = dentalRecordId
+          ? (await dentalRecordsApi.list(patientId)).find((r) => r.id === dentalRecordId)
+          : undefined
+        if (!record) {
+          toast.error("Cette fiche de soins n'existe plus.")
+          onSettled()
+          return
+        }
+        let replacesDraft: { invoiceId: string; total: number } | null = null
+        if (draftInvoiceId) {
+          const draft = await invoicesApi.get(draftInvoiceId)
+          if (draft.status !== "Draft") {
+            // Issued in the meantime: the list shows what is left on it, and nothing is replaced.
+            toast.info(draft.number ? `La note n° ${draft.number} a été émise entre-temps.` : "La note a changé entre-temps.")
+            onSettled()
+            return
+          }
+          replacesDraft = { invoiceId: draft.id, total: draft.totalTtc }
+        }
+        setBilling({ record, patientName, replacesDraft })
+      } catch (err) {
+        showErrorToast(err, "Impossible d'ouvrir l'encaissement.")
+        onSettled()
+      } finally {
+        setOpening(null)
+      }
+    },
+    [onSettled],
+  )
+
   const collect = useCallback(
     async (row: SeanceToCollectDto) => {
-      if (row.kind === "DraftNote") {
-        router.push(`/patients/${encodeURIComponent(row.patientId)}?tab=invoices`)
+      if (row.kind === "Unbilled" || row.kind === "DraftNote") {
+        await billFiche(
+          row.patientId,
+          row.dentalRecordId,
+          row.patientName,
+          row.appointmentId,
+          row.kind === "DraftNote" ? row.invoiceId : null,
+        )
         return
       }
       setOpening(row.appointmentId)
@@ -63,20 +125,13 @@ export function useSeanceCollection(onSettled: () => void): {
           setPayingInstallment({ planId: plan.id, installment: target, dentalRecordId: row.dentalRecordId })
           return
         }
-        const record = (await dentalRecordsApi.list(row.patientId)).find((r) => r.id === row.dentalRecordId)
-        if (!record) {
-          toast.error("Cette fiche de soins n'existe plus.")
-          onSettled()
-          return
-        }
-        setBilling({ record, patientName: row.patientName })
       } catch (err) {
         showErrorToast(err, "Impossible d'ouvrir l'encaissement.")
       } finally {
         setOpening(null)
       }
     },
-    [router, onSettled],
+    [billFiche, onSettled],
   )
 
   const dialogs = (
@@ -84,6 +139,7 @@ export function useSeanceCollection(onSettled: () => void): {
       <BillDentalRecordDialog
         record={billing?.record ?? null}
         patientName={billing?.patientName ?? ""}
+        replacesDraft={billing?.replacesDraft ?? null}
         onOpenChange={(open) => {
           if (!open) setBilling(null)
         }}
@@ -119,5 +175,5 @@ export function useSeanceCollection(onSettled: () => void): {
     </>
   )
 
-  return { collect, opening, dialogs }
+  return { collect, billFiche, opening, dialogs }
 }

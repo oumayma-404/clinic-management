@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect, useMemo, useRef } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { AppShell } from "@/components/app-shell"
 import {
   AlertDialog,
@@ -34,8 +34,6 @@ import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { cn } from "@/lib/utils"
 import { replaceUrl } from "@/lib/history"
 import { showErrorToast } from "@/lib/errors"
-import { ToCollectButton } from "@/components/visits/to-collect-button"
-import { useSeancesToCollect } from "@/components/visits/use-seances-to-collect"
 
 /**
  * The next 5-minute boundary strictly after <paramref name="from"/> — the agenda's own booking granularity.
@@ -134,12 +132,6 @@ export default function AppointmentsPage() {
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentDto | null>(null)
   const [selectedDate, setSelectedDate] = useState(() => seededDay() ?? new Date())
   const [refreshKey, setRefreshKey] = useState(0)
-  // « À encaisser » (`seance-au-fauteuil`): one live read, shared by the pill and the agenda blocks.
-  const toCollect = useSeancesToCollect()
-  const toCollectByVisit = useMemo(
-    () => new Map((toCollect.rows ?? []).map((row) => [row.appointmentId, row.amountDue] as const)),
-    [toCollect.rows],
-  )
   // Patient preselected when arriving from a patient's "Planifier un rendez-vous" (?patientId=…).
   const [bookingPatientId, setBookingPatientId] = useState<string | undefined>(undefined)
   const [isGoogleCalendarAuthorized, setIsGoogleCalendarAuthorized] = useState(false)
@@ -548,9 +540,6 @@ export default function AppointmentsPage() {
             **12 px of margin**: a phantom band above the agenda bar that read as a rendering gap because that is
             exactly what it was. One element, one condition.
           */}
-          {/* The secretary's « À encaisser » (`seance-au-fauteuil`): the day's séances whose fiche is saved and whose
-              money is still to take. It renders its own row, and only when something is owed. */}
-          <ToCollectButton rows={toCollect.rows} onSettled={toCollect.reload} />
           {hasActiveFilterChips && (
             <div className="mb-3 flex flex-shrink-0 flex-wrap items-center gap-2">
               {doctorFilterId && (
@@ -601,7 +590,6 @@ export default function AppointmentsPage() {
                */
               onSelectDay={handleSelectDay}
               onChanged={handleAppointmentUpdated}
-              toCollect={toCollectByVisit}
               onViewChange={selectView}
               doctorId={doctorFilterId}
               onNewAppointment={openCreateDialog}
