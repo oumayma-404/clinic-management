@@ -115,13 +115,22 @@ public class ContinuationFirstSeanceResaveTests
         ProcedureTypeId, "Traitement de canal (dévitalisation)", cost, cost, false, new[] { 46 },
         null, null, null);
 
+    // A doctor: a correction cancels payments, which the fiche allows a doctor or an admin only.
+    private static IClinicContext DoctorContext()
+    {
+        var context = new Mock<IClinicContext>();
+        context.Setup(c => c.GetUserRole()).Returns(User.RoleDoctor);
+        return context.Object;
+    }
+
     private UpdateDentalRecordCommandHandler Handler() => new(
         _records.Object, _patients.Object, _toothStates.Object, _plans.Object,
         new Mock<IProcedureTypeRepository>().Object, new Mock<IAppointmentRepository>().Object,
         _invoices.Object, _creditNotes.Object, new Mock<IMedicalDocumentRepository>().Object,
         new Mock<IClinicRepository>().Object, new Mock<IDoctorRepository>().Object,
-        new Mock<IClinicContext>().Object, _resolver.Object, _uow.Object,
-        new Mock<IStockConsumptionService>().Object, _sender.Object,
+        DoctorContext(), _resolver.Object, _uow.Object,
+        new Mock<IStockConsumptionService>().Object, new Mock<INotificationGenerator>().Object,
+        new Mock<IRealtimeNotifier>().Object, _sender.Object,
         NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 
     /// <summary>The fiche as the modal sends it on reopen: still linked to the act the devis holds at 0.</summary>

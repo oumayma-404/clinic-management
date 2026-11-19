@@ -119,10 +119,20 @@ public class UpdateDentalRecordCommand : IRequest<Result<DentalRecordDto>>
     /// </para>
     /// </summary>
     public PrescriptionInput? Prescription { get; set; }
+
+    /// <summary>
+    /// « Terminer la séance » — the visit becomes « Terminé » now. Absent (false), the clock decides; see
+    /// <see cref="FicheVisitCompletion"/>. An update used to leave the visit alone entirely, which was right only
+    /// while its first save had already completed it.
+    /// </summary>
+    public bool FinishSeance { get; set; }
 }
 
 public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalRecordCommand, Result<DentalRecordDto>>
 {
+    /// <summary>The refusal a secretary gets for « Corriger la note » from the fiche; the modal branches on it.</summary>
+    public const string CorrectionRequiresDoctorCode = "correction_requires_doctor";
+
     private readonly IDentalRecordRepository _dentalRecordRepository;
     private readonly IPatientRepository _patientRepository;
     private readonly IToothStateRepository _toothStateRepository;
@@ -140,6 +150,9 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStockConsumptionService _stockConsumption;
+    // Closing the visit when the séance is over — see FicheVisitCompletion.
+    private readonly INotificationGenerator _notificationGenerator;
+    private readonly IRealtimeNotifier _realtimeNotifier;
     private readonly ISender _sender;
     private readonly ILogger<UpdateDentalRecordCommandHandler> _logger;
 
@@ -159,6 +172,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         ICurrentClinicResolver clinicResolver,
         IUnitOfWork unitOfWork,
         IStockConsumptionService stockConsumption,
+        INotificationGenerator notificationGenerator,
+        IRealtimeNotifier realtimeNotifier,
         ISender sender,
         ILogger<UpdateDentalRecordCommandHandler> logger)
     {
@@ -177,6 +192,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         _clinicResolver = clinicResolver;
         _unitOfWork = unitOfWork;
         _stockConsumption = stockConsumption;
+        _notificationGenerator = notificationGenerator;
+        _realtimeNotifier = realtimeNotifier;
         _sender = sender;
         _logger = logger;
     }
@@ -313,6 +330,8 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // The note this save retires, if the dentist asked to correct. Handed to the billing below so the
             // replacement can point back at it.
             Guid? supersedes = null;
+            // What the replacement re-records from the retired note — the desk's rows keep their identity.
+            IReadOnlyList<CarriedPayment> carried = Array.Empty<CarriedPayment>();
 
             if (billedBy is { } note)
             {
@@ -331,6 +350,16 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                         return Result<DentalRecordDto>.FailureFrom(allowed);
                     }
 
+                    // ⚠️ A correction cancels every payment on the note — the same act as the note's own
+                    // « Corriger », which is AdminOrDoctor. The fiche is open to reception (AnyClinicRole), so the
+                    // role is checked here or a secretary could void la caisse through the fiche's door.
+                    if (_clinicContext.GetUserRole() is not (User.RoleAdmin or User.RoleDoctor))
+                    {
+                        return Result<DentalRecordDto>.Failure(
+                            "Seul un praticien ou un administrateur peut corriger une note d'honoraires.",
+                            CorrectionRequiresDoctorCode);
+                    }
+
                     // ── The correction ──────────────────────────────────────────────────────────────────────
                     //
                     // Correcting is NOT an avoir, and that distinction is the whole of this branch. An avoir
@@ -343,12 +372,14 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                     // Pre-commit, like the refusal it replaces: the fiche and its note must move together or not
                     // at all.
                     var retired = await RetireForCorrectionAsync(
-                        note.InvoiceId, clinicResult.Value, request.CorrectionReason!, cancellationToken);
+                        note.InvoiceId, clinicResult.Value, dentalRecord.Id, request.AmountPaid,
+                        request.CorrectionReason!, cancellationToken);
                     if (retired.IsFailure)
                     {
                         return Result<DentalRecordDto>.FailureFrom(retired);
                     }
                     supersedes = note.InvoiceId;
+                    carried = retired.Value!;
                 }
                 else if (previousDate.Date != request.InterventionDate.Date)
                 {
@@ -536,6 +567,16 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            // « Terminer la séance », or a re-save once the séance is over: the visit becomes « Terminé ». A save in
+            // the middle of a running séance leaves it alone. Best-effort, after the commit, like on create.
+            if (dentalRecord.AppointmentId is { } recordAppointmentId)
+            {
+                await FicheVisitCompletion.ApplyAsync(
+                    recordAppointmentId, clinicResult.Value, request.FinishSeance, isCreate: false, DateTime.UtcNow,
+                    _appointmentRepository, _unitOfWork, _notificationGenerator, _realtimeNotifier, _logger,
+                    cancellationToken);
+            }
+
             // Post-commit and best-effort, exactly as on create (AC-P4.13). Removing an act deliberately
             // consumes nothing and returns nothing: the material was physically used, so an automatic
             // put-back would invent stock that is not on the shelf. That correction is a manual Adjustment.
@@ -555,13 +596,16 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
             // both or neither, and the two are separate papers with separate ids.
             dto.ExamensDocumentId = ordonnance.ExamensDocumentId;
             dto.ExamensSummary = ordonnance.ExamensSummary.ToList();
+            // Read after the commit: a fiche kept open after « Enregistrer » sends these back on its next save.
+            dto.PrescriptionDocumentVersion = ordonnance.Document?.Version ?? 0;
+            dto.ExamensDocumentVersion = ordonnance.ExamensDocument?.Version ?? 0;
             // ⚠️ `isAutomatic: false` when correcting. The automatic path deliberately refuses to raise a note for
             // a fiche whose note is spent (A-1) — that refusal is what stops a routine re-save from quietly
             // producing a second document — but here the cancellation was asked for, so raising the replacement
             // is the point.
             dto.Billing = await DentalRecordAutoBilling.BillIfPaidAsync(
-                _sender, dentalRecord, request.AmountPaid, _logger, cancellationToken,
-                supersedesInvoiceId: supersedes);
+                _sender, dentalRecord!, request.AmountPaid, _logger, cancellationToken,
+                supersedesInvoiceId: supersedes, carriedPayments: carried);
 
             // The séance's OTHER money — see the create path for why it is a second call and not a branch. The
             // re-save case is the one that matters here: the command derives the increment from what THIS fiche
@@ -589,34 +633,59 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
     /// <summary>Occurrences of each catalogued procedure among a record's acts (free-text acts have no id).</summary>
     /// <summary>
     /// Void every live payment on the note billing this séance, then cancel it — the correction's destructive
-    /// half, run pre-commit so it lands with the fiche or not at all.
+    /// half, run pre-commit so it lands with the fiche or not at all. Returns which rows the replacement re-records
+    /// (<see cref="NoteCorrectionCarry"/>): voided here, carried there, so la caisse nets to zero.
     ///
     /// <para>The order is imposed by the aggregate: <c>Invoice.VoidPayment</c> refuses to touch the payments of a
     /// cancelled note, and <c>Invoice.Cancel</c> refuses while any live payment remains. Voiding first satisfies
     /// both — and it is what makes the cancellation legitimate rather than a way to erase cash from la caisse,
     /// which is exactly the distinction <c>Cancel</c>'s own guard draws.</para>
     /// </summary>
-    private async Task<Result> RetireForCorrectionAsync(
+    private async Task<Result<IReadOnlyList<CarriedPayment>>> RetireForCorrectionAsync(
         Guid invoiceId,
         Guid clinicId,
+        Guid dentalRecordId,
+        decimal amountPaid,
         string reason,
         CancellationToken cancellationToken)
     {
         var invoice = await _invoiceRepository.GetByIdAsync(invoiceId, cancellationToken);
         if (invoice == null || invoice.ClinicId != clinicId)
         {
-            return Result.Failure("La note d'honoraires de cette fiche est introuvable.");
+            return Result<IReadOnlyList<CarriedPayment>>.Failure("La note d'honoraires de cette fiche est introuvable.");
         }
 
         if (!invoice.CanBeCorrected)
         {
-            return Result.Failure(
+            return Result<IReadOnlyList<CarriedPayment>>.Failure(
                 invoice.SupersededByInvoiceId is not null
                     ? "Cette note a déjà été corrigée : repartez de la note qui l'a remplacée."
                     : "Cette note est annulée : elle ne peut plus être corrigée.");
         }
 
-        foreach (var payment in invoice.Payments.Where(p => !p.IsVoided).ToList())
+        var live = invoice.Payments.Where(p => !p.IsVoided).ToList();
+
+        // ⚠️ A note that also carries a treatment is not this fiche's alone (`seance-au-fauteuil`): attached to a
+        // devis, or holding money later séances collected on it. The replacement raised after the commit would be
+        // attached to neither, so the devis would come back into every balance and those séances' money would be
+        // orphaned — refused, and the note's own « Corriger » is the way.
+        if (invoice.TreatmentPlanId is not null
+            || live.Any(p => p.DentalRecordId is { } other && other != dentalRecordId))
+        {
+            return Result<IReadOnlyList<CarriedPayment>>.Failure(
+                DentalRecordBillingRefusals.NoteCarriesTreatment(invoice.Number),
+                DentalRecordBillingRefusals.NoteCarriesTreatmentCode);
+        }
+
+        var carry = NoteCorrectionCarry.Plan(live, amountPaid);
+        if (NoteCorrectionCarry.StrandedBankedCheque(live, carry) is { } banked)
+        {
+            return Result<IReadOnlyList<CarriedPayment>>.Failure(
+                DentalRecordBillingRefusals.CorrectionStrandsBankedCheque(invoice.Number, banked.Amount),
+                DentalRecordBillingRefusals.PaymentBankedCode);
+        }
+
+        foreach (var payment in live)
         {
             invoice.VoidPayment(payment.Id, reason, creditedTotal: 0m);
         }
@@ -625,9 +694,10 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
         await _invoiceRepository.UpdateAsync(invoice, cancellationToken);
 
         _logger.LogInformation(
-            "Invoice {Number} retired for correction of dental record (reason: {Reason})", invoice.Number, reason);
+            "Invoice {Number} retired for correction of dental record (reason: {Reason}); {Count} payment(s) to carry",
+            invoice.Number, reason, carry.Count);
 
-        return Result.Success();
+        return Result<IReadOnlyList<CarriedPayment>>.Success(carry);
     }
 
     /// <summary>

@@ -15,9 +15,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VisitClosureList } from "@/components/visits/visit-closure-list"
 import { UnfinishedActsList } from "@/components/visits/unfinished-acts-list"
 import { ResteAPayerList } from "@/components/visits/reste-a-payer-list"
+import { ToCollectList } from "@/components/visits/to-collect-list"
+import { useSeancesToCollect } from "@/components/visits/use-seances-to-collect"
 import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
 import { cn } from "@/lib/utils"
-import { ClipboardCheck, CircleDashed, Wallet } from "lucide-react"
+import { Banknote, ClipboardCheck, CircleDashed, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CalendarImportUndoBanner } from "@/components/visits/calendar-import-undo-banner"
 import { appointmentsApi, type VisitsToCloseResponse } from "@/lib/api/appointments"
@@ -131,8 +133,11 @@ export default function VisitsToClosePage() {
   const { moneyShown } = useMoneyVisibility()
   const [tab, setTab] = useState("visits")
   const [resteDueCount, setResteDueCount] = useState<number | null>(0)
+  // « À encaisser » (`seance-au-fauteuil`): today's séances whose money the desk still has to take — one live read for
+  // the tab's count and its list. Here and not on the agenda, which the owner kept as it was (2026-11-19).
+  const toCollect = useSeancesToCollect()
   useEffect(() => {
-    if (!moneyShown && tab === "reste") setTab("visits")
+    if (!moneyShown && (tab === "reste" || tab === "encaisser")) setTab("visits")
   }, [moneyShown, tab])
 
   /** The page of séances, whichever half is being shown. */
@@ -243,6 +248,26 @@ export default function VisitsToClosePage() {
                 {(visits?.totalCount ?? 0).toLocaleString("fr-TN")}
               </Badge>
             </TabsTrigger>
+            {/* ⚠️ `basis-36`, not its siblings' `basis-28`: « À encaisser » plus a two-digit count is ~130 px, and at
+                390 px three 112 px triggers share a row — it would be clipped mid-word instead of wrapping. */}
+            {moneyShown && (
+              <TabsTrigger
+                value="encaisser"
+                aria-label="À encaisser aujourd'hui"
+                className={cn(
+                  "h-auto min-h-9 min-w-0 grow basis-36 gap-1.5 py-1.5 leading-tight coarse:min-h-11 sm:flex-none sm:basis-auto sm:gap-2",
+                  "data-[state=active]:bg-zone-money/12 data-[state=active]:text-zone-money",
+                )}
+              >
+                <Banknote className="hidden h-4 w-4 shrink-0 sm:block" />
+                À encaisser
+                {(toCollect.rows !== null || toCollect.failed) && (
+                  <Badge variant="secondary" className="ms-0.5 shrink-0 tabular-nums">
+                    {toCollect.rows === null ? "—" : toCollect.rows.length.toLocaleString("fr-TN")}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            )}
             {/*
               ⚠️ A THIRD tab rather than a fourth question in the cascade beside it — see
               `UnfinishedActsList`'s own note for the whole argument. The short form: a séance holding an
@@ -291,6 +316,12 @@ export default function VisitsToClosePage() {
           <TabsContent value="unfinished" forceMount className="data-[state=inactive]:hidden">
             <UnfinishedActsList onTotalChange={setUnfinishedCount} />
           </TabsContent>
+
+          {moneyShown && (
+            <TabsContent value="encaisser">
+              <ToCollectList rows={toCollect.rows} failed={toCollect.failed} onSettled={toCollect.reload} />
+            </TabsContent>
+          )}
 
           {moneyShown && (
             <TabsContent value="reste" forceMount className="data-[state=inactive]:hidden">

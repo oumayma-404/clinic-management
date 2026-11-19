@@ -19,8 +19,10 @@ namespace ClinicManagement.Application.Features.Appointments;
 /// <param name="HasFiche">At least one <c>DentalRecord</c> names this visit.</param>
 /// <param name="FicheCost">The linked fiches' total. Null when there is none. <c>0</c> is meaningful — a
 /// contrôle gratuit — and is not the same as « no fiche ».</param>
-/// <param name="HasLiveInvoice">A non-<c>Cancelled</c> note d'honoraires names this visit. A cancelled one does
-/// not bill it: it would read « facturé » with no money behind it and hide the action to raise a replacement.</param>
+/// <param name="HasLiveInvoice">An <b>issued</b> note d'honoraires names this visit or one of its fiches. A cancelled
+/// one does not bill it: it would read « facturé » with no money behind it and hide the action to raise a
+/// replacement. Since `seance-au-fauteuil` neither does a <b>draft</b>: it holds no money and nobody was handed it,
+/// and « À clôturer » is where a forgotten one has to surface.</param>
 /// <param name="CoveredByPlan">The visit carries a devis step, so its money lives on the échéancier.</param>
 /// <param name="NothingToBill">Somebody recorded that this visit raises no document.</param>
 /// <param name="Disregarded">Somebody took this visit off the worklist without answering any of the three
@@ -152,7 +154,7 @@ public static class VisitClosureRules
         var ficheRecorded = visit.HasFiche;
 
         // Three derivations before the recorded escape hatch, in the order they are cheap to be sure of.
-        //   · a live note d'honoraires  → billed
+        //   · an issued note d'honoraires → billed (a draft is not: it holds no money)
         //   · a devis step on the visit → the money is on the échéancier, and counting it here would double it
         //   · a fiche worth nothing     → a contrôle gratuit is complete work with no document to raise
         // The recorded mark is last precisely because it is the one a human had to type.

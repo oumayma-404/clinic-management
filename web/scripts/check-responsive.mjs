@@ -4709,6 +4709,70 @@ check(
   }
 );
 
+check(
+  "fiche-door-has-one-composer",
+  "N57",
+  "The link that opens a visit's fiche de soins is built in one place (`lib/visits/fiche-door.ts`)",
+  "`seance-au-fauteuil`: the fiche is written while the patient is in the chair, so the agenda, the RDV window, " +
+    "« Au fauteuil », the patient's « Rendez-vous » tab and a treatment's séances all offer it — and the patient page " +
+    "opens the visit's EXISTING fiche when the link names its visit. Nine places used to compose `?addRecord=1` by " +
+    "hand, each with its own idea of encoding and of when the door opens. `ficheHref` is the one composer and " +
+    "`canRecordFiche` the one gate; a tenth composer is how a door starts creating a second fiche for a visit.",
+  () => {
+    const OWNER = "lib/visits/fiche-door.ts";
+    if (!ALL_FILES.some((f) => rel(f) === OWNER)) {
+      return [{ file: OWNER, text: "missing — the one composer this check protects is gone; retarget or retire the check" }];
+    }
+    const owner = ALL_FILES.find((f) => rel(f) === OWNER);
+    if (scanLines([owner], /addRecord=1/).length === 0) {
+      return [{ file: OWNER, text: "no longer composes `addRecord=1` — this check is blind, fix it" }];
+    }
+    return scanLines(tsx().filter((f) => rel(f) !== OWNER), /addRecord=1/);
+  },
+);
+
+check(
+  "pdf-print-has-one-way",
+  "N58",
+  "A PDF reaches a printer through `lib/print.ts` and nowhere else",
+  "The ordonnance and note windows printed their VISIBLE frame — clickable before its PDF had painted, which printed " +
+    "a blank page — while `lib/print.ts` already printed the bytes from its own off-screen frame, waiting for it to " +
+    "load, and handed the file to the system viewer on a finger. Two ways to print one PDF is how one of them keeps " +
+    "the blank page; `seance-au-fauteuil` routed both windows and the fiche's « Imprimer l'ordonnance » through " +
+    "`printPdfBlob`. A page printing ITSELF (`window.print()`) is a different act and is not matched.",
+  () => {
+    const OWNER = "lib/print.ts";
+    const owner = ALL_FILES.find((f) => rel(f) === OWNER);
+    if (!owner) return [{ file: OWNER, text: "missing — the one print path this check protects is gone" }];
+    return scanLines(tsx().filter((f) => rel(f) !== OWNER), /contentWindow\??\.print\s*\(/);
+  },
+);
+
+check(
+  "patient-tab-link-exists",
+  "N59",
+  "A link to a patient's tab (`/patients/{id}?tab=…`) names a tab the patient page has",
+  "The patient page honours `?tab=` only for a value of `PATIENT_TABS` or a key of `RETIRED_PATIENT_TABS`; anything " +
+    "else opens the FIRST tab, silently. `seance-au-fauteuil`'s « Émettre la note » linked to `?tab=invoices` while " +
+    "the tab is `factures`, so the desk landed on « Fiches de soins » and issued nothing — and the QA walk, which " +
+    "asserted the URL rather than the tab, was green. `actes` had done the same before. Derived from the page itself.",
+  () => {
+    const OWNER = "app/patients/[id]/page.tsx";
+    const owner = ALL_FILES.find((f) => rel(f) === OWNER);
+    if (!owner) return [{ file: OWNER, text: "missing — the page whose tabs this check reads is gone; retarget it" }];
+    const src = read(owner);
+    const tabs = /const PATIENT_TABS = \[([\s\S]*?)\]/.exec(src);
+    const retired = /const RETIRED_PATIENT_TABS[^=]*= \{([\s\S]*?)\r?\n\}/.exec(src);
+    const known = new Set([...(tabs ? tabs[1].matchAll(/"([a-z-]+)"/g) : [])].map((m) => m[1]));
+    for (const m of retired ? retired[1].matchAll(/^\s+([a-z-]+):/gm) : []) known.add(m[1]);
+    if (known.size < 6) {
+      return [{ file: OWNER, text: `found ${known.size} tab keys — this check cannot read PATIENT_TABS any more, fix it` }];
+    }
+    // `/patients/<one segment>?…tab=<literal>` — a sub-route (`/patients/{id}/files`) has tabs of its own.
+    return scanLines(tsx(), /\/patients\/[^\s"'`?/]*\?(?:[^\s"'`#]*&)?tab=([a-z-]+)/, (_line, _file, m) => !known.has(m[1]));
+  },
+);
+
 for (const c of checks) {
   if (only && c.id !== only) continue;
   const hits = c.run();

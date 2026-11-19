@@ -49,6 +49,106 @@ public sealed record VisitClosureWorklist(
 /// </summary>
 public static class VisitClosureReader
 {
+    /// <summary>
+    /// One séance of the day whose fiche is saved and whose money is still to take — a row of « À encaisser »
+    /// (`seance-au-fauteuil`). <paramref name="Invoice"/> is the live note billing it, if any: its balance, or that it
+    /// is still a draft, is the caller's to read.
+    /// </summary>
+    public sealed record CollectibleVisit(
+        Appointment Appointment,
+        Guid DentalRecordId,
+        decimal FicheCost,
+        Guid? InvoiceId,
+        bool CarriedByPlan = false);
+
+    /// <summary>
+    /// « À encaisser » — the day's séances whose fiche is saved and worth something, through the SAME four reads and
+    /// the same terms as « À clôturer », minus the end of the slot: the money is taken when the patient reaches the
+    /// desk, which is before the slot ends as often as after.
+    ///
+    /// <para>Left out, each for its closure rule's reason: a visit with no fiche (nothing to price yet), a contrôle
+    /// gratuit (worth 0), one marked « rien à facturer » and one retired from the lists. A séance whose acts are on a
+    /// debt-bearing devis is returned <see cref="CollectibleVisit.CarriedByPlan"/>, with no figure: its money is the
+    /// échéancier's, and the caller reads what is due on it from the patient's debt lines.</para>
+    /// </summary>
+    public static async Task<IReadOnlyList<CollectibleVisit>> ReadForCollectionAsync(
+        Guid clinicId,
+        DateTime clinicDay,
+        IAppointmentRepository appointments,
+        IDentalRecordRepository dentalRecords,
+        IInvoiceRepository invoices,
+        ITreatmentPlanRepository plans,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = await appointments.GetClosureCandidatesAsync(
+            clinicId,
+            ClinicClock.StartOfLocalDayUtc(clinicDay),
+            ClinicClock.LastTickOfLocalDayUtc(clinicDay),
+            null,
+            null,
+            cancellationToken);
+        if (candidates.Count == 0)
+        {
+            return Array.Empty<CollectibleVisit>();
+        }
+
+        var appointmentIds = candidates.Select(a => a.Id).ToList();
+        var ficheRows = await dentalRecords.GetAppointmentLinksAsync(clinicId, appointmentIds, cancellationToken);
+        if (ficheRows.Count == 0)
+        {
+            return Array.Empty<CollectibleVisit>();
+        }
+
+        var invoiceLinks = await AppointmentInvoiceLinks.ResolveAsync(
+            invoices, clinicId, appointmentIds, cancellationToken);
+        // The note naming one of the visit's FICHES, for the reason `ReadAsync` gives — kept with its id, since this
+        // list has to say how much is left on it.
+        var notesByFiche = (await invoices.GetDentalRecordLinksAsync(clinicId, cancellationToken))
+            .Where(l => l.Status != InvoiceStatus.Cancelled)
+            .GroupBy(l => l.DentalRecordId)
+            .ToDictionary(g => g.Key, g => g.First().InvoiceId);
+        var planItemIds = candidates.SelectMany(a => a.LinkedTreatmentPlanItemIds).Distinct().ToList();
+        var debtBearingItemIds = planItemIds.Count == 0
+            ? new HashSet<Guid>()
+            : (await plans.GetDebtBearingItemIdsAsync(clinicId, planItemIds, cancellationToken)).ToHashSet();
+        var fichesByAppointment = ficheRows.GroupBy(r => r.AppointmentId).ToDictionary(g => g.Key, g => g.ToList());
+        var billedFicheIds = notesByFiche.Keys.ToHashSet();
+
+        var rows = new List<CollectibleVisit>();
+        foreach (var appointment in candidates)
+        {
+            var input = BuildInput(
+                appointment, fichesByAppointment, invoiceLinks, debtBearingItemIds, billedFicheIds);
+            if (!input.HasFiche || input.Disregarded || input.NothingToBill)
+            {
+                continue;
+            }
+
+            var fiches = fichesByAppointment[appointment.Id];
+            if (input.CoveredByPlan)
+            {
+                rows.Add(new CollectibleVisit(appointment, fiches[0].DentalRecordId, 0m, null, CarriedByPlan: true));
+                continue;
+            }
+            if (input.FicheCost is not > 0m)
+            {
+                continue;
+            }
+
+            Guid? invoiceId = invoiceLinks.TryGetValue(appointment.Id, out var link)
+                ? link.InvoiceId
+                : fiches.Select(f => notesByFiche.TryGetValue(f.DentalRecordId, out var id) ? id : (Guid?)null)
+                    .FirstOrDefault(id => id is not null);
+            rows.Add(new CollectibleVisit(appointment, fiches[0].DentalRecordId, input.FicheCost.Value, invoiceId));
+        }
+
+        // Who left the chair first comes first: the desk serves the patients in the order they come out.
+        return rows
+            .OrderBy(r => r.Appointment.ExpectedEndUtc)
+            .ThenBy(r => r.Appointment.Id)
+            .ToList();
+    }
+
     public const int MinDays = 1;
     public const int MaxDays = 90;
 
@@ -120,8 +220,9 @@ public static class VisitClosureReader
         // Invoice.AppointmentId is copied from the fiche's own link, which was null on every fiche not created
         // through the post-visit deep link — so every séance billed before that link existed carries a real,
         // paid note this read could not see, and the worklist asked the practice to collect the money twice.
+        // ⚠️ ISSUED notes only (`seance-au-fauteuil`): a draft holds no money, so it does not settle the séance.
         var billedFicheIds = (await invoices.GetDentalRecordLinksAsync(clinicId, cancellationToken))
-            .Where(l => l.Status != InvoiceStatus.Cancelled)
+            .Where(l => l.Status != InvoiceStatus.Cancelled && l.Status != InvoiceStatus.Draft)
             .Select(l => l.DentalRecordId)
             .ToHashSet();
 
@@ -224,7 +325,8 @@ public static class VisitClosureReader
             Duration: appointment.Duration,
             HasFiche: hasFiche,
             FicheCost: ficheCost,
-            HasLiveInvoice: invoiceLinks.ContainsKey(appointment.Id)
+            // `InvoiceLinkChoice` prefers the numbered note, so a null number means the visit has only a draft.
+            HasLiveInvoice: (invoiceLinks.TryGetValue(appointment.Id, out var visitNote) && visitNote.Number is not null)
                 || (hasFiche && rows!.Any(r => billedFicheIds.Contains(r.DentalRecordId))),
             CoveredByPlan: appointment.LinkedTreatmentPlanItemIds.Any(debtBearingItemIds.Contains),
             NothingToBill: appointment.IsNothingToBill,

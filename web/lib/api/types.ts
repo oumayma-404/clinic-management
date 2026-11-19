@@ -738,6 +738,30 @@ export interface AppointmentProcedureDto {
   sequenceNumber: number;
 }
 
+/**
+ * One row of « À encaisser » (`seance-au-fauteuil`). `kind`: `Unbilled` (fiche saved, no note — « Facturer et
+ * encaisser »), `NoteBalance` (an issued note with money still owed — « Encaisser »), `DraftNote` (a draft note exists:
+ * it holds no money and no number, so « Encaisser » bills the FICHE and replaces it — `amountDue` is the fiche's, and
+ * `draftTotal` is what the draft held, stated in the dialog before the desk confirms).
+ */
+export interface SeanceToCollectDto {
+  appointmentId: string;
+  patientId: string;
+  patientName: string;
+  startUtc: string;
+  practitionerName?: string | null;
+  dentalRecordId: string;
+  kind: "Unbilled" | "NoteBalance" | "DraftNote" | "Treatment";
+  amountDue: number;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  /** A `DraftNote` row: the total the draft held. */
+  draftTotal?: number | null;
+  /** The devis a `Treatment` row collects on — an échéance of it is due now. */
+  treatmentPlanId?: string | null;
+  treatmentPlanNumber?: string | null;
+}
+
 export interface AppointmentDto {
   /**
    * Optimistic-concurrency token (PostgreSQL `xmin`). Send it back on the matching update so the save is
@@ -781,8 +805,8 @@ export interface AppointmentDto {
    */
   treatmentPlanItemId?: string | null;
   /**
-   * The note d'honoraires raised against this visit, if any (AC-P6.13). Null = not billed yet, which is what
-   * « Facturer cette consultation » keys off. A cancelled invoice does not count as billing the visit.
+   * The note d'honoraires raised against this visit, if any (AC-P6.13). Null = not billed yet. A cancelled invoice
+   * does not count as billing the visit.
    */
   invoiceId?: string | null;
   /** The billing invoice's number, or null while it is still a draft (a draft consumes no number). */
@@ -1382,6 +1406,12 @@ export interface DentalRecordDto {
    */
   collectedOnTreatment?: number | null;
   /**
+   * What the séance's note has collected for this fiche — the chair's « Payé » and the desk's payments alike. Null
+   * when no issued note bills it. « Payé » reopens on this figure (`seance-au-fauteuil`): the desk's money is never
+   * written back onto the fiche.
+   */
+  collectedOnNote?: number | null;
+  /**
    * The devis act's own **id**, so a reopened fiche can re-establish « Acte planifié ».
    *
    * ⚠️ Without it an edited fiche of a devis-carried act read as un-carried — no « Suivi comme traitement »
@@ -1434,6 +1464,12 @@ export interface DentalRecordDto {
    * ids, and both doors have to be offered. See `DocumentTypes.Examens`.
    */
   examensDocumentId?: string | null;
+  /**
+   * The two ordonnances' versions after the save that returned this fiche (0 = none, or not from a save). A fiche
+   * kept open after « Enregistrer » sends them back on its next save, so it never 409s against its own last save.
+   */
+  prescriptionDocumentVersion?: number;
+  examensDocumentVersion?: number;
 
   /**
    * Row-sized labels of the examens requested. Served, for `prescriptionSummary`'s reasons.

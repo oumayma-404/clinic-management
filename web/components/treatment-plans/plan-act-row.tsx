@@ -24,6 +24,7 @@ import {
   isPlanLive, planItemState, nextStepOf, isItemWithdrawn, detachOutcome, itemNetCost, itemDiscount,
 } from "./plan-next-action"
 import { SeanceStrip, seanceDay, seanceEarliestAhead, seanceState, type SeanceStripStep } from "./seance-strip"
+import { ficheHref } from "@/lib/visits/fiche-door"
 
 /** Up/down controls for the act's clinical position; omitted when the plan can't be reordered. */
 export interface PlanActReorder {
@@ -322,7 +323,7 @@ function SeancePopover({
             <Button
               size="sm"
               className={button}
-              onClick={act(() => go(`/patients/${plan.patientId}?addRecord=1&appointmentId=${appointmentId}`))}
+              onClick={act(() => go(ficheHref(plan.patientId, appointmentId)))}
             >
               <FilePlus2 className="h-4 w-4" />
               Enregistrer la fiche
@@ -532,7 +533,7 @@ export function PlanActPrimaryAction({
         variant="outline"
         size="sm"
         className={cn("h-8 gap-1 coarse:h-11", block && "w-full justify-center")}
-        onClick={() => go(`/patients/${plan.patientId}?addRecord=1&appointmentId=${bookedAppointmentId}`)}
+        onClick={() => go(ficheHref(plan.patientId, bookedAppointmentId))}
       >
         <FilePlus2 className="h-4 w-4" />
         Enregistrer la fiche

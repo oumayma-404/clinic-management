@@ -220,6 +220,9 @@ how it was built, `notes.md` is what shipped.
 - [`time-24h-clock`](features/time-24h-clock/notes.md) — L'heure se saisit et se lit sur 24 heures, partout — et `lang="fr"` n'y était pour rien
 - [`patient-form-density`](features/patient-form-density/notes.md) — La fiche patient tient sur onze lignes, et la denture en a trois
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
+- [`seance-au-fauteuil`](features/seance-au-fauteuil/notes.md) — La fiche se remplit pendant la séance et
+  l'ordonnance s'imprime sur place · « Enregistrer » ne termine pas le RDV · « Payé » part vide, l'accueil encaisse
+  depuis « À encaisser » · une séance = une note · « Corriger la note » reporte les paiements de l'accueil
 - [`post-visit-late-and-postpone`](features/post-visit-late-and-postpone/notes.md) — « Séance terminée » asks Plus tard · Reporter · Absent · Venu · a retard never moves the RDV nor grows the slot, it only pushes when the séance counts as over (`Appointment.ExpectedEnd`) · « Absent » can become « Terminé » · « Reporter » lists the practitioner's free times, computed by the save's own rules (`FreeSlotFinder`)
 - [`unfinished-act-continuation`](features/unfinished-act-continuation/notes.md) — Un acte peut être noté « non terminé », et ce qui reste apparaît quelque part · « Suites à planifier » n'est PAS une quatrième question de la clôture
 - [`calendar-import-revert`](features/calendar-import-revert/notes.md) — An import was a run, a run can be undone — and then the import was retired · A séance leaves the list without claiming anything about it
@@ -735,6 +738,13 @@ touching the area.
   navigation id — which is precisely how the handler came to blame `_config.BaseUrl` for failures that never
   addressed it. The test is now positive and narrow (the clinic app's own document, remembered from
   `NavigationStarting`), never a list of failures to forgive. See `desktop/CLAUDE.md` → `ExternalNavigation.cs`.
+- **Saving a fiche does not end the visit, and « Payé » is never the total by default.** A visit becomes « Terminé »
+  on « Terminer la séance » or once its slot has ended (`FicheVisitCompletion.ShouldComplete`, retard included); the
+  minute job completes a fiche-bearing visit at its end. Completing on the first save told the agenda the patient had
+  left while they were in the chair. And « Payé » used to mirror the total, recording money nobody took — which the
+  desk then collected again. A reopened fiche reads « Payé » from its note (`CollectedOnNote`), never the reverse:
+  the desk's payments are not written back onto the fiche. See
+  [`features/seance-au-fauteuil/notes.md`](features/seance-au-fauteuil/notes.md).
 - **Never recover an outcome by matching French prose.** Branch on a `Result.Code` or an enum member's own
   name — a `Contains("déjà facturée")` once made rewording a sentence change behaviour.
 - **A raw `history.replaceState({}, …)` makes Next reload the page on the next Back.** Next keeps `__NA` in each

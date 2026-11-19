@@ -7,6 +7,7 @@ using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Documents;
 using ClinicManagement.Application.Features.Patients;
 using ClinicManagement.Domain.Repositories;
+using ClinicManagement.Domain.Services;
 
 namespace ClinicManagement.Application.Features.Patients.Queries;
 
@@ -21,6 +22,7 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
     private readonly IPatientRepository _patientRepository;
     private readonly ITreatmentPlanRepository _treatmentPlanRepository;
     private readonly IMedicalDocumentRepository _documentRepository;
+    private readonly IInvoiceRepository _invoiceRepository;
     private readonly ICurrentClinicResolver _clinicResolver;
 
     public GetDentalRecordsQueryHandler(
@@ -28,12 +30,14 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
         IPatientRepository patientRepository,
         ITreatmentPlanRepository treatmentPlanRepository,
         IMedicalDocumentRepository documentRepository,
+        IInvoiceRepository invoiceRepository,
         ICurrentClinicResolver clinicResolver)
     {
         _dentalRecordRepository = dentalRecordRepository;
         _patientRepository = patientRepository;
         _treatmentPlanRepository = treatmentPlanRepository;
         _documentRepository = documentRepository;
+        _invoiceRepository = invoiceRepository;
         _clinicResolver = clinicResolver;
     }
 
@@ -125,6 +129,28 @@ public class GetDentalRecordsQueryHandler : IRequestHandler<GetDentalRecordsQuer
 
                 dto.TreatmentPlanId = row.TreatmentPlanId;
                 dto.TreatmentPlanNumber = row.PlanNumber;
+            }
+
+            /*
+             * What each séance's note has collected, desk included (`seance-au-fauteuil`) — ONE read of the patient's
+             * notes. The note is the one the billing guard reads (`DentalRecordBillingGuard.LoadAsync`): a live one
+             * whose lines bill the fiche, issued rather than draft; and the figure is the guard's own
+             * (`CollectedExcludingOtherRecords`), so the « Payé » a reopened fiche shows is the number its re-save is
+             * compared with.
+             */
+            var notes = await _invoiceRepository.GetByPatientIdsAsync(
+                clinicResult.Value, new[] { request.PatientId }, cancellationToken);
+            foreach (var dto in dtos)
+            {
+                var note = notes
+                    .Where(i => PlanBillingRules.RepresentsItsPlan(i.Status)
+                                && i.Lines.Any(l => l.DentalRecordId == dto.Id))
+                    .OrderBy(i => i.Number, StringComparer.Ordinal)
+                    .FirstOrDefault();
+                if (note is not null)
+                {
+                    dto.CollectedOnNote = note.CollectedExcludingOtherRecords(dto.Id);
+                }
             }
 
             /*

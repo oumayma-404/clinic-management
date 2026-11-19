@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { FormErrorBanner } from "@/components/ui/form-error-banner"
-import { AlertTriangle, Loader2, Receipt } from "lucide-react"
+import { Loader2, Receipt } from "lucide-react"
 import { toast } from "sonner"
 import { invoicesApi } from "@/lib/api/invoices"
 import { getErrorMessage } from "@/lib/errors"
@@ -20,6 +20,7 @@ import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import type { DentalRecordDto } from "@/lib/api/types"
 import { PAYMENT_METHODS, paymentMethodLabel } from "./invoice-labels"
+import { CHEQUE_METHOD, ChequeFields, EMPTY_CHEQUE_FIELDS, chequePaymentFields, type ChequeFieldsValue } from "./cheque-fields"
 
 /**
  * « Facturer cette intervention » — raise the note d'honoraires for a fiche de soins and, optionally, record the
@@ -41,6 +42,11 @@ interface BillDentalRecordDialogProps {
   /** The fiche to bill; null closes the dialog. */
   record: DentalRecordDto | null
   patientName: string
+  /**
+   * The séance's draft note this bill replaces (`seance-au-fauteuil`): the fiche makes the note, and the server
+   * deletes that draft — no number, no money — in the same transaction. Stated in the dialog before the press.
+   */
+  replacesDraft?: { invoiceId: string; total: number } | null
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
 }
@@ -48,12 +54,16 @@ interface BillDentalRecordDialogProps {
 export function BillDentalRecordDialog({
   record,
   patientName,
+  replacesDraft = null,
   onOpenChange,
   onSuccess,
 }: BillDentalRecordDialogProps) {
   const [collectNow, setCollectNow] = useState(true)
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState<string>("Cash")
+  // The desk takes cheques as often as cash; without these fields a cheque landed with no number, no bank and no
+  // date — absent from « Chèques à encaisser » (`seance-au-fauteuil`).
+  const [cheque, setCheque] = useState<ChequeFieldsValue>(EMPTY_CHEQUE_FIELDS)
   const [paidOn, setPaidOn] = useState(todayLocalIso())
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -74,6 +84,7 @@ export function BillDentalRecordDialog({
     // editable for a part-payment.
     setAmount(record.cost > 0 ? formatAmount(record.cost) : "")
     setMethod("Cash")
+    setCheque(EMPTY_CHEQUE_FIELDS)
     // The session's own date, not today: a fiche recorded two days late was paid on the day it happened, and
     // booking that cash to today puts it in the wrong day's caisse.
     setPaidOn((record.interventionDate ?? "").slice(0, 10) || todayLocalIso())
@@ -84,19 +95,20 @@ export function BillDentalRecordDialog({
     if (!record) return
     setError(null)
 
-    let paidNow: { amount: number; method: string; paidOn: string } | null = null
+    let paidNow: Parameters<typeof invoicesApi.createFromDentalRecord>[1] = null
     if (collectNow) {
       const parsed = parseAmountInput(amount)
       if (!Number.isFinite(parsed) || parsed <= 0) {
         setError("Saisissez un montant encaissé supérieur à 0, ou décochez « Encaisser maintenant ».")
         return
       }
-      paidNow = { amount: parsed, method, paidOn }
+      // The one cheque builder: it clears the three fields unless the method is a cheque.
+      paidNow = { amount: parsed, method, paidOn, ...chequePaymentFields(method, cheque) }
     }
 
     try {
       setSubmitting(true)
-      const invoice = await invoicesApi.createFromDentalRecord(record.id, paidNow)
+      const invoice = await invoicesApi.createFromDentalRecord(record.id, paidNow, replacesDraft?.invoiceId)
       toast.success(
         paidNow
           ? `Note n° ${invoice.number} émise — ${formatDT(paidNow.amount)} encaissé`
@@ -159,17 +171,13 @@ export function BillDentalRecordDialog({
             )}
           </div>
 
-          {/* The irreversibility has to be stated before the click, not discovered after it.
-              On the theme's warning family — `--warning-wash` with `--warning-ink` — rather than an `amber-50 /
-              dark:amber-950` pair maintained by hand. `text-warning-ink` and not `text-warning`: the plain step
-              measures ~3.5:1 on its own wash, and this is the one paragraph in the flow that must be read. */}
-          <div className="flex gap-2 rounded-md border border-warning/30 bg-warning-wash p-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning-ink" aria-hidden="true" />
-            <p className="text-xs text-warning-ink">
-              La note d&apos;honoraires est <strong>émise immédiatement</strong> et reçoit un numéro définitif.
-              Une erreur de montant se corrige ensuite par un <strong>avoir</strong>, pas par une modification.
+          {/* No « émise immédiatement » warning here: removed on the owner's request (2026-11-19). */}
+
+          {replacesDraft && (
+            <p role="note" className="text-sm text-muted-foreground">
+              Remplace le brouillon de note de {formatDT(replacesDraft.total)} préparé depuis le rendez-vous.
             </p>
-          </div>
+          )}
 
           {/*
             The `Checkbox` primitive, not a raw `<input type="checkbox">`. `globals.css` deliberately EXCLUDES
@@ -236,6 +244,9 @@ export function BillDentalRecordDialog({
                 />
               </div>
             </div>
+          )}
+          {collectNow && method === CHEQUE_METHOD && (
+            <ChequeFields idPrefix="bill-record" value={cheque} onChange={setCheque} disabled={submitting} />
           )}
         </div>
 

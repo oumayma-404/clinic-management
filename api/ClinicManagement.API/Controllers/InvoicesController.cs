@@ -225,10 +225,17 @@ public class InvoicesController : ApiControllerBase
     public async Task<ActionResult<InvoiceDto>> CreateInvoiceFromDentalRecord(
         Guid dentalRecordId,
         [FromBody] DentalRecordPaymentRequest? paidNow = null,
+        [FromQuery] Guid? replacesDraft = null,
         CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(
-            new BillDentalRecordCommand { DentalRecordId = dentalRecordId, PaidNow = paidNow },
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = dentalRecordId,
+                PaidNow = paidNow,
+                // « Encaisser » on a séance whose note is a draft: the fiche's note replaces it (`seance-au-fauteuil`).
+                ReplacesDraftInvoiceId = replacesDraft,
+            },
             cancellationToken);
 
         if (result.IsFailure)

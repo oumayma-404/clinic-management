@@ -26,9 +26,11 @@ import { ZONES, zoneChipClass, zoneForPath, type ZoneKey } from "@/lib/zones"
 import { cn } from "@/lib/utils"
 import { NothingToBillDialog } from "./nothing-to-bill-dialog"
 import { DisregardVisitsDialog } from "./disregard-visits-dialog"
+import { useSeanceCollection } from "./use-seance-collection"
 import { visitClosureDayGroups, type VisitClosureDayGroup } from "./visit-closure-days"
 import { PatientNameLink } from "@/components/patient-name-link"
 import { visitActsLine } from "@/components/appointment-labels"
+import { ficheHref } from "@/lib/visits/fiche-door"
 
 /**
  * « À clôturer » — the séances still owing a presence, a fiche or a money document.
@@ -91,6 +93,14 @@ export function VisitClosureList({
   /** The séance(s) « Retirer de la liste » is being asked about — one row, or every row on screen. */
   const [disregarding, setDisregarding] = useState<VisitToCloseDto[] | null>(null)
   const [billing, setBilling] = useState<{ record: DentalRecordDto; patientName: string } | null>(null)
+  // A séance whose note is still a draft: « Encaisser » bills its fiche and replaces the draft — through the resolver
+  // « À encaisser » uses, so the two cannot differ (the fiche makes the note — owner's review, 2026-11-19).
+  const collection = useSeanceCollection(onChanged)
+  const isBusy = (id: string) => busyId === id || collection.opening === id
+  const billDraft = (visit: VisitToCloseDto) =>
+    visit.patientId
+      ? collection.billFiche(visit.patientId, visit.dentalRecordId, visit.patientName, visit.appointmentId, visit.invoiceId)
+      : undefined
   const [postponing, setPostponing] = useState<VisitToCloseDto | null>(null)
 
   /** « Venu » / « Absent ». The two legal answers to the presence question, and an ordinary status update. */
@@ -150,11 +160,7 @@ export function VisitClosureList({
    */
   const openFiche = (visit: VisitToCloseDto) => {
     if (!visit.patientId) return
-    router.push(
-      `/patients/${encodeURIComponent(visit.patientId)}?addRecord=1&appointmentId=${encodeURIComponent(
-        visit.appointmentId,
-      )}`,
-    )
+    router.push(ficheHref(visit.patientId, visit.appointmentId))
   }
 
   /**
@@ -318,12 +324,13 @@ export function VisitClosureList({
                           <div className="flex flex-wrap justify-end gap-2">
                             <RowActions
                               visit={visit}
-                              busy={busyId === visit.appointmentId}
+                              busy={isBusy(visit.appointmentId)}
                               onPresence={answerPresence}
                               onLate={answerLate}
                               onPostpone={setPostponing}
                               onFiche={openFiche}
                               onBilling={openBilling}
+                              onBillDraft={billDraft}
                               onNothingToBill={setNothingToBillFor}
                               onDisregard={(v) => setDisregarding([v])}
                               onRestore={restoreToWorklist}
@@ -373,12 +380,13 @@ export function VisitClosureList({
                       <div className="flex flex-wrap gap-2">
                         <RowActions
                           visit={v}
-                          busy={busyId === v.appointmentId}
+                          busy={isBusy(v.appointmentId)}
                           onPresence={answerPresence}
                           onLate={answerLate}
                           onPostpone={setPostponing}
                           onFiche={openFiche}
                           onBilling={openBilling}
+                          onBillDraft={billDraft}
                           onNothingToBill={setNothingToBillFor}
                           onDisregard={(v) => setDisregarding([v])}
                           onRestore={restoreToWorklist}
@@ -449,6 +457,8 @@ export function VisitClosureList({
           onChanged()
         }}
       />
+
+      {collection.dialogs}
 
       <PostponeAppointmentDialog
         appointmentId={postponing?.appointmentId ?? null}
@@ -657,6 +667,7 @@ function RowActions({
   onPostpone,
   onFiche,
   onBilling,
+  onBillDraft,
   onNothingToBill,
   onDisregard,
   onRestore,
@@ -669,6 +680,7 @@ function RowActions({
   onPostpone: (visit: VisitToCloseDto) => void
   onFiche: (visit: VisitToCloseDto) => void
   onBilling: (visit: VisitToCloseDto) => void | Promise<void>
+  onBillDraft: (visit: VisitToCloseDto) => void | Promise<void>
   onNothingToBill: (visit: VisitToCloseDto) => void
   onDisregard: (visit: VisitToCloseDto) => void
   onRestore: (visit: VisitToCloseDto) => void | Promise<void>
@@ -768,6 +780,20 @@ function RowActions({
         >
           <FileText aria-hidden="true" className="me-1.5 size-4" />
           Remplir la fiche de soins
+        </Button>
+        {setAside}
+      </>
+    )
+  }
+
+  // A séance whose note is still a draft (`seance-au-fauteuil`): « Encaisser » bills the fiche and replaces the draft,
+  // said in the dialog first. No « Rien à facturer » beside it — a note was already started for this séance.
+  if (visit.invoiceId && !visit.invoiceNumber && visit.patientId) {
+    return (
+      <>
+        <Button size="sm" disabled={busy} onClick={() => void onBillDraft(visit)}>
+          <Receipt aria-hidden="true" className="me-1.5 size-4" />
+          Encaisser
         </Button>
         {setAside}
       </>

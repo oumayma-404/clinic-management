@@ -37,6 +37,7 @@ public class AppointmentProgressJobTests
     private sealed class Harness
     {
         public Mock<IAppointmentRepository> Appointments { get; } = new();
+        public Mock<IDentalRecordRepository> DentalRecords { get; } = new();
         public Mock<IUnitOfWork> UnitOfWork { get; } = new();
         public Mock<IRealtimeNotifier> Realtime { get; } = new();
         public Mock<IAuditActorProvider> AuditActor { get; } = new();
@@ -59,6 +60,7 @@ public class AppointmentProgressJobTests
 
         public AppointmentProgressJob Job() => new(
             Appointments.Object,
+            DentalRecords.Object,
             UnitOfWork.Object,
             Realtime.Object,
             AuditActor.Object,
@@ -68,6 +70,115 @@ public class AppointmentProgressJobTests
             NullLogger<AppointmentProgressJob>.Instance);
 
         public DemoCabinetBuilds DemoBuilds { get; } = new();
+    }
+
+    // ── The end-of-séance pass ──────────────────────────────────────────────────────────────────────────────
+
+    private static readonly DateTime AfterTheSlot = new(2026, 8, 14, 15, 5, 0, DateTimeKind.Utc);
+
+    /// <summary>A 14:00→15:00 visit, read at 15:05 — the slot has ended and nobody has closed it.</summary>
+    private static Appointment Elapsed(Guid clinicId, Guid? patientId, AppointmentStatus status = AppointmentStatus.InProgress)
+    {
+        var appointment = new Appointment(
+            Guid.NewGuid(), clinicId, patientId, null,
+            new DateTime(2026, 8, 14, 14, 0, 0, DateTimeKind.Utc), TimeSpan.FromHours(1));
+        if (status == AppointmentStatus.InProgress)
+        {
+            appointment.Start();
+        }
+
+        return appointment;
+    }
+
+    private static Harness ClosingHarness(params Appointment[] elapsed)
+    {
+        var harness = new Harness();
+        harness.Appointments
+            .Setup(r => r.GetElapsedOpenAsync(AfterTheSlot, It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(elapsed);
+        harness.DentalRecords
+            .Setup(r => r.GetAppointmentLinksAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, Guid, decimal)>());
+        return harness;
+    }
+
+    private static void HasFiche(Harness harness, Guid clinicId, params Appointment[] documented) =>
+        harness.DentalRecords
+            .Setup(r => r.GetAppointmentLinksAsync(
+                clinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(documented.Select(a => (a.Id, Guid.NewGuid(), 80m)).ToList());
+
+    // A visit nobody documented keeps its presence question open: « Séance passée », as before this feature.
+    [Fact]
+    public async Task A_Visit_Without_A_Fiche_Becomes_Seance_Passee()
+    {
+        var visit = Elapsed(ClinicA, Guid.NewGuid());
+        var harness = ClosingHarness(visit);
+
+        await harness.Job().CloseElapsedAppointments(AfterTheSlot);
+
+        Assert.Equal(AppointmentStatus.AwaitingClosure, visit.Status);
+    }
+
+    // The headline of `seance-au-fauteuil`: a fiche filled DURING the séance no longer closes the visit on its first
+    // save, so the end of the séance is where it becomes « Terminé » — the fiche already answered « venu ? ».
+    [Fact]
+    public async Task A_Visit_With_A_Fiche_Becomes_Termine_At_The_End_Of_Its_Seance()
+    {
+        var documented = Elapsed(ClinicA, Guid.NewGuid());
+        var undocumented = Elapsed(ClinicA, Guid.NewGuid());
+        var harness = ClosingHarness(documented, undocumented);
+        HasFiche(harness, ClinicA, documented);
+
+        await harness.Job().CloseElapsedAppointments(AfterTheSlot);
+
+        Assert.Equal(AppointmentStatus.Completed, documented.Status);
+        Assert.Equal(AppointmentStatus.AwaitingClosure, undocumented.Status);
+        harness.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        harness.Realtime.Verify(
+            r => r.NotifyEntityChangedAsync(ClinicA, "appointments", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // A « créneau occupé » has no patient and nobody to ask about; it closes outright, fiche or not.
+    [Fact]
+    public async Task A_Blocked_Slot_Is_Closed_Without_Asking_For_Fiches()
+    {
+        var blocked = Elapsed(ClinicA, patientId: null);
+        var harness = ClosingHarness(blocked);
+
+        await harness.Job().CloseElapsedAppointments(AfterTheSlot);
+
+        Assert.Equal(AppointmentStatus.Completed, blocked.Status);
+        harness.DentalRecords.Verify(
+            r => r.GetAppointmentLinksAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // One fiche read per clinic per pass, scoped to that clinic and bounded by its visits — never one per visit.
+    [Fact]
+    public async Task Fiches_Are_Read_Once_Per_Clinic_For_That_Clinics_Visits()
+    {
+        var a1 = Elapsed(ClinicA, Guid.NewGuid());
+        var a2 = Elapsed(ClinicA, Guid.NewGuid());
+        var b1 = Elapsed(ClinicB, Guid.NewGuid());
+        var harness = ClosingHarness(a1, a2, b1);
+
+        await harness.Job().CloseElapsedAppointments(AfterTheSlot);
+
+        harness.DentalRecords.Verify(
+            r => r.GetAppointmentLinksAsync(
+                ClinicA,
+                It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 2 && ids.Contains(a1.Id) && ids.Contains(a2.Id)),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        harness.DentalRecords.Verify(
+            r => r.GetAppointmentLinksAsync(
+                ClinicB,
+                It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(b1.Id)),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     // [demo-cabinet FR-6] A demo cabinet being built is left alone — its past visits are the seed's to close, and a

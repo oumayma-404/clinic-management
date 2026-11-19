@@ -38,6 +38,9 @@ public class DentalRecordBillingResult
     /// </summary>
     public decimal AmountCollected { get; init; }
 
-    /// <summary>The French explanation for <see cref="DentalRecordBillingOutcome.AlreadyBilled"/>; null otherwise.</summary>
+    /// <summary>
+    /// The French explanation for <see cref="DentalRecordBillingOutcome.AlreadyBilled"/>, or — on a correction — which
+    /// payments were carried from the retired note (`seance-au-fauteuil`); null otherwise.
+    /// </summary>
     public string? Message { get; init; }
 }

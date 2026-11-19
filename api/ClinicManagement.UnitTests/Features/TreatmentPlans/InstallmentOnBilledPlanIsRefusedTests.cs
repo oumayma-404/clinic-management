@@ -81,7 +81,8 @@ public class InstallmentOnBilledPlanIsRefusedTests
     }
 
     private RecordInstallmentPaymentCommandHandler Handler() => new(
-        _plans.Object, _invoices.Object, _patients.Object, _clinicResolver.Object, _uow.Object,
+        _plans.Object, _invoices.Object, _patients.Object, new Mock<IDentalRecordRepository>().Object,
+        _clinicResolver.Object, _uow.Object,
         NullLogger<RecordInstallmentPaymentCommandHandler>.Instance);
 
     private Task<Result<Application.DTOs.TreatmentPlanDto>> Collect(TreatmentPlan plan, decimal amount = 400m) =>

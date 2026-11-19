@@ -1,0 +1,146 @@
+{
+  "results": [
+    {
+      "id": "A1",
+      "outcome": "✅",
+      "m": "« Fiche de soins » → /patients/00650a98-bb81-4b93-a79e-30b2d1162570?addRecord=1&appointmentId=70a472b8-f8bc-46c7-b671-386108d7a484"
+    },
+    {
+      "id": "A2",
+      "outcome": "✅",
+      "m": "footer « Enregistrer » + « Terminer la séance — 40,000 DT »; « Payé » empty"
+    },
+    {
+      "id": "A3",
+      "outcome": "✅",
+      "m": "stays open (« Enregistré à 10:17 »); 1 fiche; visit Scheduled"
+    },
+    {
+      "id": "A4",
+      "outcome": "✅",
+      "m": "saved, fetched the PDF, print() called once; ordonnance eab5eb94…; still 1 fiche"
+    },
+    {
+      "id": "A5",
+      "outcome": "✅",
+      "m": "closed; visit Completed; no note (Payé empty)"
+    },
+    {
+      "id": "A6",
+      "outcome": "✅",
+      "m": "row « Fauteuil Un0916 10:06 · à facturer 40,000 DT Encaisser »"
+    },
+    {
+      "id": "A7",
+      "outcome": "✅",
+      "m": "note + cheque: 2026-0796|3|40.000|7781234|BIAT; pill 9 → 8 without a reload"
+    },
+    {
+      "id": "A8",
+      "outcome": "✅",
+      "m": "« Payé » = 40,000 (desk money); re-save added nothing (1 live payment)"
+    },
+    {
+      "id": "B1",
+      "outcome": "✅",
+      "m": "« Tout payé » = 40,000; note paid at the chair (3|40.000)"
+    },
+    {
+      "id": "B2",
+      "outcome": "✅",
+      "m": "refused 400: Cette séance a déjà un brouillon de note d'honoraires, créé depuis son rendez-vous : émettez-le depuis les factures du patient, puis encaissez dessus."
+    },
+    {
+      "id": "B3",
+      "outcome": "✅",
+      "m": "« Fauteuil Trois0916 10:01 · note en brouillon, à émettre 40,000 DT Émettre et encaisser » → « Émettre et encaisser »: note 2026-0798 issued and paid, row gone, still on « À clôturer »"
+    },
+    {
+      "id": "B4",
+      "outcome": "✅",
+      "m": "refused 400 for the desk"
+    },
+    {
+      "id": "B5",
+      "outcome": "✅",
+      "m": "old note cancelled; new note carries the cheque — 2026-0799|2|7781234:40.000:2026-11-19"
+    },
+    {
+      "id": "B7",
+      "outcome": "✅",
+      "m": "« Fauteuil Quatre0916 09:56 · échéance du devis n° 2026-0957 100,000 DT Encaisser » → payment 100.000|6725082d-5888-4748-87a1-51b7666d1f4e"
+    },
+    {
+      "id": "C1",
+      "outcome": "✅",
+      "m": "320px: no overflow; save + « Tout payé » in view"
+    },
+    {
+      "id": "C1",
+      "outcome": "✅",
+      "m": "390px: no overflow; save + « Tout payé » in view"
+    },
+    {
+      "id": "C2",
+      "outcome": "✅",
+      "m": "1536×730: the save button is on screen without scrolling"
+    },
+    {
+      "id": "C3",
+      "outcome": "✅",
+      "m": "390px: « À encaisser » tab, no sideways scroll, action in view"
+    },
+    {
+      "id": "C4",
+      "outcome": "✅",
+      "m": "after 4 saves: 1 act « Consultation / examen bucco-dentaire » 50"
+    },
+    {
+      "id": "D1",
+      "outcome": "✅",
+      "m": "draft-only séance: « Émettre et encaisser » issued note 2026-0800, offered the payment, row answered"
+    },
+    {
+      "id": "D2",
+      "outcome": "✅",
+      "m": "« Remplir la fiche de soins » → /patients/30560c49-d237-4968-aaf9-38fd09aed797?addRecord=1&appointmentId=9817f5c0-bd8a-4ca9-98bf-1c0d69347cc0"
+    },
+    {
+      "id": "D3",
+      "outcome": "✅",
+      "m": "RDV window: « Fiche de soins » + « À encaisser 10,000 DT · note n° … »"
+    },
+    {
+      "id": "D4",
+      "outcome": "✅",
+      "m": "preview → « Imprimer »: PDF fetched, print() called once"
+    },
+    {
+      "id": "D5",
+      "outcome": "✅",
+      "m": "note 2026-0799 PDF « Imprimer »: print() called once"
+    },
+    {
+      "id": "D6",
+      "outcome": "✅",
+      "m": "« Au fauteuil » opens /patients/2091e937-c34e-494d-aa99-294d698c280e?addRecord=1&appointmentId=3269fd56-9fc7-4d20-ba9a-201a63736c6c"
+    },
+    {
+      "id": "D7",
+      "outcome": "✅",
+      "m": "mid-séance fiche left it Scheduled; the job completed it after 10:18:00"
+    },
+    {
+      "id": "D8",
+      "outcome": "✅",
+      "m": "agenda as it was — desk: pills=0 marks=0 · doctor: pills=0 marks=0"
+    },
+    {
+      "id": "B6",
+      "outcome": "✅",
+      "m": "Mode discret: to-collect 403, no « À encaisser » tab"
+    }
+  ],
+  "findings": [],
+  "stamp": "0916"
+}

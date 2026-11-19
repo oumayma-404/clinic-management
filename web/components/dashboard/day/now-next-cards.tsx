@@ -11,6 +11,7 @@ import {
 } from "@/lib/dashboard/day-summary"
 import { appointmentActsSummary, isBusySlot } from "@/components/appointment-labels"
 import { cn } from "@/lib/utils"
+import { ficheHref } from "@/lib/visits/fiche-door"
 
 interface NowNextCardsProps {
   summary: DaySummary
@@ -93,7 +94,15 @@ function SlotCard({
 
   return (
     <Link
-      href={closure ? "/a-cloturer" : `/appointments?appointmentId=${appointment.id}`}
+      // The patient in the chair opens THEIR FICHE — it is written during the séance (`seance-au-fauteuil`); the next
+      // visit opens in the agenda. The label used to promise « Ouvrir la fiche » for both while opening the RDV.
+      href={
+        closure
+          ? "/a-cloturer"
+          : live && !busy && appointment.patientId
+            ? ficheHref(appointment.patientId, appointment.id)
+            : `/appointments?appointmentId=${appointment.id}`
+      }
       className={cn(
         "group relative block overflow-hidden rounded-xl border p-4 shadow-sm transition-shadow sm:p-5",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -109,7 +118,9 @@ function SlotCard({
           ? `Séance à clôturer : ${appointment.patientName}, terminée depuis ${formatDuration(Math.max(0, Math.round(delta)))}. Ouvrir les séances à clôturer.`
           : busy
             ? `Créneau bloqué à ${formatClock(slot.startMinutes)}${reason ? ` : ${reason}` : ""}. Ouvrir l'agenda.`
-            : `${live ? "Au fauteuil" : "Prochain rendez-vous"} : ${appointment.patientName} à ${formatClock(slot.startMinutes)}. Ouvrir la fiche.`
+            : live && appointment.patientId
+              ? `Au fauteuil : ${appointment.patientName} à ${formatClock(slot.startMinutes)}. Ouvrir la fiche de soins.`
+              : `Prochain rendez-vous : ${appointment.patientName} à ${formatClock(slot.startMinutes)}. Ouvrir le rendez-vous.`
       }
     >
       {/* The act's colour, at full strength — a 4px edge is exactly the small mark that a pastel would erase.

@@ -27,6 +27,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { normalizeStatus } from "@/components/appointment-labels"
 import { LateArrivalChips } from "@/components/appointment-late-arrival-chips"
 import { PostponeAppointmentDialog, PostponeForm, postponeSubject } from "@/components/appointment-postpone-dialog"
+import { ficheHref } from "@/lib/visits/fiche-door"
 
 // How often to poll for due reviews (deferred-visibility means one can become due while the app is open).
 const POLL_INTERVAL_MS = 60_000
@@ -401,7 +402,7 @@ function PendingReviewPrompt() {
         // to disappear, or it lingers over the page transition.
         setDismissed(true)
         snoozeAll()
-        router.push(`/patients/${patientId}?addRecord=1&appointmentId=${encodeURIComponent(appointmentId)}`)
+        router.push(ficheHref(patientId, appointmentId))
       } catch {
         // Keep it pending rather than navigate to a dead page; the poll will offer it again.
       } finally {

@@ -126,6 +126,13 @@ updates the ordonnance and leaves the demande d'examens exactly as it is — two
 one already handed over is not rewritten by the other's edit.
 `Emptying_Only_The_Examens_Leaves_The_Demande_Standing` pins it.
 
+## Et l'IMPRIMER sur place (`seance-au-fauteuil`)
+
+« Imprimer l'ordonnance » / « Imprimer la demande d'examens » sit in the section itself. One press saves the fiche
+**in place** (the modal stays open, the visit stays « En cours »), then prints the **saved** document's PDF through
+`printPdfBlob`. Never the aperçu: a printed ordonnance with no record behind it is the case the aperçu exists to
+avoid. The save toast offers « Imprimer » too. See `features/seance-au-fauteuil/notes.md`.
+
 ## On peut VOIR le document, sur place — et « enregistré » n'a jamais voulu dire « vu »
 
 The document was saved from the day this feature shipped. What the fiche never did was **show** it: the section

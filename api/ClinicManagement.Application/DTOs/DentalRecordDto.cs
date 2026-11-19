@@ -94,6 +94,16 @@ public class DentalRecordDto
     /// </summary>
     public decimal? CollectedOnTreatment { get; set; }
 
+    /// <summary>
+    /// What the séance's note d'honoraires has collected for this fiche — the chair's « Payé » and the desk's payments
+    /// alike — read back from the note's live payments. Null when no issued note bills the fiche.
+    ///
+    /// <para>⚠️ It exists because the desk takes the money now (`seance-au-fauteuil`), and nothing writes the desk's
+    /// payments back onto the fiche: reopening a séance settled at reception read « Payé 0 · Reste 120 ». The modal
+    /// shows this figure in « Payé » when present — the same figure the billing guard compares a re-save with.</para>
+    /// </summary>
+    public decimal? CollectedOnNote { get; set; }
+
     /// <summary>The treatment this séance belongs to, so the row can name it. Null when it belongs to none.</summary>
     public Guid? TreatmentPlanId { get; set; }
 
@@ -182,6 +192,16 @@ public class DentalRecordDto
     /// </para>
     /// </summary>
     public Guid? ExamensDocumentId { get; set; }
+
+    /// <summary>
+    /// The ordonnance's version (<c>xmin</c>) after the save that returned this fiche — 0 when there is none, or
+    /// when this DTO did not come from a save. A fiche kept open after « Enregistrer » sends it back on its next
+    /// save, which is what lets it save twice without a 409 against itself.
+    /// </summary>
+    public uint PrescriptionDocumentVersion { get; set; }
+
+    /// <summary>The demande d'examens' version after the save — see <see cref="PrescriptionDocumentVersion"/>.</summary>
+    public uint ExamensDocumentVersion { get; set; }
 
     /// <summary>
     /// Row-sized labels of the examens requested — « Radiographie panoramique dentaire », « Bilan sanguin :

@@ -105,6 +105,47 @@ public class VisitClosureConsistencyTests
         Assert.Equal(VisitClosureStep.Billing, open[0].State.NextStep);
     }
 
+    // [seance-au-fauteuil] A draft holds no money and nobody was handed it: the séance still owes its encaissement.
+    [Fact]
+    public async Task A_Draft_Note_On_The_Fiche_Leaves_The_Money_Question_Open()
+    {
+        var visit = Visit(AppointmentStatus.Completed);
+        var ficheId = Guid.NewGuid();
+        Wire(visit);
+
+        _dentalRecords.Setup(r => r.GetAppointmentLinksAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (visit.Id, ficheId, 400m) });
+        _invoices.Setup(r => r.GetDentalRecordLinksAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (ficheId, Guid.NewGuid(), (string?)null, InvoiceStatus.Draft) });
+
+        var open = await ReadWorklist();
+
+        Assert.Single(open);
+        Assert.Equal(VisitClosureStep.Billing, open[0].State.NextStep);
+        Assert.Equal(1, (await ReadDashboard()).VisitsToClose);
+    }
+
+    // The same through the visit's own link — a draft raised from the RDV window.
+    [Fact]
+    public async Task A_Draft_Note_On_The_Visit_Leaves_The_Money_Question_Open()
+    {
+        var visit = Visit(AppointmentStatus.Completed);
+        Wire(visit);
+
+        _dentalRecords.Setup(r => r.GetAppointmentLinksAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (visit.Id, Guid.NewGuid(), 400m) });
+        _invoices.Setup(r => r.GetAppointmentLinksAsync(
+                It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (visit.Id, Guid.NewGuid(), (string?)null, InvoiceStatus.Draft) });
+
+        var open = await ReadWorklist();
+
+        Assert.Single(open);
+        Assert.Equal(VisitClosureStep.Billing, open[0].State.NextStep);
+    }
+
     private void Wire(params Appointment[] candidates)
     {
         _appointments.Setup(r => r.GetClosureCandidatesAsync(

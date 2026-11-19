@@ -47,6 +47,7 @@ import {
 import { PlanActPips } from "./plan-act-pips"
 import { SeancePips, seanceSummary } from "./seance-strip"
 import { Consequences } from "./plan-consequences"
+import { ficheHref } from "@/lib/visits/fiche-door"
 
 interface PatientPlansStripProps {
   plans: TreatmentPlanDto[]
@@ -133,7 +134,7 @@ export function PatientPlansStrip({ plans, onOpen, onChanged, onRecordVisit }: P
 
   const recordVisit = (plan: TreatmentPlanDto, appointmentId: string) => {
     if (onRecordVisit) onRecordVisit(appointmentId)
-    else router.push(`/patients/${plan.patientId}?addRecord=1&appointmentId=${appointmentId}`)
+    else router.push(ficheHref(plan.patientId, appointmentId))
   }
 
   return (

@@ -61,7 +61,7 @@ what was on screen.
 invisible on the wire.
 `CAT-02` `CAT-14` · `BOOK-30` `BOOK-31` `BOOK-32` `BOOK-33` `BOOK-37` `BOOK-38` `BOOK-43` `BOOK-47` ·
 `FICHE-05` `FICHE-12` `FICHE-13` `FICHE-16` `FICHE-17` `FICHE-20` `FICHE-22` `FICHE-23` `FICHE-24` `FICHE-25`
-`FICHE-28` · `FEDIT-12` `FEDIT-13` · `PLAN-02` `PLAN-03` · `CONT-08` `CONT-09` · `DONE-04`
+`FICHE-28` · `FEDIT-12` `FEDIT-13` · `PLAN-02` `PLAN-03` · `CONT-08` `CONT-09` · `DONE-04` · `SEAT-11` `SEAT-12`
 
 **3 · A client-side guard against a duplicate, or a refusal that re-enters the save.** Each advisory prompt
 re-runs `performCreate` **from the top**; the refs that stop it duplicating live only in the dialog.
@@ -748,6 +748,27 @@ different protocol shapes, and `« B2-Test-Protocole »` is a test row.
 
 ---
 
+# HP-20 · La séance au fauteuil (`features/seance-au-fauteuil`)
+
+The dentist writes the fiche **during** the séance and leaves « Payé » empty; the desk takes the money from
+« À encaisser ». Every visit is booked to be **running** now — the rule is « a save mid-séance leaves it alone ».
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| SEAT-01 | 0 | a running visit | Save its fiche with « Payé » empty | The visit stays « En cours »; billing `NotCollected`; **no note** | the first save completed the visit while the patient was in the chair, and the « Payé » mirror recorded money nobody took |
+| SEAT-02 | 0 | SEAT-01 | Re-save with `finishSeance` | The visit is « Terminé » | `FicheVisitCompletion.ShouldComplete` |
+| SEAT-03 | 0 | SEAT-01 | `GET /appointments/to-collect` | The séance is listed `Unbilled`, at the fiche's total, with its fiche id | « À encaisser » is the desk's only door to that money |
+| SEAT-04 | 0 | SEAT-03 | The desk bills it by **cheque** | The note is issued and paid; the payment keeps n° and bank; the séance leaves the list | « Facturer cette intervention » had no cheque fields — a cheque became anonymous money |
+| SEAT-05 | 0 | SEAT-04 | Reopen the fiche (list read), re-save unchanged | `collectedOnNote` = the desk's amount; billing `AlreadyBilled`; still **one** payment | the reopened fiche read « Payé 0 » and a re-save then took the money a second time |
+| SEAT-06 | 0 | SEAT-01 + a **draft** note on the visit (the RDV window used to raise one) | Bill the fiche | Refused `seance_has_note`; no second note | two notes for one séance |
+| SEAT-07 | 0 | SEAT-04 + the act's price raised | « Corriger la note » | Old note cancelled; the **same cheque** carried onto the replacement; the difference owed | the correction voided the desk's cheque and re-billed it as cash |
+| SEAT-08 | 0 | SEAT-04 with the cheque **deposited** | Correct to « Payé » 0 | Refused `dental_record_payment_banked`; nothing written | un-receiving money the bank statement says arrived |
+| SEAT-09 | 0 | an accepted devis with a **late agreed** échéance, its séance today, the fiche saved | « À encaisser » → the desk pays the échéance with the fiche's id | Listed `Treatment` at the late amount; the fiche's `collectedOnTreatment` = what the desk took | a desk payment the fiche could not see was taken again on its re-save |
+| SEAT-10 | 1 | SEAT-04 | A secretary corrects the note from the fiche | Refused `correction_requires_doctor` | the fiche is open to reception, the note's « Corriger » is not — unit: `DentalRecordCorrectionTests` |
+| SEAT-11 | 0 | a running visit | Open its fiche | « Payé » is **empty**; « Tout payé » fills the total | the mirror — a browser rule, the wire cannot see a default |
+| SEAT-13 | 0 | SEAT-06 | « Encaisser » naming that draft (`?replacesDraft=`) | The **fiche** is billed — its total, not the draft's; the draft is gone; **one** note on the séance, paid | a booking draft billed its own typed amount and blocked the fiche's « Payé » — the fiche makes the note (owner, 2026-11-19) |
+| SEAT-12 | 0 | a running visit | « Enregistrer » twice | The fiche stays open (« Enregistré à … »), **one** fiche, the visit not « Terminé » | the in-place save — `SaveMode` `stay` lives in `.tsx` |
+
 ## Coverage count
 
 | Path | Scenarios | T0 |
@@ -765,7 +786,8 @@ different protocol shapes, and `« B2-Test-Protocole »` is a test row.
 | HP-11 Odontogramme | 8 | 2 |
 | HP-12 Historique | 8 | 2 |
 | HP-13 Transversal | 9 | 5 |
-| **Total** | **268** | **125** |
+| HP-20 Séance au fauteuil | 12 | 11 |
+| **Total** | **280** | **136** |
 
 
 ---

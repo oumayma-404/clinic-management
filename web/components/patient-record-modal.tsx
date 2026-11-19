@@ -60,7 +60,10 @@ import {
   type DocumentPreviewTarget,
 } from "@/components/documents/document-preview-dialog"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
-import { PRESCRIPTION_KINDS, prescriptionKind, type PrescriptionLine } from "@/lib/documents"
+import { appointmentsApi } from "@/lib/api/appointments"
+import { printPdfBlob } from "@/lib/print"
+import { ficheHref, isSeanceRunning } from "@/lib/visits/fiche-door"
+import { PRESCRIPTION_KINDS, prescriptionKind, type PrescriptionKind, type PrescriptionLine } from "@/lib/documents"
 import type { MedicationDto } from "@/lib/api/types"
 import {
   actTotal, actsFromCarried, carriedActs, hasInvalidPrice, isActNamed, isActTouched, useSessionActs,
@@ -291,6 +294,20 @@ interface PatientRecordModalProps {
 
 const NOTES_SECTION_ANCHOR = "record-notes-section"
 
+/**
+ * What a press of the footer asks for (`seance-au-fauteuil`): « Enregistrer » during a séance saves and keeps the
+ * fiche open (`stay`), « Terminer la séance » saves, closes the visit and the window (`finish`), and the one
+ * button a fiche written after the séance has saves and closes (`close`).
+ */
+type SaveMode = "stay" | "close" | "finish"
+
+const EMPTY_PLAN_ITEMS: PlanItemOption[] = []
+
+/** The lines a save sends: a line nobody named is not a prescription. One owner for the save and the adoption. */
+function sentPrescriptionLines(lines: PrescriptionLine[]): PrescriptionLine[] {
+  return lines.filter((line) => line.name?.trim()).map((line) => ({ ...line, name: line.name.trim() }))
+}
+
 /** What the fiche hands the shell (`clinic-pc-copy` D23): the reconciled sections, the ordonnance, the copy they were opened against. */
 type CarriedFiche = Omit<FicheFormValues, "acts"> & {
   acts: unknown[]
@@ -317,16 +334,46 @@ export function PatientRecordModal({
   onOpenChange,
   patientName: initialPatientName = "",
   patientId,
-  record,
+  record: recordProp,
   isInvoiced = false,
   billedNote,
   patient,
-  planItems = [],
+  planItems: planItemsProp = EMPTY_PLAN_ITEMS,
   appointmentId,
   appointment,
   focusNotes = false,
   onSuccess,
 }: PatientRecordModalProps) {
+  /*
+   * ── The fiche this window saved IN PLACE ──────────────────────────────────────────────────────────────────
+   *
+   * « Enregistrer » during a séance, and « Imprimer l'ordonnance », save without closing (`seance-au-fauteuil`).
+   * From then on the window edits THAT fiche while the page's prop still names what it was opened with — so the
+   * effects that hydrate on opening read `recordProp`, and everything that saves, merges or reloads reads
+   * `record`. Re-hydrating from the saved copy instead would disarm the act being charted and drop the
+   * ordonnance's lines from the screen between two presses of « Enregistrer ».
+   */
+  const [savedRecord, setSavedRecord] = useState<DentalRecordDto | null>(null)
+  const record = savedRecord && (!recordProp || savedRecord.id === recordProp.id) ? savedRecord : recordProp
+  /**
+   * The devis act an in-place save linked. The page's list holds the OPEN steps, so it drops this one once its
+   * step is done — and a re-save naming no act releases every act the fiche evidenced (« Aucun » really
+   * detaches). Kept on offer here, the way the page itself adds a reopened fiche's own acts.
+   */
+  const [keptPlanItem, setKeptPlanItem] = useState<PlanItemOption | null>(null)
+  const planItems = useMemo(
+    () =>
+      keptPlanItem && !planItemsProp.some((p) => p.itemId === keptPlanItem.itemId)
+        ? [...planItemsProp, keptPlanItem]
+        : planItemsProp,
+    [planItemsProp, keptPlanItem],
+  )
+  /** When the last in-place save landed — « Enregistré à 10:32 ». */
+  const [savedAt, setSavedAt] = useState<Date | null>(null)
+  /** The documents an in-place save just wrote (`ids|reload`), so the ordonnance read does not re-read them. */
+  const adoptedDocumentsRef = useRef<string | null>(null)
+  /** Which press a correctable refusal interrupted, so « Corriger la note » finishes it the same way. */
+  const correctionModeRef = useRef<SaveMode>("close")
   const [patientName, setPatientName] = useState(initialPatientName)
   /*
    * ⚠️ `todayLocalIso()`, never `new Date().toISOString().split("T")[0]` (AC-P6.5).
@@ -360,10 +407,10 @@ export function PatientRecordModal({
   const [chosenView, setChosenView] = useState<DentitionView | null>(null)
   const seededView = useMemo<DentitionView>(
     () =>
-      record
-        ? (dentitionViewForTeeth(record.toothNumbers, isAdultTooth) ?? (record.isAdultTeeth ? "adult" : "child"))
+      recordProp
+        ? (dentitionViewForTeeth(recordProp.toothNumbers, isAdultTooth) ?? (recordProp.isAdultTeeth ? "adult" : "child"))
         : dentitionViewFor(patient?.dentition),
-    [record, patient?.dentition],
+    [recordProp, patient?.dentition],
   )
   const dentitionView = chosenView ?? seededView
   const [amountPaid, setAmountPaid] = useState("")
@@ -489,7 +536,12 @@ export function PatientRecordModal({
   const storedExamensId = stored?.examensDocumentId
   // Dropped on close, so a reopened fiche never starts from the copy an earlier session merged against.
   useEffect(() => {
-    if (!open) setBaseRecord(null)
+    if (open) return
+    setBaseRecord(null)
+    setSavedRecord(null)
+    setKeptPlanItem(null)
+    setSavedAt(null)
+    adoptedDocumentsRef.current = null
   }, [open])
   /** What a colleague's save replaced over typing, named until the next save — see `takenOverNotice`. */
   const [takenOver, setTakenOver] = useState<ReconciledPart[]>([])
@@ -557,7 +609,7 @@ export function PatientRecordModal({
 
   const {
     acts, namedActs, grandTotal, planAdditionActs, planAdditionTotal, focusedAct, focusKey, dispatch,
-  } = useSessionActs(record)
+  } = useSessionActs(recordProp)
 
   /**
    * What is being typed into « Total », or `null` when the field simply shows the derived figure.
@@ -648,7 +700,7 @@ export function PatientRecordModal({
     path: patientId
       ? record
         ? `/patients/${patientId}?editRecord=${record.id}`
-        : `/patients/${patientId}?addRecord=1${appointmentId ? `&appointmentId=${appointmentId}` : ""}`
+        : ficheHref(patientId, appointmentId)
       : "/",
     open,
     dirty: true,
@@ -716,6 +768,9 @@ export function PatientRecordModal({
     // left unread, this save would write its lines over that document with no version to refuse it.
     const documentId = storedPrescriptionId ?? null
     const examensId = storedExamensId ?? null
+    // The documents this window's own in-place save just wrote are on screen already, with their versions:
+    // re-reading them would merge the screen against itself. « Recharger » bumps the reload and reads again.
+    if (adoptedDocumentsRef.current === `${documentId ?? ""}|${examensId ?? ""}|${prescriptionReload}`) return
     if (!documentId && !examensId) {
       setPrescriptionDocumentId(null)
       setExamensDocumentId(null)
@@ -850,16 +905,16 @@ export function PatientRecordModal({
     setTakenOver([])
     setNotesOpen(false)
 
-    if (record) {
+    if (recordProp) {
       // Every reconciled section goes through its one loader — the same one that takes a colleague's version.
       // No plan act is offered yet: the devis link is hydrated by its own effect once they arrive.
-      const values = ficheFormValuesOf(record, new Set())
-      for (const section of FICHE_SECTIONS) applySection[section](values, record)
+      const values = ficheFormValuesOf(recordProp, new Set())
+      for (const section of FICHE_SECTIONS) applySection[section](values, recordProp)
       // The prescription is hydrated by its own effect (it needs a second read); this only clears what a
       // previous opening left behind, so a fiche with no ordonnance never shows the last one's lines.
       // With no document there is nothing to read, so the empty section IS what the fiche was opened with.
       prescriptionBaseRef.current =
-        record.prescriptionDocumentId || record.examensDocumentId ? null : prescriptionSnapshot([])
+        recordProp.prescriptionDocumentId || recordProp.examensDocumentId ? null : prescriptionSnapshot([])
       setPrescriptionLines([])
       setPrescriptionOpen(false)
       setArmedPrescriptionIndex(null)
@@ -868,7 +923,7 @@ export function PatientRecordModal({
       setExamensDocumentVersion(0)
       setPreviewTarget(null)
     } else {
-      dispatch({ type: "reset", record })
+      dispatch({ type: "reset", record: recordProp })
       setHydrationEpoch((n) => n + 1)
       prescriptionBaseRef.current = prescriptionSnapshot([])
       setInterventionDate(todayLocalIso())
@@ -890,13 +945,13 @@ export function PatientRecordModal({
       setPrescriptionReadFailed(false)
       setPreviewTarget(null)
     }
-  }, [open, initialPatientName, record, dispatch, applySection])
+  }, [open, initialPatientName, recordProp, dispatch, applySection])
 
   // The page's row can be older than the server's copy (a colleague saved after the list was read), so the
   // server's copy is reconciled in as soon as it lands — through the same merge as « Recharger », never by
   // adopting its version alone.
   useEffect(() => {
-    if (!open || !record) return
+    if (!open || !recordProp || savedRecord) return
     let cancelled = false
     void (async () => {
       try {
@@ -909,7 +964,7 @@ export function PatientRecordModal({
     return () => {
       cancelled = true
     }
-  }, [open, record, readStored])
+  }, [open, recordProp, savedRecord, readStored])
 
   // Declared after the hydration above so it wins; two frames so the dialog has laid out before scrolling.
   useEffect(() => {
@@ -925,7 +980,7 @@ export function PatientRecordModal({
       cancelAnimationFrame(raf1)
       cancelAnimationFrame(raf2)
     }
-  }, [open, focusNotes, record])
+  }, [open, focusNotes, recordProp])
 
   // AC-9: an appointment booked FROM a plan step already knows which act this visit is for, so opening the
   // record from it pre-selects that step — the dentist no longer has to find it in the dropdown to close the
@@ -1067,26 +1122,12 @@ export function PatientRecordModal({
   }, [open, record, appointment?.procedureTypeId, bookedActs, procedureTypes, dispatch])
 
   /*
-   * « Montant payé » mirrors the running total until the user takes the field over.
-   *
-   * ⚠️ **`record` is a gate in its own right, and `paidDirty` alone could not be one.** The open effect above
-   * sets the field from `record.amountPaid` and then `setPaidDirty(true)` — « a saved amount is the user's,
-   * never re-mirrored from the total » — but both effects run in the SAME commit, so this one reads the
-   * `paidDirty` of the render it was scheduled from, i.e. still `false`, and being declared later its update
-   * lands last and wins. Whether it wins is pure ordering luck: it depends on whether the acts have loaded and
-   * `grandTotal` is non-zero on that first pass.
-   *
-   * Measured on a live fiche while verifying the devis-link hydration: a séance with **999,000 DT** recorded
-   * reopened showing **40,000** — its act's price — with the save button enabled, so one press would have
-   * written the session total over the patient's real payment. The database row was untouched (`AmountPaid`
-   * 999.000, last written weeks earlier), which is what makes this a *display* defect rather than a lost one:
-   * silent, and a money figure nobody would think to distrust. A saved record's « Payé » is never a mirror of
-   * anything, so the honest guard is the record itself rather than a flag whose value arrives one commit late.
+   * ⚠️ « Payé » starts EMPTY and fills only when somebody says so (« Tout payé », or a typed amount) —
+   * `seance-au-fauteuil`, the owner's call of 2026-11-18. It used to mirror the running total, mode « Espèces »,
+   * so saving untouched recorded a cash payment nobody had received: wrong whenever the secretary takes the
+   * money, and wrong on every save made during the séance, where it billed half the work on a numbered note.
+   * An empty « Payé » is the honest default — the séance then waits for whoever takes the money.
    */
-  useEffect(() => {
-    if (record || paidDirty || isInvoiced) return
-    setAmountPaid(grandTotal > 0 ? formatAmount(grandTotal) : "")
-  }, [record, grandTotal, paidDirty, isInvoiced])
 
   // Latest recorded state per tooth, EXCLUDING the record being edited — its own tooth states are this
   // session's output, and painting them as "prior state" would double-count them on the chart.
@@ -1769,7 +1810,11 @@ export function PatientRecordModal({
    * The amount already on the note. Lowering it is a correction (`dental_record_payment_lowered` without a
    * reason): the button becomes « Corriger la note », which replaces the note.
    */
-  const alreadyCollected = isInvoiced ? roundMillimes(stored?.amountPaid ?? 0) : 0
+  // The server's own floor (`DentalRecordBillingGuard.Check`): the lower of the stored « Payé » and what the note
+  // holds for this fiche — so « Corriger la note » is offered exactly when the save would be refused.
+  const alreadyCollected = isInvoiced
+    ? roundMillimes(Math.min(stored?.amountPaid ?? 0, stored?.collectedOnNote ?? stored?.amountPaid ?? 0))
+    : 0
   const lowersBilledAmount = isInvoiced && roundMillimes(paidAmount) < alreadyCollected
 
   /**
@@ -1782,6 +1827,17 @@ export function PatientRecordModal({
    * then a plain typo that should still block.</p>
    */
   const contradictsNote = isInvoiced && (overpaid || lowersBilledAmount)
+  /**
+   * Both save buttons' guard. ⚠️ `overCollectedOnPlan` and `loweredOnPlan` DISABLE rather than becoming
+   * « Corriger » — there is no document to correct there, the server refuses outright with a remedy that lives on
+   * another screen. On a BILLED fiche `overpaid` / `lowersBilledAmount` change what the press does instead
+   * (« Corriger la note »); on an unbilled one `overpaid` is a plain typo.
+   */
+  const saveBlocked =
+    loading
+    || overCollectedOnPlan
+    || loweredOnPlan
+    || (!contradictsNote && (overpaid || lowersBilledAmount))
 
   /** « Corriger la note »'s figures, one builder for its two doors (the button and a refused save). */
   const correctionPreview = (): CorrectionPreview => ({
@@ -1830,7 +1886,69 @@ export function PatientRecordModal({
     setSaveError(null)
   }, [acts, linkedPlanItemId])
 
-  const handleSave = async (correctionReason?: string) => {
+  /*
+   * Is the séance still running? It decides the footer: « Enregistrer » keeps the fiche open and « Terminer la
+   * séance » closes it, the way a dentist charting as she works needs; after the séance there is one button, as
+   * before. Read off the visit the page passed, or — a reopened fiche, which the page opens with no visit — off
+   * the visit the fiche documents.
+   */
+  const [fetchedVisitStatus, setFetchedVisitStatus] = useState<string | null>(null)
+  const visitToRead = appointment ? null : (recordProp?.appointmentId ?? null)
+  useEffect(() => {
+    setFetchedVisitStatus(null)
+    if (!open || !visitToRead) return
+    let cancelled = false
+    appointmentsApi
+      .get(visitToRead)
+      .then((visit) => {
+        if (!cancelled) setFetchedVisitStatus(visit.status)
+      })
+      .catch(() => {
+        // Unread is not running: the footer falls back to today's single « Enregistrer », which always works.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, visitToRead])
+  const seanceRunning = isSeanceRunning(appointment?.status ?? fetchedVisitStatus)
+
+  /**
+   * After an in-place save the window edits the fiche it just saved — its version, its ordonnances and their
+   * versions, the devis act it linked — so the next « Enregistrer » is an update that cannot 409 against itself.
+   * The screen is NOT re-read: it is what was just saved.
+   */
+  const adoptSaved = (saved: DentalRecordDto, linkedItem: PlanItemOption | null) => {
+    setSavedRecord(saved)
+    setBaseRecord(saved)
+    if (linkedItem) setKeptPlanItem(linkedItem)
+    setPrescriptionDocumentId(saved.prescriptionDocumentId ?? null)
+    setExamensDocumentId(saved.examensDocumentId ?? null)
+    setPrescriptionDocumentVersion(saved.prescriptionDocumentVersion ?? 0)
+    setExamensDocumentVersion(saved.examensDocumentVersion ?? 0)
+    setPrescriptionReadFailed(false)
+    prescriptionBaseRef.current = prescriptionSnapshot(sentPrescriptionLines(prescriptionLinesRef.current))
+    adoptedDocumentsRef.current =
+      `${saved.prescriptionDocumentId ?? ""}|${saved.examensDocumentId ?? ""}|${prescriptionReload}`
+    guard.markClean()
+    setSavedAt(new Date())
+  }
+
+  /** A saved sheet, through `lib/print.ts`: a print dialog with a mouse, the system's PDF viewer with a finger. */
+  const printDocument = async (documentId: string, kind: PrescriptionKind) => {
+    const label = kind === PRESCRIPTION_KINDS.examen ? "Demande d'examens" : "Ordonnance"
+    try {
+      const blob = await medicalDocumentsApi.getPdf(documentId)
+      const outcome = await printPdfBlob(blob, `${label}.pdf`)
+      if (outcome === "delivered") toast.success(`${label} ouverte : imprimez-la depuis le lecteur PDF.`)
+    } catch (err) {
+      showErrorToast(err, "L'impression a échoué.")
+    }
+  }
+
+  const handleSave = async (
+    correctionReason?: string,
+    mode: SaveMode = "close",
+  ): Promise<DentalRecordDto | undefined> => {
     // AC-3.2: the first save after the app switched server is refused once; « Recharger » keeps the typing.
     if (carried.consumeSwitch()) {
       conflict.raise(carried.switchRefusal)
@@ -2001,6 +2119,8 @@ export function PatientRecordModal({
           : [],
         // Only carried on create — links the new record to the appointment it documents (closes the prompt).
         appointmentId: appointmentId ?? null,
+        // « Terminer la séance ». Otherwise the server decides by the clock (`FicheVisitCompletion`).
+        finishSeance: mode === "finish",
         /*
          * What this séance prescribed. **Always sent**, `[]` included — the same discipline as `acts` and the
          * two bridge role lists above, and for the same reason: a field a routine re-save forgets is how this
@@ -2012,9 +2132,7 @@ export function PatientRecordModal({
          * act list's own rejected behaviour.
          */
         prescription: {
-          lines: prescriptionLines
-            .filter((line) => line.name?.trim())
-            .map((line) => ({ ...line, name: line.name.trim() })),
+          lines: sentPrescriptionLines(prescriptionLines),
           // The tokens read when this modal opened. Without them the server cannot tell that the document
           // changed underneath the section, and it silently writes this copy over the other door's edit.
           prescriptionDocumentVersion: prescriptionDocumentVersion || undefined,
@@ -2139,21 +2257,30 @@ export function PatientRecordModal({
        * purpose — the fiche is closing, so the door is the séance's own row behind it, which opens the document
        * in place.
        */
-      const emitted = [
-        saved.prescriptionDocumentId ? "ordonnance" : null,
-        saved.examensDocumentId ? "demande d'examens" : null,
-      ].filter(Boolean) as string[]
-      if (emitted.length > 0) {
-        toast.success(base, {
-          description:
-            emitted.length === 2
-              ? "Ordonnance et demande d'examens au dossier — imprimables depuis la séance."
-              : `${emitted[0] === "ordonnance" ? "Ordonnance" : "Demande d'examens"} au dossier — imprimable depuis la séance.`,
+      if (mode === "stay") {
+        adoptSaved(saved, linkedItem ?? null)
+        onSuccess?.()
+        return saved
+      }
+
+      // Each sheet this save wrote, with its own « Imprimer » — the fiche is closing, and the paper is handed over
+      // now, not after a trip to the patient's Documents tab (`seance-au-fauteuil`).
+      const ordonnanceId = saved.prescriptionDocumentId
+      if (ordonnanceId) {
+        toast.success("Ordonnance au dossier", {
+          action: { label: "Imprimer", onClick: () => void printDocument(ordonnanceId, PRESCRIPTION_KINDS.medicament) },
+        })
+      }
+      const examensId = saved.examensDocumentId
+      if (examensId) {
+        toast.success("Demande d'examens au dossier", {
+          action: { label: "Imprimer", onClick: () => void printDocument(examensId, PRESCRIPTION_KINDS.examen) },
         })
       }
 
       onSuccess?.()
       onOpenChange(false)
+      return saved
     } catch (err) {
       // ── A refusal the fiche can be corrected out of ─────────────────────────────────────────────────────
       //
@@ -2162,6 +2289,7 @@ export function PatientRecordModal({
       // money handed back, and a mis-keyed amount handed nothing back. So the refusal now opens the way out it
       // was describing. Branched on the CODE, never the sentence: rewording a refusal must not change behaviour.
       if (!correctionReason && err instanceof ApiError && CORRECTABLE_CODES.has(err.code ?? "")) {
+        correctionModeRef.current = mode
         setCorrection(correctionPreview())
         setLoading(false)
         return
@@ -2179,6 +2307,37 @@ export function PatientRecordModal({
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  /**
+   * « Imprimer l'ordonnance » / « Imprimer la demande d'examens », where the ordonnance is written. The fiche is
+   * saved first, in place, every time: the paper printed is the document on file, never the screen.
+   */
+  const [printingKind, setPrintingKind] = useState<PrescriptionKind | null>(null)
+  const printSheet = async (kind: PrescriptionKind) => {
+    if (printingKind || saveBlocked) return
+    if (contradictsNote) {
+      correctionModeRef.current = "stay"
+      setCorrection(correctionPreview())
+      return
+    }
+    setPrintingKind(kind)
+    try {
+      const saved = await handleSave(undefined, "stay")
+      if (!saved) return
+      const documentId = kind === PRESCRIPTION_KINDS.examen ? saved.examensDocumentId : saved.prescriptionDocumentId
+      if (!documentId) {
+        toast.error(
+          kind === PRESCRIPTION_KINDS.examen
+            ? "Rien à imprimer : nommez au moins un examen."
+            : "Rien à imprimer : nommez au moins un médicament.",
+        )
+        return
+      }
+      await printDocument(documentId, kind)
+    } finally {
+      setPrintingKind(null)
     }
   }
 
@@ -2813,6 +2972,8 @@ export function PatientRecordModal({
           onRetryCatalog={retryMedicationCatalog}
           existingDocumentId={prescriptionDocumentId}
           existingExamensDocumentId={examensDocumentId}
+          onPrint={patientId ? (kind) => void printSheet(kind) : undefined}
+          printingKind={printingKind}
           // The allergy, the maladies and the médicaments, beside the box that acts on them — the banner at the
           // top of this dialog has scrolled away by the time anyone is typing a drug name. See the section.
           patient={patient}
@@ -2882,7 +3043,7 @@ export function PatientRecordModal({
             */}
             {!withholdSeanceMoneyFields && (
             // The longer « Payé (séance) » label takes a wider floor, so « Mode » wraps rather than the amount shrinking.
-            <div className={cn("flex flex-1 items-center gap-2", twoPaidFields ? "min-w-[12rem]" : "min-w-[9rem]")}>
+            <div className={cn("flex flex-1 items-center gap-2", twoPaidFields ? "min-w-[17rem]" : "min-w-[14rem]")}>
               <Label htmlFor="paid" className="shrink-0 text-xs text-muted-foreground">
                 {twoPaidFields ? "Payé (séance)" : "Payé"}
               </Label>
@@ -2905,6 +3066,22 @@ export function PatientRecordModal({
                 />
                 <DtSuffix />
               </div>
+              {/* « Payé » starts empty (nothing is paid until somebody says so); one press when it all was. */}
+              {grandTotal > 0 && Math.abs((parseAmountInput(amountPaid) || 0) - grandTotal) > 0.0005 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={loading}
+                  onClick={() => {
+                    setPaidDirty(true)
+                    setAmountPaid(formatAmount(grandTotal))
+                  }}
+                  className="h-8 shrink-0 px-2 text-xs coarse:h-11"
+                >
+                  Tout payé
+                </Button>
+              )}
             </div>
             )}
             {/* Beside the amount, because « combien » and « comment » are one answer. `min-w` + `flex-1` so it
@@ -3201,6 +3378,21 @@ export function PatientRecordModal({
                 Annuler
               </Button>
               {/*
+                While the séance runs the fiche is written as the dentist works: « Enregistrer » saves and keeps it
+                open, « Terminer la séance » saves and closes the visit (`seance-au-fauteuil`). Withheld while the
+                fiche contradicts its note — the one press then is « Corriger la note ».
+              */}
+              {seanceRunning && !contradictsNote && (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleSave(undefined, "stay")}
+                  disabled={saveBlocked}
+                  className="w-full sm:w-auto"
+                >
+                  Enregistrer
+                </Button>
+              )}
+              {/*
                 ONE save label for create and edit, from a visit or not (« Confirmer la séance » · « Créer la
                 fiche » · « Enregistrer » were three names for one press). The amount rides ON the action, so the
                 button states what pressing it will book. `formatDT`, never a hand-rolled `toFixed`.
@@ -3216,23 +3408,18 @@ export function PatientRecordModal({
                 // reason, and React would hand it the MouseEvent — truthy, so every ordinary save would retire
                 // the note. `tsc` catches it; the wrapper is what makes it unsayable.
                 onClick={() => {
+                  const mode: SaveMode = seanceRunning ? "finish" : "close"
                   if (contradictsNote) {
+                    correctionModeRef.current = mode
                     setCorrection(correctionPreview())
                     return
                   }
-                  void handleSave()
+                  void handleSave(undefined, mode)
                 }}
                 // ⚠️ `overCollectedOnPlan` DISABLES rather than becoming « Corriger » — unlike `overpaid` on a
                 // billed fiche, there is no document to correct here: the server would simply refuse more than
                 // the treatment is worth, and the figure to fix is on screen beside the field.
-                disabled={
-                  loading
-                  || overCollectedOnPlan
-                  // Same reasoning as `overCollectedOnPlan`: the server refuses it outright with a remedy that
-                  // lives on another screen, so there is nothing for a « Corriger » branch to do here.
-                  || loweredOnPlan
-                  || (!contradictsNote && (overpaid || lowersBilledAmount))
-                }
+                disabled={saveBlocked}
                 // `whitespace-normal` below `sm:`: « Enregistrer la séance — 1 250,000 DT » is wider than a
                 // 320 px sheet and `Button` is `whitespace-nowrap`, so it wraps rather than overflowing.
                 className="h-auto min-h-9 w-full whitespace-normal py-2 sm:w-auto sm:min-w-[150px] sm:whitespace-nowrap"
@@ -3242,9 +3429,17 @@ export function PatientRecordModal({
                   ? "Enregistrement…"
                   : contradictsNote
                     ? `Corriger la note${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`
-                    : `Enregistrer la séance${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`}
+                    : seanceRunning
+                      ? `Terminer la séance${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`
+                      : `Enregistrer la séance${grandTotal > 0 ? ` — ${formatDT(grandTotal)}` : ""}`}
               </Button>
             </div>
+            {savedAt && (
+              <p role="status" className="text-xs text-muted-foreground sm:order-first sm:me-auto">
+                Enregistré à{" "}
+                {savedAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", hour12: false })}
+              </p>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>
@@ -3258,7 +3453,7 @@ export function PatientRecordModal({
           // Re-runs the SAME save with the reason attached, rather than a second endpoint: the payload the
           // dentist just tried is exactly what the correction must persist, and rebuilding it here is how the
           // two would drift.
-          await handleSave(DEFAULT_CORRECTION_REASON)
+          await handleSave(DEFAULT_CORRECTION_REASON, correctionModeRef.current)
           setCorrection(null)
         }}
       />

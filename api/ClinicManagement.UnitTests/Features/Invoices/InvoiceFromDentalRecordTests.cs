@@ -68,8 +68,10 @@ public class InvoiceFromDentalRecordTests
         return record;
     }
 
+    private readonly Mock<ITreatmentPlanRepository> _plans = new();
+
     private BillDentalRecordCommandHandler CreateHandler() => new(
-        _invoices.Object, _records.Object, _patients.Object, _clinics.Object, _creditNotes.Object,
+        _invoices.Object, _records.Object, _patients.Object, _clinics.Object, _creditNotes.Object, _plans.Object,
         _clinicResolver.Object, _uow.Object, NullLogger<BillDentalRecordCommandHandler>.Instance);
 
     private Invoice? _saved;
@@ -91,6 +93,350 @@ public class InvoiceFromDentalRecordTests
             .Callback((Invoice i, CancellationToken _) => _saved = i)
             .ReturnsAsync((Invoice i, CancellationToken _) => i);
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        // The draft guard's two reads (`NoteCarriedActGuard`): nothing carries a note unless a test says so.
+        _plans.Setup(p => p.GetPlansBilledOnInvoiceAsync(ClinicId, It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<(Guid, string?, TreatmentPlanStatus)>());
+        _plans.Setup(p => p.GetByLinkedDentalRecordAsync(ClinicId, It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<TreatmentPlan>());
+    }
+
+    // ---- One note per séance (seance-au-fauteuil) -------------------------------
+
+    /// <summary>The fiche of a booked visit, as the agenda's « Fiche de soins » creates it.</summary>
+    private static DentalRecord RecordOfVisit(Guid visitId)
+    {
+        var record = new DentalRecord(Guid.NewGuid(), PatientId, ClinicId, InterventionDate, 0m, true, appointmentId: visitId);
+        record.SetActs(new[] { new DentalRecordActInput(null, "Consultation", 60m, null, false, Array.Empty<int>(), null, null, null) });
+        return record;
+    }
+
+    /// <summary>A note on the visit, as the RDV window's « Facturer cette consultation » raises it — or a fiche's.</summary>
+    private Invoice NoteOnVisit(Guid visitId, bool issued, Guid? ficheId = null)
+    {
+        var note = new Invoice(Guid.NewGuid(), ClinicId, PatientId, dentalRecordId: ficheId, appointmentId: visitId);
+        note.SetLines(new[] { ("Consultation", 1, 60m, ficheId) });
+        if (issued)
+        {
+            note.Issue("2026-0142");
+        }
+        _invoices.Setup(r => r.GetAppointmentLinksAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (visitId, note.Id, note.Number, note.Status) });
+        _invoices.Setup(r => r.GetByIdAsync(note.Id, It.IsAny<CancellationToken>())).ReturnsAsync(note);
+        return note;
+    }
+
+    // A note raised from the RDV window names the VISIT and none of the fiche's lines; billing the fiche on top of it
+    // would bill the séance twice. Refused by name, before a number is consumed.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_Seance_Already_Holding_A_Note_Is_Not_Billed_A_Second_Time(bool issued)
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        NoteOnVisit(visitId, issued);
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                PaidNow = new DentalRecordPaymentRequest { Amount = 60m, Method = "Cash" },
+            },
+            CancellationToken.None);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.SeanceHasNoteCode, result.Code);
+        Assert.Contains(issued ? "n° 2026-0142" : "brouillon", result.Error);
+        Assert.Null(_saved);
+        _invoices.Verify(r => r.GetMaxSequenceForYearAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // A cancelled note bills nothing: the séance can be billed again.
+    [Fact]
+    public async Task A_Cancelled_Note_On_The_Visit_Does_Not_Block_Billing()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        _invoices.Setup(r => r.GetAppointmentLinksAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (visitId, Guid.NewGuid(), (string?)"2026-0100", InvoiceStatus.Cancelled) });
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                PaidNow = new DentalRecordPaymentRequest { Amount = 60m, Method = "Cash" },
+            },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.NotNull(_saved);
+    }
+
+    // A visit may carry several fiches, each billing its own acts: another fiche's note is not « the séance's note ».
+    [Fact]
+    public async Task Another_Fiches_Note_On_The_Same_Visit_Does_Not_Block_Billing()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        NoteOnVisit(visitId, issued: true, ficheId: Guid.NewGuid());
+
+        var result = await CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                PaidNow = new DentalRecordPaymentRequest { Amount = 60m, Method = "Cash" },
+            },
+            CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.NotNull(_saved);
+    }
+
+    // ---- The fiche makes the note: « Encaisser » replaces the séance's draft (owner's review, 2026-11-19) -------
+
+    private static Invoice Draft(Guid visitId, decimal amount, Guid? ficheId = null)
+    {
+        var draft = new Invoice(Guid.NewGuid(), ClinicId, PatientId, dentalRecordId: ficheId, appointmentId: visitId);
+        draft.SetLines(new[] { ("Consultation", 1, amount, ficheId) });
+        return draft;
+    }
+
+    private void OnVisit(Guid visitId, params Invoice[] notes)
+    {
+        _invoices.Setup(r => r.GetAppointmentLinksAsync(ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(notes.Select(n => (visitId, n.Id, n.Number, n.Status)).ToArray());
+        foreach (var note in notes)
+        {
+            _invoices.Setup(r => r.GetByIdAsync(note.Id, It.IsAny<CancellationToken>())).ReturnsAsync(note);
+        }
+    }
+
+    private Task<Result<DentalRecordBillingResult>> BillReplacing(DentalRecord record, Guid draftId, bool automatic = false) =>
+        CreateHandler().Handle(
+            new BillDentalRecordCommand
+            {
+                DentalRecordId = record.Id,
+                PaidNow = new DentalRecordPaymentRequest { Amount = 60m, Method = "Cash" },
+                ReplacesDraftInvoiceId = draftId,
+                IsAutomatic = automatic,
+            },
+            CancellationToken.None);
+
+    private void AssertNothingWritten(Guid draftId)
+    {
+        Assert.Null(_saved);
+        _invoices.Verify(r => r.DeleteAsync(draftId, It.IsAny<CancellationToken>()), Times.Never);
+        _invoices.Verify(r => r.GetMaxSequenceForYearAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // The desk was shown the draft and confirmed: it goes, inside the transaction that raises the note, and the note is
+    // the FICHE's — its acts and its total, never the 40 DT somebody typed at booking.
+    [Fact]
+    public async Task The_Desk_Replaces_The_Seances_Draft_With_The_Fiches_Note()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var draft = Draft(visitId, 40m);
+        OnVisit(visitId, draft);
+        var calls = new List<string>();
+        _uow.Setup(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>())).Callback(() => calls.Add("begin")).Returns(Task.CompletedTask);
+        _invoices.Setup(r => r.DeleteAsync(draft.Id, It.IsAny<CancellationToken>())).Callback(() => calls.Add("delete")).Returns(Task.CompletedTask);
+        _uow.Setup(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>())).Callback(() => calls.Add("commit")).Returns(Task.CompletedTask);
+
+        var result = await BillReplacing(record, draft.Id);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.NotNull(_saved);
+        Assert.Equal(60m, _saved!.TotalTtc);
+        Assert.Equal(60m, _saved.AmountCollected);
+        Assert.Equal(visitId, _saved.AppointmentId);
+        Assert.Equal(new[] { "begin", "delete", "commit" }, calls);
+    }
+
+    // A failed save rolls the whole thing back: the draft is still there and no note exists.
+    [Fact]
+    public async Task A_Failed_Save_Keeps_The_Draft()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var draft = Draft(visitId, 40m);
+        OnVisit(visitId, draft);
+        _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("connexion perdue"));
+
+        var result = await BillReplacing(record, draft.Id);
+
+        Assert.True(result.IsFailure);
+        _uow.Verify(u => u.RollbackTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _uow.Verify(u => u.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // A fiche re-save is the silent path: it never deletes a document nobody looked at.
+    [Fact]
+    public async Task A_Fiche_Resave_Never_Replaces_A_Draft()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var draft = Draft(visitId, 40m);
+        OnVisit(visitId, draft);
+
+        var result = await BillReplacing(record, draft.Id, automatic: true);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.DraftNotReplaceableCode, result.Code);
+        AssertNothingWritten(draft.Id);
+    }
+
+    // Only the draft the desk was shown: any other id replaces nothing.
+    [Fact]
+    public async Task Only_The_Draft_The_Desk_Was_Shown_Is_Replaced()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var draft = Draft(visitId, 40m);
+        OnVisit(visitId, draft);
+
+        var result = await BillReplacing(record, Guid.NewGuid());
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.DraftNotReplaceableCode, result.Code);
+        AssertNothingWritten(draft.Id);
+    }
+
+    // Issued in the meantime, it has a number: the desk collects on it, nothing is deleted.
+    [Fact]
+    public async Task A_Draft_Issued_In_The_Meantime_Is_Not_Replaced()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var note = Draft(visitId, 40m);
+        note.Issue("2026-0142");
+        OnVisit(visitId, note);
+
+        var result = await BillReplacing(record, note.Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.SeanceHasNoteCode, result.Code);
+        Assert.Contains("n° 2026-0142", result.Error);
+        AssertNothingWritten(note.Id);
+    }
+
+    // A draft beside an ISSUED visit note: replacing it would leave the séance with two numbered notes.
+    [Fact]
+    public async Task A_Draft_Beside_An_Issued_Visit_Note_Is_Not_Replaced()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var draft = Draft(visitId, 40m);
+        var issued = Draft(visitId, 60m);
+        issued.Issue("2026-0143");
+        OnVisit(visitId, draft, issued);
+
+        var result = await BillReplacing(record, draft.Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.SeanceHasNoteCode, result.Code);
+        Assert.Contains("n° 2026-0143", result.Error);
+        AssertNothingWritten(draft.Id);
+    }
+
+    // The guard the ordinary « Supprimer » runs: a devis that names the draft keeps it.
+    [Fact]
+    public async Task A_Draft_A_Devis_Bills_Is_Not_Replaced()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var draft = Draft(visitId, 40m);
+        OnVisit(visitId, draft);
+        _plans.Setup(p => p.GetPlansBilledOnInvoiceAsync(ClinicId, draft.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (Guid.NewGuid(), (string?)"2026-0009", TreatmentPlanStatus.Accepted) });
+
+        var result = await BillReplacing(record, draft.Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(NoteCarriedActGuard.CarriedByPlanCode, result.Code);
+        AssertNothingWritten(draft.Id);
+    }
+
+    // Another séance's draft is never this séance's to delete.
+    [Fact]
+    public async Task Another_Seances_Draft_Is_Not_Replaced()
+    {
+        var record = RecordOfVisit(Guid.NewGuid());
+        Arrange(record);
+        var other = Draft(Guid.NewGuid(), 40m);
+        _invoices.Setup(r => r.GetByIdAsync(other.Id, It.IsAny<CancellationToken>())).ReturnsAsync(other);
+
+        var result = await BillReplacing(record, other.Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.DraftNotReplaceableCode, result.Code);
+        AssertNothingWritten(other.Id);
+    }
+
+    // Tenant isolation: another cabinet's draft is never this one's to delete, whatever id the request names.
+    [Fact]
+    public async Task A_Draft_Of_Another_Clinic_Is_Not_Replaced()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var foreign = new Invoice(Guid.NewGuid(), OtherClinicId, PatientId, appointmentId: visitId);
+        foreign.SetLines(new[] { ("Consultation", 1, 40m, (Guid?)null) });
+        _invoices.Setup(r => r.GetByIdAsync(foreign.Id, It.IsAny<CancellationToken>())).ReturnsAsync(foreign);
+
+        var result = await BillReplacing(record, foreign.Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.DraftNotReplaceableCode, result.Code);
+        AssertNothingWritten(foreign.Id);
+    }
+
+    // Another patient's draft, even on the same visit id, is not this séance's.
+    [Fact]
+    public async Task A_Draft_Of_Another_Patient_Is_Not_Replaced()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var other = new Invoice(Guid.NewGuid(), ClinicId, Guid.NewGuid(), appointmentId: visitId);
+        other.SetLines(new[] { ("Consultation", 1, 40m, (Guid?)null) });
+        _invoices.Setup(r => r.GetByIdAsync(other.Id, It.IsAny<CancellationToken>())).ReturnsAsync(other);
+
+        var result = await BillReplacing(record, other.Id);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(DentalRecordBillingRefusals.DraftNotReplaceableCode, result.Code);
+        AssertNothingWritten(other.Id);
+    }
+
+    // A draft that names the fiche itself (the older patient-page flow) is replaced the same way.
+    [Fact]
+    public async Task A_Draft_Naming_The_Fiche_Is_Replaced_Too()
+    {
+        var visitId = Guid.NewGuid();
+        var record = RecordOfVisit(visitId);
+        Arrange(record);
+        var draft = Draft(visitId, 40m, ficheId: record.Id);
+        _invoices.Setup(r => r.GetDentalRecordLinksAsync(ClinicId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { (record.Id, draft.Id, (string?)null, InvoiceStatus.Draft) });
+        OnVisit(visitId, draft);
+
+        var result = await BillReplacing(record, draft.Id);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(60m, _saved!.TotalTtc);
+        _invoices.Verify(r => r.DeleteAsync(draft.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ---- The whole point --------------------------------------------------------

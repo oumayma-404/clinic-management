@@ -153,7 +153,7 @@ public class DentalRecordActHandlerTests
             Records.Object, Patients.Object, ToothStates.Object, Plans.Object, ProcedureTypes.Object,
             Appointments.Object, Invoices.Object,
             CreditNotes.Object, MedicalDocuments.Object, Clinics.Object, Doctors.Object, Context.Object,
-            Resolver.Object, Uow.Object, StockConsumption.Object, Sender.Object,
+            Resolver.Object, Uow.Object, StockConsumption.Object, Generator.Object, Realtime.Object, Sender.Object,
             NullLogger<UpdateDentalRecordCommandHandler>.Instance);
 
         public CreateDentalRecordCommand CreateCommand(params DentalActInput[] acts) => new()
@@ -403,5 +403,92 @@ public class DentalRecordActHandlerTests
         Assert.Equal(90m, act.UnitCost);
         Assert.True(act.IsPerTooth);
         Assert.Equal(180m, result.Value.Cost);
+    }
+    // ── seance-au-fauteuil: a fiche saved during the séance does not close its visit ─────────────────────────────
+    //
+    // The handlers read the real clock (`FicheVisitCompletion` takes « now » from them), so the séance is placed
+    // decades away: « still running » and « long over » hold whenever the suite runs.
+
+    private static readonly DateTime FarFutureSlot = new(2099, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime LongPastSlot = new(2020, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+
+    private static Appointment RunningVisitFor(Harness h, DateTime slotStart)
+    {
+        var visit = new Appointment(Guid.NewGuid(), ClinicId, h.Patient.Id, null, slotStart, TimeSpan.FromHours(1));
+        visit.Start();
+        h.Appointments.Setup(r => r.GetByIdAsync(visit.Id, It.IsAny<CancellationToken>())).ReturnsAsync(visit);
+        return visit;
+    }
+
+    [Fact]
+    public async Task A_Fiche_Created_While_Its_Seance_Runs_Leaves_The_Visit_En_Cours()
+    {
+        var h = new Harness();
+        var visit = RunningVisitFor(h, FarFutureSlot);
+        var command = h.CreateCommand(Input(teeth: new[] { 36 }));
+        command.AppointmentId = visit.Id;
+
+        var result = await h.CreateHandler().Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(AppointmentStatus.InProgress, visit.Status);
+        // The « remplir la fiche ? » prompt is withdrawn all the same: the fiche exists.
+        h.Generator.Verify(
+            g => g.CancelPostVisitReviewAsync(ClinicId, visit.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Terminer_La_Seance_On_The_First_Save_Completes_The_Visit()
+    {
+        var h = new Harness();
+        var visit = RunningVisitFor(h, FarFutureSlot);
+        var command = h.CreateCommand(Input(teeth: new[] { 36 }));
+        command.AppointmentId = visit.Id;
+        command.FinishSeance = true;
+
+        var result = await h.CreateHandler().Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(AppointmentStatus.Completed, visit.Status);
+    }
+
+    // Today's habit — the fiche written after the patient has left — is unchanged.
+    [Fact]
+    public async Task A_Fiche_Created_After_Its_Seance_Completes_The_Visit_As_Before()
+    {
+        var h = new Harness();
+        var visit = RunningVisitFor(h, LongPastSlot);
+        var command = h.CreateCommand(Input(teeth: new[] { 36 }));
+        command.AppointmentId = visit.Id;
+
+        var result = await h.CreateHandler().Handle(command, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(AppointmentStatus.Completed, visit.Status);
+    }
+
+    // « Terminer la séance » pressed after a few in-place saves arrives as an UPDATE, which used to leave the visit
+    // alone entirely.
+    [Fact]
+    public async Task Terminer_La_Seance_On_A_Re_Save_Completes_The_Visit()
+    {
+        var h = new Harness();
+        var visit = RunningVisitFor(h, FarFutureSlot);
+        var record = new DentalRecord(
+            Guid.NewGuid(), h.Patient.Id, h.Patient.ClinicId, Intervention, 0m, true, appointmentId: visit.Id);
+        h.Records.Setup(r => r.GetByIdAsync(record.Id, It.IsAny<CancellationToken>())).ReturnsAsync(record);
+        h.ToothStates.Setup(r => r.GetByDentalRecordIdAsync(record.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<ToothState>());
+        var command = h.UpdateCommand(record.Id, Input(teeth: new[] { 36 }));
+
+        var stillRunning = await h.UpdateHandler().Handle(command, CancellationToken.None);
+        Assert.True(stillRunning.IsSuccess, stillRunning.Error);
+        Assert.Equal(AppointmentStatus.InProgress, visit.Status);
+
+        command.FinishSeance = true;
+        var finished = await h.UpdateHandler().Handle(command, CancellationToken.None);
+
+        Assert.True(finished.IsSuccess, finished.Error);
+        Assert.Equal(AppointmentStatus.Completed, visit.Status);
     }
 }

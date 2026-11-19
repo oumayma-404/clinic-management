@@ -40,6 +40,7 @@ import {
 } from "@/components/appointment-merge"
 import { InitialsAvatar } from "@/components/ui/initials-avatar"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { canRecordFiche, ficheHref } from "@/lib/visits/fiche-door"
 import { DiscardChangesDialog } from "@/components/ui/discard-changes-dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -71,9 +72,11 @@ import {
   type SelectedAct,
 } from "@/components/appointment-acts-picker"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
-import { formatAmount, quoteFr } from "@/lib/format"
+import { formatAmount, formatDT, localDayIso, quoteFr, todayLocalIso } from "@/lib/format"
 import { toast } from "sonner"
-import type { AppointmentDto, ContinuableActDto, ProcedureTypeDto, TreatmentPlanDto } from "@/lib/api/types"
+import type { AppointmentDto, ContinuableActDto, ProcedureTypeDto, SeanceToCollectDto, TreatmentPlanDto } from "@/lib/api/types"
+import { useMoneyVisibility } from "@/lib/money-visibility/money-visibility-context"
+import { useSeanceCollection } from "@/components/visits/use-seance-collection"
 import { ApiError } from "@/lib/api/client"
 import type { PlanStepSuggestion } from "@/components/treatment-plans/plan-next-action"
 import {
@@ -91,7 +94,6 @@ import { useAppointmentOverlap } from "@/lib/hooks/use-appointment-overlap"
 import { ApiErrorCode } from "@/lib/api/client"
 import { specialtyLabel } from "@/lib/specialties"
 import Link from "next/link"
-import { InvoiceFormModal } from "@/components/factures/invoice-form-modal"
 import { MANUALLY_SETTABLE_STATUSES, admitsLateArrival, appointmentStatusLabel } from "@/components/appointment-labels"
 import { LateArrivalChips } from "@/components/appointment-late-arrival-chips"
 import { ArrivalButton, useArrivalAction } from "@/components/staff-chat/arrival-action"
@@ -175,8 +177,6 @@ interface CarriedAppointment {
 export function EditAppointmentDialog({ open, onOpenChange, appointment, onSuccess }: EditAppointmentDialogProps) {
   // State for all appointment fields
   const [patientName, setPatientName] = useState("")
-  // « Facturer cette consultation » — the draft note d'honoraires raised from this visit (AC-P6.12).
-  const [billingOpen, setBillingOpen] = useState(false)
   const [date, setDate] = useState<Date | undefined>(new Date())
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("")
   // `appointmentType` removed with the `Type: ` prefix (AC-P1.51) — the act is `procedureTypeId` alone.
@@ -296,6 +296,36 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
    */
   const [refreshed, setRefreshed] = useState<AppointmentDto | null>(null)
   const source = refreshed ?? appointment
+
+  /*
+   * « À encaisser » for THIS séance (`seance-au-fauteuil`): the dentist saved the fiche with « Payé » empty, so the
+   * desk takes the money here. The row is the server's (the fiche's total, or the note's balance) — the same read
+   * as « À clôturer »'s « À encaisser » tab, so the two cannot disagree. Hidden while « Mode discret » hides money.
+   */
+  const { moneyShown } = useMoneyVisibility()
+  const [collectRow, setCollectRow] = useState<SeanceToCollectDto | null>(null)
+  const collectDay = source?.appointmentDateTime ? localDayIso(source.appointmentDateTime) : ""
+  const collectVisitId = source?.patientId ? source.id : null
+  const loadCollectRow = useCallback(async () => {
+    if (!open || !moneyShown || !collectVisitId || !collectDay) {
+      setCollectRow(null)
+      return
+    }
+    try {
+      const rows = await appointmentsApi.toCollect(collectDay)
+      setCollectRow(rows.find((row) => row.appointmentId === collectVisitId) ?? null)
+    } catch {
+      // No row rather than a wrong one: the line below falls back to what the visit itself says.
+      setCollectRow(null)
+    }
+  }, [open, moneyShown, collectVisitId, collectDay])
+  useEffect(() => {
+    void loadCollectRow()
+  }, [loadCollectRow])
+  const collection = useSeanceCollection(() => {
+    void loadCollectRow()
+    onSuccess?.()
+  })
 
   // ⚠️ Loaded through the SHARED hook, not an effect of its own. The create dialog needs the same three
   // derivations — the acts, which devis each belongs to, and the one to suggest — and a second copy of
@@ -1195,6 +1225,13 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 {/* « Signaler l'arrivée » is the first thing reception does with today's visit: a real button here,
                     not an entry in the « ⋯ » menu (owner's call, 2026-10-15). */}
                 {arrival.control && <ArrivalButton control={arrival.control} className="basis-full sm:basis-auto" />}
+                {/* The fiche of THIS visit, written while the patient is in the chair (`seance-au-fauteuil`): it
+                    opens the visit's existing fiche when there is one, a new one otherwise. */}
+                {canRecordFiche(source, todayLocalIso()) && (
+                  <Button asChild variant="outline" size="sm" className="basis-full sm:basis-auto coarse:min-h-11">
+                    <Link href={ficheHref(source.patientId, source.id)}>Fiche de soins</Link>
+                  </Button>
+                )}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Créneau occupé — aucun patient</p>
@@ -1495,9 +1532,11 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
               </div>
             </div>
 
-            {/* Facturation (AC-P6.13) — a visit says which note d'honoraires bills it, and offers to raise one
-                when it does not. The link was write-only before: the column existed, nothing populated it, and
-                no screen read it, so « cette consultation a-t-elle été facturée ? » had no answer anywhere. */}
+            {/* Facturation (AC-P6.13) — a visit says which note d'honoraires bills it. The link was write-only before:
+                the column existed, nothing populated it, and no screen read it, so « cette consultation a-t-elle été
+                facturée ? » had no answer anywhere. ⚠️ It no longer RAISES one: « Facturer cette consultation » made a
+                hand-typed draft before the fiche existed, which then blocked the fiche's « Payé » and billed its own
+                amount instead of the dentist's acts. The fiche makes the note (owner's review, 2026-11-19). */}
             {/*
               One line rather than a titled card. The *action* stays in this column deliberately: the
               récapitulatif states the billing status too, but a pane that disappears below `lg:` must never be
@@ -1506,7 +1545,27 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
             {source?.patientId && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t pt-3 text-sm">
                 <Receipt className="h-4 w-4 shrink-0 text-muted-foreground" />
-                {source.invoiceId ? (
+                {collectRow ? (
+                  <>
+                    <span className="font-medium">À encaisser</span>
+                    <span className="font-semibold tabular-nums">{formatDT(collectRow.amountDue)}</span>
+                    {collectRow.invoiceNumber && (
+                      <span className="text-muted-foreground">· note n° {collectRow.invoiceNumber}</span>
+                    )}
+                    {collectRow.kind === "Treatment" && collectRow.treatmentPlanNumber && (
+                      <span className="text-muted-foreground">· devis n° {collectRow.treatmentPlanNumber}</span>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 coarse:min-h-11"
+                      onClick={() => void collection.collect(collectRow)}
+                      disabled={loading || collection.opening !== null}
+                    >
+                      Encaisser
+                    </Button>
+                  </>
+                ) : source.invoiceId ? (
                   <>
                     <span className="font-medium">Facturé</span>
                     <span className="text-muted-foreground">
@@ -1530,16 +1589,6 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
                 ) : (
                   <>
                     <span className="text-muted-foreground">Non facturé</span>
-                    <Button
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0 text-xs"
-                      onClick={() => setBillingOpen(true)}
-                      disabled={loading}
-                    >
-                      Facturer cette consultation
-                    </Button>
                   </>
                 )}
               </div>
@@ -1662,23 +1711,9 @@ export function EditAppointmentDialog({ open, onOpenChange, appointment, onSucce
         </DialogContent>
       </Dialog>
 
-      {/* The invoice draft is raised from an appointment context, so it carries `appointmentId` (AC-P6.12).
-          Rendered as a sibling of the dialog rather than inside it — nesting a Dialog inside a Dialog fights
-          over the focus trap. */}
-      {source?.patientId && (
-        <InvoiceFormModal
-          open={billingOpen}
-          onOpenChange={setBillingOpen}
-          presetPatientId={source.patientId}
-          presetPatientName={source.patientName}
-          appointmentId={source.id}
-          onSuccess={() => {
-            setBillingOpen(false)
-            // Refetch so the « Facturé » badge above replaces the button without a manual reload.
-            onSuccess?.()
-          }}
-        />
-      )}
+      {/* « Encaisser » on this visit's row opens its dialogs here, as a sibling — nesting a Dialog inside a Dialog
+          fights over the focus trap. */}
+      {source?.patientId && collection.dialogs}
 
       {arrival.dialog}
 

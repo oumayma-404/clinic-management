@@ -36,6 +36,25 @@ public static class DentalRecordBillingRefusals
     public const string PaymentBankedCode = "dental_record_payment_banked";
 
     /// <summary>
+    /// The séance already has a note raised from its rendez-vous (« Facturer cette consultation »). That note names
+    /// the visit and none of this fiche's acts, so billing the fiche on top of it would bill one séance twice
+    /// (`seance-au-fauteuil`).
+    /// </summary>
+    public const string SeanceHasNoteCode = "seance_has_note";
+
+    /// <summary>
+    /// « Encaisser » asked to replace a draft note with the fiche's note, and that draft cannot be replaced: it is
+    /// gone, holds money, belongs to another séance, or is carried by a devis (`seance-au-fauteuil`).
+    /// </summary>
+    public const string DraftNotReplaceableCode = "dental_record_draft_not_replaceable";
+
+    /// <summary>
+    /// « Corriger la note » from the fiche, on a note that also carries a treatment — attached to a devis, or holding
+    /// money later séances collected on it. A replacement raised from one fiche would be attached to neither.
+    /// </summary>
+    public const string NoteCarriesTreatmentCode = "dental_record_note_carries_treatment";
+
+    /// <summary>
     /// The refusals a correction can get past — the fiche disagrees with its note, and replacing the note is the
     /// honest way out. Read by the API so the client can offer « Corriger » on exactly these and nothing else.
     ///
@@ -81,6 +100,35 @@ public static class DentalRecordBillingRefusals
     public static string PaymentExceedsCost(decimal amountPaid, decimal cost) =>
         $"Le montant payé ({FormatAmount(amountPaid)} DT) dépasse le total de la séance "
         + $"({FormatAmount(cost)} DT). Corrigez le montant, ou ajoutez l'acte qui manque.";
+
+    /// <summary>The note to issue or settle instead of raising a second one for the same séance.</summary>
+    public static string SeanceHasNote(string? invoiceNumber) =>
+        invoiceNumber is null
+            // The fiche makes the note (owner, 2026-11-19): the remedy is the desk's « Encaisser », which bills the fiche
+            // and replaces the draft — never issuing the draft as typed, which bills its own amount.
+            ? "Un brouillon de note existe pour cette séance : rien n'est encaissé ici. Encaissez depuis « À clôturer » "
+              + "→ « À encaisser », la note y est faite depuis la fiche."
+            : $"Cette séance est déjà facturée sur la note n° {invoiceNumber}, créée depuis son rendez-vous : "
+              + "encaissez sur cette note.";
+
+    /// <summary>Why the draft the desk was shown cannot be replaced by the fiche's note.</summary>
+    public const string DraftNotReplaceable =
+        "Ce brouillon de note ne peut plus être remplacé par la fiche : rouvrez la liste, elle a changé.";
+
+    /// <summary>Why the fiche cannot correct this note, and where it can be corrected instead.</summary>
+    public static string NoteCarriesTreatment(string? invoiceNumber) =>
+        $"{Capitalise(Document(invoiceNumber))} porte aussi l'argent d'un traitement (son devis ou ses séances "
+        + "suivantes) : elle ne peut pas être corrigée depuis cette fiche. Corrigez-la depuis les factures du patient.";
+
+    /// <summary>
+    /// The correction would void a cheque already deposited — it is at the bank, so it cannot be un-received.
+    /// </summary>
+    public static string CorrectionStrandsBankedCheque(string? invoiceNumber, decimal chequeAmount) =>
+        $"Un chèque de {FormatAmount(chequeAmount)} DT sur {Document(invoiceNumber)} est déjà déposé en banque : la "
+        + "correction ne peut pas l'annuler. Gardez un montant payé qui le couvre, ou retirez d'abord la marque de dépôt.";
+
+    private static string Capitalise(string text) =>
+        text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     /// <summary>
     /// « la note n° 2026-0042 » — or « un brouillon de note d'honoraires » when the invoice has no number yet.

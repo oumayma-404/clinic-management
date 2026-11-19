@@ -108,6 +108,18 @@ drifted label understates a row somebody can still see in the total. ⚠️ Both
 | **Backup** (Local) | `BackupNowCommand` (admin-only; re-checks `IsAdmin()`, delegates to `IBackupService`; catches `InvalidOperationException` → `Result.Failure`, lets other exceptions propagate). |
 | **Backup** — recovery points (`clinic-recovery-points`) | **`Queries/ListRecoveryPointsQuery`** (what the cabinet can restore from with no file, plus when an archive last *reached* somebody) and **`Commands/RestoreFromRecoveryPointCommand`** — the **third** caller of `ClinicArchiveRestorer.ApplyAsync`, adding no restore semantics of its own. ⚠️ The list is a **`Query`** so it stays off `RealtimeBroadcastBehavior`, whose key comes from the namespace: a « Backup » broadcast on every card render would tell every open browser that something changed when nothing did. ⚠️ A non-restorable point and a pruned object are **named refusals**, never « la restauration a échoué », which would send an owner looking for a fault in their data. ⚠️ The clinic-mismatch check runs even though the point was written for this cabinet — a guarantee that costs one comparison is not worth reasoning about. ⚠️ `INotificationGenerator` gained **`EnsureArchiveStaleAsync`/`ClearArchiveStaleAsync`** on `EnsureBackupStaleAsync`'s ensure/clear shape (one restating row, matched on a stable prefix so the elapsed-day count does not restate nightly) — and it is about the copy that **left the building**, not about the server-kept points |
 
+> **`seance-au-fauteuil`** ([`features/seance-au-fauteuil/notes.md`](../../features/seance-au-fauteuil/notes.md)) —
+> `Features/Patients/FicheVisitCompletion` is the one rule « does this fiche save end the visit? » (« Terminer la
+> séance » or the slot's end), asked by both fiche commands. `GetSeancesToCollectQuery` (`GET
+> /appointments/to-collect`, `[HiddenWhenMoneyMasked]`) is « À encaisser », built on
+> `VisitClosureReader.ReadForCollectionAsync` — the closure reads minus the end of the slot — with a devis séance
+> listed only when its devis has money due now (`PatientDebtLines`). `BillDentalRecordCommand` refuses
+> `seance_has_note` when the visit already holds a live note naming no fiche. « Corriger la note » from the fiche
+> carries the retired note's payments through `Features/Invoices/NoteCorrectionCarry` (planned pre-commit, re-recorded
+> post-commit with their date, method, cheque and bank mark) and refuses a deposited cheque it would drop or a note
+> carrying a treatment. `RecordInstallmentPaymentCommand.DentalRecordId` tags a desk payment with its séance.
+> `VisitClosureReader` counts **issued** notes only. `GetDentalRecordsQuery` fills `CollectedOnNote`.
+
 > **`Features/Relay/RelayBrowserAccess`** (`clinic-pc-copy` AC-3.7 / D24): where a plain browser opens the PC de secours
 > and its trust page (`TrustPort` = 5080, pinned to the API's `TrustPortGate.DefaultPort` by a test). Read by
 > `GetRelayStatusQuery`, which adds both addresses and their QR codes (optional `IQrCodeGenerator`).

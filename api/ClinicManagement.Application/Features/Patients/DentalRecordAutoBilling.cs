@@ -55,7 +55,8 @@ public static class DentalRecordAutoBilling
         decimal amountPaid,
         ILogger logger,
         CancellationToken cancellationToken,
-        Guid? supersedesInvoiceId = null)
+        Guid? supersedesInvoiceId = null,
+        IReadOnlyList<CarriedPayment>? carriedPayments = null)
     {
         if (amountPaid <= 0m && supersedesInvoiceId is null)
         {
@@ -75,6 +76,8 @@ public static class DentalRecordAutoBilling
                     // just asked for, raising the replacement is the entire point.
                     IsAutomatic = supersedesInvoiceId is null,
                     SupersedesInvoiceId = supersedesInvoiceId,
+                    // The correction's carry plan (`seance-au-fauteuil`): the desk's rows keep their own identity.
+                    CarriedPayments = carriedPayments ?? Array.Empty<CarriedPayment>(),
                     PaidNow = amountPaid <= 0m ? null : new DentalRecordPaymentRequest
                     {
                         Amount = amountPaid,
@@ -143,5 +146,7 @@ public static class DentalRecordAutoBilling
     private static bool IsRefusal(string? code) =>
         code is DentalRecordBillingRefusals.PaymentLoweredCode
             or DentalRecordBillingRefusals.ActsChangedCode
-            or DentalRecordBillingRefusals.InvoiceNotLiveCode;
+            or DentalRecordBillingRefusals.InvoiceNotLiveCode
+            // The séance already has a note from its rendez-vous: a defined next step (that note), not a fault.
+            or DentalRecordBillingRefusals.SeanceHasNoteCode;
 }
