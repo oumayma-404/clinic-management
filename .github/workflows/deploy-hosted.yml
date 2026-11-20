@@ -662,10 +662,12 @@ jobs:
       #
       # It runs whenever the new stack answered /health, INCLUDING when verify-schema then failed: #91 and #92 both
       # stopped there, and a step gated on success would have skipped exactly those. A cleanup that fails only
-      # warns (continue-on-error) — it must not colour a healthy deploy red.
+      # warns (continue-on-error) — it must not colour a healthy deploy red. It normally takes seconds; the 15-minute
+      # cap stops a stuck Docker from holding the run open until GitHub's 6-hour default.
       - name: Remove images and build cache nothing uses
         if: ${{ !cancelled() && steps.front-door.outcome == 'success' }}
         continue-on-error: true
+        timeout-minutes: 15
         shell: bash
         run: |
           ssh vps 'bash -s' <<'REMOTE' | tee disk-cleanup.log
