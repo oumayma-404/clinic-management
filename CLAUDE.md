@@ -119,7 +119,8 @@ clinic-management/
 │                                                       through « Mettre à jour » (features/android-in-app-update)
 │                                   deploy-hosted.yml = `workflow_dispatch` deploy to a VPS: build the three heavy
 │                                                       images → GHCR → ssh `pull` + `up -d --no-build` → /health →
-│                                                       verify-schema. Builds THROUGH compose, so `web`'s build args
+│                                                       verify-schema → prune unused images + week-old build cache
+│                                                       (never volumes). Builds THROUGH compose, so `web`'s build args
 │                                                       have one home. See deploy/README.md § Déploiement depuis GitHub
 ├── docker-compose.yml            postgres (5432) + minio (9000 API / 9001 console) — LOCAL DEV only
 └── *.md (root setup docs, see below)

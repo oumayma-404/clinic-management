@@ -502,6 +502,7 @@ jobs:
       # clinic whose storage is down can still book, record and take money, and failing the deploy for it would
       # turn a partial outage into a rollback nobody needed.
       - name: Wait for the front door
+        id: front-door
         run: |
           for attempt in $(seq 1 30); do
             if body=$(curl -fsS --max-time 10 "https://$DEPLOY_DOMAIN/health" 2>/dev/null); then
@@ -644,3 +645,50 @@ jobs:
             echo "| Images | \`$CLINIC_IMAGE_PREFIX-{api,web,console}:$CLINIC_IMAGE_TAG\` |"
             echo "| Domain | https://$DEPLOY_DOMAIN |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Housekeeping: give the disk back ─────────────────────────────────────────────────────────────────
+      #
+      # Every deploy pulls three new images and rebuilds the four local ones, and nothing removed the old ones.
+      # On 2026-11-20 the 96 GB disk filled up — 264 images with 8 in use (50 GB), 9 GB of build cache, and 41 GB
+      # of WAL that Backblaze had stopped accepting — Postgres could not write, and production was down two hours.
+      #
+      # ⚠️ IMAGES AND BUILD CACHE ONLY. Never `--volumes`, never `docker volume prune`, never
+      # `docker system prune --volumes`: the volumes ARE the database and the patient files.
+      #
+      # `image prune -a` removes only what no container uses: the running stack, the demo and the exited `certs`
+      # one-shot keep theirs. A rollback loses nothing — this workflow pulls the tag it is given from GHCR, so an
+      # older release is downloaded again, never looked for on disk. The build cache keeps a week, so the four
+      # local builds stay fast.
+      #
+      # It runs whenever the new stack answered /health, INCLUDING when verify-schema then failed: #91 and #92 both
+      # stopped there, and a step gated on success would have skipped exactly those. A cleanup that fails only
+      # warns (continue-on-error) — it must not colour a healthy deploy red. It normally takes seconds; the 15-minute
+      # cap stops a stuck Docker from holding the run open until GitHub's 6-hour default.
+      - name: Remove images and build cache nothing uses
+        if: ${{ !cancelled() && steps.front-door.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          ssh vps 'bash -s' <<'REMOTE' | tee disk-cleanup.log
+          set -euo pipefail
+          echo "before: $(df -h --output=used,avail,pcent / | tail -1)"
+          docker image prune -a -f | tail -1
+          docker builder prune -f --filter until=168h | tail -1
+          echo "after:  $(df -h --output=used,avail,pcent / | tail -1)"
+          echo "DISK_USED=$(df --output=pcent / | tail -1 | tr -dc 0-9)"
+          echo "DISK_FREE=$(df -h --output=avail / | tail -1 | tr -d ' ')"
+          REMOTE
+          used=$(sed -n 's/^DISK_USED=//p' disk-cleanup.log)
+          free=$(sed -n 's/^DISK_FREE=//p' disk-cleanup.log)
+          {
+            echo "### Disk"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| After cleanup | ${used:-?} % used · ${free:-?} free |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Unused images are gone by now, so whatever is still filling the disk is something else.
+          if [ "${used:-0}" -ge 80 ]; then
+            echo "::warning title=Disk ${used}% full::Only ${free} left after removing unused images. On 2026-11-20 it was the database's WAL piling up while Backblaze refused uploads (storage cap): read clinic-postgres-prod's log for « archive command failed »."
+          fi

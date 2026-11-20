@@ -88,6 +88,11 @@ pulls and restarts.
 gigabytes of RAM and minutes of CPU. Doing that on the box that is meanwhile serving clinics is the one avoidable
 self-inflicted outage in this design — and it is what lets a modest VPS (4 vCPU) host this comfortably.
 
+**The last step gives the disk back.** Once the new stack answers `/health`, the workflow removes every image no
+container uses and any build cache unused for a week, then writes the disk usage to the run summary — a warning
+from 80 %. Nothing did that before, and on 2026-11-20 the full disk (old images, build cache, and WAL Backblaze
+was refusing) stopped Postgres. ⚠️ It never touches volumes: those hold the database and the patient files.
+
 ### One-time server preparation
 
 ```bash
