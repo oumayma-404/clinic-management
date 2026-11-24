@@ -1,5 +1,6 @@
 import { ApiError, ApiErrorCode, apiGet, apiPost } from "@/lib/api/client"
 import { patientFilesApi } from "@/lib/api/patient-files"
+import { PhotoImportCode } from "@/lib/api/photo-import"
 import { shouldUploadInParts, type UploadPolicy } from "@/lib/api/upload-policy"
 import type { PatientDto } from "@/lib/api/types"
 import { getErrorMessage } from "@/lib/errors"
@@ -17,6 +18,10 @@ import { genderOf, maritalStatusOf, phoneOf, type LegacyHistoryEntry } from "./p
  * the patient (same name, same birth date), the « Ancien logiciel » folder, each file (same name and size), each
  * history line (same day, category, title and text). A closed tab, a lost connection or a second press of
  * « Importer » therefore continues where it stopped and creates nothing twice.
+ *
+ * ⚠️ **Paced.** The API allows each account 600 requests a minute, shared with that account's other tabs, and an
+ * import is hundreds of requests. Every call here waits its turn (≤ 300 a minute), and a 429 pauses the whole run and
+ * retries the same call — it is never counted as a failure.
  */
 
 export const FOLDER_NAME = "Ancien logiciel"
@@ -31,6 +36,8 @@ export interface RowResult {
   already: number
   refused: number
   failedFiles: number
+  /** Files not sent because the cabinet's storage is full — sent by a later run once there is room. */
+  waitingForSpace: number
   historyAdded: number
   errors: string[]
   /** The cabinet seems to hold this person and refused a second fiche: the server's own sentence. */
@@ -43,18 +50,73 @@ export const emptyResult = (): RowResult => ({
   already: 0,
   refused: 0,
   failedFiles: 0,
+  waitingForSpace: 0,
   historyAdded: 0,
   errors: [],
 })
 
+const RESUME = "Relancez l'import : il reprend où il s'est arrêté."
+
 /** A refusal that will refuse every row the same way: stop rather than repeat it a hundred times. */
 function isFatal(error: unknown): boolean {
-  return error instanceof ApiError && [0, 401, 402, 403, 426].includes(error.status)
+  return error instanceof ApiError && [0, 401, 402, 403, 426, 429].includes(error.status)
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** One import's share of the account's request budget, and what it does when the server says « not now ». */
+class Pacer {
+  private nextSlot = 0
+  private pausedUntil = 0
+
+  constructor(
+    private readonly signal: AbortSignal,
+    private readonly onPause: (seconds: number) => void,
+  ) {}
+
+  /** ≤ 5 calls a second across the whole run (all three upload lanes included). */
+  private async turn() {
+    for (;;) {
+      const now = Date.now()
+      const wait = Math.max(this.pausedUntil, this.nextSlot) - now
+      if (wait <= 0) {
+        this.nextSlot = now + 200
+        return
+      }
+      await sleep(Math.min(wait, 1000))
+    }
+  }
+
+  /** Runs `fn` when its turn comes; on a 429, pauses everything and runs it again — up to ~10 minutes in all. */
+  async call<T>(fn: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      await this.turn()
+      try {
+        return await fn()
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 429) || attempt >= 12 || this.signal.aborted) throw error
+        const seconds = Math.min(60, 15 * (attempt + 1))
+        this.pausedUntil = Math.max(this.pausedUntil, Date.now() + seconds * 1000)
+        this.onPause(seconds)
+      }
+    }
+  }
+}
+
+/** Set once the server answers « storage full »: no more files are sent this run, patients and history go on. */
+interface Space {
+  full: boolean
+  message: string
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-function createBody(p: PlanPatient) {
+/**
+ * ⚠️ `allowDuplicate` is true unless several patients of the cabinet carry this exact name. The page has already
+ * looked for this person by name (and birth date) and found nobody, so what the server's guard can still catch is a
+ * shared TELEPHONE — a mother and her daughter, a whole family on one number — which is not a duplicate here.
+ */
+function createBody(p: PlanPatient, allowDuplicate: boolean) {
   const r = p.record
   const notes = [`Importé de l'ancien logiciel (dossier ${p.numero ? `n° ${p.numero}` : p.key}).`]
   const keep = (label: string, value: string | undefined) => {
@@ -96,17 +158,17 @@ function createBody(p: PlanPatient) {
     maritalStatus: r ? maritalStatusOf(r.maritalStatus) || undefined : undefined,
     countryOfOrigin: r?.countryOfOrigin || undefined,
     notes: notes.join("\n"),
-    allowDuplicate: p.createAnyway || undefined,
+    allowDuplicate: allowDuplicate || undefined,
   }
 }
 
 /** Server-side file names lose a few characters; compare on letters, digits and the size. */
 const fileKey = (name: string, size: number) => `${name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "")}|${size}`
 
-async function ensureFolder(patientId: string): Promise<string> {
-  const folders = await patientFilesApi.getFolders(patientId)
+async function ensureFolder(pacer: Pacer, patientId: string): Promise<string> {
+  const folders = await pacer.call(() => patientFilesApi.getFolders(patientId))
   const held = folders.find((f) => !f.parentFolderId && f.name.trim().toLowerCase() === FOLDER_NAME.toLowerCase())
-  return held ? held.id : (await patientFilesApi.createFolder(patientId, FOLDER_NAME)).id
+  return held ? held.id : (await pacer.call(() => patientFilesApi.createFolder(patientId, FOLDER_NAME))).id
 }
 
 async function sendFile(patientId: string, folderId: string, f: PlanFile, policy: UploadPolicy | null, signal: AbortSignal) {
@@ -129,12 +191,15 @@ interface LegacyHistoryDto {
 const historyKey = (e: { date: string | null; category: string; title: string; details: string | null }) =>
   `${e.date ?? ""}|${e.category}|${e.title}|${e.details ?? ""}`
 
-async function addHistory(patientId: string, entries: LegacyHistoryEntry[]): Promise<number> {
+async function addHistory(pacer: Pacer, patientId: string, entries: LegacyHistoryEntry[]): Promise<number> {
   if (!entries.length) return 0
-  const held = new Set((await apiGet<LegacyHistoryDto[]>(`/patients/${patientId}/legacy-history`)).map(historyKey))
+  const held = new Set(
+    (await pacer.call(() => apiGet<LegacyHistoryDto[]>(`/patients/${patientId}/legacy-history`))).map(historyKey),
+  )
   const missing = entries.filter((e) => !held.has(historyKey(e)))
   for (let i = 0; i < missing.length; i += 500) {
-    await apiPost(`/patients/${patientId}/legacy-history`, { entries: missing.slice(i, i + 500) })
+    const batch = missing.slice(i, i + 500)
+    await pacer.call(() => apiPost(`/patients/${patientId}/legacy-history`, { entries: batch }))
   }
   return missing.length
 }
@@ -143,6 +208,8 @@ export interface RunOptions {
   policy: UploadPolicy | null
   signal: AbortSignal
   onRow: (key: string, result: RowResult) => void
+  /** The server asked to slow down: the run waits this many seconds, then carries on by itself. */
+  onPause?: (seconds: number) => void
   /**
    * Patients an earlier run on this page already created or found. ⚠️ Needed for « Créer quand même »: that row
    * skips the name lookup on purpose, so without this a second run would create a third fiche.
@@ -150,11 +217,21 @@ export interface RunOptions {
   known: Record<string, string | undefined>
 }
 
-/** Returns null when every row was attempted, or the sentence that stopped the run. */
-export async function runImport(plan: ImportPlan, { policy, signal, onRow, known }: RunOptions): Promise<string | null> {
+/** Returns null when every row was attempted, or the sentence that stopped (or limited) the run. */
+export async function runImport(
+  plan: ImportPlan,
+  { policy, signal, onRow, onPause = () => {}, known }: RunOptions,
+): Promise<string | null> {
+  const pacer = new Pacer(signal, onPause)
+  const space: Space = { full: false, message: "" }
+  const stoppedBy = (error: unknown) =>
+    error instanceof ApiError && error.status === 429
+      ? `Le serveur demande de ralentir depuis plusieurs minutes. ${RESUME}`
+      : `${getErrorMessage(error)} ${RESUME}`
+
   const roots = plan.patients.filter((p) => !p.mergeInto)
   for (const root of roots) {
-    if (signal.aborted) return "Import arrêté. Relancez-le : il reprend où il s'est arrêté."
+    if (signal.aborted) return `Import arrêté. ${RESUME}`
     const result = emptyResult()
     const publish = () => onRow(root.key, { ...result, errors: [...result.errors] })
     if (root.skip) {
@@ -168,10 +245,16 @@ export async function runImport(plan: ImportPlan, { policy, signal, onRow, known
     try {
       // 1. The patient: the one the plan found, the one an earlier run created, or a new fiche.
       let patientId = known[root.key] ?? (root.createAnyway ? null : root.existing?.id ?? null)
-      if (!patientId && !root.createAnyway) patientId = (await findExisting(root)).existing?.id ?? null
+      let ambiguous = root.existingAmbiguous
+      if (!patientId && !root.createAnyway) {
+        const found = await pacer.call(() => findExisting(root))
+        patientId = found.existing?.id ?? null
+        ambiguous = found.ambiguous
+      }
       if (!patientId) {
         try {
-          patientId = (await apiPost<PatientDto>("/patients", createBody(root))).id
+          const body = createBody(root, root.createAnyway || !ambiguous)
+          patientId = (await pacer.call(() => apiPost<PatientDto>("/patients", body))).id
           result.created = true
         } catch (error) {
           if (error instanceof ApiError && error.code === ApiErrorCode.PatientDuplicate) {
@@ -187,12 +270,12 @@ export async function runImport(plan: ImportPlan, { policy, signal, onRow, known
       publish()
 
       // 2. Its files, into « Ancien logiciel ».
-      await sendFiles(patientId, filesFor(plan, root.key), result, publish, policy, signal)
+      await sendFiles(pacer, space, patientId, filesFor(plan, root.key), result, publish, policy, signal)
 
       // 3. The read-only history, from this record and every record merged into it.
       const history = plan.patients.filter((p) => (p.mergeInto ?? p.key) === root.key && !p.skip).flatMap((p) => p.history)
       try {
-        result.historyAdded = await addHistory(patientId, history)
+        result.historyAdded = await addHistory(pacer, patientId, history)
       } catch (error) {
         if (isFatal(error)) throw error
         result.errors.push(
@@ -208,7 +291,7 @@ export async function runImport(plan: ImportPlan, { policy, signal, onRow, known
       result.errors.push(getErrorMessage(error))
       result.state = "failed"
       publish()
-      if (isFatal(error)) return `${getErrorMessage(error)} Relancez l'import : il reprend où il s'est arrêté.`
+      if (isFatal(error)) return stoppedBy(error)
     }
   }
 
@@ -216,28 +299,37 @@ export async function runImport(plan: ImportPlan, { policy, signal, onRow, known
   // came in an earlier batch.
   const cabinetKeys = [...new Set(plan.folders.map((f) => f.choice).filter((k): k is string => !!k?.startsWith(CABINET_PREFIX)))]
   for (const key of cabinetKeys) {
-    if (signal.aborted) return "Import arrêté. Relancez-le : il reprend où il s'est arrêté."
+    if (signal.aborted) return `Import arrêté. ${RESUME}`
     const result = emptyResult()
     const publish = () => onRow(key, { ...result, errors: [...result.errors] })
     result.state = "running"
     result.patientId = key.slice(CABINET_PREFIX.length)
     publish()
     try {
-      await sendFiles(result.patientId, filesFor(plan, key), result, publish, policy, signal)
+      await sendFiles(pacer, space, result.patientId, filesFor(plan, key), result, publish, policy, signal)
       result.state = result.errors.length ? "failed" : "done"
       publish()
     } catch (error) {
       result.errors.push(getErrorMessage(error))
       result.state = "failed"
       publish()
-      if (isFatal(error)) return `${getErrorMessage(error)} Relancez l'import : il reprend où il s'est arrêté.`
+      if (isFatal(error)) return stoppedBy(error)
     }
+  }
+
+  if (space.full) {
+    return `${space.message} Les patients et l'historique sont importés ; les fichiers restants attendent. Libérez de l'espace ou demandez-en davantage, puis ${RESUME.charAt(0).toLowerCase()}${RESUME.slice(1)}`
   }
   return null
 }
 
-/** Into the patient's « Ancien logiciel », three at a time, skipping what is already there. Throws only a fatal error. */
+/**
+ * Into the patient's « Ancien logiciel », three at a time, skipping what is already there. Throws only a fatal error.
+ * Once the cabinet's storage is full nothing more is sent: each remaining file is counted as waiting for space.
+ */
 async function sendFiles(
+  pacer: Pacer,
+  space: Space,
   patientId: string,
   files: PlanFile[],
   result: RowResult,
@@ -248,8 +340,14 @@ async function sendFiles(
   result.refused = files.filter((f) => f.refusal).length
   const sendable = files.filter((f) => !f.refusal)
   if (!sendable.length) return
-  const folderId = await ensureFolder(patientId)
-  const held = new Set((await patientFilesApi.getFiles(patientId, folderId)).map((f) => fileKey(f.fileName, f.fileSize)))
+  if (space.full) {
+    result.waitingForSpace = sendable.length
+    return
+  }
+  const folderId = await ensureFolder(pacer, patientId)
+  const held = new Set(
+    (await pacer.call(() => patientFilesApi.getFiles(patientId, folderId))).map((f) => fileKey(f.fileName, f.fileSize)),
+  )
   const queue = sendable.filter((f) => {
     const known = held.has(fileKey(f.file.name, f.file.size))
     if (known) result.already++
@@ -259,12 +357,20 @@ async function sendFiles(
   let fatal: unknown = null
   const worker = async () => {
     while (queue.length && !signal.aborted && !fatal) {
+      if (space.full) {
+        result.waitingForSpace += queue.splice(0).length
+        break
+      }
       const f = queue.shift()!
       try {
-        await sendFile(patientId, folderId, f, policy, signal)
+        await pacer.call(() => sendFile(patientId, folderId, f, policy, signal))
         result.sent++
       } catch (error) {
-        if (isFatal(error)) fatal = error
+        if (error instanceof ApiError && error.code === PhotoImportCode.StorageFull) {
+          space.full = true
+          space.message = error.message
+          result.waitingForSpace++
+        } else if (isFatal(error)) fatal = error
         else {
           result.failedFiles++
           result.errors.push(`${f.rel} : ${getErrorMessage(error)}`)
@@ -274,5 +380,6 @@ async function sendFiles(
     }
   }
   await Promise.all([worker(), worker(), worker()])
+  publish()
   if (fatal) throw fatal
 }

@@ -42,6 +42,8 @@ export function LegacyImportScreen() {
   const [running, setRunning] = useState(false)
   const [finished, setFinished] = useState(false)
   const [stopped, setStopped] = useState<string | null>(null)
+  /** When the server last asked to slow down, and for how long — the footer says so while it lasts. */
+  const [pause, setPause] = useState<{ until: number; seconds: number } | null>(null)
   const controller = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -101,6 +103,7 @@ export function LegacyImportScreen() {
         signal: abort.signal,
         known,
         onRow: (key, result) => setResults((prev) => ({ ...prev, [key]: result })),
+        onPause: (seconds) => setPause({ until: Date.now() + seconds * 1000, seconds }),
       })
       setStopped(stop)
       setFinished(true)
@@ -109,6 +112,7 @@ export function LegacyImportScreen() {
       showErrorToast(error)
     } finally {
       setRunning(false)
+      setPause(null)
       controller.current = null
     }
   }
@@ -174,6 +178,8 @@ export function LegacyImportScreen() {
           {summary.quotaShort && (
             <p className="rounded-md border border-warning bg-warning-wash p-3 text-sm text-warning-ink" role="alert">
               L&apos;espace du cabinet ne suffit pas pour tous ces fichiers : il manque {formatFileSize(summary.quotaShort)}.
+              Les patients et l&apos;historique seront importés ; l&apos;envoi des fichiers s&apos;arrêtera quand l&apos;espace sera
+              plein, et reprendra en relançant l&apos;import une fois de la place libérée.
             </p>
           )}
           {plan.looseFiles.length > 0 && (
@@ -244,7 +250,7 @@ export function LegacyImportScreen() {
                       <p className={r.state === "failed" ? "text-destructive" : "text-muted-foreground"} role="status">
                         {r.state === "running"
                           ? `Envoi… ${r.sent} fichier${r.sent > 1 ? "s" : ""}`
-                          : `${r.sent} envoyé${r.sent > 1 ? "s" : ""} · ${r.already} déjà là${r.errors.length ? ` · ${r.errors.join(" · ")}` : ""}`}
+                          : `${r.sent} envoyé${r.sent > 1 ? "s" : ""} · ${r.already} déjà là${r.waitingForSpace ? ` · ${r.waitingForSpace} en attente d'espace` : ""}${r.errors.length ? ` · ${r.errors.join(" · ")}` : ""}`}
                       </p>
                     </li>
                   ))}
@@ -258,7 +264,9 @@ export function LegacyImportScreen() {
                 {stopped ? (
                   <span className="text-destructive">{stopped}</span>
                 ) : running ? (
-                  "Import en cours. Gardez cette page ouverte."
+                  pause && pause.until > Date.now()
+                    ? `Pause de ${pause.seconds} s : le serveur demande de ralentir. L'import reprend tout seul.`
+                    : "Import en cours. Gardez cette page ouverte."
                 ) : summary.undecided > 0 ? (
                   <span className="text-warning-ink">
                     {summary.undecided} dossier{summary.undecided > 1 ? "s" : ""} à confirmer avant d&apos;importer.

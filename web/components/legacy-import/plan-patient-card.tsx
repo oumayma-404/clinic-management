@@ -215,6 +215,7 @@ function ResultBadge({ result }: { result: RowResult | undefined }) {
     result.created ? "Patient créé" : result.patientId ? "Patient existant" : null,
     result.sent ? `${result.sent} fichier${result.sent > 1 ? "s" : ""} envoyé${result.sent > 1 ? "s" : ""}` : null,
     result.already ? `${result.already} déjà là` : null,
+    result.waitingForSpace ? `${result.waitingForSpace} en attente d'espace` : null,
     result.historyAdded ? `${result.historyAdded} ligne${result.historyAdded > 1 ? "s" : ""} d'historique` : null,
   ].filter(Boolean)
   const failed = result.state === "failed"
