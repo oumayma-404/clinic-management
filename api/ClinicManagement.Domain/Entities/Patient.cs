@@ -117,6 +117,21 @@ public class Patient : AggregateRoot<Guid>
     /// </summary>
     public string? ReferredBy { get; private set; }
 
+    /// <summary>« Profession ». Optional free text.</summary>
+    public string? Occupation { get; private set; }
+
+    /// <summary>
+    /// « Situation familiale ». Optional, and the stored value is the French word itself (« Marié(e) »): the form
+    /// offers four, an imported one outside them is kept as written — so there is no key/label pair to mirror.
+    /// </summary>
+    public string? MaritalStatus { get; private set; }
+
+    /// <summary>
+    /// « Pays d'origine » — where the patient is FROM. Deliberately not <see cref="Address"/>'s country, which is
+    /// where they live: a patient from Guinée living in Sfax has both, and they differ.
+    /// </summary>
+    public string? CountryOfOrigin { get; private set; }
+
     /// <summary>
     /// When the Google Calendar import created this record from an event title alone. Non-null means <b>nobody has
     /// confirmed it</b>: the name was read off a calendar and everything else — birth date, gender, telephone — is
@@ -528,6 +543,27 @@ public class Patient : AggregateRoot<Guid>
     public void SetReferredBy(string? referredBy)
     {
         ReferredBy = string.IsNullOrWhiteSpace(referredBy) ? null : referredBy.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Set (or clear, when blank) the profession. Own method, like <see cref="SetReferredBy"/>.</summary>
+    public void SetOccupation(string? occupation)
+    {
+        Occupation = string.IsNullOrWhiteSpace(occupation) ? null : occupation.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Set (or clear, when blank) the situation familiale.</summary>
+    public void SetMaritalStatus(string? maritalStatus)
+    {
+        MaritalStatus = string.IsNullOrWhiteSpace(maritalStatus) ? null : maritalStatus.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Set (or clear, when blank) the pays d'origine.</summary>
+    public void SetCountryOfOrigin(string? countryOfOrigin)
+    {
+        CountryOfOrigin = string.IsNullOrWhiteSpace(countryOfOrigin) ? null : countryOfOrigin.Trim();
         UpdatedAt = DateTime.UtcNow;
     }
 

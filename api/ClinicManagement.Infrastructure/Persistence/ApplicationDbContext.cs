@@ -114,6 +114,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<LabWorkOrder> LabWorkOrders { get; set; }
     public DbSet<PatientMedicalHistory> PatientMedicalHistories { get; set; }
     public DbSet<PatientFamilyHistory> PatientFamilyHistories { get; set; }
+    public DbSet<PatientLegacyHistoryEntry> PatientLegacyHistoryEntries { get; set; }
     public DbSet<DentalRecord> DentalRecords { get; set; }
     public DbSet<DentalRecordTooth> DentalRecordTeeth { get; set; }
     public DbSet<DentalRecordAct> DentalRecordActs { get; set; }
@@ -340,6 +341,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
         modelBuilder.Entity<ToothState>().HasQueryFilter(t => IsSystemWide || t.ClinicId == ScopedClinicId);
         modelBuilder.Entity<PatientMedicalHistory>().HasQueryFilter(h => IsSystemWide || h.ClinicId == ScopedClinicId);
         modelBuilder.Entity<PatientFamilyHistory>().HasQueryFilter(h => IsSystemWide || h.ClinicId == ScopedClinicId);
+        modelBuilder.Entity<PatientLegacyHistoryEntry>().HasQueryFilter(h => IsSystemWide || h.ClinicId == ScopedClinicId);
         modelBuilder.Entity<Appointment>().HasQueryFilter(a => IsSystemWide || a.ClinicId == ScopedClinicId);
 
         // The Google→App import ledger. Filtered like every other clinic-owned root: a run names what a pass

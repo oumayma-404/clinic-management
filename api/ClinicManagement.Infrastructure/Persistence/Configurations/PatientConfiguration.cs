@@ -187,6 +187,14 @@ public class PatientConfiguration : IEntityTypeConfiguration<Patient>
         builder.Property(p => p.ReferredBy)
             .HasMaxLength(200);
 
+        // Profession, situation familiale, pays d'origine — free text, all optional.
+        builder.Property(p => p.Occupation)
+            .HasMaxLength(120);
+        builder.Property(p => p.MaritalStatus)
+            .HasMaxLength(40);
+        builder.Property(p => p.CountryOfOrigin)
+            .HasMaxLength(80);
+
         // Patient-level notes. `text`, not a bounded varchar, for the same reason as MedicalHistory/Allergies
         // above: these are paragraphs a dentist types over years, and a length cap here surfaces as a failed save
         // on the one visit where it finally matters.

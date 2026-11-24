@@ -248,6 +248,9 @@ how it was built, `notes.md` is what shipped.
 - [`patient-original-creation-date`](features/patient-original-creation-date/notes.md) — Un patient venu d'un
   ancien logiciel garde la date d'ouverture de son dossier (« Inscrit le »), et n'est pas un « nouveau patient » du
   mois de l'import · une règle, deux portes · midi à Tunis, jamais minuit
+- [`old-software-history`](features/old-software-history/notes.md) — Ce que l'ancien logiciel apporte a une
+  place : profession, situation familiale, pays d'origine (≠ adresse) sur la fiche, et un onglet « Ancien logiciel »
+  en lecture seule — jamais une fiche de soins
 - [`patient-file-uploads`](features/patient-file-uploads/notes.md) — What may be uploaded has one authority, and the browser is told rather than trusted
 - [`clinic-file-decoders`](features/clinic-file-decoders/notes.md) — A file you upload is a file you can look at: HEIC, TIFF and ZIP decode in the browser, and every hosted file finally carries a thumbnail
 - [`camera-photo-import`](features/camera-photo-import/notes.md) — Les photos de l'appareil sont rangées par l'agenda · l'application Windows garde l'original et le copie sur le disque d'archive · un quota par cabinet, visible et réglable dans la console

@@ -37,9 +37,14 @@ function nativelyDecodable(file: File): boolean {
   return /^image\/(png|jpeg|webp|gif|bmp)$/.test(file.type)
 }
 
+/** A video the browser may be able to play — its first image becomes the stand-in. */
+function isVideo(file: File): boolean {
+  return /^video\/(mp4|webm|quicktime|x-m4v)$/.test(file.type) || /\.(mp4|m4v|mov|webm)$/i.test(file.name)
+}
+
 /** Whether a stand-in can be attempted at all — the gate a caller uses to skip the work entirely. */
 export function canBuildPreview(file: File): boolean {
-  return nativelyDecodable(file) || decodesToImage(file.name)
+  return nativelyDecodable(file) || decodesToImage(file.name) || isVideo(file)
 }
 
 /**
@@ -49,17 +54,21 @@ export function canBuildPreview(file: File): boolean {
 export async function buildPreview(file: File): Promise<Blob | null> {
   if (typeof window === 'undefined') return null
 
-  const source = await paintable(file)
-  if (!source) return null
-
-  let bitmap: ImageBitmap
-  try {
-    // Pinned rather than left to the default: a phone or camera photo shot in portrait stores its pixels on their
-    // side plus an EXIF Orientation tag, and the stand-in carries no EXIF — the rotation must be baked in here.
-    bitmap = await createImageBitmap(source, { imageOrientation: 'from-image' })
-  } catch {
-    return null
+  let bitmap: ImageBitmap | null
+  if (isVideo(file)) {
+    bitmap = await videoFrame(file)
+  } else {
+    const source = await paintable(file)
+    if (!source) return null
+    try {
+      // Pinned rather than left to the default: a phone or camera photo shot in portrait stores its pixels on
+      // their side plus an EXIF Orientation tag, and the stand-in carries no EXIF — the rotation must be baked in.
+      bitmap = await createImageBitmap(source, { imageOrientation: 'from-image' })
+    } catch {
+      return null
+    }
   }
+  if (!bitmap) return null
 
   try {
     const scale = Math.min(1, PREVIEW_EDGE / Math.max(bitmap.width, bitmap.height))
@@ -83,6 +92,47 @@ export async function buildPreview(file: File): Promise<Blob | null> {
     return null
   } finally {
     bitmap.close()
+  }
+}
+
+/** How long a video may take to show its first image before the upload goes on without a stand-in. */
+const VIDEO_FRAME_TIMEOUT_MS = 8000
+
+/**
+ * One image of a video, a tenth of the way in (capped at 1 s) — the first frame is often black. Null when this
+ * browser cannot decode it (an iPhone's HEVC on Windows) or it takes too long: the upload never waits on it.
+ */
+async function videoFrame(file: File): Promise<ImageBitmap | null> {
+  // Chrome declines `video/quicktime` outright; most .mov are H.264 in an MP4-shaped box (see the viewer).
+  const url = URL.createObjectURL(file.type === 'video/quicktime' ? new Blob([file], { type: 'video/mp4' }) : file)
+  const video = document.createElement('video')
+  video.muted = true
+  video.playsInline = true
+  video.preload = 'auto'
+  const settled = (event: 'loadeddata' | 'seeked') =>
+    new Promise<boolean>((resolve) => {
+      const timer = window.setTimeout(() => resolve(false), VIDEO_FRAME_TIMEOUT_MS)
+      video.addEventListener(event, () => { window.clearTimeout(timer); resolve(true) }, { once: true })
+      video.addEventListener('error', () => { window.clearTimeout(timer); resolve(false) }, { once: true })
+    })
+  try {
+    const loaded = settled('loadeddata')
+    video.src = url
+    if (!(await loaded)) return null
+    const at = Number.isFinite(video.duration) ? Math.min(1, video.duration / 10) : 0
+    if (at > 0) {
+      const seeked = settled('seeked')
+      video.currentTime = at
+      if (!(await seeked)) return null
+    }
+    if (!video.videoWidth || !video.videoHeight) return null
+    return await createImageBitmap(video)
+  } catch {
+    return null
+  } finally {
+    video.removeAttribute('src')
+    video.load()
+    URL.revokeObjectURL(url)
   }
 }
 

@@ -3103,6 +3103,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<string>("ConsultationReason")
                         .HasColumnType("text");
 
+                    b.Property<string>("CountryOfOrigin")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -3145,6 +3149,10 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime?>("LastRecallContactedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("MaritalStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<string>("MedicalHistory")
                         .HasColumnType("text");
 
@@ -3153,6 +3161,10 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<string>("Notes")
                         .HasColumnType("text");
+
+                    b.Property<string>("Occupation")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("RecallReason")
                         .HasMaxLength(100)
@@ -3460,6 +3472,55 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.HasIndex("PatientId");
 
                     b.ToTable("PatientFolders", (string)null);
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PatientLegacyHistoryEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<Guid>("ClinicId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly?>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Details")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("PatientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClinicId");
+
+                    b.HasIndex("PatientId", "Date");
+
+                    b.ToTable("PatientLegacyHistoryEntries", (string)null);
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PatientMedicalHistory", b =>
@@ -6538,6 +6599,15 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Navigation("ParentFolder");
 
                     b.Navigation("Patient");
+                });
+
+            modelBuilder.Entity("ClinicManagement.Domain.Entities.PatientLegacyHistoryEntry", b =>
+                {
+                    b.HasOne("ClinicManagement.Domain.Entities.Patient", null)
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ClinicManagement.Domain.Entities.PatientMedicalHistory", b =>

@@ -1,4 +1,4 @@
-import { File as FileIcon, FileArchive, FileText, ImageIcon, Box, type LucideIcon } from "lucide-react"
+import { File as FileIcon, FileArchive, FileText, Film, ImageIcon, Box, type LucideIcon } from "lucide-react"
 
 import { hasDecoder } from "@/lib/files/decoders"
 import { formatFor, type UploadPolicy } from "@/lib/api/upload-policy"
@@ -22,6 +22,11 @@ export function isImageFile(file: PatientFileDto): boolean {
   return file.contentType.startsWith("image/")
 }
 
+/** A video, by its stored type or — for a row whose type is generic — by its name. */
+export function isVideoFile(file: PatientFileDto): boolean {
+  return file.contentType.startsWith("video/") || /\.(mp4|m4v|mov|webm)$/i.test(file.fileName)
+}
+
 export function isPdfFile(file: PatientFileDto): boolean {
   return file.contentType === "application/pdf" || file.fileName.toLowerCase().endsWith(".pdf")
 }
@@ -32,6 +37,8 @@ export type PreviewMode =
   | "image"
   /** The PDF frame. */
   | "pdf"
+  /** A `<video>` player over the original. */
+  | "video"
   /** A decoder in this build turns it into a picture or a listing first. */
   | "decode"
   /** Nothing can be shown; the dialog offers the download instead. */
@@ -43,12 +50,15 @@ function paintsNatively(file: PatientFileDto, policy?: UploadPolicy | null): boo
   if (format) return format.isBrowserPreviewable
 
   // No policy in hand: stay optimistic and let the element's own `onError` be the verdict.
-  return isImageFile(file) || isPdfFile(file)
+  return isImageFile(file) || isPdfFile(file) || isVideoFile(file)
 }
 
 export function previewMode(file: PatientFileDto, policy?: UploadPolicy | null): PreviewMode {
   if (isPdfFile(file)) return paintsNatively(file, policy) ? "pdf" : "none"
   if (paintsNatively(file, policy) && isImageFile(file)) return "image"
+  // A codec the browser lacks (an iPhone's HEVC .mov on Windows) is found out by the player's own `onError`,
+  // which falls back to « téléchargez-le » — the same optimism as an image whose bytes turn out unpaintable.
+  if (paintsNatively(file, policy) && isVideoFile(file)) return "video"
   if (hasDecoder(file.fileName)) return "decode"
 
   return "none"
@@ -75,6 +85,7 @@ export function isThumbnailable(file: PatientFileDto): boolean {
 export function fileIcon(file: PatientFileDto): LucideIcon {
   const type = file.contentType
   if (type.startsWith("image/")) return ImageIcon
+  if (type.startsWith("video/")) return Film
   if (type.includes("pdf")) return FileText
   if (type.includes("zip") || type.includes("rar")) return FileArchive
   if (type.startsWith("model/") || type === "application/dicom") return Box

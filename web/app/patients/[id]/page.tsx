@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { formatDT, formatDate, formatDateFr, formatDateTime, formatFileSize, quoteFr, todayLocalIso } from "@/lib/format"
+import { formatCalendarDay, formatDT, formatDate, formatDateFr, formatDateTime, formatFileSize, quoteFr, todayLocalIso } from "@/lib/format"
 import { canRecordFiche, ficheHref } from "@/lib/visits/fiche-door"
 import { CREATABLE_DOCUMENT_TEMPLATES, documentTypeLabel } from "@/lib/documents"
 import {
@@ -70,6 +70,7 @@ import { patientsApi } from "@/lib/api/patients"
 import { appointmentsApi } from "@/lib/api/appointments"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
+import { patientLegacyHistoryApi, type PatientLegacyHistoryEntryDto } from "@/lib/api/patient-legacy-history"
 import { dentalRecordsApi, type DentalRecordDeletionPreview } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
@@ -81,7 +82,7 @@ import { PatientRecordModal } from "@/components/patient-record-modal"
 import { RecordActsSummary } from "@/components/patient/record-acts-summary"
 import { Edit } from "lucide-react"
 import { Receipt } from "lucide-react"
-import { Smile, ClipboardCheck, FolderOpen, CalendarPlus, Plus } from "lucide-react"
+import { Smile, ClipboardCheck, FolderOpen, CalendarPlus, Plus, History } from "lucide-react"
 import { InvoicesTable } from "@/components/factures/invoices-table"
 import { BillDentalRecordDialog } from "@/components/factures/bill-dental-record-dialog"
 import { Odontogram } from "@/components/odontogram"
@@ -462,6 +463,7 @@ type PatientSection =
   | "appointments"
   | "medicalHistory"
   | "familyHistory"
+  | "legacyHistory"
   | "dentalRecords"
   | "files"
   | "folders"
@@ -651,6 +653,8 @@ const PATIENT_TABS = [
   "documents",
   "files",
   "factures",
+  // Rendered only for a patient brought over from a previous software — see `showLegacyTab`.
+  "legacy-history",
 ]
 
 /**
@@ -703,6 +707,8 @@ export default function PatientDetailsPage() {
   const [appointments, setAppointments] = useState<AppointmentDto[]>([])
   const [medicalHistoryEntries, setMedicalHistoryEntries] = useState<PatientMedicalHistoryDto[]>([])
   const [familyHistoryEntries, setFamilyHistoryEntries] = useState<PatientFamilyHistoryDto[]>([])
+  // « Ancien logiciel » — what the cabinet's previous software recorded. Read-only, never a fiche.
+  const [legacyHistory, setLegacyHistory] = useState<PatientLegacyHistoryEntryDto[]>([])
   const [dentalRecords, setDentalRecords] = useState<DentalRecordDto[]>([])
   const [files, setFiles] = useState<PatientFileDto[]>([])
   const [folders, setFolders] = useState<PatientFolderDto[]>([])
@@ -1313,6 +1319,7 @@ export default function PatientDetailsPage() {
           appointmentsData,
           medicalHistory,
           familyHistory,
+          legacyHistoryData,
           dentalRecordsData,
           foldersData,
           invoicesData,
@@ -1324,6 +1331,7 @@ export default function PatientDetailsPage() {
           attempt("appointments", appointmentsApi.list({ patientId })),
           attempt("medicalHistory", patientMedicalHistoryApi.list(patientId)),
           attempt("familyHistory", patientFamilyHistoryApi.list(patientId)),
+          attempt("legacyHistory", patientLegacyHistoryApi.list(patientId)),
           attempt("dentalRecords", dentalRecordsApi.list(patientId)),
           /*
             ⚠️ **`getFiles` is deliberately NOT here — it was fetched twice on every page open.**
@@ -1349,6 +1357,7 @@ export default function PatientDetailsPage() {
         setAppointments(appointmentsData)
         setMedicalHistoryEntries(medicalHistory)
         setFamilyHistoryEntries(familyHistory)
+        setLegacyHistory(legacyHistoryData)
         setDentalRecords(dentalRecordsData)
         setFolders(foldersData)
         setBillingSummary(billingData)
@@ -1881,6 +1890,15 @@ procedureTypeId: it.procedureTypeId ?? null,
   
   /** Did any of the named reads fail on the last load? */
   const sectionFailed = (...sections: PatientSection[]) => sections.some((s) => failedSections.has(s))
+
+  /**
+   * « Ancien logiciel » exists only for a patient brought over from a previous software — a seventh tab on every
+   * other file would be an empty destination. A FAILED read keeps it visible, so the « Réessayer » banner can say
+   * so instead of the tab silently not being there; a deep link (`?tab=legacy-history`, from the deletion
+   * refusal) keeps it too.
+   */
+  const showLegacyTab =
+    legacyHistory.length > 0 || sectionFailed("legacyHistory") || activeTab === "legacy-history"
 
   /** Re-run the whole phase-2 batch. The reads are cheap and always fetched together, so a per-section retry
    *  would be three code paths for one gesture. */
@@ -2535,7 +2553,11 @@ procedureTypeId: it.procedureTypeId ?? null,
           */}
           <TabsList
             ref={tabsListRef}
-            className="flex h-auto w-full items-stretch gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-3 sm:overflow-visible lg:grid-cols-6"
+            className={
+              showLegacyTab
+                ? "flex h-auto w-full items-stretch gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-4 sm:overflow-visible lg:grid-cols-7"
+                : "flex h-auto w-full items-stretch gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-3 sm:overflow-visible lg:grid-cols-6"
+            }
           >
             <TabsTrigger value="medical-records" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <FileCheck className="h-4 w-4" />
@@ -2562,6 +2584,12 @@ procedureTypeId: it.procedureTypeId ?? null,
               <Receipt className="h-4 w-4" />
               Factures
             </TabsTrigger>
+            {showLegacyTab && (
+              <TabsTrigger value="legacy-history" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
+                <History className="h-4 w-4" />
+                Ancien logiciel
+              </TabsTrigger>
+            )}
           </TabsList>
           <span
             aria-hidden="true"
@@ -3790,6 +3818,49 @@ procedureTypeId: it.procedureTypeId ?? null,
           </TabsContent>
 
           {/* Factures Tab */}
+          {showLegacyTab && (
+            <TabsContent value="legacy-history">
+              <PatientTabSection
+                icon={History}
+                title="Ancien logiciel"
+                description="Repris de l'ancien logiciel, en lecture seule. Le PDF d'origine est dans Fichiers › Ancien logiciel."
+              >
+                {legacyHistory.length === 0 ? (
+                  renderSectionEmpty(
+                    ["legacyHistory"],
+                    <EmptyState
+                      icon={History}
+                      size="compact"
+                      title="Rien de l'ancien logiciel"
+                      description="Ce patient n'a pas d'historique repris d'un ancien logiciel."
+                    />,
+                  )
+                ) : (
+                  <ol className="space-y-3" aria-label="Historique de l'ancien logiciel">
+                    {legacyHistory.map((entry) => (
+                      <li key={entry.id} className="min-w-0 rounded-lg border p-3">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="text-sm font-medium tabular-nums">
+                            {formatCalendarDay(entry.date, "Sans date")}
+                          </span>
+                          <Badge variant="secondary">{entry.category}</Badge>
+                          {entry.title !== entry.category && (
+                            <span className="min-w-0 break-words text-sm font-medium">{entry.title}</span>
+                          )}
+                        </div>
+                        {entry.details && (
+                          <p className="mt-1.5 whitespace-pre-line break-words text-sm text-muted-foreground">
+                            {entry.details}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </PatientTabSection>
+            </TabsContent>
+          )}
+
           <TabsContent value="factures" className="space-y-4">
             <PatientTabSection
               icon={Receipt}
@@ -3884,6 +3955,9 @@ procedureTypeId: it.procedureTypeId ?? null,
                 <RecordField label="E-mail" value={patient.email} omitWhenEmpty />
                 <RecordField label="Adresse" value={formatAddress(patient.address)} wide omitWhenEmpty />
                 <RecordField label="Adressé par" value={patient.referredBy} omitWhenEmpty />
+                <RecordField label="Profession" value={patient.occupation} omitWhenEmpty />
+                <RecordField label="Situation familiale" value={patient.maritalStatus} omitWhenEmpty />
+                <RecordField label="Pays d'origine" value={patient.countryOfOrigin} omitWhenEmpty />
                 {/* ⚠️ « Contact d'urgence » is gone from this card because it is gone from the form. The two
                     columns are still on the record and still populated for older patients — nothing has been
                     dropped from the database — but a field nobody can edit any more has no business being the

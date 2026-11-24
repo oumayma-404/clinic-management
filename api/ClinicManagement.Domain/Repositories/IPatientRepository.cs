@@ -47,12 +47,13 @@ public sealed record PatientLinkedDataCounts(
     int FamilyHistoryEntries,
     int LabOrders,
     int WaitingListEntries,
-    int Notifications)
+    int Notifications,
+    int LegacyHistoryEntries)
 {
     public int Total =>
         Appointments + Invoices + TreatmentPlans + DentalRecords + ToothStates + MedicalDocuments
         + Files + Folders + RecurringAppointments + MedicalHistoryEntries + FamilyHistoryEntries
-        + LabOrders + WaitingListEntries + Notifications;
+        + LabOrders + WaitingListEntries + Notifications + LegacyHistoryEntries;
 
     public bool Any => Total > 0;
 }

@@ -69,7 +69,7 @@ export interface FilePreviewSequence {
 }
 
 /** What the dialog should draw, once the bytes are in and any decoder has run. */
-export type PreviewRender = "image" | "pdf" | "archive" | "none"
+export type PreviewRender = "image" | "pdf" | "video" | "archive" | "none"
 
 /** Which wait the user is in, so the spinner can say which. */
 export type PreviewStage = "idle" | "fetching" | "decoding"
@@ -213,9 +213,13 @@ export function useFilePreview(
         return
       }
 
-      if (mode === "image" || mode === "pdf") {
+      if (mode === "image" || mode === "pdf" || mode === "video") {
         release()
-        liveUrl.current = window.URL.createObjectURL(source)
+        // A .mov arrives typed `video/quicktime`, which Chrome declines to even try; most are H.264 in an
+        // MP4-shaped box, so it is handed over as MP4 and the player decides. Same bytes, no copy.
+        const playable =
+          mode === "video" && source.type === "video/quicktime" ? new Blob([source], { type: "video/mp4" }) : source
+        liveUrl.current = window.URL.createObjectURL(playable)
         setUrl(liveUrl.current)
         setRender(mode)
         setStandingIn(null)

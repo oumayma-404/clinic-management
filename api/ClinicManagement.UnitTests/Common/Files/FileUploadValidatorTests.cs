@@ -177,7 +177,7 @@ public class FileUploadValidatorTests
     [Fact]
     public async Task A_Format_The_Door_Does_Not_Accept_Is_Refused_With_The_Doors_Own_List()
     {
-        var result = await Validate(FileUploadProfile.PatientFile, "film.mp4", new byte[] { 0x00, 0x00, 0x00, 0x18 });
+        var result = await Validate(FileUploadProfile.PatientFile, "film.mkv", new byte[] { 0x1A, 0x45, 0xDF, 0xA3 });
 
         Assert.True(result.IsFailure);
         Assert.Equal(FileUploadProfile.PatientFile.UnsupportedMessage, result.Error);
@@ -356,5 +356,66 @@ public class FileUploadValidatorTests
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    // ── Videos (old-software-history) ─────────────────────────────────────────────────────────────────────
+
+    // An intraoral camera clip or a phone video. MP4 and MOV open on the ISO-BMFF `ftyp` box at offset 4.
+    [Theory]
+    [InlineData("sourire.mp4", "video/mp4")]
+    [InlineData("camera.m4v", "video/mp4")]
+    [InlineData("iphone.mov", "video/quicktime")]
+    public async Task A_Video_Opening_On_Its_Ftyp_Box_Is_Accepted(string fileName, string contentType)
+    {
+        var header = new byte[] { 0x00, 0x00, 0x00, 0x20 }.Concat(Encoding.ASCII.GetBytes("ftypisom")).ToArray();
+
+        var result = await Validate(FileUploadProfile.PatientFile, fileName, header);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(contentType, result.Value!.Entry.ContentType);
+    }
+
+    // An older QuickTime file may open on `moov` or `mdat` instead of `ftyp`; refusing it would lose real clips.
+    [Fact]
+    public async Task An_Old_Quicktime_Opening_On_Its_Movie_Box_Is_Accepted()
+    {
+        var header = new byte[] { 0x00, 0x00, 0x10, 0x00 }.Concat(Encoding.ASCII.GetBytes("moov")).ToArray();
+
+        var result = await Validate(FileUploadProfile.PatientFile, "ancien.mov", header);
+
+        Assert.True(result.IsSuccess, result.Error);
+    }
+
+    [Fact]
+    public async Task A_Webm_And_An_Avi_Are_Accepted_On_Their_Own_Markers()
+    {
+        var webm = await Validate(FileUploadProfile.PatientFile, "clip.webm", new byte[] { 0x1A, 0x45, 0xDF, 0xA3 });
+        var avi = await Validate(FileUploadProfile.PatientFile, "camera.avi",
+            Encoding.ASCII.GetBytes("RIFF").Concat(new byte[4]).Concat(Encoding.ASCII.GetBytes("AVI LIST")).ToArray());
+
+        Assert.True(webm.IsSuccess, webm.Error);
+        Assert.True(avi.IsSuccess, avi.Error);
+        Assert.False(avi.Value!.Entry.IsBrowserPreviewable); // kept and downloadable; no browser plays it
+    }
+
+    // A photo renamed .mp4 is not a video: the player would show nothing and the file would read as corrupted.
+    [Fact]
+    public async Task A_Photo_Renamed_To_Mp4_Is_Refused_On_Its_Content()
+    {
+        var result = await Validate(FileUploadProfile.PatientFile, "faux.mp4", JpegHeader);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(FileUploadValidator.SignatureMismatchMessage, result.Error);
+    }
+
+    // A video is a patient file, never a cachet or a logo.
+    [Fact]
+    public async Task A_Video_Is_Not_Accepted_As_A_Profile_Image()
+    {
+        var header = new byte[] { 0x00, 0x00, 0x00, 0x20 }.Concat(Encoding.ASCII.GetBytes("ftypisom")).ToArray();
+
+        var result = await Validate(FileUploadProfile.ProfileImage, "logo.mp4", header);
+
+        Assert.True(result.IsFailure);
     }
 }

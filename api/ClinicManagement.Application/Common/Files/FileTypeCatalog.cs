@@ -193,6 +193,21 @@ public static class FileTypeCatalog
             SignatureRule.Required(0, Zip, ZipEmpty, ZipSpanned), false, "ZIP",
             residency: LargeStaysAtTheCabinet, vaultMaxBytes: VaultBytes),
 
+        // Videos — an intraoral camera clip, a phone filming a smile. Hosted at the study ceiling and never sent to
+        // the coffre: a browser plays MP4/WebM, and a file the browser can show must open from any device.
+        // ⚠️ MP4 and MOV share HEIC's ISO-BMFF `ftyp` box at offset 4; an older QuickTime file may open on another
+        // top-level box instead, hence MOV's alternates. Playing in the browser also needs `media-src … blob:` in
+        // the four CSP copies, or the player stays black in production only.
+        new(new[] { "mp4", "m4v" }, "video/mp4", FileType.Other, LargeBytes,
+            SignatureRule.Required(4, "ftyp"), true, "Vidéo MP4"),
+        new(new[] { "mov" }, "video/quicktime", FileType.Other, LargeBytes,
+            SignatureRule.Required(4, "ftyp", "moov", "mdat", "wide", "free", "skip"), true, "Vidéo MOV"),
+        new(new[] { "webm" }, "video/webm", FileType.Other, LargeBytes,
+            SignatureRule.Required(0, new byte[] { 0x1A, 0x45, 0xDF, 0xA3 }), true, "Vidéo WebM"),
+        // AVI: kept and downloadable, but no browser plays it. "AVI " at offset 8, since a WAV opens with RIFF too.
+        new(new[] { "avi" }, "video/x-msvideo", FileType.Other, LargeBytes,
+            SignatureRule.Required(8, "AVI "), false, "Vidéo AVI"),
+
         // AC-3.3 — office and text.
         new(new[] { "docx" }, "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             FileType.MedicalRecord, DocumentBytes, SignatureRule.Required(0, Zip, ZipEmpty, ZipSpanned), false, "Word (docx)"),

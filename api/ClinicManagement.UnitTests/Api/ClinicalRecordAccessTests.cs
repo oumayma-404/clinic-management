@@ -63,6 +63,11 @@ public class ClinicalRecordAccessTests
         (typeof(PatientFamilyHistoryController), nameof(PatientFamilyHistoryController.CreateFamilyHistory)),
         (typeof(PatientFamilyHistoryController), nameof(PatientFamilyHistoryController.UpdateFamilyHistory)),
 
+        // « Ancien logiciel » — read by the patient page, appended by the migration import (a secretary account).
+        // No update and no delete exist: the old software's record is never corrected here.
+        (typeof(PatientLegacyHistoryController), nameof(PatientLegacyHistoryController.GetLegacyHistory)),
+        (typeof(PatientLegacyHistoryController), nameof(PatientLegacyHistoryController.AddLegacyHistory)),
+
         // Medical documents — authoring included. Safe only because the cachet + n° d'ordre are resolved from the
         // practitioner the editor **named** (`IssuingDoctorId`), not from the caller: before that, a document
         // authored by anyone with no Doctor record rendered with no practitioner identity at all, silently.
@@ -103,6 +108,7 @@ public class ClinicalRecordAccessTests
         typeof(PatientMedicalHistoryController),
         typeof(PatientFamilyHistoryController),
         typeof(MedicalDocumentsController),
+        typeof(PatientLegacyHistoryController),
     };
 
     [Fact]

@@ -142,6 +142,10 @@ export const patientsApi = {
     emergencyContactPhone?: string;
     /** « Adressé par » — the referring practitioner, free text. */
     referredBy?: string;
+    /** « Profession », « Situation familiale », « Pays d'origine » — free text. */
+    occupation?: string;
+    maritalStatus?: string;
+    countryOfOrigin?: string;
     /**
      * The patient's answer about automated reminders. Omit at registration when nobody asked — the server then
      * stores « non renseigné » with no date, rather than an answer that was never given.

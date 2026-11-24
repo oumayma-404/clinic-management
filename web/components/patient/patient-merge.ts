@@ -21,6 +21,9 @@ export interface PatientFormValues {
   email: string
   addressLine: string
   referredBy: string
+  occupation: string
+  maritalStatus: string
+  countryOfOrigin: string
   reminderConsent: ReminderConsent
   consultationReason: string
   allergies: string
@@ -72,6 +75,9 @@ export function patientFormValuesOf(patient: PatientDto): PatientFormValues {
       .filter((part, index, all) => index === 0 || part.toLowerCase() !== all[index - 1].toLowerCase())
       .join(", "),
     referredBy: patient.referredBy || "",
+    occupation: patient.occupation || "",
+    maritalStatus: patient.maritalStatus || "",
+    countryOfOrigin: patient.countryOfOrigin || "",
     reminderConsent: patient.reminderConsent ?? "NotRecorded",
     consultationReason: patient.consultationReason || "",
     allergies: patient.allergies || "",
@@ -99,6 +105,9 @@ export function patientSnapshot(v: PatientFormValues): Record<PatientSection, st
       t(v.email),
       t(v.addressLine),
       t(v.referredBy),
+      t(v.occupation),
+      t(v.maritalStatus),
+      t(v.countryOfOrigin),
       v.reminderConsent,
     ]),
     reason: t(v.consultationReason),

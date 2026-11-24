@@ -151,6 +151,7 @@ public static class Extensions
 
         // Repositories
         services.AddScoped<IPatientRepository, PatientRepository>();
+        services.AddScoped<IPatientLegacyHistoryRepository, PatientLegacyHistoryRepository>();
         services.AddScoped<IAppointmentRepository, AppointmentRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IStockItemRepository, StockItemRepository>();

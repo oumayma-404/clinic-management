@@ -178,6 +178,12 @@ public class UpdatePatientCommand : IRequest<Result<PatientDto>>
     /// </summary>
     public string? ReferredBy { get; set; }
 
+    /// <summary>« Profession », « Situation familiale », « Pays d'origine » — <see cref="ReferredBy"/>'s convention:
+    /// omitted leaves it, a value sets it, blank clears it.</summary>
+    public string? Occupation { get; set; }
+    public string? MaritalStatus { get; set; }
+    public string? CountryOfOrigin { get; set; }
+
     /// <summary>
     /// Patient-level notes. Same convention as the emergency contact: a present value sets it, a present-but-blank
     /// one clears it, an omitted one leaves it unchanged. Each of the two is resolved independently, so sending only
@@ -410,6 +416,9 @@ public class UpdatePatientCommandHandler : IRequestHandler<UpdatePatientCommand,
             {
                 patient.SetReferredBy(request.ReferredBy);
             }
+            if (request.Occupation != null) patient.SetOccupation(request.Occupation);
+            if (request.MaritalStatus != null) patient.SetMaritalStatus(request.MaritalStatus);
+            if (request.CountryOfOrigin != null) patient.SetCountryOfOrigin(request.CountryOfOrigin);
 
             // Patient-level notes: a present block resolves each field independently, so clearing one leaves the
             // other alone. Passing both straight to UpdateNotes would blank whichever key the caller omitted.
