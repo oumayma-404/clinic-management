@@ -318,7 +318,8 @@ export async function runImport(
   }
 
   if (space.full) {
-    return `${space.message} Les patients et l'historique sont importés ; les fichiers restants attendent. Libérez de l'espace ou demandez-en davantage, puis ${RESUME.charAt(0).toLowerCase()}${RESUME.slice(1)}`
+    // The server's sentence already says how to free space; ours says what happened to the rest of the import.
+    return `${space.message} Les patients et l'historique sont importés ; les fichiers restants attendent. Une fois de la place libérée, ${RESUME.charAt(0).toLowerCase()}${RESUME.slice(1)}`
   }
   return null
 }
