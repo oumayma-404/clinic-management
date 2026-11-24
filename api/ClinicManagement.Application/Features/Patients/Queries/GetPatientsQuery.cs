@@ -73,6 +73,13 @@ public class GetPatientsQuery : IRequest<Result<PagedResult<PatientDto>>>
     public DateTime? CreatedTo { get; set; }
 
     /// <summary>
+    /// The same window as two Tunisian days (<c>AAAA-MM-JJ</c>) — the patients page's « Date de création » filter.
+    /// Each wins over its instant twin; see <see cref="PatientCreatedWindow"/>.
+    /// </summary>
+    public string? CreatedFromDay { get; set; }
+    public string? CreatedToDay { get; set; }
+
+    /// <summary>
     /// How to order the page. <b>Defaults to alphabetical and stays there for every caller but the patients
     /// page</b> — the header lookup, the booking dialog's picker and the calendar import's candidate scan all
     /// come through here, and a list you scan for a name wants a name order.
@@ -116,6 +123,13 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
 
             var clinicId = user.ClinicId;
 
+            var window = PatientCreatedWindow.Resolve(
+                request.CreatedFromDay, request.CreatedToDay, request.CreatedFrom, request.CreatedTo);
+            if (window.IsFailure)
+            {
+                return Result<PagedResult<PatientDto>>.Failure(window.Error!);
+            }
+
             // `Limit` predates paging and is what the header lookup asks for: "the first N matches, no pager".
             // It is folded into a page request rather than kept as a separate in-memory `Take`, so that read is
             // bounded in SQL too — a capped list that still materialised every patient of the clinic was the
@@ -130,8 +144,8 @@ public class GetPatientsQueryHandler : IRequestHandler<GetPatientsQuery, Result<
             // keeping it here would have meant searching only the page the user is already looking at.
             var page = await _patientRepository.GetByClinicIdAsync(
                 clinicId,
-                createdFrom: request.CreatedFrom,
-                createdTo: request.CreatedTo,
+                createdFrom: window.Value.From,
+                createdTo: window.Value.To,
                 searchTerm: request.SearchTerm,
                 pendingCalendarReviewOnly: request.PendingCalendarReviewOnly,
                 dismissedReviewOnly: request.DismissedReviewOnly,

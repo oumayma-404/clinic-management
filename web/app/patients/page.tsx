@@ -11,6 +11,7 @@ import { PatientsTable } from "@/components/patients-table"
 import { EditPatientDialog } from "@/components/edit-patient-dialog"
 import { ImportPatientsDialog } from "@/components/patients/import-patients-dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { History, Plus, Upload } from "lucide-react"
@@ -18,9 +19,12 @@ import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useSession } from "@/lib/auth/session"
 import { isAdminOrDoctor } from "@/lib/nav"
-import { formatDateFr } from "@/lib/format"
+import { formatCalendarDay, formatDateFr } from "@/lib/format"
 import { replaceUrl } from "@/lib/history"
 import { ExampleFicheHost } from "@/components/guide/example-fiche-host"
+
+/** A date field's value: `yyyy-MM-dd`. A malformed URL value is ignored, so a stale link opens the full list. */
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/
 
 export default function PatientsPage() {
   const router = useRouter()
@@ -42,6 +46,14 @@ export default function PatientsPage() {
   // Registration-date window from the dashboard's « Nouveaux patients » drill-through.
   const [createdFrom, setCreatedFrom] = useState<string | undefined>()
   const [createdTo, setCreatedTo] = useState<string | undefined>()
+  // « Inscrits du … au … » — two Tunisian DAYS (`yyyy-MM-dd`, what a date field gives), sent as days: the server
+  // turns them into Tunis bounds. Either one alone is a window (« depuis le… », « jusqu'au… »).
+  const [createdFromDay, setCreatedFromDay] = useState("")
+  const [createdToDay, setCreatedToDay] = useState("")
+  const dayWindowInverted = Boolean(createdFromDay && createdToDay && createdToDay < createdFromDay)
+  // An inverted pair is not sent: the list keeps its last good answer and the sentence below says why.
+  const appliedFromDay = dayWindowInverted ? undefined : createdFromDay || undefined
+  const appliedToDay = dayWindowInverted ? undefined : createdToDay || undefined
 
   // Real-time: REFETCH the table when any client of this clinic adds/edits a patient.
   //
@@ -74,18 +86,52 @@ export default function PatientsPage() {
     const to = params.get("createdTo")
     if (from && !Number.isNaN(Date.parse(from))) setCreatedFrom(from)
     if (to && !Number.isNaN(Date.parse(to))) setCreatedTo(to)
+    // The two date fields write these keys, so a refresh or a shared link keeps the window.
+    const fromDay = params.get("createdFromDay")
+    const toDay = params.get("createdToDay")
+    if (fromDay && DAY_KEY.test(fromDay)) setCreatedFromDay(fromDay)
+    if (toDay && DAY_KEY.test(toDay)) setCreatedToDay(toDay)
   }, [])
 
   const clearDateWindow = () => {
     setCreatedFrom(undefined)
     setCreatedTo(undefined)
+    setCreatedFromDay("")
+    setCreatedToDay("")
     const url = new URL(window.location.href)
     url.searchParams.delete("createdFrom")
     url.searchParams.delete("createdTo")
+    url.searchParams.delete("createdFromDay")
+    url.searchParams.delete("createdToDay")
     replaceUrl(url)
   }
 
-  const hasDateWindow = Boolean(createdFrom || createdTo)
+  /**
+   * Typing a day REPLACES the dashboard's window rather than mixing with it: half a « Nouveaux patients » month and
+   * half a typed day would be a window nobody chose.
+   */
+  const setDay = (key: "createdFromDay" | "createdToDay", value: string) => {
+    if (key === "createdFromDay") setCreatedFromDay(value)
+    else setCreatedToDay(value)
+    setCreatedFrom(undefined)
+    setCreatedTo(undefined)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("createdFrom")
+    url.searchParams.delete("createdTo")
+    if (value) url.searchParams.set(key, value)
+    else url.searchParams.delete(key)
+    replaceUrl(url)
+  }
+
+  const hasDayWindow = Boolean(appliedFromDay || appliedToDay)
+  const hasDateWindow = Boolean(createdFrom || createdTo || hasDayWindow)
+  // The bar states the window that is actually applied — days when they are set, else the dashboard's instants.
+  const windowFrom = hasDayWindow
+    ? (appliedFromDay ? formatCalendarDay(appliedFromDay) : null)
+    : (createdFrom ? formatDateFr(createdFrom) : null)
+  const windowTo = hasDayWindow
+    ? (appliedToDay ? formatCalendarDay(appliedToDay) : null)
+    : (createdTo ? formatDateFr(createdTo) : null)
 
   // The chip owns the URL key too: without it the filter would be invisible on a refresh and unlinkable.
   const togglePendingReview = () => {
@@ -127,6 +173,8 @@ export default function PatientsPage() {
                   searchTerm: searchQuery || undefined,
                   createdFrom,
                   createdTo,
+                  createdFromDay: appliedFromDay,
+                  createdToDay: appliedToDay,
                 }}
               />
               {/* L5 — beside « Exporter », the other direction of the same capability. `size="sm"` + the
@@ -185,7 +233,44 @@ export default function PatientsPage() {
             active={showArchived}
             onToggle={() => setShowArchived(!showArchived)}
           />
+          {/* « Inscrits du … au … » — the date the patient's file was opened (an imported patient keeps the old
+              software's). A grid of two label/field rows on a phone so the fields line up; one row from `sm:`. */}
+          <div
+            role="group"
+            aria-label="Date d'inscription"
+            className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:flex sm:w-auto"
+          >
+            <Label htmlFor="patients-created-from" className="text-sm font-normal text-muted-foreground">
+              Inscrits du
+            </Label>
+            <Input
+              id="patients-created-from"
+              type="date"
+              value={createdFromDay}
+              max={createdToDay || undefined}
+              onChange={(e) => setDay("createdFromDay", e.target.value)}
+              className="sm:w-auto"
+            />
+            <Label htmlFor="patients-created-to" className="text-sm font-normal text-muted-foreground">
+              au
+            </Label>
+            <Input
+              id="patients-created-to"
+              type="date"
+              value={createdToDay}
+              min={createdFromDay || undefined}
+              onChange={(e) => setDay("createdToDay", e.target.value)}
+              className="sm:w-auto"
+            />
+          </div>
         </ListToolbar>
+
+        {/* Caught here before a request; the server says the same sentence for a typed value walking past `min`. */}
+        {dayWindowInverted && (
+          <p role="status" className="text-sm text-destructive">
+            La date de fin doit être postérieure à la date de début.
+          </p>
+        )}
 
         {/* The active date window, stated explicitly and removable. An invisible filter is how a user
             concludes their patients have disappeared. */}
@@ -195,8 +280,8 @@ export default function PatientsPage() {
             className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 p-3 text-sm"
           >
             <span className="min-w-0 flex-1">
-              Inscrits {createdFrom ? `du ${formatDateFr(createdFrom)}` : ""}
-              {createdTo ? ` au ${formatDateFr(createdTo)}` : ""}
+              Inscrits {windowFrom ? `du ${windowFrom}` : ""}
+              {windowTo ? ` au ${windowTo}` : ""}
             </span>
             <Button size="sm" variant="outline" onClick={clearDateWindow}>
               Afficher tous les patients
@@ -216,6 +301,8 @@ export default function PatientsPage() {
           showPendingReviewOnly={showPendingReviewOnly}
           createdFrom={createdFrom}
           createdTo={createdTo}
+          createdFromDay={appliedFromDay}
+          createdToDay={appliedToDay}
           onCreatePatient={() => setCreateDialogOpen(true)}
           onClearFilters={() => {
             setSearchQuery("")

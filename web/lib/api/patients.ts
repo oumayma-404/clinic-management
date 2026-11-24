@@ -42,6 +42,12 @@ export const patientsApi = {
       createdFrom?: string;
       createdTo?: string;
       /**
+       * The « Date de création » filter as two Tunisian days (`AAAA-MM-JJ`). Sent as DAYS, never turned into
+       * instants here: the server knows Tunis is UTC+1, the workstation's midnight does not (`PatientCreatedWindow`).
+       */
+      createdFromDay?: string;
+      createdToDay?: string;
+      /**
        * Include archived patients. Only `/patients`' « Afficher les patients archivés » sets this — the header
        * lookup and every picker leave it off, because archiving means "stop offering this person".
        *
