@@ -17,6 +17,12 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public string LastName { get; set; } = string.Empty;
     /// <summary>Optional — a walk-in registered with nothing but a name has none (AC-18).</summary>
     public DateTime? DateOfBirth { get; set; }
+    /// <summary>
+    /// The day the patient's file was opened in the practice's PREVIOUS software — a calendar day, like
+    /// <see cref="DateOfBirth"/>. Omitted (the form never sends it) means « today », as it always did. Sent by an
+    /// import so a patient of fifteen years is not counted as a new one; see <see cref="PatientRegistrationDate"/>.
+    /// </summary>
+    public DateTime? RegisteredOn { get; set; }
     public string Gender { get; set; } = string.Empty;
     /// <summary>
     /// <c>"Child"</c> or <c>"Adult"</c>. Required by the form, but **optional on the wire**: omitted or unrecognised

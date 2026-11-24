@@ -1,3 +1,4 @@
+using ClinicManagement.Application.Common;
 using ClinicManagement.Application.Common.Models;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Patients.Commands;
@@ -73,6 +74,14 @@ public static class PatientFromRequest
             ? PatientGender.Unknown
             : request.Gender;
 
+        // A file opened in a previous software keeps its own date — refused here, before anything is built, so
+        // an import row and a hand-typed patient meet the same rule.
+        if (request.RegisteredOn is { } registeredOn
+            && PatientRegistrationDate.Refusal(registeredOn, request.DateOfBirth, ClinicClock.ClinicToday()) is { } refusal)
+        {
+            return Result<Patient>.Failure(refusal);
+        }
+
         var patient = new Patient(
             Guid.NewGuid(),
             clinicId,
@@ -83,6 +92,11 @@ public static class PatientFromRequest
             email,
             phoneNumber,
             address);
+
+        if (request.RegisteredOn is { } openedOn)
+        {
+            patient.RecordOriginalRegistration(PatientRegistrationDate.InstantFor(openedOn, DateTime.UtcNow));
+        }
 
         // Set medical history and allergies after creation
         if (!string.IsNullOrWhiteSpace(request.MedicalHistory)

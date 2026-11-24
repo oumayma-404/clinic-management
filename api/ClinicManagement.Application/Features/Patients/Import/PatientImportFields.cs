@@ -35,6 +35,8 @@ public enum PatientImportField
     EmergencyContactName,
     EmergencyContactPhone,
     ReferredBy,
+    // Appended, never inserted: the mapping travels as the member's NAME, but an int could be stored somewhere.
+    RegisteredOn,
 }
 
 /// <summary>
@@ -69,6 +71,7 @@ public static class PatientImportFields
         PatientImportField.EmergencyContactName,
         PatientImportField.EmergencyContactPhone,
         PatientImportField.ReferredBy,
+        PatientImportField.RegisteredOn,
     };
 
     /// <summary>
@@ -106,6 +109,8 @@ public static class PatientImportFields
         PatientImportField.EmergencyContactName => "Contact d'urgence",
         PatientImportField.EmergencyContactPhone => "Téléphone d'urgence",
         PatientImportField.ReferredBy => "Adressé par",
+        // The export's own heading, so a file this product wrote re-imports with the patient's real date.
+        PatientImportField.RegisteredOn => "Inscrit le",
         _ => field.ToString(),
     };
 
@@ -165,6 +170,11 @@ public static class PatientImportFields
             "Téléphone d'urgence", "Tél urgence", "Emergency phone", "Emergency contact phone",
         },
         [PatientImportField.ReferredBy] = new[] { "Adressé par", "Adresse par", "Référé par", "Referred by", "Referrer" },
+        [PatientImportField.RegisteredOn] = new[]
+        {
+            "Inscrit le", "Inscrite le", "Date d'inscription", "Date de création", "Créé le", "Créée le",
+            "Date d'ouverture du dossier", "Patient depuis", "Registration date", "Created at",
+        },
     };
 
     /// <summary>
