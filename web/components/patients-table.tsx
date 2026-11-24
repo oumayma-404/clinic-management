@@ -57,6 +57,9 @@ interface PatientsTableProps {
    */
   createdFrom?: string
   createdTo?: string
+  /** The page's « Date de création » filter, as Tunisian days (`yyyy-MM-dd`) — resolved by the server. */
+  createdFromDay?: string
+  createdToDay?: string
   /**
    * Opens the create-patient dialog — the **invite** half of the empty state.
    *
@@ -91,6 +94,8 @@ export function PatientsTable({
   showPendingReviewOnly = false,
   createdFrom,
   createdTo,
+  createdFromDay,
+  createdToDay,
   onCreatePatient,
   onClearFilters,
   reloadKey,
@@ -207,12 +212,14 @@ export function PatientsTable({
         pendingCalendarReviewOnly: showPendingReviewOnly || undefined,
         createdFrom,
         createdTo,
+        createdFromDay,
+        createdToDay,
         // Le dernier patient enregistré en premier — la fiche qu'on vient de créer est en haut de la liste
         // plutôt que quelque part sous Z. Ce tri est demandé ICI seulement : la recherche de l'en-tête et le
         // sélecteur de patients du rendez-vous lisent le même endpoint et gardent l'ordre alphabétique.
         sort: 'RecentlyAdded',
       }),
-    [showArchived, showPendingReviewOnly, createdFrom, createdTo],
+    [showArchived, showPendingReviewOnly, createdFrom, createdTo, createdFromDay, createdToDay],
   )
 
   const {
@@ -228,7 +235,7 @@ export function PatientsTable({
     fetchPage,
     search: searchQuery,
     // Ticking « signalés » or arriving on a date-bounded drill-through returns to page 1 (AC-22).
-    filters: [showArchived, showPendingReviewOnly, createdFrom, createdTo],
+    filters: [showArchived, showPendingReviewOnly, createdFrom, createdTo, createdFromDay, createdToDay],
     // Both signals in one key: this table's own mutations and the page's realtime nudge. A refetch either way.
     refreshKey: `${reloadKey ?? 0}:${refreshKey}`,
   })
@@ -318,7 +325,7 @@ export function PatientsTable({
    * duplicate of a patient who is sitting one filter away.</p>
    */
   const isFiltered =
-    isSearching || showPendingReviewOnly || Boolean(createdFrom || createdTo)
+    isSearching || showPendingReviewOnly || Boolean(createdFrom || createdTo || createdFromDay || createdToDay)
 
   const emptyState = error ? null : (
     <EmptyState

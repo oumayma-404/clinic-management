@@ -83,7 +83,9 @@ public class PatientsController : ApiControllerBase
         [FromHeader(Name = BackupController.StepUpHeader)] string? confirmation,
         [FromQuery] string? searchTerm = null,
         [FromQuery] DateTime? createdFrom = null,
-        [FromQuery] DateTime? createdTo = null)
+        [FromQuery] DateTime? createdTo = null,
+        [FromQuery] string? createdFromDay = null,
+        [FromQuery] string? createdToDay = null)
     {
         // ⚠️ Three controls added together, because the finding was the ASYMMETRY rather than any one of them:
         // this file carries twenty columns per patient — date de naissance, adresse, identifiant CNAM,
@@ -102,6 +104,8 @@ public class PatientsController : ApiControllerBase
             SearchTerm = searchTerm,
             CreatedFrom = createdFrom,
             CreatedTo = createdTo,
+            CreatedFromDay = createdFromDay,
+            CreatedToDay = createdToDay,
         });
 
         if (result.IsFailure)
@@ -334,6 +338,9 @@ public class PatientsController : ApiControllerBase
         [FromQuery] int? limit = null,
         [FromQuery] DateTime? createdFrom = null,
         [FromQuery] DateTime? createdTo = null,
+        // The « Date de création » filter, as Tunisian days (AAAA-MM-JJ) — resolved server-side, never in the browser.
+        [FromQuery] string? createdFromDay = null,
+        [FromQuery] string? createdToDay = null,
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
         [FromQuery] bool pendingCalendarReviewOnly = false,
@@ -352,6 +359,8 @@ public class PatientsController : ApiControllerBase
             Limit = limit,
             CreatedFrom = createdFrom,
             CreatedTo = createdTo,
+            CreatedFromDay = createdFromDay,
+            CreatedToDay = createdToDay,
             Page = page,
             PageSize = pageSize,
             PendingCalendarReviewOnly = pendingCalendarReviewOnly,

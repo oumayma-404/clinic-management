@@ -32,6 +32,9 @@ public class ExportPatientsQuery : IRequest<Result<IReadOnlyList<PatientDto>>>
     public string? SearchTerm { get; set; }
     public DateTime? CreatedFrom { get; set; }
     public DateTime? CreatedTo { get; set; }
+    /// <summary>The page's « Date de création » filter as Tunisian days; see <see cref="PatientCreatedWindow"/>.</summary>
+    public string? CreatedFromDay { get; set; }
+    public string? CreatedToDay { get; set; }
 }
 
 public class ExportPatientsQueryHandler
@@ -69,13 +72,22 @@ public class ExportPatientsQueryHandler
             return Result<IReadOnlyList<PatientDto>>.Failure(clinicId.Error!);
         }
 
+        // Resolved once here, so the file and the journal row describe the same window.
+        var window = PatientCreatedWindow.Resolve(
+            request.CreatedFromDay, request.CreatedToDay, request.CreatedFrom, request.CreatedTo);
+        if (window.IsFailure)
+        {
+            return Result<IReadOnlyList<PatientDto>>.Failure(window.Error!);
+        }
+        var (createdFrom, createdTo) = window.Value;
+
         // The read itself, unchanged and unpaged — see the class note on why it is reused rather than repeated.
         var page = await _sender.Send(
             new GetPatientsQuery
             {
                 SearchTerm = request.SearchTerm,
-                CreatedFrom = request.CreatedFrom,
-                CreatedTo = request.CreatedTo,
+                CreatedFrom = createdFrom,
+                CreatedTo = createdTo,
             },
             cancellationToken);
 
@@ -99,7 +111,7 @@ public class ExportPatientsQueryHandler
                 "Liste des patients",
                 rows.Count,
                 ListExportLedger.DescribeFilters(
-                    request.SearchTerm, request.CreatedFrom, request.CreatedTo),
+                    request.SearchTerm, createdFrom, createdTo),
                 DateTime.UtcNow,
                 cancellationToken);
         }
