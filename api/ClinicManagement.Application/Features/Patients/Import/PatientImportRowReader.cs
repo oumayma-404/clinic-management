@@ -118,10 +118,31 @@ public static class PatientImportRowReader
         }
         else if (Mapped(PatientImportField.DateOfBirth))
         {
-            // Not an error — the command defaults it — but the default is « 30 years ago », and the patient's
-            // dentition (adulte / mixte / enfant) is derived from it, so an unnoticed default charts an adult arch
-            // for a child.
-            warnings.Add("Date de naissance absente : 30 ans par défaut, et la dentition en sera déduite.");
+            // Not an error — a patient may have no date of birth. ⚠️ It used to say « 30 ans par défaut », which
+            // stopped being true when the « 30 years ago » placeholder was retired: nothing is stored, and the
+            // dentition is left for the odontogram to ask.
+            warnings.Add("Date de naissance absente : aucune ne sera enregistrée, et la dentition restera à préciser.");
+        }
+
+        // ---- File opened on (a previous software's « créé le ») ----------------------------------------------
+        // Refused by the SAME rule the save applies (PatientRegistrationDate), so the dry run cannot promise a row
+        // the commit would refuse.
+        DateTime? registeredOn = null;
+        var rawRegistered = Value(PatientImportField.RegisteredOn);
+        if (rawRegistered.Length > 0)
+        {
+            if (!TryParseDate(rawRegistered, out var opened))
+            {
+                errors.Add($"Date de création illisible : « {rawRegistered} ». Formats acceptés : 31/12/2015 ou 2015-12-31.");
+            }
+            else if (PatientRegistrationDate.Refusal(opened, dateOfBirth, ClinicClock.ClinicToday()) is { } refusal)
+            {
+                errors.Add(refusal);
+            }
+            else
+            {
+                registeredOn = opened;
+            }
         }
 
         // ---- Gender ------------------------------------------------------------------------------------------
@@ -252,6 +273,7 @@ public static class PatientImportRowReader
             LastName = lastName,
             // Carried through as-is: a row with no date of birth stores none (AC-18, D-1).
             DateOfBirth = dateOfBirth,
+            RegisteredOn = registeredOn,
             Gender = gender ?? string.Empty,
             Email = email ?? string.Empty,
             PhoneNumber = phone ?? string.Empty,

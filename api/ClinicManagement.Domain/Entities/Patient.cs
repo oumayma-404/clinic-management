@@ -265,6 +265,23 @@ public class Patient : AggregateRoot<Guid>
         CreatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// The day this patient's file was really opened, when that was before this product — a patient brought over
+    /// from the practice's previous software has been the cabinet's patient for years, and stamping the import day
+    /// would count them all as « nouveaux patients » of that month and sort them by the order they were imported.
+    ///
+    /// <para>⚠️ <b>It only ever moves the date EARLIER.</b> A later date would claim the patient joined after the
+    /// record existed. Called at creation only; the rule for what a valid day is lives in
+    /// <c>PatientRegistrationDate</c> (Application), which also chooses the instant.</para>
+    /// </summary>
+    public void RecordOriginalRegistration(DateTime registeredAtUtc)
+    {
+        if (registeredAtUtc < CreatedAt)
+        {
+            CreatedAt = registeredAtUtc;
+        }
+    }
+
     public void UpdatePersonalInfo(
         string firstName,
         string lastName,
