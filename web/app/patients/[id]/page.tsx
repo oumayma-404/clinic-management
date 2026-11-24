@@ -71,6 +71,7 @@ import { appointmentsApi } from "@/lib/api/appointments"
 import { patientMedicalHistoryApi } from "@/lib/api/patient-medical-history"
 import { patientFamilyHistoryApi } from "@/lib/api/patient-family-history"
 import { patientLegacyHistoryApi, type PatientLegacyHistoryEntryDto } from "@/lib/api/patient-legacy-history"
+import { LegacyHistoryView } from "@/components/patient/legacy-history-view"
 import { dentalRecordsApi, type DentalRecordDeletionPreview } from "@/lib/api/dental-records"
 import { patientFilesApi } from "@/lib/api/patient-files"
 import { medicalDocumentsApi } from "@/lib/api/medical-documents"
@@ -2563,7 +2564,15 @@ procedureTypeId: it.procedureTypeId ?? null,
               <FileCheck className="h-4 w-4" />
               Fiches de soins
             </TabsTrigger>
-            {/* Second, not last: treatment is what the first tab's actes lead to, so the two sit side by side. */}
+            {/* Second for a patient brought over from the old software (owner's call, 2026-11-24): before this app
+                held anything for them, that history IS their file. */}
+            {showLegacyTab && (
+              <TabsTrigger value="legacy-history" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
+                <History className="h-4 w-4" />
+                Ancien logiciel
+              </TabsTrigger>
+            )}
+            {/* Next to the fiches: treatment is what the first tab's actes lead to, so the two sit side by side. */}
             <TabsTrigger value="treatment-plans" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
               <ClipboardCheck className="h-4 w-4" />
               Traitements
@@ -2584,12 +2593,6 @@ procedureTypeId: it.procedureTypeId ?? null,
               <Receipt className="h-4 w-4" />
               Factures
             </TabsTrigger>
-            {showLegacyTab && (
-              <TabsTrigger value="legacy-history" className="h-auto min-h-9 shrink-0 gap-2 whitespace-nowrap py-1.5 text-center leading-tight sm:shrink sm:whitespace-normal">
-                <History className="h-4 w-4" />
-                Ancien logiciel
-              </TabsTrigger>
-            )}
           </TabsList>
           <span
             aria-hidden="true"
@@ -3836,26 +3839,7 @@ procedureTypeId: it.procedureTypeId ?? null,
                     />,
                   )
                 ) : (
-                  <ol className="space-y-3" aria-label="Historique de l'ancien logiciel">
-                    {legacyHistory.map((entry) => (
-                      <li key={entry.id} className="min-w-0 rounded-lg border p-3">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="text-sm font-medium tabular-nums">
-                            {formatCalendarDay(entry.date, "Sans date")}
-                          </span>
-                          <Badge variant="secondary">{entry.category}</Badge>
-                          {entry.title !== entry.category && (
-                            <span className="min-w-0 break-words text-sm font-medium">{entry.title}</span>
-                          )}
-                        </div>
-                        {entry.details && (
-                          <p className="mt-1.5 whitespace-pre-line break-words text-sm text-muted-foreground">
-                            {entry.details}
-                          </p>
-                        )}
-                      </li>
-                    ))}
-                  </ol>
+                  <LegacyHistoryView entries={legacyHistory} />
                 )}
               </PatientTabSection>
             </TabsContent>

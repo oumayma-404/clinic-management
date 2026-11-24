@@ -30,7 +30,13 @@ or delete endpoint, no money, no tooth, no status.
   import with SQL), checked by `verify-schema`'s clinic-matches-patient, archived/purged by the model-derived plans.
 - No navigation on `Patient`, so no aggregate load ever pulls the lines.
 - The tab appears only when the patient has lines (or the read failed, or a `?tab=legacy-history` deep link — the
-  deletion refusal links there).
+  deletion refusal links there). It is the **2nd** tab, right after « Fiches de soins » (owner, 2026-11-24): for a
+  patient brought over, that history is the file.
+- The tab is laid out **like the old PDF** (`components/patient/legacy-history-view.tsx`): Diagnostic, then one table
+  per history — Consultations (Actes · Compte rendu · Date), Ordonnances (Médicament · Posologie · Note · Date, one row
+  per médicament, split from the stored « NOM (voie) — posologie · note » lines on the last « · » then the first
+  « — »), Radios (Radio · Note · Date); an unknown category falls into « Autres ». Tables from `lg:`, cards below,
+  like the file's other panels. It was a flat dated list with a category badge, reported as « not structured ».
 
 ## The import side (outside this repo)
 
