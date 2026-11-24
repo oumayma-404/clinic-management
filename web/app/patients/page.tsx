@@ -13,7 +13,8 @@ import { ImportPatientsDialog } from "@/components/patients/import-patients-dial
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { Plus, Upload } from "lucide-react"
+import Link from "next/link"
+import { History, Plus, Upload } from "lucide-react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useSession } from "@/lib/auth/session"
@@ -192,6 +193,13 @@ export default function PatientsPage() {
                   <span className="sr-only sm:not-sr-only">Importer</span>
                 </Button>
               )}
+              {/* TEMPORARY — one practice's migration from its old software; removed with /import-ancien-logiciel. */}
+              <Button asChild variant="ghost" size="sm" className="touch-target gap-1.5 text-muted-foreground coarse:h-11">
+                <Link href="/import-ancien-logiciel" aria-label="Importer depuis l'ancien logiciel">
+                  <History className="size-4" aria-hidden="true" />
+                  <span className="sr-only sm:not-sr-only">Ancien logiciel</span>
+                </Link>
+              </Button>
               {/* Same row floor as « Exporter » beside it — it painted 44 px on a coarse pointer while these two
                   painted 32 and 36, so the header read as three misaligned controls on a tablet. */}
               <Button onClick={() => setCreateDialogOpen(true)} className="gap-2 coarse:h-11" data-guide="patients-add">

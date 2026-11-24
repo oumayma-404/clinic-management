@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { MARITAL_STATUS_NONE, maritalStatusOptions } from "@/lib/marital-status"
 import {
   MAX_TOBACCO_PER_DAY,
   SMOKING_STATUSES,
@@ -290,6 +291,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
   const [addressLine, setAddressLine] = useState("")
   // « Adressé par » — the referring practitioner. Optional, free text (usually a doctor outside this clinic).
   const [referredBy, setReferredBy] = useState("")
+  // « Profession », « Situation familiale », « Pays d'origine » — free text, all optional.
+  const [occupation, setOccupation] = useState("")
+  const [maritalStatus, setMaritalStatus] = useState("")
+  const [countryOfOrigin, setCountryOfOrigin] = useState("")
   const [reminderConsent, setReminderConsent] = useState<ReminderConsent>("NotRecorded")
 
   // Who took the answer and when. Shown rather than hidden because a consent nobody can date is one the cabinet
@@ -414,6 +419,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
       setEmail(v.email)
       setAddressLine(v.addressLine)
       setReferredBy(v.referredBy)
+      setOccupation(v.occupation)
+      setMaritalStatus(v.maritalStatus)
+      setCountryOfOrigin(v.countryOfOrigin)
       setReminderConsent(v.reminderConsent)
     },
     reason: (v) => setConsultationReason(v.consultationReason),
@@ -436,7 +444,7 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
     firstName, lastName, gender, birthdate, dentition,
     phone, phoneCountry,
     extraPhones: extraPhones.map(({ value, country }) => ({ value, country })),
-    email, addressLine, referredBy, reminderConsent,
+    email, addressLine, referredBy, occupation, maritalStatus, countryOfOrigin, reminderConsent,
     consultationReason, allergies, medications, chronicDiseases,
     smokingStatus, smokingPerDay, smokingUnit,
     notes: patientNotes, importantNotes: patientImportantNotes,
@@ -1107,6 +1115,10 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
           // Always present (possibly ""), so emptying the box clears the stored value instead of
           // reading as "leave it alone" — same reason as the two contact fields above.
           referredBy: referredBy.trim(),
+          // Always present (possibly ""), for the same reason: emptying a box must clear it.
+          occupation: occupation.trim(),
+          maritalStatus: maritalStatus.trim(),
+          countryOfOrigin: countryOfOrigin.trim(),
           // Always sent, like the fields above: the control has three explicit states and « non renseigné » is
           // one of them, so omitting it would make un-recording an answer impossible.
           reminderConsent,
@@ -1239,6 +1251,9 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
           medications: medications.trim() || undefined,
           address: addressObj,
           referredBy: referredBy.trim() || undefined,
+          occupation: occupation.trim() || undefined,
+          maritalStatus: maritalStatus.trim() || undefined,
+          countryOfOrigin: countryOfOrigin.trim() || undefined,
           // Omitted at « non renseigné » so a new patient is created with an honest « nobody has asked »
           // rather than a recorded answer with today's date on it.
           reminderConsent: reminderConsent === "NotRecorded" ? undefined : reminderConsent,
@@ -1469,6 +1484,40 @@ export function EditPatientDialog({ open, onOpenChange, patient, onSuccess, focu
                     value={referredBy}
                     onChange={(e) => setReferredBy(e.target.value)}
                   />
+                </div>
+
+                {/* Profession · Situation familiale · Pays d'origine — one row of three, like the phone row below.
+                    « Pays d'origine » is where the patient is FROM, never the address's country. */}
+                <div className="grid grid-cols-1 gap-4 md:col-span-2 md:grid-cols-3 md:items-start">
+                  <div className="space-y-2">
+                    <Label htmlFor="occupation">Profession</Label>
+                    <Input id="occupation" value={occupation} onChange={(e) => setOccupation(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maritalStatus">Situation familiale</Label>
+                    <Select
+                      value={maritalStatus.trim() || MARITAL_STATUS_NONE}
+                      onValueChange={(value) => setMaritalStatus(value === MARITAL_STATUS_NONE ? "" : value)}
+                    >
+                      <SelectTrigger id="maritalStatus" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={MARITAL_STATUS_NONE}>Non renseignée</SelectItem>
+                        {maritalStatusOptions(maritalStatus).map((option) => (
+                          <SelectItem key={option} value={option}>{option}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="countryOfOrigin">Pays d'origine</Label>
+                    <Input
+                      id="countryOfOrigin"
+                      value={countryOfOrigin}
+                      onChange={(e) => setCountryOfOrigin(e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 {/*

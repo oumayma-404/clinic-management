@@ -80,6 +80,7 @@ public static class AuditLabels
         nameof(ToothState) => "État d'une dent",
         nameof(PatientMedicalHistory) => "Antécédent médical",
         nameof(PatientFamilyHistory) => "Antécédent familial",
+        nameof(PatientLegacyHistoryEntry) => "Ligne de l'ancien logiciel",
         nameof(StockBatch) => "Lot de stock",
         nameof(ProcedureTypeMaterial) => "Consommable d'un acte",
         nameof(MedicationActiveIngredient) => "Principe actif",

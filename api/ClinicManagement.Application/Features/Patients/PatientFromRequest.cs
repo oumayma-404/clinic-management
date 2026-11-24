@@ -132,6 +132,9 @@ public static class PatientFromRequest
 
         // Optional « adressé par » — blank/omitted leaves it null (the patient came on their own).
         patient.SetReferredBy(request.ReferredBy);
+        patient.SetOccupation(request.Occupation);
+        patient.SetMaritalStatus(request.MaritalStatus);
+        patient.SetCountryOfOrigin(request.CountryOfOrigin);
 
         // Optional patient-level notes — UpdateNotes normalizes blank to null, so an untouched section stores
         // nothing rather than two empty strings.

@@ -170,6 +170,9 @@ public static class PatientDossierPackager
         Row("Contact d'urgence", p.EmergencyContactName);
         Row("Téléphone d'urgence", p.EmergencyContactPhone?.Value);
         Row("Adressé par", p.ReferredBy);
+        Row("Profession", p.Occupation);
+        Row("Situation familiale", p.MaritalStatus);
+        Row("Pays d'origine", p.CountryOfOrigin);
         Row("Notes", p.Notes);
         Row("Notes importantes", p.ImportantNotes);
         Row("Inscrit le", CsvCell.Date(p.CreatedAt));

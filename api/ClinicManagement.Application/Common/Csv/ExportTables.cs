@@ -35,6 +35,7 @@ public static class ExportTables
             "Motif de consultation",
             "Antécédents médicaux", "Allergies", "Tabac", "Tabac (par jour)",
             "Contact d'urgence", "Téléphone d'urgence", "Adressé par",
+            "Profession", "Situation familiale", "Pays d'origine",
             "Archivé", "Inscrit le");
 
         foreach (var p in patients)
@@ -65,6 +66,9 @@ public static class ExportTables
                 CsvCell.Text(p.EmergencyContactName),
                 CsvCell.Text(p.EmergencyContactPhone),
                 CsvCell.Text(p.ReferredBy),
+                CsvCell.Text(p.Occupation),
+                CsvCell.Text(p.MaritalStatus),
+                CsvCell.Text(p.CountryOfOrigin),
                 CsvCell.YesNo(p.IsArchived),
                 CsvCell.Date(p.CreatedAt));
         }

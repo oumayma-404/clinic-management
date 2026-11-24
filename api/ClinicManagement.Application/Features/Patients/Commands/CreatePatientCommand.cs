@@ -100,6 +100,10 @@ public class CreatePatientCommand : IRequest<Result<PatientDto>>
     public string? EmergencyContactPhone { get; set; }
     /// <summary>Optional « adressé par » — the referring practitioner, free text.</summary>
     public string? ReferredBy { get; set; }
+    /// <summary>Optional « Profession », « Situation familiale », « Pays d'origine » — free text.</summary>
+    public string? Occupation { get; set; }
+    public string? MaritalStatus { get; set; }
+    public string? CountryOfOrigin { get; set; }
     /// <summary>Optional patient-level notes; <see cref="ImportantNotes"/> is shown highlighted on the file.</summary>
     public string? Notes { get; set; }
     /// <inheritdoc cref="Notes"/>

@@ -148,7 +148,7 @@ public class FileTypeCatalogTests
     [Fact]
     public void TryGet_Answers_Null_For_An_Unknown_Extension()
     {
-        Assert.Null(FileTypeCatalog.TryGet("mp4"));
+        Assert.Null(FileTypeCatalog.TryGet("mkv"));
         Assert.Null(FileTypeCatalog.TryGet(""));
     }
 }

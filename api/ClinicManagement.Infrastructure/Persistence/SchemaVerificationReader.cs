@@ -1079,6 +1079,20 @@ public class SchemaVerificationReader : ISchemaVerificationReader
                      JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId")
                 """);
 
+        // The old-software history lines arrived by a later migration, so they carry their own probe; before it
+        // they cannot name a wrong clinic, and the figure above stands alone.
+        var legacyHistoryWrongClinic = await ScalarOrNullAsync(connection, cancellationToken,
+            requiredTable: "PatientLegacyHistoryEntries",
+            requiredColumn: "ClinicId",
+            sql: """
+                SELECT COUNT(*) FROM "PatientLegacyHistoryEntries" c
+                JOIN "Patients" p ON p."Id" = c."PatientId" WHERE c."ClinicId" <> p."ClinicId"
+                """);
+        if (clinicalChildrenWrongClinic is not null && legacyHistoryWrongClinic is not null)
+        {
+            clinicalChildrenWrongClinic += legacyHistoryWrongClinic;
+        }
+
         // platform-console Part 1. The two TOTP columns are halves of one fact and no constraint says so; an
         // account in the broken half cannot sign in and reports only « code invalide ».
         var enrolledWithoutSecret = await ScalarOrNullAsync(connection, cancellationToken,

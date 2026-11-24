@@ -37,6 +37,9 @@ public enum PatientImportField
     ReferredBy,
     // Appended, never inserted: the mapping travels as the member's NAME, but an int could be stored somewhere.
     RegisteredOn,
+    Occupation,
+    MaritalStatus,
+    CountryOfOrigin,
 }
 
 /// <summary>
@@ -72,6 +75,9 @@ public static class PatientImportFields
         PatientImportField.EmergencyContactPhone,
         PatientImportField.ReferredBy,
         PatientImportField.RegisteredOn,
+        PatientImportField.Occupation,
+        PatientImportField.MaritalStatus,
+        PatientImportField.CountryOfOrigin,
     };
 
     /// <summary>
@@ -111,6 +117,9 @@ public static class PatientImportFields
         PatientImportField.ReferredBy => "Adressé par",
         // The export's own heading, so a file this product wrote re-imports with the patient's real date.
         PatientImportField.RegisteredOn => "Inscrit le",
+        PatientImportField.Occupation => "Profession",
+        PatientImportField.MaritalStatus => "Situation familiale",
+        PatientImportField.CountryOfOrigin => "Pays d'origine",
         _ => field.ToString(),
     };
 
@@ -175,6 +184,9 @@ public static class PatientImportFields
             "Inscrit le", "Inscrite le", "Date d'inscription", "Date de création", "Créé le", "Créée le",
             "Date d'ouverture du dossier", "Patient depuis", "Registration date", "Created at",
         },
+        [PatientImportField.Occupation] = new[] { "Profession", "Métier", "Occupation" },
+        [PatientImportField.MaritalStatus] = new[] { "Situation familiale", "État civil", "Etat civil", "Marital status" },
+        [PatientImportField.CountryOfOrigin] = new[] { "Pays d'origine", "Nationalité", "Nationalite", "Country of origin", "Nationality" },
     };
 
     /// <summary>

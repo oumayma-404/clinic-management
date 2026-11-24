@@ -84,6 +84,15 @@ public class PatientDto
     /// </summary>
     public string? ReferredBy { get; set; }
 
+    /// <summary>« Profession ». Free text.</summary>
+    public string? Occupation { get; set; }
+
+    /// <summary>« Situation familiale » — the French word itself (« Marié(e) »), see <c>Patient.MaritalStatus</c>.</summary>
+    public string? MaritalStatus { get; set; }
+
+    /// <summary>« Pays d'origine » — nationality, not the address's country.</summary>
+    public string? CountryOfOrigin { get; set; }
+
     /// <summary>
     /// Patient-level notes — what to be reminded of on every visit, as opposed to a dental record's notes, which
     /// describe one séance. <see cref="ImportantNotes"/> is rendered highlighted at the top of the patient's file.

@@ -962,6 +962,15 @@ export interface PatientDto {
    * On update: omit to leave unchanged, send `""` to clear.
    */
   referredBy?: string | null;
+  /** « Profession ». Free text; on update omit to leave unchanged, `""` to clear. */
+  occupation?: string | null;
+  /**
+   * « Situation familiale ». The stored value IS the French word (« Marié(e) ») — the form offers
+   * `MARITAL_STATUS_OPTIONS`, and an imported word outside them is kept and shown as written.
+   */
+  maritalStatus?: string | null;
+  /** « Pays d'origine » — nationality, deliberately not `address.country` (where the patient lives). */
+  countryOfOrigin?: string | null;
   /**
    * Whether the patient agreed to automated SMS/WhatsApp reminders.
    *

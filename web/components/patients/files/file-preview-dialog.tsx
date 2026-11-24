@@ -88,6 +88,8 @@ export function FilePreviewDialog({
   useEffect(() => {
     if (!file || viewerOpen) return
     const onKey = (event: KeyboardEvent) => {
+      // A focused video player owns ←/→ (seek ±5 s); turning the page under it would close the clip mid-scrub.
+      if (event.target instanceof HTMLVideoElement) return
       if (event.key === "ArrowLeft") { event.preventDefault(); prev() }
       if (event.key === "ArrowRight") { event.preventDefault(); next() }
     }
@@ -151,7 +153,10 @@ export function FilePreviewDialog({
                 // A document viewer wants the pixels; a photo wants a mount around it.
                 pdf ? "p-0 md:p-3" : "p-4 md:p-6",
               )}
-              onTouchStart={(e) => { swipeStartX.current = e.touches[0]?.clientX ?? null }}
+              onTouchStart={(e) => {
+                // A drag along a video's timeline is a seek, never « fichier suivant ».
+                swipeStartX.current = e.target instanceof HTMLVideoElement ? null : (e.touches[0]?.clientX ?? null)
+              }}
               onTouchEnd={(e) => {
                 const from = swipeStartX.current
                 swipeStartX.current = null
@@ -189,6 +194,19 @@ export function FilePreviewDialog({
                     setStandInWasShrunk(Math.max(naturalWidth, naturalHeight) >= PREVIEW_EDGE)
                   }}
                   className="m-auto max-h-full max-w-full rounded-lg object-contain shadow-lg"
+                />
+              ) : render === "video" && url && !renderFailed ? (
+                /* The original, played from its blob. A codec this browser lacks fires `onError`, which lands on
+                   the « téléchargez-le » panel below rather than a black box that never starts. */
+                <video
+                  key={url}
+                  src={url}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  aria-label={`Vidéo ${file.fileName}`}
+                  onError={() => setRenderFailed(true)}
+                  className="m-auto max-h-full max-w-full rounded-lg bg-black shadow-lg"
                 />
               ) : render === "pdf" && url && !renderFailed ? (
                 <PatientFilePdfPreview

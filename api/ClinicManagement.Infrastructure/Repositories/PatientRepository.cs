@@ -433,7 +433,8 @@ public class PatientRepository : IPatientRepository
             FamilyHistoryEntries: await _context.PatientFamilyHistories.CountAsync(h => h.PatientId == patientId, cancellationToken),
             LabOrders: await _context.LabWorkOrders.CountAsync(l => l.PatientId == patientId, cancellationToken),
             WaitingListEntries: await _context.WaitingListEntries.CountAsync(w => w.PatientId == patientId, cancellationToken),
-            Notifications: await _context.Notifications.CountAsync(n => n.PatientId == patientId, cancellationToken));
+            Notifications: await _context.Notifications.CountAsync(n => n.PatientId == patientId, cancellationToken),
+            LegacyHistoryEntries: await _context.PatientLegacyHistoryEntries.CountAsync(h => h.PatientId == patientId, cancellationToken));
     }
 
     public async Task<PatientArchiveBlockers> GetArchiveBlockersAsync(

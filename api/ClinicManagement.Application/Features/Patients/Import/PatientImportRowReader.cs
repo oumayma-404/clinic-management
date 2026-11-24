@@ -286,6 +286,9 @@ public static class PatientImportRowReader
             MedicalHistory = NullIfBlank(Value(PatientImportField.MedicalHistory)),
             Allergies = NullIfBlank(Value(PatientImportField.Allergies)),
             ReferredBy = NullIfBlank(Value(PatientImportField.ReferredBy)),
+            Occupation = NullIfBlank(Value(PatientImportField.Occupation)),
+            MaritalStatus = NullIfBlank(Value(PatientImportField.MaritalStatus)),
+            CountryOfOrigin = NullIfBlank(Value(PatientImportField.CountryOfOrigin)),
         };
 
         return new PatientImportRowRead(command, errors, warnings);
