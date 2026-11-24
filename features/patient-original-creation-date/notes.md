@@ -37,8 +37,22 @@ A patient brought over from a practice's previous software keeps the day their f
 Also fixed while in the file: the CSV dry run warned « Date de naissance absente : 30 ans par défaut », untrue since the
 placeholder was retired.
 
+## « Inscrits du … au … » on `/patients`
+
+- Two date fields in the filter row; either alone is a window (« depuis le… », « jusqu'au… »). Applied on pick,
+  written to the URL (`createdFromDay` / `createdToDay`), stated in the removable « Inscrits du … » bar.
+- ⚠️ **Sent as DAYS, turned into instants by the server** (`PatientCreatedWindow`, `CaissePeriod`'s rule): a browser's
+  midnight is the workstation's, and Tunis midnight is 23:00 UTC the day before. The list and the CSV export both take
+  them; the export resolves once so the file and its journal row describe the same window.
+- The dashboard's « Nouveaux patients » drill-through still sends its two instants; a typed day replaces that window
+  rather than mixing with it.
+- An inverted pair is not sent — the page says why, with the server's own sentence.
+
 ## Verified (2026-11-24, local only)
 
 - Full unit suite: 7 298 passed, 0 failed.
 - Local test server built from this branch: the import tool created 4 patients with 2015 / 2011 / 2019 dates; the
   CSV import's dry run read « Inscrit le », and refused a future day and a day before the birth with the shared sentence.
+- The filter, in a browser (19 checks, all green): each window lists exactly the right patients, the last day is
+  inclusive, the window survives a reload, the dashboard link still works, and no page overflow at
+  320 / 390 / 820 / 1180 / 1440 px. Full suite after it: 7 308 passed.
