@@ -260,6 +260,26 @@ public static class RateLimiting
         var demoAddressPermitLimit = Read(
             configuration, "RateLimiting:Api:DemoAddressPermitLimit", DefaultDemoAddressPermitLimit);
 
+        // One account's higher ceiling for an old-software import — off unless configured, never on the demo.
+        var (boost, boostRefusal) = ApiRateBoost.FromConfiguration(configuration, apiPermitLimit);
+        if (boostRefusal is not null)
+        {
+            Serilog.Log.Warning("Rate-limit boost NOT applied: {Reason}", boostRefusal);
+        }
+        else if (boost is not null)
+        {
+            Serilog.Log.Warning(
+                "Rate-limit boost ON for {Email}: {Permit} requests per {Window}s until {Until:O}",
+                boost.Email, boost.PermitLimit, apiWindow.TotalSeconds, boost.Until);
+        }
+
+        if (isDemo)
+        {
+            boost = null;
+        }
+
+        services.AddSingleton(new ApiRateBoostState(boost, apiWindow.TotalSeconds));
+
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -426,6 +446,20 @@ public static class RateLimiting
                         {
                             PermitLimit = authAddressPermitLimit,
                             Window = authWindow,
+                            SegmentsPerWindow = SegmentsPerWindow,
+                            QueueLimit = 0
+                        });
+                }
+
+                // The boosted import account, recognised by a VALID token (see ApiRateBoost) — its own bucket.
+                if (boost?.SubjectFor(httpContext) is { } boostedSubject)
+                {
+                    return RateLimitPartition.GetSlidingWindowLimiter(
+                        $"boost:{boostedSubject}",
+                        _ => new SlidingWindowRateLimiterOptions
+                        {
+                            PermitLimit = boost.PermitLimit,
+                            Window = apiWindow,
                             SegmentsPerWindow = SegmentsPerWindow,
                             QueueLimit = 0
                         });

@@ -103,6 +103,11 @@ services:
       # limiter's ceiling, the API limiter's fall-back, the per-source login lockout) collapses into ONE bucket
       # for the whole service, so ordinary load 429s and one caller can lock every clinic out of logging in.
       Security__TrustedProxies__0: ${INTERNAL_SUBNET:-172.20.0.0/16}
+      # A practice moving its old software in (« Ancien logiciel » import): ONE account's API ceiling raised to
+      # 3 000 a minute, for at most 7 days — `Until` further away is refused at startup, and it ends by itself.
+      # Empty = off, which is the normal state. Set both in the server's `.env`, then `up -d api`; empty them after.
+      RateLimiting__Api__Boost__Email: ${RATE_BOOST_EMAIL:-}
+      RateLimiting__Api__Boost__Until: ${RATE_BOOST_UNTIL:-}
       # OAuth success redirect + primary CORS origin (same-origin, so CORS is not exercised by the browser).
       FrontendUrl: "https://${DOMAIN}"
       # Required in this profile — startup fails loud when it is unset (US-4/US-6 step 17). The named

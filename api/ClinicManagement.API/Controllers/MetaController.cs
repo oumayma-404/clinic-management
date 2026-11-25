@@ -288,6 +288,25 @@ public class MetaController : ApiControllerBase
     public sealed record PhoneAppDownload(string Url, string QrPng);
 
     /// <summary>
+    /// The CALLER's raised API ceiling (the old-software import account, <c>RateLimiting:Api:Boost</c>), or nulls.
+    /// The « Ancien logiciel » import page reads it before a run and goes fast only when it says so: without the
+    /// boost the limit is the cabinet's 600 a minute, shared by every workstation behind its address, and an import
+    /// at full speed would refuse the colleagues' screens.
+    /// </summary>
+    [HttpGet("rate-boost")]
+    public IActionResult RateBoost([FromServices] ClinicManagement.API.Startup.ApiRateBoostState state)
+    {
+        var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? User.FindFirst("email")?.Value;
+        var boost = state.Boost;
+        return boost is not null && boost.AppliesTo(email)
+            ? Ok(new RateBoostAnswer((int)Math.Floor(boost.PermitLimit * 60 / state.WindowSeconds), boost.Until))
+            : Ok(new RateBoostAnswer(null, null));
+    }
+
+    /// <summary>Requests a minute this account may send, and until when; both null where nothing was raised.</summary>
+    public sealed record RateBoostAnswer(int? PermitPerMinute, DateTimeOffset? Until);
+
+    /// <summary>
     /// What an upload door accepts, projected from the catalog (AC-5.1). Deliberately <b>not</b> exempt
     /// from the client-version floor: only <c>client-requirements</c> earns that, being the answer a refused
     /// client needs in order to stop being refused.
