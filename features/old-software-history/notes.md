@@ -71,3 +71,22 @@ thumbnail; AVI is accepted and downloadable only (no browser plays it).
 
 Verified 2026-11-24 on a side stack with ffmpeg-made MP4 / MOV / WebM / AVI: all four accepted, three thumbnails,
 three play (640 px), AVI offers the download, → on the player seeks, 390 px fits.
+
+## The import account's raised API ceiling (PR #123, owner's request)
+
+Four years of records is thousands of API calls. `RateLimiting:Api:Boost:{Email,Until,PermitLimit}` gives ONE account
+its own bucket (default 3 000 a minute, max 6 000) until a date at most 7 days after the server starts; off when empty.
+Hosted: `RATE_BOOST_EMAIL` / `RATE_BOOST_UNTIL` in the server's `.env`, then `up -d api`.
+
+- ⚠️ **The limiter runs before sign-in**, so the account is recognised by **validating its bearer token** with the
+  bearer handler's own parameters (`Startup/ApiRateBoost.cs`); a forged token naming the e-mail stays in the
+  address bucket.
+- ⚠️ **Read the token with `JsonWebTokenHandler`, never `JwtSecurityTokenHandler`** — on .NET 8 the latter reports the
+  app's own valid tokens as « missing an Expiration Time » (IDX10225). The first version used it and the boost would
+  have switched on for nobody, silently; tests with hand-built tokens failed only by luck.
+  `A_Token_The_App_Itself_Issued_Gets_The_Boost` and `ApiRateBoostLimiterTests` (the real
+  `AddConfiguredRateLimiter` wiring) use tokens from `LocalAuthService`.
+- ⚠️ **An `Until` that is past, unreadable or more than 7 days away is refused at startup, never clamped** (logged as
+  « Rate-limit boost NOT applied ») — a mistyped year must not become a permanent exemption.
+- The import page asks `GET /api/meta/rate-boost` first and goes at 80 % of the raised ceiling only when the server
+  says this account has one; otherwise it keeps half the cabinet's shared 600/min. A 429 halves the pace and pauses.

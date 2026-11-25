@@ -19,9 +19,11 @@ import { genderOf, maritalStatusOf, phoneOf, type LegacyHistoryEntry } from "./p
  * history line (same day, category, title and text). A closed tab, a lost connection or a second press of
  * « Importer » therefore continues where it stopped and creates nothing twice.
  *
- * ⚠️ **Paced.** The API allows each account 600 requests a minute, shared with that account's other tabs, and an
- * import is hundreds of requests. Every call here waits its turn (≤ 300 a minute), and a 429 pauses the whole run and
- * retries the same call — it is never counted as a failure.
+ * ⚠️ **Paced.** The API allows 600 requests a minute per address (the limiter runs before sign-in, so a whole cabinet
+ * shares it), so by default the import takes half (300 a minute) and leaves the rest to the colleagues' screens. When
+ * the operator raised the ceiling for the import account (`RateLimiting:Api:Boost`), `GET /meta/rate-boost` says so
+ * and the run goes at 80 % of it instead. A 429 halves the pace, pauses the whole run and retries the same call — it
+ * is never counted as a failure; a long clean run earns the pace back, never past where it started.
  */
 
 export const FOLDER_NAME = "Ancien logiciel"
@@ -64,37 +66,54 @@ function isFatal(error: unknown): boolean {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** One import's share of the account's request budget, and what it does when the server says « not now ». */
+/** One import's share of the request budget, and what it does when the server says « not now ». */
 class Pacer {
+  private static readonly SLOWEST_MS = 1000
+  /** The fastest this run may go: 80 % of a raised ceiling, else half the cabinet's 600 a minute. */
+  private readonly fastestMs: number
+  private gapMs: number
+  private cleanCalls = 0
   private nextSlot = 0
   private pausedUntil = 0
 
   constructor(
     private readonly signal: AbortSignal,
     private readonly onPause: (seconds: number) => void,
-  ) {}
+    permitPerMinute: number | null,
+  ) {
+    this.fastestMs = permitPerMinute ? Math.max(20, Math.ceil(60_000 / (permitPerMinute * 0.8))) : 200
+    this.gapMs = this.fastestMs
+  }
 
-  /** ≤ 5 calls a second across the whole run (all three upload lanes included). */
+  /** One call per `gapMs` across the whole run (all three upload lanes included). */
   private async turn() {
     for (;;) {
       const now = Date.now()
       const wait = Math.max(this.pausedUntil, this.nextSlot) - now
       if (wait <= 0) {
-        this.nextSlot = now + 200
+        this.nextSlot = now + this.gapMs
         return
       }
       await sleep(Math.min(wait, 1000))
     }
   }
 
-  /** Runs `fn` when its turn comes; on a 429, pauses everything and runs it again — up to ~10 minutes in all. */
+  /** Runs `fn` when its turn comes; on a 429, slows down, pauses everything and runs it again (~10 min at most). */
   async call<T>(fn: () => Promise<T>): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       await this.turn()
       try {
-        return await fn()
+        const value = await fn()
+        // A long clean run earns the pace back: after 100 calls without a refusal, twice as fast.
+        if (++this.cleanCalls >= 100 && this.gapMs > this.fastestMs) {
+          this.gapMs = Math.max(this.fastestMs, Math.floor(this.gapMs / 2))
+          this.cleanCalls = 0
+        }
+        return value
       } catch (error) {
         if (!(error instanceof ApiError && error.status === 429) || attempt >= 12 || this.signal.aborted) throw error
+        this.cleanCalls = 0
+        this.gapMs = Math.min(Pacer.SLOWEST_MS, Math.max(200, this.gapMs * 2))
         const seconds = Math.min(60, 15 * (attempt + 1))
         this.pausedUntil = Math.max(this.pausedUntil, Date.now() + seconds * 1000)
         this.onPause(seconds)
@@ -222,7 +241,9 @@ export async function runImport(
   plan: ImportPlan,
   { policy, signal, onRow, onPause = () => {}, known }: RunOptions,
 ): Promise<string | null> {
-  const pacer = new Pacer(signal, onPause)
+  // Only a raise the server confirms for THIS account lets the run go faster than the cabinet's shared half.
+  const boost = await apiGet<{ permitPerMinute: number | null }>("/meta/rate-boost").catch(() => null)
+  const pacer = new Pacer(signal, onPause, boost?.permitPerMinute ?? null)
   const space: Space = { full: false, message: "" }
   const stoppedBy = (error: unknown) =>
     error instanceof ApiError && error.status === 429
