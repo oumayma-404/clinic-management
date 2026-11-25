@@ -175,7 +175,7 @@ export function LegacyImportScreen() {
             <Figure label="Fichiers refusés" value={summary.refused} />
           </ul>
 
-          {summary.quotaShort && (
+          {summary.quotaShort > 0 && (
             <p className="rounded-md border border-warning bg-warning-wash p-3 text-sm text-warning-ink" role="alert">
               L&apos;espace du cabinet ne suffit pas pour tous ces fichiers : il manque {formatFileSize(summary.quotaShort)}.
               Les patients et l&apos;historique seront importés ; l&apos;envoi des fichiers s&apos;arrêtera quand l&apos;espace sera
