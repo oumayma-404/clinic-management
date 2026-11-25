@@ -101,7 +101,7 @@ export const DASHBOARD_BLOCKS: Record<DashboardBlockKey, DashboardBlockMeta> = {
   visitsToClose: { section: 'journee', form: 'chip', label: 'Séances à clôturer' },
   treatmentsInProgress: { section: 'journee', form: 'chip', label: 'Traitements en cours' },
   // Reception's screen, not the practitioner's — and /waiting-list is one nav click away.
-  waitingList: { section: 'journee', form: 'chip', label: 'Salle d’attente', hiddenByDefault: true },
+  waitingList: { section: 'journee', form: 'chip', label: 'Liste d’attente', hiddenByDefault: true },
   draftPlans: { section: 'journee', form: 'chip', label: 'Devis en attente' },
   overdueLabOrders: { section: 'journee', form: 'chip', label: 'Prothèses en retard' },
   lowStock: { section: 'journee', form: 'chip', label: 'Stock bas' },

@@ -48,7 +48,7 @@ public static class AuditLabels
         nameof(PatientFile) => "Fichier patient",
         nameof(PatientFolder) => "Dossier de fichiers",
         nameof(LabWorkOrder) => "Bon de laboratoire",
-        nameof(WaitingListEntry) => "Salle d'attente",
+        nameof(WaitingListEntry) => "Liste d'attente",
         nameof(RecurringAppointment) => "Série de rendez-vous",
         nameof(ProcedureType) => "Type d'acte",
         nameof(User) => "Compte utilisateur",

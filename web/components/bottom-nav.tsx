@@ -29,17 +29,19 @@ import { useNewsBadge } from "@/lib/hooks/use-news-badge"
  * Four destinations, read from the same source the rail and the drawer read (`lib/nav.ts`) — a hand-written
  * second list is how the bar ends up missing a screen someone added to the rail.
  *
- * The dashboard, the closure worklist, the agenda and the patient list are what a clinic opens all day.
+ * The salle d'attente, the closure worklist, the agenda and the patient list are what a clinic opens all day.
+ * « Salle d'attente » took the dashboard's tab (`salle-attente`): it is the screen a day at the desk runs on, the
+ * dashboard is a secretary-hidden summary, and « Accueil » stays one tap behind « Plus ».
  *
- * ⚠️ « Liste d'attente » was a tab and « À clôturer » is, deliberately. The waiting room is a walk-in screen a
- * practice consults occasionally, while every finished séance has to pass through « À clôturer » — it is the
+ * ⚠️ « Liste d'attente » (the slot waitlist, not the salle d'attente) was a tab and « À clôturer » is,
+ * deliberately. The waitlist is a screen a practice consults occasionally, while every finished séance has to pass through « À clôturer » — it is the
  * one worklist the clinic works down daily, and the phone is where a dentist leaving the chair has it in hand.
  * The waiting list is one tap behind « Plus », where it was already reachable.
  *
  * ⚠️ The ORDER is the design, not the order of `lib/nav.ts`: « Rendez-vous » is third of five, i.e. dead centre
  * of the bar and therefore the easiest point on the screen for either thumb. It is what a phone opens all day.
  */
-const BAR_HREFS = ["/", "/a-cloturer", "/appointments", "/patients"] as const
+const BAR_HREFS = ["/salle-attente", "/a-cloturer", "/appointments", "/patients"] as const
 
 /**
  * The one destination drawn as a filled disc rather than a tinted glyph.
@@ -60,7 +62,7 @@ const barItems: NavItem[] = BAR_HREFS.map((href) => {
 
 /** Short labels — « Tableau de bord » does not fit a fifth of a 390px screen. */
 const SHORT_LABEL: Record<string, string> = {
-  "/": "Accueil",
+  "/salle-attente": "Attente",
   "/appointments": "Agenda",
   "/a-cloturer": "À clôturer",
   "/patients": "Patients",
@@ -69,7 +71,7 @@ const SHORT_LABEL: Record<string, string> = {
 export function BottomNav() {
   const pathname = usePathname()
   /*
-   * I3: a secretary's bar drops « Accueil ».
+   * I3: a secretary's bar dropped « Accueil » — moot since « Salle d'attente » took that tab, kept for the rule.
    *
    * `GET /api/dashboard` is `AdminOrDoctor` since I1, so for reception that first tab was a permanent 403 — and
    * on a phone it is the *leftmost, thumb-nearest* control on every screen, which makes it the most-tapped dead

@@ -131,7 +131,8 @@ export function DashboardPage() {
   const redirectToAgenda = hidesClinicWideMoney(user?.role)
 
   useEffect(() => {
-    if (redirectToAgenda) router.replace("/appointments")
+    // Reception lands on the salle d'attente (`salle-attente`): who is here and who is next is the desk's first question.
+    if (redirectToAgenda) router.replace("/salle-attente")
   }, [redirectToAgenda, router])
 
   // Nothing is rendered while the session resolves or while the redirect is in flight: a flash of the dashboard
@@ -470,7 +471,7 @@ function DashboardContent() {
                 },
               ]
             : []),
-          { key: "waitingList", count: data.alerts.waitingList, label: "en salle d’attente", tone: "live" as const },
+          { key: "waitingList", count: data.alerts.waitingList, label: "en liste d’attente", tone: "live" as const },
           { key: "draftPlans", count: data.alerts.draftPlans, label: "devis en attente", tone: "calm" as const },
           {
             key: "overdueLabOrders",

@@ -39,7 +39,10 @@ public class CallNextPatientCommand : IRequest<Result<WaitingRoomChangeDto>>
 
 public class CallNextPatientCommandHandler : IRequestHandler<CallNextPatientCommand, Result<WaitingRoomChangeDto>>
 {
-    /// <summary>The key reception's screens ring on. Never in the cabinet's editable list.</summary>
+    /// <summary>
+    /// The key reception's screens ring on. Never in the cabinet's editable list. Sent <b>urgent</b>: the notice stays
+    /// until somebody answers it and rings even on a muted desk — a patient left in the waiting room is the miss.
+    /// </summary>
     public const string CallInKey = "call-in";
 
     /// <summary>The message's own wording — what the chat thread shows; the banner names the patient beside it.</summary>
@@ -216,7 +219,7 @@ public class CallNextPatientCommandHandler : IRequestHandler<CallNextPatientComm
 
             var message = StaffMessage.Create(
                 roster.ClinicId, desk, roster.Viewer.UserId, null,
-                new StaffQuickMessageSnapshot(CallInKey, CallInLabel, false),
+                new StaffQuickMessageSnapshot(CallInKey, CallInLabel, true),
                 called.PatientId, called.Id, DateTime.UtcNow);
             await _messages.AddAsync(message, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);

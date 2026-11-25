@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import { createPortal } from "react-dom"
-import { AlertTriangle, Loader2, MessageSquare, Volume2, X } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { AlertTriangle, BellRing, Loader2, MessageSquare, Volume2, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { useClockStatus } from "@/components/team/clock-in-gate"
@@ -13,6 +14,7 @@ import { useStaffQuickMessages } from "@/lib/hooks/use-staff-chat"
 import {
   dismissNotice,
   holdNotice,
+  isCallIn,
   noticeText,
   replyFromNotice,
   useAlertPreferences,
@@ -59,8 +61,13 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
   const { openConversation } = useStaffChat()
   const { audioBlocked, enableAudio } = useAlertPreferences()
   const [sending, setSending] = useState<string | null>(null)
-  const { message, urgent } = notice
+  const router = useRouter()
+  const { message } = notice
   const sender = message.sender.name
+  // « Patient suivant » is urgent for its sound and its stay, not an emergency: it keeps the calm colours.
+  const callIn = isCallIn(message)
+  const urgent = notice.urgent && !callIn
+  const calledName = callIn && message.patient && !message.patient.missing ? message.patient.name : null
 
   const reply = async (item: StaffQuickMessageDto) => {
     setSending(item.key)
@@ -89,7 +96,11 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
       }}
       className={cn(
         "pointer-events-auto rounded-lg border bg-card p-3 shadow-lg",
-        urgent ? "border-destructive/60 ring-2 ring-destructive/30" : "border-border",
+        urgent
+          ? "border-destructive/60 ring-2 ring-destructive/30"
+          : callIn
+            ? "border-primary/60 ring-2 ring-primary/30"
+            : "border-border",
       )}
     >
       <div className="flex items-start gap-2">
@@ -100,13 +111,20 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
           )}
           aria-hidden="true"
         >
-          {urgent ? <AlertTriangle className="size-4" /> : <MessageSquare className="size-4" />}
+          {urgent ? (
+            <AlertTriangle className="size-4" />
+          ) : callIn ? (
+            <BellRing className="size-4" />
+          ) : (
+            <MessageSquare className="size-4" />
+          )}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{sender}</p>
           <p className={cn("text-sm", urgent ? "font-medium text-destructive" : "text-muted-foreground")}>
             {noticeText(message)}
           </p>
+          {calledName && <p className="truncate text-base font-bold text-foreground">{calledName}</p>}
         </div>
         <Button
           variant="ghost"
@@ -119,8 +137,21 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
         </Button>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
+        {callIn && (
+          <Button
+            size="sm"
+            className="coarse:min-h-11"
+            onClick={() => {
+              dismissNotice(message.id)
+              router.push("/salle-attente")
+            }}
+          >
+            Voir la salle d&apos;attente
+          </Button>
+        )}
         <Button
           size="sm"
+          variant={callIn ? "outline" : "default"}
           className="coarse:min-h-11"
           onClick={() => {
             dismissNotice(message.id)

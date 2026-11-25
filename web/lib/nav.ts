@@ -1,4 +1,5 @@
 import {
+  Armchair,
   ShieldCheck,
   BellRing,
   CalendarOff,
@@ -66,6 +67,9 @@ export const baseSections: NavSection[] = [
     title: DAILY_SECTION_TITLE,
     items: [
       { name: "Tableau de bord", href: "/", icon: LayoutDashboard },
+      // « Salle d'attente » (`salle-attente`): who is here, who is in the chair, who is next. First for reception —
+      // a secretary does not see the dashboard, so this is the screen her day opens on.
+      { name: "Salle d'attente", href: "/salle-attente", icon: Armchair },
       { name: "Rendez-vous", href: "/appointments", icon: Calendar },
       // Deliberately NOT in SECRETARY_HIDDEN_HREFS: reception is who knows whether the patient came.
       { name: "À clôturer", href: "/a-cloturer", icon: ClipboardCheck },

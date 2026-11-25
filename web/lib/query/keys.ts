@@ -17,6 +17,8 @@ export const queryKeys = {
   staffChatConversations: ["staffchat", "conversations"] as const,
   staffChatQuickMessages: ["staffchat", "quick-messages"] as const,
   staffChatArrivals: ["staffchat", "arrivals", "today"] as const,
+  // One read shared by the « Salle d'attente » page and the header's « Patient suivant » pill.
+  waitingRoom: (doctorId: string | null) => ["appointments", "waiting-room", { doctorId }] as const,
 }
 
 export const realtimeMeta = {
@@ -27,4 +29,14 @@ export const realtimeMeta = {
   unreadCount: { realtime: [RealtimeResource.Notifications] },
   // A staff chat message signals only its members' tabs (staffChatChanged); only a quick-message list edit reaches the whole cabinet.
   staffChat: { realtime: [STAFF_CHAT_KEY] },
+  // Every board move is an appointment write; a fiche (`patients`) and a payment (`invoices`, `treatmentplans`)
+  // also free the chair, and each broadcasts under its own command's area.
+  waitingRoom: {
+    realtime: [
+      RealtimeResource.Appointments,
+      RealtimeResource.Patients,
+      RealtimeResource.Invoices,
+      RealtimeResource.TreatmentPlans,
+    ],
+  },
 } as const

@@ -129,6 +129,8 @@ export const ZONES: Record<ZoneKey, Zone> = {
  */
 const ROUTE_ZONES: Array<[string, ZoneKey]> = [
   ["/appointments", "daily"],
+  // The salle d'attente is the agenda's day as it happens, so it shares the agenda's zone.
+  ["/salle-attente", "daily"],
   // « À clôturer » is the agenda's other half — finishing the séances the agenda booked — so it shares its zone.
   ["/a-cloturer", "daily"],
   ["/recurring-series", "daily"],
