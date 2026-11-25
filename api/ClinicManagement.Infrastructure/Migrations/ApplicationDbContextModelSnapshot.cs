@@ -30,11 +30,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime>("AppointmentDateTime")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("ArrivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("BookedWithOverlap")
                         .HasColumnType("boolean");
 
                     b.Property<Guid?>("CalendarImportRunId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CalledInAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("CancellationReason")
                         .HasMaxLength(500)
@@ -70,8 +76,14 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<bool>("IsWalkIn")
+                        .HasColumnType("boolean");
+
                     b.Property<int?>("LateArrivalMinutes")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LeftChairAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Notes")
                         .HasColumnType("text");

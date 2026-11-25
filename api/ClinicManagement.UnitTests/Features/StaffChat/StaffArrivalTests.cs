@@ -386,4 +386,44 @@ public class StaffArrivalTests
         Assert.Equal(visit.Id, lastMessage.Appointment!.Id);
         Assert.Equal("Dr Amine Ben Salah", lastMessage.Appointment.DentistName);
     }
+
+    // ── salle-attente D8: one press, one fact — the notice records the arrival when nobody had ───────────────
+
+    [Fact]
+    public async Task Announcing_An_Arrival_Records_It_On_The_Appointment_And_Refreshes_The_Board()
+    {
+        var h = new StaffChatHarness();
+        h.ActAs(h.Salma);
+        var linked = Appointment(h, h.OwnerDoctor.Id);
+        var visit = new ClinicManagement.Domain.Entities.Appointment(
+            linked.Id, StaffChatHarness.ClinicId, PatientId, h.OwnerDoctor.Id, linked.StartsAt, TimeSpan.FromMinutes(30));
+        h.Appointments.Setup(r => r.GetByIdAsync(visit.Id, It.IsAny<CancellationToken>())).ReturnsAsync(visit);
+
+        var result = await h.Arrival().Handle(new SendArrivalNoticeCommand { AppointmentId = linked.Id }, default);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(WaitingRoomLane.Waiting, visit.WaitingRoomLane);
+        Assert.NotNull(visit.ArrivedAtUtc);
+        h.Realtime.Verify(r => r.NotifyEntityChangedAsync(
+            StaffChatHarness.ClinicId, "appointments", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Announcing_A_Patient_Already_Marked_Arrived_Leaves_His_Time_Alone()
+    {
+        var h = new StaffChatHarness();
+        h.ActAs(h.Salma);
+        var linked = Appointment(h, h.OwnerDoctor.Id);
+        var visit = new ClinicManagement.Domain.Entities.Appointment(
+            linked.Id, StaffChatHarness.ClinicId, PatientId, h.OwnerDoctor.Id, linked.StartsAt, TimeSpan.FromMinutes(30));
+        var marked = linked.StartsAt.AddMinutes(-5);
+        visit.MoveInWaitingRoom(WaitingRoomLane.Waiting, marked);
+        h.Appointments.Setup(r => r.GetByIdAsync(visit.Id, It.IsAny<CancellationToken>())).ReturnsAsync(visit);
+
+        await h.Arrival().Handle(new SendArrivalNoticeCommand { AppointmentId = linked.Id }, default);
+
+        Assert.Equal(marked, visit.ArrivedAtUtc);
+        h.Realtime.Verify(r => r.NotifyEntityChangedAsync(
+            It.IsAny<Guid>(), "appointments", It.IsAny<CancellationToken>()), Times.Never);
+    }
 }

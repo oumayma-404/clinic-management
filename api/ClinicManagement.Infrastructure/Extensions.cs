@@ -107,6 +107,9 @@ public static class Extensions
         services.AddScoped(provider => new AutomaticWriteInterceptor(
             provider.GetRequiredService<IAuditActorProvider>()));
 
+        // salle-attente S6: money taken for a visit « Au fauteuil » ends it, whichever writer took the money.
+        services.AddScoped<WaitingRoomPaymentInterceptor>();
+
         // Per-request SQL count and time, read by the API's RequestTimingMiddleware (features/performance-caching).
         services.AddScoped<RequestQueryMetrics>();
         services.AddScoped<QueryCountingInterceptor>();
@@ -141,6 +144,8 @@ public static class Extensions
             options
                 .UseNpgsql(connectionString)
                 .AddInterceptors(
+                    // First: it changes an appointment, and the audit + automatic-write interceptors must see that.
+                    provider.GetRequiredService<WaitingRoomPaymentInterceptor>(),
                     provider.GetRequiredService<AuditSaveChangesInterceptor>(),
                     provider.GetRequiredService<AutomaticWriteInterceptor>(),
                     provider.GetRequiredService<QueryCountingInterceptor>(),

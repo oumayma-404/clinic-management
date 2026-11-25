@@ -981,5 +981,280 @@ public class Appointment : AggregateRoot<Guid>
         return AppointmentDateTime > DateTime.UtcNow &&
                (Status == AppointmentStatus.Scheduled || Status == AppointmentStatus.Confirmed);
     }
+
+    // ---------------------------------------------------------------------------------------- salle d'attente
+
+    /// <summary>
+    /// When reception said the patient is in the salle d'attente (`salle-attente`) — null when nobody did, which
+    /// is every visit of a cabinet that never uses the board. <b>Everything the board changes is keyed on this
+    /// being set</b>, so such a cabinet sees the job, the agenda and « À clôturer » behave exactly as before.
+    /// </summary>
+    public DateTime? ArrivedAtUtc { get; private set; }
+
+    /// <summary>When the patient was called into the chair — « Patient suivant », « Faire entrer », or a drag.</summary>
+    public DateTime? CalledInAtUtc { get; private set; }
+
+    /// <summary>
+    /// When the patient left the chair. Null while in it — and null, never invented, when nobody said: the job that
+    /// closes yesterday's leftovers does not make up a time.
+    /// </summary>
+    public DateTime? LeftChairAtUtc { get; private set; }
+
+    /// <summary>
+    /// Created at reception for a patient who walked in without a RDV. Such a visit has no slot to go back to, so
+    /// it is the one card the board refuses to move to « À venir ».
+    /// </summary>
+    public bool IsWalkIn { get; private set; }
+
+    /// <summary>The motif a « Parti sans être vu » cancellation carries. Read for display, never branched on.</summary>
+    public const string LeftWithoutBeingSeenReason = "Parti sans être vu";
+
+    /// <summary>The refusal for moving a walk-in back to « À venir ».</summary>
+    public const string WalkInHasNoSlotMessage =
+        "Un patient venu sans rendez-vous n'a pas de créneau où revenir : utilisez « Annuler » ou « Parti sans être vu ».";
+
+    /// <summary>The refusal for a board move on a slot that carries no patient.</summary>
+    public const string NoPatientOnBoardMessage = "Un créneau sans patient n'a pas sa place dans la salle d'attente.";
+
+    /// <summary>
+    /// Where this visit sits on the board, derived from the status and the three times — the <b>one</b> owner of
+    /// that question, read by the board, the doctor's queue and the job's skip alike.
+    ///
+    /// <para>The status decides first for the three states that are answers (Completed, Cancelled, NoShow); the
+    /// times decide among the open ones. That order is what lets a visit completed by its fiche, with nobody
+    /// having touched the board, still show under « Terminé ».</para>
+    /// </summary>
+    public WaitingRoomLane WaitingRoomLane
+    {
+        get
+        {
+            if (PatientId is null || IsDisregarded)
+            {
+                return WaitingRoomLane.None;
+            }
+
+            return Status switch
+            {
+                // Arrived + cancelled is « parti sans être vu »; a cancellation made from the agenda never arrived.
+                AppointmentStatus.Cancelled => ArrivedAtUtc is null ? WaitingRoomLane.None : WaitingRoomLane.Left,
+                AppointmentStatus.NoShow => WaitingRoomLane.None,
+                AppointmentStatus.Completed => WaitingRoomLane.Done,
+                _ => CalledInAtUtc is not null
+                    ? (LeftChairAtUtc is not null ? WaitingRoomLane.Done : WaitingRoomLane.InChair)
+                    : ArrivedAtUtc is not null ? WaitingRoomLane.Waiting : WaitingRoomLane.Upcoming,
+            };
+        }
+    }
+
+    /// <summary>
+    /// A visit for a patient who walked in: booked at the minute he arrived, already in the salle d'attente.
+    ///
+    /// <para>⚠️ <b>Acknowledged as an overlap whenever it names a practitioner</b>: a walk-in takes no slot — he is
+    /// seen when the chair frees up — so the double-booking constraint must not refuse him for sitting on top of a
+    /// booked RDV, which is exactly the ordinary case.</para>
+    /// </summary>
+    public static Appointment WalkIn(Guid id, Guid clinicId, Guid patientId, Guid? doctorId, DateTime nowUtc, TimeSpan duration)
+    {
+        var appointment = new Appointment(id, clinicId, patientId, doctorId, ToMinute(nowUtc), duration)
+        {
+            IsWalkIn = true,
+            ArrivedAtUtc = nowUtc,
+        };
+
+        if (doctorId.HasValue)
+        {
+            appointment.BookedWithOverlap = true;
+        }
+
+        return appointment;
+    }
+
+    /// <summary>
+    /// Move this visit to <paramref name="target"/> on the board. Every lane reaches every other one (`salle-attente`
+    /// D6, « all actions reversible ») with one refusal — a walk-in back to « À venir ». Returns false when the
+    /// visit is already there.
+    ///
+    /// <para>⚠️ <b>Deliberately not routed through <see cref="AllowedTransitions"/></b>, and that table gains no
+    /// edge: <see cref="ManualNextStatusesFrom"/> derives the status control from it, so an edge added for the board
+    /// (« Terminé » → « En cours ») would be offered in every RDV window. The board's own guard is the caller's
+    /// « today only » — a reversal undoes the day's presence, never a closed past visit — and nothing here touches a
+    /// fiche, a note or a payment: only the status and the presence times move.</para>
+    /// </summary>
+    public bool MoveInWaitingRoom(WaitingRoomLane target, DateTime nowUtc)
+    {
+        if (PatientId is null)
+        {
+            throw new InvalidOperationException(NoPatientOnBoardMessage);
+        }
+
+        if (target == WaitingRoomLane.None || !Enum.IsDefined(target))
+        {
+            throw new ArgumentOutOfRangeException(nameof(target), target, "Destination inconnue.");
+        }
+
+        if (WaitingRoomLane == target)
+        {
+            return false;
+        }
+
+        switch (target)
+        {
+            case WaitingRoomLane.Upcoming:
+                if (IsWalkIn)
+                {
+                    throw new InvalidOperationException(WalkInHasNoSlotMessage);
+                }
+
+                ArrivedAtUtc = null;
+                CalledInAtUtc = null;
+                LeftChairAtUtc = null;
+                SetStatusFromWaitingRoom(AppointmentStatus.Scheduled);
+                break;
+
+            case WaitingRoomLane.Waiting:
+                ArrivedAtUtc ??= nowUtc;
+                CalledInAtUtc = null;
+                LeftChairAtUtc = null;
+                SetStatusFromWaitingRoom(AppointmentStatus.Scheduled);
+                break;
+
+            case WaitingRoomLane.InChair:
+                ArrivedAtUtc ??= nowUtc;
+                // Back from « Terminé » keeps the time he was called: re-opening a visit ended by mistake must not
+                // make the chair time start again.
+                CalledInAtUtc ??= nowUtc;
+
+                LeftChairAtUtc = null;
+                SetStatusFromWaitingRoom(AppointmentStatus.InProgress);
+                break;
+
+            case WaitingRoomLane.Done:
+                ArrivedAtUtc ??= nowUtc;
+                CalledInAtUtc ??= nowUtc;
+                LeftChairAtUtc ??= nowUtc;
+                SetStatusFromWaitingRoom(AppointmentStatus.Completed);
+                break;
+
+            case WaitingRoomLane.Left:
+                ArrivedAtUtc ??= nowUtc;
+                CalledInAtUtc = null;
+                LeftChairAtUtc = null;
+                SetStatusFromWaitingRoom(AppointmentStatus.Cancelled);
+                CancellationReason = LeftWithoutBeingSeenReason;
+                CancelledAt = nowUtc;
+                break;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Put the board back exactly as a snapshot says — the « Annuler » of every board action. Validated as a
+    /// coherent board state (the times agree with the lane and with each other), because the snapshot travels
+    /// through the browser.
+    /// </summary>
+    public void RestoreWaitingRoom(WaitingRoomLane lane, DateTime? arrivedAtUtc, DateTime? calledInAtUtc, DateTime? leftChairAtUtc, DateTime nowUtc)
+    {
+        if (PatientId is null)
+        {
+            throw new InvalidOperationException(NoPatientOnBoardMessage);
+        }
+
+        var coherent = lane switch
+        {
+            WaitingRoomLane.Upcoming => !IsWalkIn && arrivedAtUtc is null && calledInAtUtc is null && leftChairAtUtc is null,
+            WaitingRoomLane.Waiting => arrivedAtUtc is not null && calledInAtUtc is null && leftChairAtUtc is null,
+            WaitingRoomLane.InChair => arrivedAtUtc is not null && calledInAtUtc is not null && leftChairAtUtc is null,
+            WaitingRoomLane.Done => leftChairAtUtc is null || calledInAtUtc is not null,
+            WaitingRoomLane.Left => arrivedAtUtc is not null && calledInAtUtc is null && leftChairAtUtc is null,
+            _ => false,
+        };
+
+        var ordered = (arrivedAtUtc is null || calledInAtUtc is null || arrivedAtUtc <= calledInAtUtc)
+                      && (calledInAtUtc is null || leftChairAtUtc is null || calledInAtUtc <= leftChairAtUtc)
+                      && (leftChairAtUtc ?? calledInAtUtc ?? arrivedAtUtc ?? nowUtc) <= nowUtc.AddMinutes(1);
+
+        if (!coherent || !ordered)
+        {
+            throw new InvalidOperationException("Cet état de la salle d'attente n'est pas cohérent.");
+        }
+
+        ArrivedAtUtc = arrivedAtUtc;
+        CalledInAtUtc = calledInAtUtc;
+        LeftChairAtUtc = leftChairAtUtc;
+
+        switch (lane)
+        {
+            case WaitingRoomLane.Upcoming:
+            case WaitingRoomLane.Waiting:
+                SetStatusFromWaitingRoom(AppointmentStatus.Scheduled);
+                break;
+            case WaitingRoomLane.InChair:
+                SetStatusFromWaitingRoom(AppointmentStatus.InProgress);
+                break;
+            case WaitingRoomLane.Done:
+                SetStatusFromWaitingRoom(AppointmentStatus.Completed);
+                break;
+            case WaitingRoomLane.Left:
+                SetStatusFromWaitingRoom(AppointmentStatus.Cancelled);
+                CancellationReason = LeftWithoutBeingSeenReason;
+                CancelledAt = nowUtc;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Record that a patient in the chair has left it — the fiche's « Terminer la séance », an encaissement, a
+    /// « Terminé » chosen in the RDV window. Stamps the time only; the caller owns the status. Returns whether
+    /// anything changed, so a caller that would otherwise skip its save knows it must not.
+    /// </summary>
+    public bool StampLeftChairIfOpen(DateTime nowUtc)
+    {
+        if (WaitingRoomLane != WaitingRoomLane.InChair)
+        {
+            return false;
+        }
+
+        LeftChairAtUtc = nowUtc;
+        UpdatedAt = DateTime.UtcNow;
+        return true;
+    }
+
+    /// <summary>
+    /// End the chair of a patient who is in it, and close the visit (`salle-attente` S6: the payment proves he has
+    /// left the chair). A no-op on any other lane.
+    /// </summary>
+    public bool EndChairIfOpen(DateTime nowUtc)
+    {
+        if (WaitingRoomLane != WaitingRoomLane.InChair)
+        {
+            return false;
+        }
+
+        LeftChairAtUtc = nowUtc;
+        SetStatusFromWaitingRoom(AppointmentStatus.Completed);
+        return true;
+    }
+
+    /// <summary>
+    /// The board's status write. Leaving « Annulé » forgets its motif; a status that cannot carry a retard drops it
+    /// (<see cref="LateArrivalStatuses"/> — the arrival time now answers « en retard de combien ? »).
+    /// </summary>
+    private void SetStatusFromWaitingRoom(AppointmentStatus status)
+    {
+        if (Status == AppointmentStatus.Cancelled && status != AppointmentStatus.Cancelled)
+        {
+            CancellationReason = null;
+            CancelledAt = null;
+        }
+
+        Status = status;
+        if (!LateArrivalStatuses.Contains(status))
+        {
+            LateArrivalMinutes = null;
+        }
+
+        UpdatedAt = DateTime.UtcNow;
+    }
 }
 

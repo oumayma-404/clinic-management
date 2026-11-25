@@ -114,6 +114,19 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         // index at all, so that read was a seq scan of the clinic's whole agenda every minute.
         builder.HasIndex(a => new { a.Status, a.AppointmentDateTime });
 
+        // Salle d'attente (`salle-attente`): the three presence times and the walk-in flag. Nullable times with no
+        // default and no backfill — a visit nobody marked arrived genuinely has none. ⚠️ `IsWalkIn` is a plain
+        // `boolean NOT NULL` with **no `HasDefaultValue`**: the archive and the PC de secours skip store-generated
+        // columns (Infrastructure CLAUDE.md § « Store-generated is not has a database default »), so a defaulted
+        // column would restore every walk-in as a booked RDV. The migration supplies `false` for existing rows.
+        builder.Property(a => a.ArrivedAtUtc);
+        builder.Property(a => a.CalledInAtUtc);
+        builder.Property(a => a.LeftChairAtUtc);
+        builder.Property(a => a.IsWalkIn)
+            .IsRequired();
+
+        builder.Ignore(a => a.WaitingRoomLane);
+
         builder.Property(a => a.CreatedAt)
             .IsRequired();
 

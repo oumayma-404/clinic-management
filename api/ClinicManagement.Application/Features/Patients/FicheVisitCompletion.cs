@@ -79,6 +79,10 @@ public static class FicheVisitCompletion
             var outcome = FicheVisitOutcome.LeftRunning;
             if (ShouldComplete(appointment, finishSeance, nowUtc))
             {
+                // The salle d'attente's chair ends with the séance (`salle-attente` S3). Read BEFORE the status moves:
+                // the lane is derived from it, and a completed visit is no longer « au fauteuil ».
+                var leftChair = appointment.StampLeftChairIfOpen(nowUtc);
+
                 // Three outcomes, not two (AC-P1.12): `Contradicted` is a fiche documenting a visit the schedule says
                 // was cancelled or missed. It is logged and the visit is deliberately NOT reopened.
                 var completion = appointment.MarkVisitCompleted();
@@ -98,7 +102,7 @@ public static class FicheVisitCompletion
                 }
 
                 // Only Completed changed the row; the save is skipped otherwise rather than issuing an empty UPDATE.
-                if (outcome == FicheVisitOutcome.Completed)
+                if (outcome == FicheVisitOutcome.Completed || leftChair)
                 {
                     await unitOfWork.SaveChangesAsync(cancellationToken);
                 }

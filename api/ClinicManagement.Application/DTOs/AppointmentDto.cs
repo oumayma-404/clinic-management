@@ -68,6 +68,13 @@ public class AppointmentDto
     /// <summary>« Retard » — minutes the patient arrived after the booked start; null when nobody recorded one.</summary>
     public int? LateArrivalMinutes { get; set; }
 
+    /// <summary>
+    /// The visit on the « Salle d'attente » board (`salle-attente`): its lane and its three presence times. Filled
+    /// at all four sites that build this DTO through <c>AppointmentWaitingRoomMapping.ToWaitingRoomDto</c> —
+    /// <c>AppointmentDtoWaitingRoomCoverageTests</c> fails on a fifth that forgets it.
+    /// </summary>
+    public AppointmentWaitingRoomDto? WaitingRoom { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
@@ -123,4 +130,15 @@ public class AppointmentProcedureDto
     public decimal? AgreedCost { get; set; }
 
     public int SequenceNumber { get; set; }
+}
+
+/// <summary>Where a visit sits on the salle d'attente board, and the times it got there.</summary>
+public class AppointmentWaitingRoomDto
+{
+    /// <summary><c>None</c> · <c>Upcoming</c> · <c>Waiting</c> · <c>InChair</c> · <c>Done</c> · <c>Left</c>.</summary>
+    public string Lane { get; set; } = string.Empty;
+    public DateTime? ArrivedAtUtc { get; set; }
+    public DateTime? CalledInAtUtc { get; set; }
+    public DateTime? LeftChairAtUtc { get; set; }
+    public bool IsWalkIn { get; set; }
 }
