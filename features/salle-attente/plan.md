@@ -1,5 +1,10 @@
 # Salle d'attente — the plan to feed `/define-small-feature`
 
+> **Shipped 2026-11-25** — what was built, and where it differs from this plan, is in [`notes.md`](notes.md)
+> (kept « Signaler l'arrivée » on the agenda; « Sans RDV » for a walk-in's chat link; the fiche-toast « Patient
+> suivant » and the dashboard's real-time « Au fauteuil » left for later). QA: `qa/run-2.md` GREEN · e2e HP-21.
+
+
 > **How to use.** Six slices, run **in order**, one `/define-small-feature` each:
 > `/define-small-feature Salle d'attente — slice S1, see features/salle-attente/plan.md § S1`.
 > Each slice below is already written in that skill's spec shape, so the skill's job is to **verify the claims

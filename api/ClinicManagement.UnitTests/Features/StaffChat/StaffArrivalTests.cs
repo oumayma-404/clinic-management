@@ -385,6 +385,27 @@ public class StaffArrivalTests
         Assert.Equal("Leila Ben Ali", lastMessage.Patient!.Name);
         Assert.Equal(visit.Id, lastMessage.Appointment!.Id);
         Assert.Equal("Dr Amine Ben Salah", lastMessage.Appointment.DentistName);
+        Assert.False(lastMessage.Appointment.WalkIn);
+    }
+
+    // salle-attente: a walk-in's « start » is the minute he arrived, so its link says so rather than « RDV hh:mm ».
+    [Fact]
+    public async Task A_Walk_In_Link_Is_Marked_As_One()
+    {
+        var h = new StaffChatHarness();
+        h.ActAs(h.Owner);
+        var desk = StaffConversation.Desk(h.Owner.Id);
+        var walkIn = new StaffLinkedAppointment(
+            Guid.NewGuid(), PatientId, h.OwnerDoctor.Id, TodayAtOne(), AppointmentStatus.Scheduled, false, IsWalkIn: true);
+        var last = StaffMessage.Create(StaffChatHarness.ClinicId, desk, h.Salma.Id, "Patient arrivé", null, PatientId, walkIn.Id, TodayAtOne());
+        h.Messages.Setup(r => r.GetLatestPerConversationAsync(StaffChatHarness.ClinicId, It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { last });
+        h.Messages.Setup(r => r.GetLinkedAppointmentsAsync(StaffChatHarness.ClinicId, It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { walkIn });
+
+        var list = (await h.Conversations().Handle(new GetStaffConversationsQuery(), default)).Value!;
+
+        Assert.True(list.Single(c => c.Key == desk.Key).LastMessage!.Appointment!.WalkIn);
     }
 
     // ── salle-attente D8: one press, one fact — the notice records the arrival when nobody had ───────────────

@@ -6,9 +6,13 @@ namespace ClinicManagement.Domain.Repositories;
 /// <summary>Unread messages of one thread from one sender — the grain the FR-2 « who rings » rule is applied at.</summary>
 public sealed record StaffUnreadCount(string ConversationKey, string SenderUserId, int Count, int UrgentCount, DateTime LatestSentAt);
 
-/// <summary>What a message's appointment link shows (FR-3): when, whose, and whether it still stands.</summary>
+/// <summary>
+/// What a message's appointment link shows (FR-3): when, whose, and whether it still stands. <paramref name="IsWalkIn"/>
+/// (`salle-attente`): a walk-in's « start » is the minute he arrived, so the link says « Sans RDV » rather than a time.
+/// </summary>
 public sealed record StaffLinkedAppointment(
-    Guid Id, Guid? PatientId, Guid? DoctorId, DateTime StartsAt, AppointmentStatus Status, bool Disregarded);
+    Guid Id, Guid? PatientId, Guid? DoctorId, DateTime StartsAt, AppointmentStatus Status, bool Disregarded,
+    bool IsWalkIn = false);
 
 /// <summary>The latest « Patient arrivé » sent for one appointment — what « Signalé à 09:32 par Salma » reads (AC-3.3).</summary>
 public sealed record StaffArrival(Guid AppointmentId, DateTime SentAt, string SenderUserId);

@@ -30,7 +30,8 @@ export function noticeText(message: StaffMessageDto): string {
   const label = message.quickMessage?.label ?? "Nouveau message"
   const visit = message.appointment
   if (message.quickMessage?.key === ARRIVAL_KEY && visit?.startsAt && !visit.missing && !visit.cancelled) {
-    return `${label} · RDV ${formatChatTime(visit.startsAt)}`
+    // A walk-in has no agreed time: its « start » is the minute he walked in.
+    return visit.walkIn ? `${label} · Sans RDV` : `${label} · RDV ${formatChatTime(visit.startsAt)}`
   }
   return label
 }
