@@ -773,8 +773,9 @@ async function handleRequest<T>(
       const canRetry = !explicit && attempt === 0 && err instanceof ApiError && err.status === 401;
       if (canRetry) {
         // Force a real renewal: the token we just used is the cached one, so without this the retry would
-        // replay the identical rejected token and the 401 would surface to the user (AC-5.7).
-        token = await getAccessToken(true);
+        // replay the identical rejected token and the 401 would surface to the user (AC-5.7). Passing the refused
+        // token is what lets a burst of refusals share ONE renewal (see `getAccessToken`).
+        token = await getAccessToken(true, token);
         continue;
       }
 
@@ -815,16 +816,29 @@ async function handleRequest<T>(
  * (security-hardening plan risk R-4). Renewal logic can only live in one place if acquisition does.
  *
  * If you need a token in a new module, import this — do not re-implement the fetch.
+ *
+ * ⚠️ **A forced renewal is single-flight too, and `rejectedToken` is what makes that safe.** It used to drop the
+ * exchange in flight and open its own, so three requests refused at once opened three exchanges with the same
+ * cookie — and the server, which accepts only the current credential and the one before it, read the third as a
+ * stolen one and ended the session (« Session interrompue », 12 on prod in 60 days, 11 in the Windows app). Any
+ * exchange mints a NEW token, so joining one in flight is always right; and a cached token other than the refused
+ * one was minted after it, by a sibling that already renewed.
  */
-export async function getAccessToken(forceRenew = false): Promise<string | null> {
+export async function getAccessToken(
+  forceRenew = false,
+  rejectedToken: string | null = null,
+): Promise<string | null> {
   if (!forceRenew && cachedToken && Date.now() < cachedToken.validUntilMs) {
     return cachedToken.token;
   }
 
-  // A forced renewal must not be served by a fetch that is already in flight for the *old* token.
   if (forceRenew) {
+    // A sibling already renewed past the refused token: use theirs instead of exchanging again.
+    if (cachedToken && cachedToken.token !== rejectedToken && Date.now() < cachedToken.validUntilMs) {
+      return cachedToken.token;
+    }
+    // Never serve the refused token again.
     cachedToken = null;
-    inFlightToken = null;
   }
 
   // ⚠️ The backoff is honoured by a FORCED renewal too, and that is the point rather than an oversight: a forced
@@ -835,8 +849,8 @@ export async function getAccessToken(forceRenew = false): Promise<string | null>
     return null;
   }
 
-  // Single-flight: a page load fires many parallel API calls, and without this each one would open its
-  // own exchange.
+  // Single-flight: a page load (or a burst of 401s) fires many parallel API calls, and without this each one
+  // would open its own exchange.
   if (inFlightToken) {
     return inFlightToken;
   }
@@ -861,13 +875,49 @@ export function clearCachedAccessToken(): void {
   consecutiveTokenRateLimits = 0;
 }
 
+/** The Web Lock every window and tab of this origin takes before presenting the session cookie. */
+export const TOKEN_EXCHANGE_LOCK = 'apexa-token-exchange';
+
+function requestTokenExchange(): Promise<Response> {
+  return fetch('/bff/auth/token', {
+    credentials: 'include', // Include cookies for session
+    // A hung token exchange blocks EVERY call behind it, so this deadline is the one that matters most.
+    signal: deadline(REQUEST_TIMEOUT_MS),
+  });
+}
+
+/**
+ * One exchange at a time across every window of this browser, so two never present the same cookie.
+ *
+ * ⚠️ The in-memory single-flight above is per window: the Windows app's popups and a second tab each have their
+ * own, and three of them waking together sent the same cookie three times. The cookie jar is shared, so
+ * taking turns means each exchange presents the credential the previous one just set. Absent the API (an old
+ * renderer, a plain-HTTP LAN address), or after a holder has kept the lock past the deadline, it goes unlocked.
+ */
+async function exchangeTakingTurns(): Promise<Response> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (!locks || typeof locks.request !== 'function') {
+    return requestTokenExchange();
+  }
+
+  let acquired = false;
+  try {
+    return await locks.request(TOKEN_EXCHANGE_LOCK, { signal: deadline(REQUEST_TIMEOUT_MS) }, () => {
+      acquired = true;
+      return requestTokenExchange();
+    });
+  } catch (err) {
+    // Waited too long for a holder that never let go: exchanging is better than leaving every call stuck.
+    if (!acquired) {
+      return requestTokenExchange();
+    }
+    throw err;
+  }
+}
+
 async function fetchAccessToken(): Promise<string | null> {
   try {
-    const response = await fetch('/bff/auth/token', {
-      credentials: 'include', // Include cookies for session
-      // A hung token exchange blocks EVERY call behind it, so this deadline is the one that matters most.
-      signal: deadline(REQUEST_TIMEOUT_MS),
-    });
+    const response = await exchangeTakingTurns();
     if (response.ok) {
       const data = await response.json();
       const token: string | null = data.accessToken || null;

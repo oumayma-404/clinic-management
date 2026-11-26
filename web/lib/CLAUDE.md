@@ -8,6 +8,14 @@ The data-access layer: a thin `fetch` wrapper, per-resource API modules, shared 
 - Exports `apiGet`, `apiPost`, `apiPut`, `apiDelete`, `apiPostFormData`, `apiPutFormData` and the `ApiError` class.
 - Base URL from `NEXT_PUBLIC_API_URL` (fallback `http://localhost:5000/api`).
 - **Auth**: each call auto-fetches the token from `/bff/auth/token` (Phase 5 relocation) and sets `Authorization: Bearer <token>`; an explicit `accessToken` arg overrides (pass `null` to skip). All calls send `credentials: 'include'`.
+- ⚠️ **The session cookie is never presented twice at once.** The server accepts the current refresh credential and
+  the one before it; an older one ends that device's session as « stolen » (« Session interrompue »). So
+  `getAccessToken` is single-flight **for a forced renewal too** — a burst of 401s shares one exchange, and
+  `getAccessToken(true, refusedToken)` reuses a token a sibling already renewed — and every exchange takes the
+  `TOKEN_EXCHANGE_LOCK` Web Lock, so windows and tabs of one browser take turns. Before this, three polls refused in
+  the same second sent one cookie three times: 12 sign-outs on prod in 60 days, 11 in the Windows app.
+  `e2e/specs/token-renewal.spec.ts` (pure, no stack) holds it. ⚠️ `/bff/pdf/…` still exchanges server-side,
+  outside the lock.
 - **`apiHeaders(token, contentType)` is the single header builder** (`mobile-native-shells` Part 3) — exported, because it now adds **`X-Client-Version`** from `window.__clinicShell?.version` alongside the bearer, and the 14 raw-`fetch` sites in the modules below would otherwise send the token and silently omit the version. `contentType` is `'json'` (default) or `'none'`, the latter covering both a multipart upload (the browser must add its own boundary) and a GET that downloads a blob. Absent bridge ⇒ no version header ⇒ byte-identical to before. `scripts/check-responsive.mjs`'s `api-headers` check fails on any `Bearer` literal outside this file.
 - **Every write carries an `Idempotency-Key`** (`clinic-pc-copy` D17): `apiPost` / `apiPut` / `apiDelete` / `apiPutBinary` / `apiPostBlob` / the two form-data verbs run through `withWriteKey`, and `apiHeaders`' fourth argument sends it. A write whose outcome is unknown (network error, 502 / 503 / 504, `idempotency_in_progress`) keeps its key for 10 min, so pressing the **identical** save again is replayed by the server instead of recorded twice; a changed body is a new save; memory only. `check:responsive`'s **N51** fails on a write verb that skips it.
 - **The 426 hook**: a server that refuses this build as too old is surfaced through `onClientTooOld(listener)` / `isClientRefusedAsTooOld()` (the latter for a gate that mounts *after* the first refusal), consumed by `components/client-version-gate.tsx`. Only the helpers above notify — the raw-`fetch` sites keep their own response handling (plan R-5), which costs nothing because the floor refuses every route.
