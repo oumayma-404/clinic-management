@@ -1051,6 +1051,10 @@ try
 
     app.UseMiddleware<ExceptionMiddleware>();
 
+    // Directly inside it: a request Kestrel could not read (too slow, too large) keeps its own 408/413 instead of
+    // reaching ExceptionMiddleware as a 500 « erreur » for a fact about the client's connection.
+    app.UseMiddleware<ClinicManagement.API.Middleware.ClientRequestFaultMiddleware>();
+
     // A shell below the operator's floor is refused here, BEFORE authentication, so its login 426s rather than
     // 401ing — the client reads 401 as « signed out », and AC-33 requires « mettez à jour » instead. Emits the
     // canonical { error } body so ExceptionMiddleware's contract is not shadowed. Every profile: a client too
