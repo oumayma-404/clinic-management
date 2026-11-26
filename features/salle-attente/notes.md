@@ -54,9 +54,43 @@ Branch `feature/salle-attente`. Plan: [`plan.md`](plan.md) · blueprint: [`bluep
 - **Drag is pointer events, long-press on touch.** HTML5 drag-and-drop does not exist on a finger. Every drag has a
   button or menu twin — no move is gesture-only.
 
+## Round 2 — a real clinic day (2026-11-26)
+
+Review: https://claude.ai/artifact/LtCbGxRafwfaHdZxmQuSPq · plan + blast radius: [`round-2.md`](round-2.md) · QA:
+[`qa/r2-run-4.md`](qa/r2-run-4.md) (GREEN, 53 rows, + e2e HP-21 7/7 on the round-2 build) · migration `20261126151948_AddWaitingRoomRound2` (5 nullable appointment
+columns + `Doctors.WorksTwoChairs`, no default — same reason as `IsWalkIn`).
+
+- **The RDV takes the real chair time** (owner, Q1): a visit ended with a known call AND departure moves to
+  call → leave; the booking is kept in `PlannedStartUtc`/`PlannedDuration` (« prévu 10:00 ») and anything that
+  re-opens the visit puts it back. `Appointment.SettleChairTime` is the one owner, called by every status write.
+  ⚠️ The real interval is `BookedWithOverlap`: a late séance overlaps the next booked RDV and the exclusion
+  constraint would otherwise 409 « Patient suivant ». A user's agenda move or resize makes the new time the plan.
+- **A move never invents a time** (C8): « Faire entrer » from « À venir » records no arrival, a drag to « Terminé »
+  from outside the chair records no call and no departure. Such visits stay out of the average and keep their booking.
+- **« Parti sans être vu » is `LeftUnseenAtUtc`, not a cancellation** (C3): an agenda cancel leaves the board;
+  « Absent » on a patient who was waiting reads « Parti ». Never branch on `CancellationReason` (French prose).
+- **Another day clears presence** (C2) inside `Reschedule`, so every caller is covered.
+- **One live card per patient** (C4), **« Quel praticien ? » before seating an unassigned patient** in a cabinet
+  de groupe (C7 — `WaitingRoomSeating.SeatAsync` is the one seat rule for « Faire entrer », « Patient suivant » and
+  « Pas là »'s next call).
+- **« Annuler » compares before it restores** (C9): every change carries `After`; a card that moved since refuses
+  with `waiting-room-moved-since` (409). `WaitingRoomState.SameAs` compares to the millisecond and on the LANE, not
+  the status — PostgreSQL keeps microseconds and the job may write « En cours » on a card nobody moved.
+- **« 2 fauteuils »** (owner, Q3) on `Doctor`: « Patient suivant » ends nobody, a third patient is refused
+  (`waiting-room-chairs-full`); set by the dentist on his panel (an admin may set anyone's).
+- **« Attente moyenne »** (owner, Q2) is the server's `AverageWaitMinutes`: arrival → called in, today's called-in.
+- **Extras** (owner: all): « Pas là » (E1 — the banner, the card menu, the dentist's chair, AND the staff-chat
+  call-in notice, which is where the desk answers and which sits on top of the banner), « Passer en premier » (E2,
+  `UrgentAtUtc`, first in `WaitingRoomOrder`), agenda « en salle » / « au fauteuil » + live overrun + dashboard from
+  the board (E3/E4 — the lane packer uses the live length too), an early patient's colour counts from his RDV (E5).
+- **« Le recevoir aujourd'hui »** (C6) moves the other-day RDV to now (`RegisterWalkInCommand.AppointmentId`); its
+  « Annuler » puts it back and the reminders/notices follow both ways.
+- **« Dr X absent aujourd'hui »** (C10) on the card with « Changer de praticien »; congé read by the board only —
+  never a rule a move obeys.
+
 ## Not done (owner's call later)
 
+- The dashboard's « Au fauteuil » is cabinet-wide: a dentist may see a colleague's seated patient.
 - The fiche's « Terminer la séance » does not offer « Patient suivant » in its toast — the header pill covers it.
-- The dashboard's « Au fauteuil » is still derived from the slot times, not from `CalledInAtUtc`.
 - Touch long-press drag and the 20 / 40 min colours were not exercised in a browser (QA C3, C4).
 - Phone push of the ring was not checked on a device.
