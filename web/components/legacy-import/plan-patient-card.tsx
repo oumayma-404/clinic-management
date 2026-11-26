@@ -107,6 +107,12 @@ export function PlanPatientCard({
         </div>
       )}
 
+      {result?.simplified && (
+        <p role="status" className="break-words text-sm text-muted-foreground">
+          Créé sans un champ refusé par le serveur, gardé dans les notes du patient : {result.simplified}
+        </p>
+      )}
+
       {result && result.errors.length > 0 && (
         <ul role="status" className="space-y-1 text-sm text-destructive">
           {result.errors.map((e) => (

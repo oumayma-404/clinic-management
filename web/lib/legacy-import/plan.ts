@@ -129,7 +129,7 @@ export function warningsOf(p: PlanPatient): string[] {
   if (p.firstName.replace(/[^\p{L}]/gu, "").length < 2) out.push("Prénom trop court")
   if (p.birth) {
     if (p.birth < "1900-01-01" || p.birth > todayLocalIso()) out.push("Date de naissance improbable")
-    else if (p.opened && p.opened < p.birth) out.push("Dossier créé avant la naissance : le patient sera refusé")
+    else if (p.opened && p.opened < p.birth) out.push("Dossier créé avant la naissance : la date de création ira dans les notes")
     else if (p.opened && Number(p.opened.slice(0, 4)) - Number(p.birth.slice(0, 4)) < 2) {
       out.push("Moins de 2 ans à l'ouverture du dossier")
     }
@@ -169,6 +169,9 @@ export interface PlanProgress {
   total: number
 }
 
+/** Record PDFs read at the same time while the plan is built. */
+const PDF_READERS = 4
+
 export async function buildPlan(
   recordFiles: File[],
   attachmentFiles: File[],
@@ -196,27 +199,39 @@ export async function buildPlan(
   }
   units.sort((a, b) => (Number(leadingNumber(a.key)) || Infinity) - (Number(leadingNumber(b.key)) || Infinity) || a.key.localeCompare(b.key))
 
-  // 2. Read each record PDF.
-  const patients: PlanPatient[] = []
+  // 2. Read each record PDF — several at once, since each waits on the disk and on pdf.js' worker in turn.
+  const read: Array<{ record: LegacyRecord | null; history: LegacyHistoryEntry[]; remarks: string[] }> = new Array(units.length)
   let done = 0
+  let next = 0
   const total = units.length
-  for (const u of units) {
-    const remarks: string[] = []
-    let record: LegacyRecord | null = null
-    let history: LegacyHistoryEntry[] = []
-    if (u.record) {
-      try {
-        const { rows, textChars } = await pdfRows(u.record)
-        if (textChars === 0) remarks.push("PDF scanné (une image) : le nom vient du nom du fichier")
-        else {
-          record = parseRecord(rows)
-          history = historyOf(rows, record)
+  const reader = async () => {
+    while (next < units.length) {
+      const i = next++
+      const u = units[i]
+      const remarks: string[] = []
+      let record: LegacyRecord | null = null
+      let history: LegacyHistoryEntry[] = []
+      if (u.record) {
+        try {
+          const { rows, textChars } = await pdfRows(u.record)
+          if (textChars === 0) remarks.push("PDF scanné (une image) : le nom vient du nom du fichier")
+          else {
+            record = parseRecord(rows)
+            history = historyOf(rows, record)
+          }
+        } catch {
+          remarks.push("PDF illisible : le nom vient du nom du fichier")
         }
-      } catch {
-        remarks.push("PDF illisible : le nom vient du nom du fichier")
-      }
-    } else remarks.push("Aucun PDF de dossier")
-    onProgress({ done: ++done, total })
+      } else remarks.push("Aucun PDF de dossier")
+      read[i] = { record, history, remarks }
+      onProgress({ done: ++done, total })
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PDF_READERS, units.length) }, reader))
+
+  const patients: PlanPatient[] = []
+  for (const [i, u] of units.entries()) {
+    const { record, history, remarks } = read[i]
 
     const fromPdf = !!(record?.lastName && record.firstName)
     const guess = splitFileName(u.key)
