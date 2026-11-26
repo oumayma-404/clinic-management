@@ -1,7 +1,9 @@
 "use client"
 
 import { useEffect, useId, useMemo, useRef, useState } from "react"
-import { CalendarCheck, Check, Loader2, Search, UserPlus, X } from "lucide-react"
+import { format } from "date-fns"
+import { fr } from "date-fns/locale"
+import { CalendarCheck, CalendarClock, Check, Loader2, Search, UserPlus, X } from "lucide-react"
 
 import { NewPatientForGroup } from "@/components/photo-import/new-patient-for-group"
 import { Button } from "@/components/ui/button"
@@ -9,13 +11,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { patientsApi } from "@/lib/api/patients"
-import type { PatientDto, WaitingRoomDto, WaitingRoomVisitDto } from "@/lib/api/types"
+import type { PatientDto, WaitingRoomDto, WaitingRoomOtherDayVisitDto, WaitingRoomVisitDto } from "@/lib/api/types"
 import { waitingRoomApi } from "@/lib/api/waiting-room"
 import { getErrorMessage } from "@/lib/errors"
 import { quoteFr } from "@/lib/format"
 import { runBoardAction } from "@/lib/hooks/use-waiting-room"
 import { cn } from "@/lib/utils"
-import { boardTime } from "@/lib/waiting-room"
+import { availableDentists, boardTime, phoneDigits } from "@/lib/waiting-room"
 
 /**
  * « Qui arrive ? » — the one box reception types into (`salle-attente` S2). Three answers under it, in the order a
@@ -24,6 +26,10 @@ import { boardTime } from "@/lib/waiting-room"
  *
  * <p>In a cabinet de groupe a walk-in needs the dentist who will see him — the server refuses one without — so the
  * press opens a row of the cabinet's dentists instead of sending at once.</p>
+ *
+ * <p>Round 2: today's RDV is found by <b>phone</b> as well as by name (C5) — a number typed in used to list the
+ * patient under « Sans RDV » and book him a second visit — and a patient whose RDV is on <b>another day</b> is offered
+ * « Le recevoir aujourd'hui » (C6), which moves that RDV to now instead of booking a visit beside it.</p>
  */
 
 interface ArrivalSearchProps {
@@ -54,13 +60,25 @@ export function ArrivalSearch({ board, reload }: ArrivalSearchProps) {
 
   const query = term.trim()
   const groupPractice = board.dentists.length > 1
+  const dentists = useMemo(() => availableDentists(board), [board])
+  const [otherDay, setOtherDay] = useState<Map<string, WaitingRoomOtherDayVisitDto>>(new Map())
 
-  // Today's RDV still to come, matched in the browser — they are on the board already.
+  // Today's RDV still to come, matched in the browser — they are on the board already. By name, by phone (C5), and
+  // any patient the server search found who has one: that patient is this RDV, never a « Sans RDV ».
   const todays = useMemo(() => {
     if (!query) return []
     const needle = fold(query)
-    return board.upcoming.filter((visit) => fold(visit.patientName).includes(needle)).slice(0, 5)
-  }, [board.upcoming, query])
+    const digits = phoneDigits(query)
+    const foundIds = new Set((found ?? []).map((patient) => patient.id))
+    return board.upcoming
+      .filter(
+        (visit) =>
+          fold(visit.patientName).includes(needle) ||
+          (digits.length >= 3 && phoneDigits(visit.patientPhone).includes(digits)) ||
+          foundIds.has(visit.patientId),
+      )
+      .slice(0, 5)
+  }, [board.upcoming, query, found])
 
   // Patients already in the waiting room or the chair: offered as « déjà là », never as a second arrival.
   const alreadyHere = useMemo(() => {
@@ -94,7 +112,32 @@ export function ArrivalSearch({ board, reload }: ArrivalSearchProps) {
   }, [query, retryKey])
 
   const upcomingIds = useMemo(() => new Set(todays.map((visit) => visit.patientId)), [todays])
-  const walkIns = (found ?? []).filter((patient) => !upcomingIds.has(patient.id))
+  const walkIns = useMemo(
+    () => (found ?? []).filter((patient) => !upcomingIds.has(patient.id)),
+    [found, upcomingIds],
+  )
+
+  // C6: the walk-ins' next RDV on another day, asked once per result set. A failure only withholds the offer.
+  const walkInKey = walkIns.map((patient) => patient.id).join(",")
+  useEffect(() => {
+    const ids = walkInKey ? walkInKey.split(",") : []
+    if (ids.length === 0) {
+      setOtherDay(new Map())
+      return
+    }
+    let live = true
+    waitingRoomApi
+      .otherDay(ids)
+      .then((visits) => {
+        if (live) setOtherDay(new Map(visits.map((visit) => [visit.patientId, visit])))
+      })
+      .catch(() => {
+        if (live) setOtherDay(new Map())
+      })
+    return () => {
+      live = false
+    }
+  }, [walkInKey])
 
   const clear = () => {
     setTerm("")
@@ -121,6 +164,19 @@ export function ArrivalSearch({ board, reload }: ArrivalSearchProps) {
           ? `${patient.patientName} → En salle d'attente (son RDV du jour)`
           : `${patient.patientName} → En salle d'attente · Sans RDV`,
     })
+    setBusy(false)
+    if (change) clear()
+  }
+
+  /** C6: his RDV on another day moves to now, arrived — never a second visit beside it. */
+  const receiveToday = async (patient: Pending, visit: WaitingRoomOtherDayVisitDto) => {
+    if (busy) return
+    setBusy(true)
+    const change = await runBoardAction(
+      () => waitingRoomApi.walkIn(patient.patientId, null, visit.appointmentId),
+      reload,
+      { message: () => `${patient.patientName} → En salle d'attente (RDV du ${otherDayLabel(visit)} avancé)` },
+    )
     setBusy(false)
     if (change) clear()
   }
@@ -214,7 +270,21 @@ export function ArrivalSearch({ board, reload }: ArrivalSearchProps) {
                 {walkIns.map((patient) => {
                   const name = `${patient.firstName} ${patient.lastName}`.trim()
                   const here = alreadyHere.get(patient.id)
-                  return (
+                  const later = here ? undefined : otherDay.get(patient.id)
+                  const pending = { patientId: patient.id, patientName: name }
+                  return later ? (
+                    <ResultRow
+                      key={patient.id}
+                      name={name}
+                      detail={`RDV ${otherDayLabel(later)}${later.doctorName ? ` · Dr ${later.doctorName}` : ""}`}
+                      icon={CalendarClock}
+                      action="Le recevoir aujourd'hui"
+                      actionShort="Recevoir"
+                      disabled={busy}
+                      onPick={() => void receiveToday(pending, later)}
+                      secondary={{ label: "Sans RDV", onPick: () => pickWalkIn(pending) }}
+                    />
+                  ) : (
                     <ResultRow
                       key={patient.id}
                       name={name}
@@ -222,7 +292,7 @@ export function ArrivalSearch({ board, reload }: ArrivalSearchProps) {
                       icon={UserPlus}
                       action="Sans RDV"
                       disabled={busy || Boolean(here)}
-                      onPick={() => pickWalkIn({ patientId: patient.id, patientName: name })}
+                      onPick={() => pickWalkIn(pending)}
                     />
                   )
                 })}
@@ -273,7 +343,7 @@ export function ArrivalSearch({ board, reload }: ArrivalSearchProps) {
             {pending.patientName} : pour quel praticien ?
           </p>
           <div className="flex flex-wrap gap-2">
-            {board.dentists.map((dentist) => (
+            {dentists.map((dentist) => (
               <Button
                 key={dentist.doctorId}
                 type="button"
@@ -305,6 +375,11 @@ function ResultGroup({ title, children }: { title: string; children: React.React
   )
 }
 
+/** « jeu. 27 nov. 10:00 » — the day and the hour of a RDV that is not today. */
+function otherDayLabel(visit: WaitingRoomOtherDayVisitDto): string {
+  return format(new Date(visit.appointmentDateTime), "EEE d MMM HH:mm", { locale: fr })
+}
+
 function ResultRow({
   name,
   detail,
@@ -312,6 +387,8 @@ function ResultRow({
   action,
   disabled,
   onPick,
+  actionShort,
+  secondary,
 }: {
   name: string
   detail: string
@@ -319,35 +396,70 @@ function ResultRow({
   action: string
   disabled: boolean
   onPick: () => void
+  /** A shorter visible label below `sm:` — the row's name needs the width on a phone; `action` stays its name. */
+  actionShort?: string
+  /** A second choice beside the row's own, as its own button (« Sans RDV » beside « Le recevoir aujourd'hui »). */
+  secondary?: { label: string; onPick: () => void }
 }) {
   return (
-    <li className="border-b last:border-b-0">
+    <li className="flex items-stretch border-b last:border-b-0">
       <button
         type="button"
         onClick={onPick}
         disabled={disabled}
         className={cn(
-          "flex w-full items-center gap-3 px-3 py-2 text-start hover:bg-accent focus-visible:bg-accent coarse:min-h-12",
+          "flex min-w-0 flex-1 items-center gap-x-3 gap-y-1 px-3 py-2 text-start hover:bg-accent focus-visible:bg-accent coarse:min-h-12",
           "disabled:cursor-not-allowed disabled:opacity-60",
+          secondary && "flex-wrap",
         )}
         aria-label={`${action} : ${name}`}
       >
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="grid min-w-0 flex-1">
-          <span className="truncate text-sm font-semibold">{name}</span>
-          <span className="truncate text-xs text-muted-foreground">{detail}</span>
+        {/* With a second choice beside it the row has ~150 px less: the pill wraps under the text rather than squeezing
+            it, and the name and detail WRAP — the detail is the other day's RDV, read before moving it (round 2 QA). */}
+        <span className={cn("grid min-w-0 flex-1", secondary && "basis-32")}>
+          <span className={cn("text-sm font-semibold", secondary ? "[overflow-wrap:anywhere]" : "truncate")}>{name}</span>
+          <span className={cn("text-xs text-muted-foreground", secondary ? "[overflow-wrap:anywhere]" : "truncate")}>
+            {detail}
+          </span>
         </span>
         <span
           className={cn(
             "inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold",
-            action === "Arrivé" ? "bg-success text-white" : "bg-warning-wash text-warning-ink",
+            secondary && "ms-auto",
+            action === "Arrivé"
+              ? "bg-success text-white"
+              : action === "Sans RDV"
+                ? "bg-warning-wash text-warning-ink"
+                : "bg-primary/10 text-primary",
           )}
           aria-hidden="true"
         >
           {action === "Arrivé" && <Check className="size-3.5" />}
-          {action}
+          {actionShort ? (
+            <>
+              <span className="sm:hidden">{actionShort}</span>
+              <span className="hidden sm:inline">{action}</span>
+            </>
+          ) : (
+            action
+          )}
         </span>
       </button>
+      {secondary && (
+        <button
+          type="button"
+          onClick={secondary.onPick}
+          disabled={disabled}
+          className={cn(
+            "shrink-0 border-s px-3 text-xs font-semibold text-muted-foreground hover:bg-accent focus-visible:bg-accent coarse:min-w-12",
+            "disabled:cursor-not-allowed disabled:opacity-60",
+          )}
+          aria-label={`${secondary.label} : ${name}`}
+        >
+          {secondary.label}
+        </button>
+      )}
     </li>
   )
 }

@@ -63,6 +63,11 @@ export interface DaySlot {
   appointment: AppointmentDto;
   startMinutes: number;
   endMinutes: number;
+  /**
+   * When the salle d'attente says he was called into the chair — « Au fauteuil · depuis » counts from it, never from
+   * the booked start (`salle-attente` round 2, E3). Null for a visit the board never touched.
+   */
+  chairSinceMinutes?: number | null;
   /** The lead act's colour, or `null` when the visit names no catalogue act. */
   colorHex: string | null;
   isPast: boolean;
@@ -256,6 +261,11 @@ function workingDayFor(hours: WorkingDay[] | null | undefined, date: Date): Work
  */
 function chairClaim(slot: DaySlot, nowMinutes: number): number {
   if (FINISHED.has(statusOf(slot.appointment))) return 0;
+  // The salle d'attente knows (round 2, E3): a patient it says is in the chair is, whatever the clock says, and one
+  // it says is still waiting is not — even while his booked slot is running.
+  const lane = slot.appointment.waitingRoom?.lane;
+  if (lane === 'InChair') return 8;
+  if (lane === 'Waiting') return 0;
   const running = slot.startMinutes <= nowMinutes && nowMinutes < slot.endMinutes;
   const status = statusOf(slot.appointment);
   const started = status === 'inprogress' || status === 'awaitingclosure';
@@ -299,10 +309,12 @@ export function buildDaySummary(
       const startMinutes = minutesOfDay(start);
       const duration = Math.max(5, parseDurationToMinutes(appointment.duration));
       const endMinutes = startMinutes + duration;
+      const calledIn = appointment.waitingRoom?.lane === 'InChair' ? appointment.waitingRoom.calledInAtUtc : null;
       return {
         appointment,
         startMinutes,
         endMinutes,
+        chairSinceMinutes: calledIn ? minutesOfDay(new Date(calledIn)) : null,
         colorHex: leadColour(appointment),
         isPast: endMinutes <= nowMinutes || FINISHED.has(statusOf(appointment)),
         isCurrent: false,

@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Armchair, BellRing, Loader2 } from "lucide-react"
 
-import { myChair, myQueue } from "@/components/waiting-room/doctor-next-panel"
+import { chairsFull, myChair, myQueue } from "@/components/waiting-room/doctor-next-panel"
 import { Button } from "@/components/ui/button"
 import { waitingRoomApi } from "@/lib/api/waiting-room"
 import { useSession } from "@/lib/auth/session"
@@ -29,7 +29,8 @@ export function NextPatientPill() {
   const queue = myQueue(board, board.callerDoctorId)
   const chair = myChair(board, board.callerDoctorId)
   if (queue.length === 0 && !chair) return null
-  const next = queue[0] ?? null
+  // « 2 fauteuils » with both taken: « Suivant » would be refused, so only the count stays.
+  const next = chairsFull(board, board.callerDoctorId) ? null : (queue[0] ?? null)
 
   const call = async () => {
     if (!next || busy) return

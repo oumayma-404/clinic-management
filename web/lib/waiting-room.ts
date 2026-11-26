@@ -1,4 +1,11 @@
-import type { WaitingRoomLane, WaitingRoomVisitDto } from "@/lib/api/types"
+import type {
+  AppointmentWaitingRoomDto,
+  WaitingRoomDentistDto,
+  WaitingRoomDoctorUnavailable,
+  WaitingRoomDto,
+  WaitingRoomLane,
+  WaitingRoomVisitDto,
+} from "@/lib/api/types"
 import { formatClock, formatDuration, minutesOfDay } from "@/lib/dashboard/day-summary"
 
 /**
@@ -68,4 +75,87 @@ export function canMoveTo(visit: Pick<WaitingRoomVisitDto, "lane" | "isWalkIn">,
 export function moveSentence(name: string | null | undefined, lane: WaitingRoomLane | null | undefined): string {
   const who = name?.trim() || "Le patient"
   return lane && lane !== "None" ? `${who} → ${LANE_LABEL[lane]}` : who
+}
+
+/**
+ * Round 2, E5 — the minutes a wait is COLOURED by. A booked patient who came 25 minutes early by choice has not been
+ * kept waiting by the cabinet: his colour stays neutral until his RDV time, while the pill still shows the real time
+ * since he arrived. A walk-in has no RDV time, so his wait counts from the door.
+ */
+export function waitToneMinutes(
+  visit: Pick<WaitingRoomVisitDto, "arrivedAtUtc" | "appointmentDateTime" | "isWalkIn">,
+  nowMs: number,
+): number {
+  if (visit.isWalkIn || !visit.arrivedAtUtc) return minutesBetween(visit.arrivedAtUtc, nowMs)
+  const arrived = Date.parse(visit.arrivedAtUtc)
+  const slot = Date.parse(visit.appointmentDateTime)
+  const from = Number.isNaN(slot) || arrived >= slot ? visit.arrivedAtUtc : visit.appointmentDateTime
+  return minutesBetween(from, nowMs)
+}
+
+/** Round 2, C10 — what a card says when its dentist cannot see him today. */
+export const DOCTOR_UNAVAILABLE_LABEL: Record<WaitingRoomDoctorUnavailable, (name: string) => string> = {
+  OnLeave: (name) => `Dr ${name} absent aujourd'hui`,
+  NotInTeam: (name) => `Dr ${name} ne fait plus partie du cabinet`,
+}
+
+/** The dentists « Quel praticien ? » may offer today: the cabinet's, minus those on congé. */
+export function availableDentists(board: Pick<WaitingRoomDto, "dentists">): WaitingRoomDentistDto[] {
+  return board.dentists.filter((dentist) => !dentist.absentToday)
+}
+
+/**
+ * Round 2, C7 — does seating this visit need « Quel praticien ? » first? Only in a cabinet de groupe, and only for a
+ * visit that names no dentist: the server refuses to seat him in nobody's chair.
+ */
+export function needsDentistToSeat(
+  board: Pick<WaitingRoomDto, "dentists">,
+  visit: Pick<WaitingRoomVisitDto, "doctorId">,
+): boolean {
+  return board.dentists.length > 1 && !visit.doctorId
+}
+
+/** Digits only, so « 22 345 678 », « +216 22345678 » and « 22-345-678 » all match « 22345 ». */
+export function phoneDigits(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "")
+}
+
+/**
+ * Round 2, E3 — the agenda's word for a visit on today's board: « en salle », « au fauteuil », or nothing. The
+ * agenda is where much of reception works, and it used to say nothing about who is actually here.
+ */
+export function boardPresenceWord(board: AppointmentWaitingRoomDto | null | undefined): string | null {
+  if (board?.lane === "Waiting") return "en salle"
+  if (board?.lane === "InChair") return "au fauteuil"
+  return null
+}
+
+/**
+ * Round 2, E4 — how many minutes an agenda block spans. A patient still « au fauteuil » past his booking grows the
+ * block to now, so the desk sees the delay before the next patient asks. Every other visit spans its booking (or,
+ * once finished on the board, its real chair time — the server has already moved the RDV there).
+ */
+export function liveBlockMinutes(
+  appointment: { appointmentDateTime: string; waitingRoom?: AppointmentWaitingRoomDto | null },
+  bookedMinutes: number,
+  nowMs: number,
+): number {
+  if (appointment.waitingRoom?.lane !== "InChair") return bookedMinutes
+  const start = Date.parse(appointment.appointmentDateTime)
+  if (Number.isNaN(start)) return bookedMinutes
+  return Math.max(bookedMinutes, Math.ceil((nowMs - start) / 60_000))
+}
+
+/**
+ * The toast after « Pas là » (round 2, E1) — one sentence for the board's banner, its card menu, the dentist's panel
+ * and the staff-chat call-in notice, so the desk reads the same thing wherever it pressed.
+ */
+export function notHereSentence(
+  absentName: string | null | undefined,
+  change: Pick<WaitingRoomVisitDto, "lane"> & { patientName?: string | null },
+): string {
+  const who = absentName?.trim() || "Le patient"
+  return change.lane === "InChair" && change.patientName
+    ? `${who} n'est pas là · ${change.patientName} est appelé·e`
+    : `${who} n'est pas là · il garde sa place`
 }

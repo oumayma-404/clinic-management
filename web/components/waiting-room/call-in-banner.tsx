@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react"
 import { BellRing } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import type { WaitingRoomDto } from "@/lib/api/types"
+import type { WaitingRoomDto, WaitingRoomVisitDto } from "@/lib/api/types"
 import { minutesBetween } from "@/lib/waiting-room"
 
 /** How long a fresh call stays on the board's banner — reception has seen it by then, or the notice still rings. */
@@ -43,8 +43,19 @@ export function markCallSeen(appointmentId: string) {
  * « Dr Trabelsi : faites entrer Amira Ben Salah » across the top of the board (`salle-attente` S5) — the same call the
  * staff-chat notice rings, kept on the screen reception is looking at, for whoever is at the desk (an admin covering
  * reception receives no desk notice). Not for the dentist who called: he knows.
+ *
+ * <p>Round 2, E1: « Pas là » beside « OK » — the patient called is not in the salle d'attente. He keeps his place and
+ * the next one of that chair is called instead, so the dentist is not left waiting for nobody.</p>
  */
-export function CallInBanner({ board, nowMs }: { board: WaitingRoomDto; nowMs: number }) {
+export function CallInBanner({
+  board,
+  nowMs,
+  onNotHere,
+}: {
+  board: WaitingRoomDto
+  nowMs: number
+  onNotHere: (visit: WaitingRoomVisitDto) => void
+}) {
   const [seen, setSeen] = useState<Set<string>>(() => (typeof window === "undefined" ? new Set() : readSeen()))
 
   const calls = useMemo(
@@ -80,10 +91,24 @@ export function CallInBanner({ board, nowMs }: { board: WaitingRoomDto; nowMs: n
           <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
             <BellRing className="size-5" aria-hidden="true" />
           </span>
-          <p className="min-w-0 flex-1 text-sm">
+          {/* Not `flex-1`: the call-in notice and the « Annuler » toasts are pinned top-right, so the buttons sit
+              right after the sentence, where neither covers them (round 2 QA, F1). */}
+          <p className="min-w-0 text-sm">
             {visit.doctorName ? <span className="font-semibold">Dr {visit.doctorName} : </span> : null}
             faites entrer <span className="text-base font-bold">{visit.patientName}</span>
           </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="bg-card coarse:min-h-11"
+            onClick={() => {
+              dismiss(visit.appointmentId)
+              onNotHere(visit)
+            }}
+            aria-label={`${visit.patientName} n'est pas là`}
+          >
+            Pas là
+          </Button>
           <Button size="sm" className="min-w-16 coarse:min-h-11" onClick={() => dismiss(visit.appointmentId)}>
             OK
           </Button>

@@ -14,8 +14,19 @@ import { moveSentence } from "@/lib/waiting-room"
 /** How long « Annuler » stays on screen after a board action (D6). */
 export const UNDO_MS = 8_000
 
-/** The codes that mean « somebody moved first »: refresh quietly and say so, never an error to fix. */
-const STALE_CODES = new Set(["waiting-room-already-called", "waiting-room-already-here"])
+/**
+ * The codes that mean « somebody moved first »: refresh quietly and say so, never an error to fix. The server's
+ * `WaitingRoomRefusals.IsConflict` answers all of them 409.
+ */
+const STALE_CODES = new Set([
+  "waiting-room-already-called",
+  "waiting-room-already-here",
+  "waiting-room-moved-since",
+  "waiting-room-chairs-full",
+  "waiting-room-not-in-chair",
+  "waiting-room-not-waiting",
+  "waiting-room-not-other-day",
+])
 
 interface BoardRead {
   board: WaitingRoomDto
@@ -94,7 +105,15 @@ export async function runBoardAction(
             .restore(change)
             .then(() => reload())
             .then(() => toast.info("Action annulée"))
-            .catch((err) => showErrorToast(err, "L'action n'a pas pu être annulée."))
+            .catch(async (err) => {
+              // Round 2, C9: the card moved since — say so and show the board as it is, never overwrite the move.
+              if (err instanceof ApiError && err.code && STALE_CODES.has(err.code)) {
+                toast.info(err.message)
+                await reload()
+                return
+              }
+              showErrorToast(err, "L'action n'a pas pu être annulée.")
+            })
         },
       },
     })

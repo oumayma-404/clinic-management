@@ -13,6 +13,9 @@ import {
   DoorOpen,
   ExternalLink,
   MoreHorizontal,
+  Siren,
+  UserCog,
+  UserX,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -23,10 +26,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import type { WaitingRoomVisitDto } from "@/lib/api/types"
+import type { WaitingRoomDentistDto, WaitingRoomVisitDto } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 import {
   BOARD_LANES,
+  DOCTOR_UNAVAILABLE_LABEL,
   LANE_LABEL,
   boardLaneOf,
   boardTime,
@@ -34,6 +38,7 @@ import {
   formatWait,
   minutesBetween,
   waitTone,
+  waitToneMinutes,
   type BoardLane,
 } from "@/lib/waiting-room"
 
@@ -51,13 +56,22 @@ import {
 
 export type MoveTarget = BoardLane | "Left"
 
+/**
+ * The board's actions that are not a lane (round 2): « Passer en premier » and its removal (E2), « Pas là » (E1),
+ * « Changer de praticien » (C10).
+ */
+export type BoardExtra = "urgent" | "notUrgent" | "notHere" | "changeDentist"
+
 interface WaitingRoomBoardProps {
   visits: Record<BoardLane, WaitingRoomVisitDto[]>
   nowMs: number
   /** A cabinet de groupe names the dentist on each card. */
   showDentist: boolean
   busyId: string | null
+  /** The dentists « Changer de praticien » may offer today (none on congé). */
+  availableDentists: WaitingRoomDentistDto[]
   onMove: (visit: WaitingRoomVisitDto, target: MoveTarget) => void
+  onExtra: (visit: WaitingRoomVisitDto, action: BoardExtra) => void
 }
 
 const LANE_DOT: Record<BoardLane, string> = {
@@ -74,7 +88,15 @@ const LANE_EMPTY: Record<BoardLane, { icon: typeof Clock; text: string }> = {
   Done: { icon: Check, text: "Personne encore" },
 }
 
-export function WaitingRoomBoard({ visits, nowMs, showDentist, busyId, onMove }: WaitingRoomBoardProps) {
+export function WaitingRoomBoard({
+  visits,
+  nowMs,
+  showDentist,
+  busyId,
+  availableDentists,
+  onMove,
+  onExtra,
+}: WaitingRoomBoardProps) {
   const drag = useBoardDrag(onMove)
 
   return (
@@ -114,8 +136,10 @@ export function WaitingRoomBoard({ visits, nowMs, showDentist, busyId, onMove }:
                     showDentist={showDentist}
                     busy={busyId === visit.appointmentId}
                     dragging={drag.draggingId === visit.appointmentId}
+                    canChangeDentist={availableDentists.some((d) => d.doctorId !== visit.doctorId)}
                     onPointerDown={(event) => drag.onPointerDown(event, visit)}
                     onMove={onMove}
+                    onExtra={onExtra}
                   />
                 ))
               )}
@@ -146,14 +170,33 @@ interface VisitCardProps {
   showDentist: boolean
   busy: boolean
   dragging: boolean
+  /** Another dentist is here today to take this patient. */
+  canChangeDentist: boolean
   onPointerDown: (event: React.PointerEvent<HTMLElement>) => void
   onMove: (visit: WaitingRoomVisitDto, target: MoveTarget) => void
+  onExtra: (visit: WaitingRoomVisitDto, action: BoardExtra) => void
 }
 
-function VisitCard({ visit, index, nowMs, showDentist, busy, dragging, onPointerDown, onMove }: VisitCardProps) {
+function VisitCard({
+  visit,
+  index,
+  nowMs,
+  showDentist,
+  busy,
+  dragging,
+  canChangeDentist,
+  onPointerDown,
+  onMove,
+  onExtra,
+}: VisitCardProps) {
   const lane = boardLaneOf(visit)
   const left = visit.lane === "Left"
   const name = visit.patientName
+  // C10: his dentist is on congé or gone — the card says so where it is read, with the way out beside it.
+  const unavailable =
+    visit.doctorUnavailable && (lane === "Upcoming" || lane === "Waiting")
+      ? DOCTOR_UNAVAILABLE_LABEL[visit.doctorUnavailable](visit.doctorName ?? "")
+      : null
 
   let lead: ReactNode
   let meta: ReactNode
@@ -199,13 +242,15 @@ function VisitCard({ visit, index, nowMs, showDentist, busy, dragging, onPointer
     )
     meta = (
       <>
+        {visit.urgentAtUtc && <Tag tone="bad">Urgent</Tag>}
         {visit.isWalkIn ? <Tag tone="warn">Sans RDV</Tag> : <Tag tone="info">RDV {boardTime(visit.appointmentDateTime)}</Tag>}
+        {visit.callSkippedAtUtc && <Tag tone="warn">Pas là · {boardTime(visit.callSkippedAtUtc)}</Tag>}
         {index === 0 && <Tag tone="ok">Suivant</Tag>}
       </>
     )
     action = (
       <>
-        <WaitPill minutes={waited} />
+        <WaitPill minutes={waited} toneMinutes={waitToneMinutes(visit, nowMs)} />
         <Button
           size="sm"
           variant="secondary"
@@ -278,24 +323,64 @@ function VisitCard({ visit, index, nowMs, showDentist, busy, dragging, onPointer
             {showDentist && visit.doctorName && <span className="truncate">· Dr {visit.doctorName}</span>}
           </span>
         </div>
-        <CardMenu visit={visit} onMove={onMove} />
+        <CardMenu visit={visit} canChangeDentist={canChangeDentist} onMove={onMove} onExtra={onExtra} />
       </div>
+      {unavailable && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-md bg-destructive-wash px-2 py-1.5 text-xs font-medium text-destructive">
+          <UserX className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{unavailable}</span>
+          {canChangeDentist && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 bg-card coarse:min-h-11"
+              disabled={busy}
+              onClick={() => onExtra(visit, "changeDentist")}
+            >
+              Changer de praticien
+            </Button>
+          )}
+        </div>
+      )}
       {action && <div className="flex flex-wrap items-center justify-end gap-2">{action}</div>}
     </article>
   )
 }
 
-function CardMenu({ visit, onMove }: { visit: WaitingRoomVisitDto; onMove: VisitCardProps["onMove"] }) {
+function CardMenu({
+  visit,
+  canChangeDentist,
+  onMove,
+  onExtra,
+}: {
+  visit: WaitingRoomVisitDto
+  canChangeDentist: boolean
+  onMove: VisitCardProps["onMove"]
+  onExtra: VisitCardProps["onExtra"]
+}) {
   const lane = boardLaneOf(visit)
-  const items: { label: string; target: MoveTarget; icon: typeof ArrowLeft; destructive?: boolean }[] = []
+  type Item = { label: string; icon: typeof ArrowLeft; destructive?: boolean } & (
+    | { target: MoveTarget; extra?: never }
+    | { extra: BoardExtra; target?: never }
+  )
+  const items: Item[] = []
 
   if (lane === "Upcoming") {
     items.push({ label: "Faire entrer directement", target: "InChair", icon: Armchair })
+    if (canChangeDentist) items.push({ label: "Changer de praticien", extra: "changeDentist", icon: UserCog })
   } else if (lane === "Waiting") {
     items.push({ label: "Faire entrer", target: "InChair", icon: Armchair })
+    items.push(
+      visit.urgentAtUtc
+        ? { label: "Retirer « Urgent »", extra: "notUrgent", icon: Siren }
+        : { label: "Passer en premier", extra: "urgent", icon: Siren },
+    )
+    if (canChangeDentist) items.push({ label: "Changer de praticien", extra: "changeDentist", icon: UserCog })
     if (!visit.isWalkIn) items.push({ label: "Annuler l'arrivée", target: "Upcoming", icon: ArrowLeft })
     items.push({ label: "Parti sans être vu", target: "Left", icon: DoorOpen, destructive: true })
   } else if (lane === "InChair") {
+    items.push({ label: "Pas là", extra: "notHere", icon: UserX })
     items.push({ label: "Remettre en salle d'attente", target: "Waiting", icon: ArrowLeft })
     items.push({ label: "Terminer", target: "Done", icon: Check })
   } else {
@@ -328,7 +413,7 @@ function CardMenu({ visit, onMove }: { visit: WaitingRoomVisitDto; onMove: Visit
           <DropdownMenuItem
             key={item.label}
             className={cn("coarse:py-3", item.destructive && "text-destructive focus:text-destructive")}
-            onSelect={() => onMove(visit, item.target)}
+            onSelect={() => (item.extra ? onExtra(visit, item.extra) : onMove(visit, item.target!))}
           >
             <item.icon className="size-4" aria-hidden="true" />
             {item.label}
@@ -341,8 +426,20 @@ function CardMenu({ visit, onMove }: { visit: WaitingRoomVisitDto; onMove: Visit
 
 // ── Small pieces ─────────────────────────────────────────────────────────────────────────────────────────────
 
-export function WaitPill({ minutes, className }: { minutes: number; className?: string }) {
-  const tone = waitTone(minutes)
+/**
+ * A wait, in words and colour. `toneMinutes` colours it when it differs from the shown wait (E5: an early patient's
+ * colour counts from his RDV time); it defaults to `minutes`.
+ */
+export function WaitPill({
+  minutes,
+  toneMinutes,
+  className,
+}: {
+  minutes: number
+  toneMinutes?: number
+  className?: string
+}) {
+  const tone = waitTone(toneMinutes ?? minutes)
   return (
     <span
       className={cn(

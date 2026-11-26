@@ -95,7 +95,9 @@ Reasoning: `features/salle-attente/notes.md`. State and lanes are the server's; 
 | `waiting-room/arrival-search.tsx` | « Qui arrive ? »: today's RDV (matched in the browser), « Sans RDV » (server search), « Nouveau patient » (`photo-import/new-patient-for-group.tsx`, reused with its own labels). A cabinet de groupe asks the dentist first. |
 | `waiting-room/doctor-next-panel.tsx` | « Mon fauteuil » + « Patient suivant » (sends `expectedNextId`) + the queue with « Appeler ». « Terminer la séance » when nobody waits; « Personne n'attend » disabled when the chair is empty too. Exports `myQueue` / `myChair`. |
 | `waiting-room/next-patient-pill.tsx` | The header's count + « Suivant » for a dentist, on every screen but the board itself. |
-| `waiting-room/call-in-banner.tsx` | « Dr X : faites entrer Y » across the board for 5 min — for whoever is at the desk; a call this browser made itself is never announced back (`markCallSeen`). |
+| `waiting-room/call-in-banner.tsx` | « Dr X : faites entrer Y » across the board for 5 min — for whoever is at the desk; a call this browser made itself is never announced back (`markCallSeen`). « Pas là » + « OK » sit right after the sentence, never far right: the call-in notice and the toasts are pinned there. |
+| `waiting-room/dentist-picker-dialog.tsx` | « Quel praticien ? » (seat an unassigned patient in a cabinet de groupe) and « Changer de praticien » (his dentist is away). Dentists on congé are never offered. |
+| ↳ round 2 | `features/salle-attente/notes.md` § Round 2: the board's « Pas là », « Passer en premier », « Changer de praticien », the dentist's « 2 fauteuils », the other-day « Le recevoir aujourd'hui » row. ⚠️ « Pas là » also lives on the staff-chat call-in notice (`staff-chat-notices.tsx`, gated on `isCallIn`) and every door says `notHereSentence`. |
 
 ## Séance au fauteuil (`seance-au-fauteuil`)
 

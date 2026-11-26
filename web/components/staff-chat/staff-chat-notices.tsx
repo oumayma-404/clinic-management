@@ -11,6 +11,9 @@ import type { StaffQuickMessageDto } from "@/lib/api/staff-chat"
 import { useSession } from "@/lib/auth/session"
 import { showErrorToast } from "@/lib/errors"
 import { useStaffQuickMessages } from "@/lib/hooks/use-staff-chat"
+import { runBoardAction } from "@/lib/hooks/use-waiting-room"
+import { waitingRoomApi } from "@/lib/api/waiting-room"
+import { notHereSentence } from "@/lib/waiting-room"
 import {
   dismissNotice,
   holdNotice,
@@ -68,6 +71,20 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
   const callIn = isCallIn(message)
   const urgent = notice.urgent && !callIn
   const calledName = callIn && message.patient && !message.patient.missing ? message.patient.name : null
+  // « Pas là » (salle d'attente round 2, E1) belongs HERE too: this notice is where the desk answers the ring, and it
+  // stays on top — the board's banner, with its own « Pas là », sits under it until it is answered.
+  const calledVisit = callIn && message.appointment && !message.appointment.missing && !message.appointment.cancelled
+    ? message.appointment.id
+    : null
+
+  const notHere = async (appointmentId: string) => {
+    setSending("not-here")
+    const change = await runBoardAction(() => waitingRoomApi.notHere(appointmentId), () => undefined, {
+      message: (c) => notHereSentence(calledName, { lane: c.lane ?? "None", patientName: c.patientName }),
+    })
+    setSending(null)
+    if (change) dismissNotice(message.id)
+  }
 
   const reply = async (item: StaffQuickMessageDto) => {
     setSending(item.key)
@@ -147,6 +164,19 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
             }}
           >
             Voir la salle d&apos;attente
+          </Button>
+        )}
+        {calledVisit && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="coarse:min-h-11"
+            disabled={sending !== null}
+            onClick={() => void notHere(calledVisit)}
+            aria-label={`${calledName ?? "Le patient"} n'est pas là`}
+          >
+            {sending === "not-here" && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
+            Pas là
           </Button>
         )}
         <Button
