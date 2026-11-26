@@ -457,21 +457,29 @@ export async function runImport(
       let patientId = known[root.key] ?? (root.createAnyway ? null : root.existing?.id ?? null)
       let fresh = false
       if (!patientId) {
+        // Kept across tries: a create whose answer was lost is found on the next try, and that find must still
+        // report it as created here — and still name the field the server refused on the way.
+        let sentCreate = false
+        let refusedField: string | undefined
         const outcome = await pacer.persist(async (attempt) => {
           // Asked again on every try: a lost « create » may have arrived, and must be found rather than made twice.
           let ambiguous = root.existingAmbiguous
           if (!root.createAnyway || attempt > 0) {
             const found = await pacer.call(() => findExisting(root))
-            if (found.existing && !root.createAnyway) return { id: found.existing.id, created: false }
+            if (found.existing && !root.createAnyway) {
+              return { id: found.existing.id, created: sentCreate, ...(refusedField ? { simplified: refusedField } : {}) }
+            }
             ambiguous = found.ambiguous
           }
           const allowDuplicate = root.createAnyway || !ambiguous
           try {
+            sentCreate = true
             return { id: (await pacer.call(() => apiPost<PatientDto>("/patients", createBody(root, allowDuplicate)))).id, created: true }
           } catch (error) {
             if (!isFieldRefusal(error)) throw error
+            refusedField = error.message
             const id = (await pacer.call(() => apiPost<PatientDto>("/patients", createBody(root, allowDuplicate, true)))).id
-            return { id, created: true, simplified: error.message }
+            return { id, created: true, simplified: refusedField }
           }
         }).catch((error: unknown) => {
           if (error instanceof ApiError && error.code === ApiErrorCode.PatientDuplicate) return { duplicate: error.message }
