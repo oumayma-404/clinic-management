@@ -132,15 +132,19 @@ export function LegacyImportScreen() {
     setResults((prev) => ({ ...prev, ...rows }))
   }
 
-  const chooseFolder = (name: string, key: string | null, label?: string) =>
-    setPlan((p) => {
-      if (!p) return p
-      const cabinet =
-        key?.startsWith(CABINET_PREFIX) && label && !p.cabinet.some((c) => c.key === key)
-          ? [...p.cabinet, { key, id: key.slice(CABINET_PREFIX.length), label, number: null }]
-          : p.cabinet
-      return { ...p, cabinet, folders: p.folders.map((f) => (f.name === name ? { ...f, choice: key } : f)) }
-    })
+  /** Stable, so a run's repaint leaves every folder card alone (`FolderChoiceCard` is memoised). */
+  const chooseFolder = useCallback(
+    (name: string, key: string | null, label?: string) =>
+      setPlan((p) => {
+        if (!p) return p
+        const cabinet =
+          key?.startsWith(CABINET_PREFIX) && label && !p.cabinet.some((c) => c.key === key)
+            ? [...p.cabinet, { key, id: key.slice(CABINET_PREFIX.length), label, number: null }]
+            : p.cabinet
+        return { ...p, cabinet, folders: p.folders.map((f) => (f.name === name ? { ...f, choice: key } : f)) }
+      }),
+    [],
+  )
 
   const start = async () => {
     if (!plan || refuseInDemo(isDemo)) return
@@ -287,7 +291,7 @@ export function LegacyImportScreen() {
                     folder={f}
                     plan={plan}
                     disabled={running}
-                    onChoose={(key, label) => chooseFolder(f.name, key, label)}
+                    onChoose={chooseFolder}
                   />
                 ))}
               </ul>

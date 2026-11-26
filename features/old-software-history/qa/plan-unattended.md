@@ -33,3 +33,24 @@ same isolated stack as `plan.md` (API :5095, web :3095, DB `clinic_pr123_qa` fre
 `walk.mjs` (every row of `plan.md`: A1–A6, B1–B4, C1–C4, D1–D3) on the same fresh database, run before
 `walk-unattended.mjs`. `api-checks.mjs` / `boost-dates.mjs` test the API limiter, which this change does not touch
 (blast radius row 7 is a new middleware below it, unit-tested) — not re-run.
+
+## Run 3 additions (26/11/2026, on main @ `8d42f366` — PR #125 merged, before the prod deploy)
+
+Why: on prod the same day TDental's import stopped twice mid-patient (14:22, 16:38) and every relaunch re-walked
+every patient already done. These rows replay that, plus the API change and the token-renewal fix (#124) now on main.
+
+Environment change: access tokens shortened to **3 min** (`Auth__Local__AccessTokenLifetimeMinutes=3`) so long runs
+cross several renewals with 6 lanes in flight. Batch **G** = 300 dossiers + 600 radios (fake, `gen-data.mjs`).
+
+| ID | Tier | Layer | Scenario | Expected (observable) |
+|---|---|---|---|---|
+| G0 | C | browser | Batch G analysed: the page's element count | under 60 000 (run 3 measured ~390 000 — F-1) |
+| G1 | A | browser+sql | Batch G: Importer, then the page is CLOSED after the 100th « create patient » answer | 100–299 patients in; the count without any file / without history is reported (prod's state) |
+| G2 | A | browser | New page, the WHOLE folder G picked again | plan: « Patients à créer » = 300 − in · « Déjà dans le cabinet » = in |
+| G3 | A | browser+sql | Importer | « Import terminé. », 0 failed rows; exactly 300 patients, 900 files, every patient has its PDF and history, nothing twice |
+| G3-heal | A | sql | The patients G1 cut without files/history | all complete after G3 (⏭ if the cut left none) |
+| G4 | C | browser | G3 spans several 3-min tokens | never signed out, no session message, run not stopped |
+| G5 | C | measure | G3 pace | peak calls / 60 s ≤ 600 (prod per-address limit) or 429s absorbed; seconds per new patient reported |
+| E8 | B | api | `POST /api/patients` whose body trickles in at ½ byte/s | 408 + « La connexion est trop lente … Réessayez. », WRN « Request refused before reaching a handler (408) », no new ERR |
+
+Order: `walk.mjs` (regression, plan.md) → `walk-unattended.mjs` (E1–E5, G1–G5, E8) → `api-checks.mjs` (B2/D1/D2).
