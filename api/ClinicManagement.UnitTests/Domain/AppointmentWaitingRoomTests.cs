@@ -156,17 +156,17 @@ public class AppointmentWaitingRoomTests
             foreach (var to in BoardLanes.Where(l => l != from))
             {
                 var appointment = At(from);
-                var before = (appointment.WaitingRoomLane, appointment.Status, appointment.ArrivedAtUtc,
-                    appointment.CalledInAtUtc, appointment.LeftChairAtUtc, appointment.CancellationReason);
+                var before = appointment.CaptureWaitingRoomState();
+                var status = (appointment.Status, appointment.CancellationReason);
 
                 Assert.True(appointment.MoveInWaitingRoom(to, Now), $"{from} → {to}");
                 Assert.Equal(to, appointment.WaitingRoomLane);
 
-                appointment.RestoreWaitingRoom(before.Item1, before.Item3, before.Item4, before.Item5, Now);
+                appointment.RestoreWaitingRoom(before, Now);
 
-                Assert.Equal(before,
-                    (appointment.WaitingRoomLane, appointment.Status, appointment.ArrivedAtUtc,
-                        appointment.CalledInAtUtc, appointment.LeftChairAtUtc, appointment.CancellationReason));
+                Assert.True(before.SameAs(appointment.CaptureWaitingRoomState()), $"{from} → {to} → {from}");
+                Assert.Equal(before, appointment.CaptureWaitingRoomState());
+                Assert.Equal(status, (appointment.Status, appointment.CancellationReason));
             }
         }
     }
@@ -204,33 +204,44 @@ public class AppointmentWaitingRoomTests
 
         var refusal = Assert.Throws<InvalidOperationException>(() => walkIn.MoveInWaitingRoom(WaitingRoomLane.Upcoming, Now));
         Assert.Equal(Appointment.WalkInHasNoSlotMessage, refusal.Message);
-        Assert.Throws<InvalidOperationException>(() => walkIn.RestoreWaitingRoom(WaitingRoomLane.Upcoming, null, null, null, Now));
+        Assert.Throws<InvalidOperationException>(() =>
+            walkIn.RestoreWaitingRoom(walkIn.CaptureWaitingRoomState() with { Lane = WaitingRoomLane.Upcoming, ArrivedAtUtc = null }, Now));
     }
 
     [Theory]
-    [InlineData(WaitingRoomLane.Waiting, false, false, false)]
-    [InlineData(WaitingRoomLane.InChair, true, false, false)]
-    [InlineData(WaitingRoomLane.Upcoming, true, false, false)]
-    [InlineData(WaitingRoomLane.Left, true, true, false)]
-    public void An_Incoherent_Snapshot_Is_Refused(WaitingRoomLane lane, bool arrived, bool called, bool left)
+    [InlineData(WaitingRoomLane.Waiting, false, false, false, false)]
+    [InlineData(WaitingRoomLane.InChair, true, false, false, false)]
+    [InlineData(WaitingRoomLane.Upcoming, true, false, false, false)]
+    [InlineData(WaitingRoomLane.Left, true, true, false, true)]
+    [InlineData(WaitingRoomLane.Left, true, false, false, false)]
+    [InlineData(WaitingRoomLane.Done, true, true, true, true)]
+    public void An_Incoherent_Snapshot_Is_Refused(WaitingRoomLane lane, bool arrived, bool called, bool left, bool leftUnseen)
     {
         var appointment = At(WaitingRoomLane.Waiting);
+        var state = appointment.CaptureWaitingRoomState() with
+        {
+            Lane = lane,
+            ArrivedAtUtc = arrived ? Now.AddMinutes(-5) : null,
+            CalledInAtUtc = called ? Now.AddMinutes(-4) : null,
+            LeftChairAtUtc = left ? Now.AddMinutes(-3) : null,
+            LeftUnseenAtUtc = leftUnseen ? Now.AddMinutes(-2) : null,
+        };
 
-        Assert.Throws<InvalidOperationException>(() => appointment.RestoreWaitingRoom(
-            lane,
-            arrived ? Now.AddMinutes(-5) : null,
-            called ? Now.AddMinutes(-4) : null,
-            left ? Now.AddMinutes(-3) : null,
-            Now));
+        Assert.Throws<InvalidOperationException>(() => appointment.RestoreWaitingRoom(state, Now));
     }
 
     [Fact]
     public void A_Snapshot_Whose_Times_Run_Backwards_Is_Refused()
     {
         var appointment = At(WaitingRoomLane.Waiting);
+        var state = appointment.CaptureWaitingRoomState() with
+        {
+            Lane = WaitingRoomLane.InChair,
+            ArrivedAtUtc = Now,
+            CalledInAtUtc = Now.AddMinutes(-10),
+        };
 
-        Assert.Throws<InvalidOperationException>(() =>
-            appointment.RestoreWaitingRoom(WaitingRoomLane.InChair, Now, Now.AddMinutes(-10), null, Now.AddMinutes(1)));
+        Assert.Throws<InvalidOperationException>(() => appointment.RestoreWaitingRoom(state, Now.AddMinutes(1)));
     }
 
     [Fact]
@@ -260,6 +271,232 @@ public class AppointmentWaitingRoomTests
         appointment.Disregard("local|x", Now);
 
         Assert.Equal(WaitingRoomLane.None, appointment.WaitingRoomLane);
+    }
+
+    // ---------------------------------------------------------------------------------------------- round 2
+
+    // C8 — a move never invents a time it does not know.
+    [Fact]
+    public void Faire_Entrer_Straight_From_A_Venir_Records_The_Call_And_No_Arrival()
+    {
+        var appointment = Booked();
+
+        appointment.MoveInWaitingRoom(WaitingRoomLane.InChair, Now);
+
+        Assert.Equal(WaitingRoomLane.InChair, appointment.WaitingRoomLane);
+        Assert.Equal(Now, appointment.CalledInAtUtc);
+        Assert.Null(appointment.ArrivedAtUtc);
+    }
+
+    [Theory]
+    [InlineData(WaitingRoomLane.Upcoming)]
+    [InlineData(WaitingRoomLane.Waiting)]
+    public void A_Card_Dragged_To_Termine_From_Outside_The_Chair_Keeps_Its_Unknowns_And_Its_Booking(WaitingRoomLane from)
+    {
+        var appointment = At(from);
+        var arrived = appointment.ArrivedAtUtc;
+
+        appointment.MoveInWaitingRoom(WaitingRoomLane.Done, Now);
+
+        Assert.Equal(WaitingRoomLane.Done, appointment.WaitingRoomLane);
+        Assert.Equal(arrived, appointment.ArrivedAtUtc);
+        Assert.Null(appointment.CalledInAtUtc);
+        Assert.Null(appointment.LeftChairAtUtc);
+        Assert.Equal(Slot, appointment.AppointmentDateTime);
+        Assert.Null(appointment.PlannedStartUtc);
+    }
+
+    // Q1 — the RDV takes the real chair time, keeps its booking, and gives it back when the visit re-opens.
+    [Fact]
+    public void A_Visit_Ended_From_The_Chair_Takes_The_Real_Chair_Time_And_Keeps_Its_Booking()
+    {
+        var appointment = At(WaitingRoomLane.Waiting);
+        appointment.MoveInWaitingRoom(WaitingRoomLane.InChair, Slot.AddMinutes(7).AddSeconds(40));
+
+        appointment.MoveInWaitingRoom(WaitingRoomLane.Done, Slot.AddMinutes(21).AddSeconds(10));
+
+        Assert.Equal(Slot.AddMinutes(7), appointment.AppointmentDateTime);
+        Assert.Equal(TimeSpan.FromMinutes(15), appointment.Duration);
+        Assert.Equal(Slot, appointment.PlannedStartUtc);
+        Assert.Equal(TimeSpan.FromMinutes(30), appointment.PlannedDuration);
+        // A late séance overlaps the next booked RDV: the double-booking constraint must not refuse « Patient suivant ».
+        Assert.True(appointment.BookedWithOverlap);
+    }
+
+    [Fact]
+    public void Reopening_A_Visit_Puts_Its_Booking_Back()
+    {
+        var appointment = At(WaitingRoomLane.Waiting);
+        appointment.MoveInWaitingRoom(WaitingRoomLane.InChair, Slot.AddMinutes(5));
+        appointment.MoveInWaitingRoom(WaitingRoomLane.Done, Slot.AddMinutes(12));
+
+        appointment.MoveInWaitingRoom(WaitingRoomLane.InChair, Slot.AddMinutes(13));
+
+        Assert.Equal(Slot, appointment.AppointmentDateTime);
+        Assert.Equal(TimeSpan.FromMinutes(30), appointment.Duration);
+        Assert.Null(appointment.PlannedStartUtc);
+        Assert.Null(appointment.PlannedDuration);
+    }
+
+    [Fact]
+    public void A_Fiche_Or_The_Rdv_Window_Ending_The_Chair_Also_Takes_The_Real_Time()
+    {
+        var byFiche = At(WaitingRoomLane.Waiting);
+        byFiche.MoveInWaitingRoom(WaitingRoomLane.InChair, Slot.AddMinutes(2));
+        byFiche.StampLeftChairIfOpen(Slot.AddMinutes(20));
+        byFiche.MarkVisitCompleted();
+
+        var byWindow = At(WaitingRoomLane.Waiting);
+        byWindow.MoveInWaitingRoom(WaitingRoomLane.InChair, Slot.AddMinutes(2));
+        byWindow.StampLeftChairIfOpen(Slot.AddMinutes(20));
+        byWindow.Complete();
+
+        foreach (var appointment in new[] { byFiche, byWindow })
+        {
+            Assert.Equal(Slot.AddMinutes(2), appointment.AppointmentDateTime);
+            Assert.Equal(TimeSpan.FromMinutes(18), appointment.Duration);
+            Assert.Equal(Slot, appointment.PlannedStartUtc);
+        }
+    }
+
+    [Fact]
+    public void A_Visit_Completed_By_Its_Fiche_Alone_Keeps_Its_Booked_Time()
+    {
+        var appointment = Booked();
+
+        appointment.MarkVisitCompleted();
+
+        Assert.Equal(Slot, appointment.AppointmentDateTime);
+        Assert.Null(appointment.PlannedStartUtc);
+    }
+
+    [Fact]
+    public void Moving_A_Real_Time_Visit_On_The_Agenda_Makes_The_New_Time_The_Booking()
+    {
+        var appointment = At(WaitingRoomLane.Waiting);
+        appointment.MoveInWaitingRoom(WaitingRoomLane.InChair, Slot.AddMinutes(2));
+        appointment.MoveInWaitingRoom(WaitingRoomLane.Done, Slot.AddMinutes(20));
+
+        appointment.Reschedule(Slot.AddMinutes(30), sameClinicDay: true);
+
+        Assert.Null(appointment.PlannedStartUtc);
+        Assert.Equal(Slot.AddMinutes(30), appointment.AppointmentDateTime);
+    }
+
+    // C3 — only the board's « Parti sans être vu » (or « Absent » on a waiting patient) puts a card under « Parti ».
+    [Theory]
+    [InlineData(WaitingRoomLane.Waiting)]
+    [InlineData(WaitingRoomLane.InChair)]
+    [InlineData(WaitingRoomLane.Done)]
+    public void A_Cancellation_Made_From_The_Agenda_Takes_The_Card_Off_The_Board(WaitingRoomLane from)
+    {
+        var appointment = At(from);
+
+        appointment.Cancel("Erreur de saisie");
+
+        Assert.Equal(WaitingRoomLane.None, appointment.WaitingRoomLane);
+        Assert.Null(appointment.LeftUnseenAtUtc);
+    }
+
+    [Fact]
+    public void Absent_For_A_Patient_Who_Was_Waiting_Reads_Parti_Sans_Etre_Vu()
+    {
+        var appointment = At(WaitingRoomLane.Waiting);
+
+        appointment.MarkAsNoShow();
+
+        Assert.Equal(WaitingRoomLane.Left, appointment.WaitingRoomLane);
+        Assert.NotNull(appointment.LeftUnseenAtUtc);
+    }
+
+    [Fact]
+    public void The_Boards_Parti_Sans_Etre_Vu_Records_When_He_Left()
+    {
+        var appointment = At(WaitingRoomLane.Waiting);
+
+        appointment.MoveInWaitingRoom(WaitingRoomLane.Left, Now);
+
+        Assert.Equal(Now, appointment.LeftUnseenAtUtc);
+        Assert.Equal(Now, appointment.CancelledAt);
+    }
+
+    // C2 — another day is another visit, as far as the salle d'attente knows.
+    [Fact]
+    public void Moving_A_Waiting_Patient_To_Another_Day_Clears_His_Presence()
+    {
+        var appointment = At(WaitingRoomLane.Waiting);
+        appointment.SetUrgent(true, Now);
+
+        appointment.Reschedule(Slot.AddDays(1), sameClinicDay: false);
+
+        Assert.Equal(WaitingRoomLane.Upcoming, appointment.WaitingRoomLane);
+        Assert.Null(appointment.ArrivedAtUtc);
+        Assert.Null(appointment.UrgentAtUtc);
+    }
+
+    [Fact]
+    public void Moving_A_Waiting_Patient_Within_The_Day_Keeps_His_Presence()
+    {
+        var appointment = At(WaitingRoomLane.Waiting);
+
+        appointment.Reschedule(Slot.AddHours(1), sameClinicDay: true);
+
+        Assert.Equal(WaitingRoomLane.Waiting, appointment.WaitingRoomLane);
+    }
+
+    // E1 — « Pas là ».
+    [Fact]
+    public void Pas_La_Sends_Him_Back_To_Wait_With_His_Arrival_And_A_Tag()
+    {
+        var appointment = At(WaitingRoomLane.Waiting);
+        var arrived = appointment.ArrivedAtUtc;
+        appointment.MoveInWaitingRoom(WaitingRoomLane.InChair, Now);
+
+        appointment.SkipCall(Now.AddMinutes(1));
+
+        Assert.Equal(WaitingRoomLane.Waiting, appointment.WaitingRoomLane);
+        Assert.Equal(arrived, appointment.ArrivedAtUtc);
+        Assert.Equal(Now.AddMinutes(1), appointment.CallSkippedAtUtc);
+        Assert.Equal(AppointmentStatus.Scheduled, appointment.Status);
+
+        appointment.MoveInWaitingRoom(WaitingRoomLane.InChair, Now.AddMinutes(5));
+        Assert.Null(appointment.CallSkippedAtUtc);
+    }
+
+    [Fact]
+    public void Pas_La_Is_Refused_For_A_Patient_Not_In_The_Chair()
+    {
+        Assert.Throws<InvalidOperationException>(() => At(WaitingRoomLane.Waiting).SkipCall(Now));
+    }
+
+    // C6 — « Le recevoir aujourd'hui ».
+    [Fact]
+    public void Receiving_Today_A_Rdv_From_Another_Day_Moves_It_To_Now_Arrived()
+    {
+        var thursday = Booked(Slot.AddDays(2));
+
+        thursday.ReceiveToday(Now.AddSeconds(30));
+
+        Assert.Equal(Now, thursday.AppointmentDateTime);
+        Assert.Equal(WaitingRoomLane.Waiting, thursday.WaitingRoomLane);
+        Assert.True(thursday.BookedWithOverlap);
+        Assert.False(thursday.IsWalkIn);
+    }
+
+    // C9 — the undo compares states, to the millisecond and never on the status.
+    [Fact]
+    public void A_State_Read_Back_From_The_Database_Is_The_Same_State()
+    {
+        var appointment = At(WaitingRoomLane.Waiting);
+        var state = appointment.CaptureWaitingRoomState();
+        var truncated = state with
+        {
+            ArrivedAtUtc = state.ArrivedAtUtc!.Value.AddTicks(-(state.ArrivedAtUtc!.Value.Ticks % 10)).AddTicks(3),
+        };
+
+        Assert.True(state.SameAs(truncated));
+        Assert.False(state.SameAs(state with { Lane = WaitingRoomLane.InChair }));
+        Assert.False(state.SameAs(state with { UrgentAtUtc = Now }));
     }
 }
 
@@ -306,5 +543,23 @@ public class WaitingRoomOrderTests
         var second = Booked(slot: T(10, 0), arrived: T(9, 50));
 
         Assert.Equal(new[] { first, second }, WaitingRoomOrder.Order(new[] { second, first }));
+    }
+
+    // Round 2, E2 — « Passer en premier » goes before everyone, the earliest-marked first.
+    [Fact]
+    public void An_Urgent_Patient_Goes_Before_Everyone_Who_Was_Ready_Earlier()
+    {
+        var onTime = Booked(slot: T(10, 0), arrived: T(9, 50));
+        var toothache = WalkIn(T(10, 20));
+        var secondUrgent = WalkIn(T(10, 25));
+        toothache.SetUrgent(true, T(10, 30));
+        secondUrgent.SetUrgent(true, T(10, 31));
+
+        Assert.Equal(
+            new[] { toothache, secondUrgent, onTime },
+            WaitingRoomOrder.Order(new[] { onTime, secondUrgent, toothache }));
+
+        toothache.SetUrgent(false, T(10, 32));
+        Assert.Equal(new[] { secondUrgent, onTime, toothache }, WaitingRoomOrder.Order(new[] { onTime, secondUrgent, toothache }));
     }
 }

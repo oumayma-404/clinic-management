@@ -19,6 +19,10 @@ namespace ClinicManagement.Application.Features.Appointments.Commands;
 /// named with « Appeler » — and, after the commit, rings reception with a <c>call-in</c> message in his secrétariat.
 /// With nobody waiting it only ends the chair (« Terminer la séance »).
 ///
+/// <para><b>« 2 fauteuils »</b> (round 2, Q3): for a dentist who works two chairs it ends <b>nobody</b> — patient A
+/// stays in chair 1 while the anaesthesia works, B goes into chair 2 — and a third is refused while both are taken.
+/// Each of those visits ends with « Terminer », the fiche or a payment.</para>
+///
 /// <para><b>Two devices, or a double tap, call one patient.</b> The button sends the id it was showing
 /// (<see cref="ExpectedNextId"/>); a patient no longer waiting is refused by code and the screen refreshes, and the
 /// client's Idempotency-Key answers a repeated request with the first answer.</para>
@@ -59,6 +63,7 @@ public class CallNextPatientCommandHandler : IRequestHandler<CallNextPatientComm
     private readonly IRealtimeNotifier _realtime;
     private readonly IStaffChatPushQueue _push;
     private readonly ILogger<CallNextPatientCommandHandler> _logger;
+    private readonly IAppointmentGoogleSyncDispatcher? _googleSync;
 
     public CallNextPatientCommandHandler(
         IAppointmentRepository appointments,
@@ -71,7 +76,8 @@ public class CallNextPatientCommandHandler : IRequestHandler<CallNextPatientComm
         IClinicContext clinicContext,
         IRealtimeNotifier realtime,
         IStaffChatPushQueue push,
-        ILogger<CallNextPatientCommandHandler> logger)
+        ILogger<CallNextPatientCommandHandler> logger,
+        IAppointmentGoogleSyncDispatcher? googleSync = null)
     {
         _appointments = appointments;
         _doctors = doctors;
@@ -84,6 +90,7 @@ public class CallNextPatientCommandHandler : IRequestHandler<CallNextPatientComm
         _realtime = realtime;
         _push = push;
         _logger = logger;
+        _googleSync = googleSync;
     }
 
     public async Task<Result<WaitingRoomChangeDto>> Handle(CallNextPatientCommand request, CancellationToken cancellationToken)
@@ -133,32 +140,27 @@ public class CallNextPatientCommandHandler : IRequestHandler<CallNextPatientComm
             }
 
             var seated = day.InChairOf(dentist.Id);
-            if (called is null && seated.Count == 0)
+            var twoChairs = dentist.WorksTwoChairs;
+            if (called is null && (seated.Count == 0 || twoChairs))
             {
                 return Result<WaitingRoomChangeDto>.Failure(WaitingRoomRefusals.Nobody, WaitingRoomRefusals.NobodyCode);
             }
 
             change = new WaitingRoomChangeDto { Changed = true };
-
-            foreach (var previous in seated)
-            {
-                change.Before.Add(WaitingRoomDay.Snapshot(previous));
-                previous.MoveInWaitingRoom(WaitingRoomLane.Done, day.NowUtc);
-                await _appointments.UpdateAsync(previous, cancellationToken);
-            }
+            var touched = new List<Appointment>();
 
             if (called is not null)
             {
                 change.Before.Add(WaitingRoomDay.Snapshot(called));
-                if (called.DoctorId is null && day.IsGroupPractice)
+                touched.Add(called);
+                // The seat rule is the board's own: one chair ends whoever sits in it, « 2 fauteuils » ends nobody.
+                var refused = await WaitingRoomSeating.SeatAsync(
+                    day, called, dentist.Id, change, touched, _appointments, cancellationToken);
+                if (refused is { } refusal)
                 {
-                    // An unassigned patient becomes the patient of the dentist who called him. Acknowledged as an
-                    // overlap: he is seen now, whatever that dentist had booked at this hour.
-                    called.SetDoctorId(dentist.Id);
-                    called.MarkBookedWithOverlap();
+                    return refusal;
                 }
 
-                called.MoveInWaitingRoom(WaitingRoomLane.InChair, day.NowUtc);
                 await _appointments.UpdateAsync(called, cancellationToken);
                 change.AppointmentId = called.Id;
                 change.PatientName = WaitingRoomDay.NameOf(called);
@@ -166,12 +168,22 @@ public class CallNextPatientCommandHandler : IRequestHandler<CallNextPatientComm
             }
             else
             {
+                // Nobody waits: « Patient suivant » is « Terminer la séance » (one chair only — see above).
+                foreach (var previous in seated)
+                {
+                    change.Before.Add(WaitingRoomDay.Snapshot(previous));
+                    previous.MoveInWaitingRoom(WaitingRoomLane.Done, day.NowUtc);
+                    await _appointments.UpdateAsync(previous, cancellationToken);
+                    touched.Add(previous);
+                }
+
                 change.AppointmentId = seated[0].Id;
                 change.PatientName = WaitingRoomDay.NameOf(seated[0]);
                 change.Lane = WaitingRoomLane.Done.ToString();
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            WaitingRoomDay.RecordAfter(change, touched);
         }
         catch (InvalidOperationException ex)
         {
@@ -182,6 +194,7 @@ public class CallNextPatientCommandHandler : IRequestHandler<CallNextPatientComm
             return Result<WaitingRoomChangeDto>.Failure(ErrorMessages.Generic, ex);
         }
 
+        WaitingRoomSideEffects.SyncCalendar(_googleSync, change, dentist.ClinicId);
         if (called is not null)
         {
             await RingReceptionAsync(dentist, called, cancellationToken);

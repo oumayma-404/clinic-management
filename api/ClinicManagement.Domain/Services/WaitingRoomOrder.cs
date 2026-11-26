@@ -25,9 +25,15 @@ public static class WaitingRoomOrder
             : appointment.AppointmentDateTime;
     }
 
-    /// <summary>The waiting patients in the order they will be called.</summary>
+    /// <summary>
+    /// The waiting patients in the order they will be called. « Passer en premier » (round 2, E2) goes before
+    /// everything else, the earliest-marked first — a toothache that walked in is seen before the 10:30 who came
+    /// early, and two of them are seen in the order reception said so.
+    /// </summary>
     public static IReadOnlyList<Appointment> Order(IEnumerable<Appointment> waiting) => waiting
-        .OrderBy(ReadyAt)
+        .OrderBy(a => a.UrgentAtUtc is null ? 1 : 0)
+        .ThenBy(a => a.UrgentAtUtc ?? DateTime.MaxValue)
+        .ThenBy(ReadyAt)
         .ThenBy(a => a.ArrivedAtUtc ?? a.AppointmentDateTime)
         .ThenBy(a => a.Id)
         .ToList();

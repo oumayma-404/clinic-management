@@ -43,11 +43,19 @@ public enum FicheVisitOutcome
 /// </summary>
 public static class FicheVisitCompletion
 {
-    /// <summary>The rule itself, pure so its truth table is testable without a repository.</summary>
+    /// <summary>
+    /// The rule itself, pure so its truth table is testable without a repository.
+    ///
+    /// <para>⚠️ <b>A patient « Au fauteuil » is never ended by the clock</b> (`salle-attente` round 2, C1): a séance
+    /// called at 10:25 for a 10:00 RDV is not over at 10:30, and a fiche saved at 10:35 used to mark it « Terminé »
+    /// with the patient still seated and the chair shown empty. While the board says he is in the chair, only
+    /// « Terminer la séance », « Patient suivant », « Terminer » or a payment end the visit.</para>
+    /// </summary>
     public static bool ShouldComplete(Appointment visit, bool finishSeance, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(visit);
-        return finishSeance || visit.HasEndedBy(nowUtc);
+        return finishSeance
+               || (visit.WaitingRoomLane != WaitingRoomLane.InChair && visit.HasEndedBy(nowUtc));
     }
 
     /// <summary>

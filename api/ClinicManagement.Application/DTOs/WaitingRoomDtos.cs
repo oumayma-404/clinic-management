@@ -18,6 +18,13 @@ public class WaitingRoomDto
     /// <summary>True for a dentist (or an admin standing for the only one): the « Patient suivant » button is theirs.</summary>
     public bool CanCallNext { get; set; }
 
+    /// <summary>
+    /// « Attente moyenne » (round 2, Q2): arrival → called in, in whole minutes, over today's patients already
+    /// called in on this board (its dentist filter included). Null when nobody has been called in with both times
+    /// known. It moves only when somebody goes in — never with the clock, never back to « — » when the room empties.
+    /// </summary>
+    public int? AverageWaitMinutes { get; set; }
+
     public List<WaitingRoomVisitDto> Upcoming { get; set; } = new();
 
     /// <summary>In the order they will be called (<c>WaitingRoomOrder</c>) — never re-sorted by the browser.</summary>
@@ -34,6 +41,12 @@ public class WaitingRoomDentistDto
 {
     public Guid DoctorId { get; set; }
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>On congé today: offered by no « quel praticien ? », and his cards say so (round 2, C10).</summary>
+    public bool AbsentToday { get; set; }
+
+    /// <summary>« 2 fauteuils » (round 2, Q3): « Patient suivant » ends nobody, two patients may be seated.</summary>
+    public bool WorksTwoChairs { get; set; }
 }
 
 /// <summary>One visit on the board.</summary>
@@ -42,8 +55,18 @@ public class WaitingRoomVisitDto
     public Guid AppointmentId { get; set; }
     public Guid PatientId { get; set; }
     public string PatientName { get; set; } = string.Empty;
+
+    /// <summary>The patient's number as recorded — « Qui arrive ? » finds today's RDV by phone too (round 2, C5).</summary>
+    public string? PatientPhone { get; set; }
+
     public Guid? DoctorId { get; set; }
     public string? DoctorName { get; set; }
+
+    /// <summary>
+    /// Why this visit's dentist cannot see him today (round 2, C10): <c>OnLeave</c> · <c>NotInTeam</c> (retired, or
+    /// no longer a practitioner of this cabinet). Null when the dentist is here or none is named.
+    /// </summary>
+    public string? DoctorUnavailable { get; set; }
 
     /// <summary>The chair this visit belongs to: its dentist, or the only one when it names none.</summary>
     public Guid? ChairDoctorId { get; set; }
@@ -63,6 +86,12 @@ public class WaitingRoomVisitDto
     /// <summary>When a « parti sans être vu » left — the board shows it in place of a chair time.</summary>
     public DateTime? LeftAtUtc { get; set; }
 
+    /// <summary>« Passer en premier » (round 2, E2): set while this patient goes before the queue.</summary>
+    public DateTime? UrgentAtUtc { get; set; }
+
+    /// <summary>« Pas là » (round 2, E1): when he was called and was not there; cleared at his next call.</summary>
+    public DateTime? CallSkippedAtUtc { get; set; }
+
     /// <summary>The acts booked, joined — « Détartrage + Composite ». Null when none was.</summary>
     public string? Acts { get; set; }
 
@@ -80,6 +109,13 @@ public class WaitingRoomChangeDto
     public bool Changed { get; set; }
 
     public List<WaitingRoomSnapshotDto> Before { get; set; } = new();
+
+    /// <summary>
+    /// Every visit it touched as it was <b>after</b> (round 2, C9). « Annuler » sends them back, and the server
+    /// refuses the undo when a card has moved since — a colleague's move, a payment, a fiche — instead of silently
+    /// overwriting it.
+    /// </summary>
+    public List<WaitingRoomSnapshotDto> After { get; set; } = new();
 
     /// <summary>Walk-ins this action created; undoing it takes them off the agenda and the board.</summary>
     public List<Guid> RemoveWalkInIds { get; set; } = new();
@@ -100,7 +136,11 @@ public class WaitingRoomChangeDto
     public bool UsedTodaysAppointment { get; set; }
 }
 
-/// <summary>A visit's board state at one instant — the unit an « Annuler » restores.</summary>
+/// <summary>
+/// A visit's board state at one instant — the unit an « Annuler » restores. Everything a board action can change,
+/// the RDV's own time included: the RDV takes the real chair time when the visit ends (Q1), and « Le recevoir
+/// aujourd'hui » moves a RDV from another day (C6).
+/// </summary>
 public class WaitingRoomSnapshotDto
 {
     public Guid AppointmentId { get; set; }
@@ -108,5 +148,23 @@ public class WaitingRoomSnapshotDto
     public DateTime? ArrivedAtUtc { get; set; }
     public DateTime? CalledInAtUtc { get; set; }
     public DateTime? LeftChairAtUtc { get; set; }
+    public DateTime? LeftUnseenAtUtc { get; set; }
+    public DateTime? UrgentAtUtc { get; set; }
+    public DateTime? CallSkippedAtUtc { get; set; }
     public Guid? DoctorId { get; set; }
+    public DateTime AppointmentDateTime { get; set; }
+    public int DurationMinutes { get; set; }
+    public DateTime? PlannedStartUtc { get; set; }
+    public int? PlannedDurationMinutes { get; set; }
+    public bool BookedWithOverlap { get; set; }
+}
+
+/// <summary>A patient's next RDV on another day — « Qui arrive ? » offers « Le recevoir aujourd'hui » (round 2, C6).</summary>
+public class WaitingRoomOtherDayVisitDto
+{
+    public Guid PatientId { get; set; }
+    public Guid AppointmentId { get; set; }
+    public DateTime AppointmentDateTime { get; set; }
+    public string? DoctorName { get; set; }
+    public string? Acts { get; set; }
 }

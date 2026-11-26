@@ -29,17 +29,20 @@ public class GetWaitingRoomQueryHandler : IRequestHandler<GetWaitingRoomQuery, R
     private readonly IDoctorRepository _doctors;
     private readonly ICurrentClinicResolver _clinicResolver;
     private readonly IClinicContext _clinicContext;
+    private readonly IDoctorLeaveRepository? _leaves;
 
     public GetWaitingRoomQueryHandler(
         IAppointmentRepository appointments,
         IDoctorRepository doctors,
         ICurrentClinicResolver clinicResolver,
-        IClinicContext clinicContext)
+        IClinicContext clinicContext,
+        IDoctorLeaveRepository? leaves = null)
     {
         _appointments = appointments;
         _doctors = doctors;
         _clinicResolver = clinicResolver;
         _clinicContext = clinicContext;
+        _leaves = leaves;
     }
 
     public async Task<Result<WaitingRoomDto>> Handle(GetWaitingRoomQuery request, CancellationToken cancellationToken)
@@ -52,9 +55,10 @@ public class GetWaitingRoomQueryHandler : IRequestHandler<GetWaitingRoomQuery, R
                 return Result<WaitingRoomDto>.Failure(clinic.Error ?? ErrorMessages.Generic);
             }
 
-            var day = await WaitingRoomDay.LoadAsync(clinic.Value, DateTime.UtcNow, _appointments, _doctors, cancellationToken);
+            var day = await WaitingRoomDay.LoadAsync(
+                clinic.Value, DateTime.UtcNow, _appointments, _doctors, cancellationToken, _leaves);
             var caller = await WaitingRoomCaller.ResolveDentistAsync(_clinicContext, _doctors, day, cancellationToken);
-            var names = day.Dentists.ToDictionary(d => d.Id, d => d.FullName);
+            var names = day.DoctorNames;
 
             bool Shown(Appointment a) =>
                 request.DoctorId is not { } only
@@ -64,12 +68,25 @@ public class GetWaitingRoomQueryHandler : IRequestHandler<GetWaitingRoomQuery, R
             var visits = day.Visits.Where(Shown).ToList();
             var waiting = WaitingRoomOrder.Order(visits.Where(a => a.WaitingRoomLane == WaitingRoomLane.Waiting));
 
+            // Q2: arrival → called in, over the patients of this board already called in with both times known.
+            var waits = visits
+                .Where(a => a.ArrivedAtUtc is not null && a.CalledInAtUtc is not null && a.CalledInAtUtc >= a.ArrivedAtUtc)
+                .Select(a => (a.CalledInAtUtc!.Value - a.ArrivedAtUtc!.Value).TotalMinutes)
+                .ToList();
+
             var dto = new WaitingRoomDto
             {
                 ServerNowUtc = day.NowUtc,
-                Dentists = day.Dentists.Select(d => new WaitingRoomDentistDto { DoctorId = d.Id, Name = d.FullName }).ToList(),
+                Dentists = day.Dentists.Select(d => new WaitingRoomDentistDto
+                {
+                    DoctorId = d.Id,
+                    Name = d.FullName,
+                    AbsentToday = day.OnLeaveToday.Contains(d.Id),
+                    WorksTwoChairs = d.WorksTwoChairs,
+                }).ToList(),
                 CallerDoctorId = caller?.Id,
                 CanCallNext = caller is not null,
+                AverageWaitMinutes = waits.Count == 0 ? null : (int)Math.Round(waits.Average(), MidpointRounding.AwayFromZero),
                 Upcoming = visits
                     .Where(a => a.WaitingRoomLane == WaitingRoomLane.Upcoming)
                     .OrderBy(a => a.AppointmentDateTime).ThenBy(a => a.Id)
@@ -98,7 +115,7 @@ public class GetWaitingRoomQueryHandler : IRequestHandler<GetWaitingRoomQuery, R
 
     /// <summary>When a finished card finished — its chair time, its departure, or (a fiche with no board) its last write.</summary>
     private static DateTime EndedAt(Appointment a) =>
-        a.LeftChairAtUtc ?? a.CancelledAt ?? a.UpdatedAt ?? a.AppointmentDateTime;
+        a.LeftChairAtUtc ?? a.LeftUnseenAtUtc ?? a.UpdatedAt ?? a.AppointmentDateTime;
 
     private static WaitingRoomVisitDto ToVisit(
         Appointment a, WaitingRoomDay day, IReadOnlyDictionary<Guid, string> names, int? position)
@@ -109,7 +126,9 @@ public class GetWaitingRoomQueryHandler : IRequestHandler<GetWaitingRoomQuery, R
             AppointmentId = a.Id,
             PatientId = a.PatientId!.Value,
             PatientName = WaitingRoomDay.NameOf(a),
+            PatientPhone = a.Patient?.PhoneNumber?.Value,
             DoctorId = a.DoctorId,
+            DoctorUnavailable = day.DoctorUnavailable(a),
             DoctorName = a.DoctorId is { } id && names.TryGetValue(id, out var name) ? name : a.DoctorName,
             ChairDoctorId = day.ChairOf(a),
             AppointmentDateTime = a.AppointmentDateTime,
@@ -120,7 +139,9 @@ public class GetWaitingRoomQueryHandler : IRequestHandler<GetWaitingRoomQuery, R
             ArrivedAtUtc = a.ArrivedAtUtc,
             CalledInAtUtc = a.CalledInAtUtc,
             LeftChairAtUtc = a.LeftChairAtUtc,
-            LeftAtUtc = a.WaitingRoomLane == WaitingRoomLane.Left ? a.CancelledAt : null,
+            LeftAtUtc = a.WaitingRoomLane == WaitingRoomLane.Left ? a.LeftUnseenAtUtc : null,
+            UrgentAtUtc = a.UrgentAtUtc,
+            CallSkippedAtUtc = a.CallSkippedAtUtc,
             Acts = acts.Count == 0 ? null : string.Join(" + ", acts),
             Position = position,
         };

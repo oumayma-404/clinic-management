@@ -125,6 +125,18 @@ public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
         builder.Property(a => a.IsWalkIn)
             .IsRequired();
 
+        // Round 2 (`features/salle-attente/round-2.md`): « parti sans être vu », « passer en premier », « pas là », and
+        // the booking kept while the RDV shows the real chair time. All nullable with no default — a visit nobody
+        // touched on the board genuinely has none. `PlannedDuration` is ticks, like `Duration`.
+        builder.Property(a => a.LeftUnseenAtUtc);
+        builder.Property(a => a.UrgentAtUtc);
+        builder.Property(a => a.CallSkippedAtUtc);
+        builder.Property(a => a.PlannedStartUtc);
+        builder.Property(a => a.PlannedDuration)
+            .HasConversion(
+                v => v.HasValue ? v.Value.Ticks : (long?)null,
+                v => v.HasValue ? TimeSpan.FromTicks(v.Value) : null);
+
         builder.Ignore(a => a.WaitingRoomLane);
 
         builder.Property(a => a.CreatedAt)

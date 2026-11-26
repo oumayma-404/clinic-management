@@ -141,4 +141,11 @@ public class AppointmentWaitingRoomDto
     public DateTime? CalledInAtUtc { get; set; }
     public DateTime? LeftChairAtUtc { get; set; }
     public bool IsWalkIn { get; set; }
+
+    /// <summary>
+    /// The booked start while the RDV shows the real chair time (round 2, Q1) — the agenda prints « prévu 10:00 ».
+    /// Null when the RDV holds its booking.
+    /// </summary>
+    public DateTime? PlannedStartUtc { get; set; }
+    public int? PlannedDurationMinutes { get; set; }
 }

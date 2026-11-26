@@ -570,6 +570,7 @@ public class Appointment : AggregateRoot<Guid>
         }
 
         Status = AppointmentStatus.Completed;
+        SettleChairTime();
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -605,6 +606,7 @@ public class Appointment : AggregateRoot<Guid>
         }
 
         Status = AppointmentStatus.Completed;
+        SettleChairTime();
         UpdatedAt = DateTime.UtcNow;
         return VisitCompletionOutcome.Completed;
     }
@@ -626,6 +628,10 @@ public class Appointment : AggregateRoot<Guid>
         CancellationReason = reason;
         CancelledAt = DateTime.UtcNow;
         LateArrivalMinutes = null;
+        // A cancellation made here leaves the salle d'attente: only the board's « Parti sans être vu » says the
+        // patient left unseen (round 2, C3).
+        LeftUnseenAtUtc = null;
+        SettleChairTime();
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -637,8 +643,12 @@ public class Appointment : AggregateRoot<Guid>
             return;
         }
 
+        // « Absent » for a patient reception had marked in the salle d'attente: he came and left unseen (round 2, C3)
+        // — he used to vanish from the board with nothing said.
+        LeftUnseenAtUtc = WaitingRoomLane == WaitingRoomLane.Waiting ? DateTime.UtcNow : null;
         Status = AppointmentStatus.NoShow;
         LateArrivalMinutes = null;
+        SettleChairTime();
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -702,6 +712,20 @@ public class Appointment : AggregateRoot<Guid>
         // Compared to the minute: a form rebuilds the instant without its seconds, which is not a move.
         var moved = ToMinute(newDateTime) != ToMinute(AppointmentDateTime);
         AppointmentDateTime = newDateTime;
+        if (moved)
+        {
+            // The time somebody just set on the agenda is the booking now.
+            ForgetPlannedTime();
+        }
+
+        // Another day: what the salle d'attente knew was about today (round 2, C2). Left in place, the patient read
+        // « en salle d'attente » — or « au fauteuil » — on tomorrow's board, timed from today's arrival.
+        if (!sameClinicDay)
+        {
+            ClearPresence();
+            IsWalkIn = false;
+        }
+
         // `AwaitingClosure` joins NoShow for the same reason: both are statements about a slot that has passed,
         // and carrying either onto a new date would badge a visit that has not happened yet as one that has.
         if (Status is AppointmentStatus.NoShow or AppointmentStatus.AwaitingClosure
@@ -741,6 +765,9 @@ public class Appointment : AggregateRoot<Guid>
         CancellationReason = null;
         CancelledAt = null;
         LateArrivalMinutes = null;
+        // A visit brought back from « Annulé » is a booking again, not the presence it had before.
+        ClearPresence();
+        ForgetPlannedTime();
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -786,6 +813,11 @@ public class Appointment : AggregateRoot<Guid>
     {
         if (duration <= TimeSpan.Zero)
             throw new ArgumentException("Duration must be greater than zero", nameof(duration));
+
+        if (Duration != duration)
+        {
+            ForgetPlannedTime();
+        }
 
         Duration = duration;
         UpdatedAt = DateTime.UtcNow;
@@ -986,8 +1018,10 @@ public class Appointment : AggregateRoot<Guid>
 
     /// <summary>
     /// When reception said the patient is in the salle d'attente (`salle-attente`) — null when nobody did, which
-    /// is every visit of a cabinet that never uses the board. <b>Everything the board changes is keyed on this
-    /// being set</b>, so such a cabinet sees the job, the agenda and « À clôturer » behave exactly as before.
+    /// is every visit of a cabinet that never uses the board, and every card moved on the board without anybody
+    /// saying when he came (round 2, C8: an unknown time stays unknown rather than being stamped with the minute of
+    /// the drag). <b>Everything the board changes is keyed on a presence time being set</b>, so a cabinet that never
+    /// uses the board sees the job, the agenda and « À clôturer » behave exactly as before.
     /// </summary>
     public DateTime? ArrivedAtUtc { get; private set; }
 
@@ -996,7 +1030,7 @@ public class Appointment : AggregateRoot<Guid>
 
     /// <summary>
     /// When the patient left the chair. Null while in it — and null, never invented, when nobody said: the job that
-    /// closes yesterday's leftovers does not make up a time.
+    /// closes yesterday's leftovers does not make up a time, and neither does a card dragged to « Terminé ».
     /// </summary>
     public DateTime? LeftChairAtUtc { get; private set; }
 
@@ -1005,6 +1039,29 @@ public class Appointment : AggregateRoot<Guid>
     /// it is the one card the board refuses to move to « À venir ».
     /// </summary>
     public bool IsWalkIn { get; private set; }
+
+    /// <summary>
+    /// When the patient left without being seen — the board's « Parti sans être vu », or « Absent » chosen for a
+    /// patient who was sitting in the salle d'attente (round 2, C3). <b>This, and not the cancellation, is what puts
+    /// a card under « Parti sans être vu »</b>: a visit cancelled from the agenda leaves the board, whether or not the
+    /// patient had arrived — it used to read « Parti sans être vu » even for a visit already seen.
+    /// </summary>
+    public DateTime? LeftUnseenAtUtc { get; private set; }
+
+    /// <summary>« Passer en premier » (round 2, E2) — when reception put this patient ahead of the queue.</summary>
+    public DateTime? UrgentAtUtc { get; private set; }
+
+    /// <summary>« Pas là » (round 2, E1) — when the patient was called and was not there. Cleared at his next call.</summary>
+    public DateTime? CallSkippedAtUtc { get; private set; }
+
+    /// <summary>
+    /// The booked start, kept while the RDV shows the real chair time (round 2, Q1). Null while the RDV holds its
+    /// booking — which is every RDV but a visit finished on the board with a known call and departure.
+    /// </summary>
+    public DateTime? PlannedStartUtc { get; private set; }
+
+    /// <summary>The booked length, kept beside <see cref="PlannedStartUtc"/>.</summary>
+    public TimeSpan? PlannedDuration { get; private set; }
 
     /// <summary>The motif a « Parti sans être vu » cancellation carries. Read for display, never branched on.</summary>
     public const string LeftWithoutBeingSeenReason = "Parti sans être vu";
@@ -1017,7 +1074,7 @@ public class Appointment : AggregateRoot<Guid>
     public const string NoPatientOnBoardMessage = "Un créneau sans patient n'a pas sa place dans la salle d'attente.";
 
     /// <summary>
-    /// Where this visit sits on the board, derived from the status and the three times — the <b>one</b> owner of
+    /// Where this visit sits on the board, derived from the status and the presence times — the <b>one</b> owner of
     /// that question, read by the board, the doctor's queue and the job's skip alike.
     ///
     /// <para>The status decides first for the three states that are answers (Completed, Cancelled, NoShow); the
@@ -1035,9 +1092,8 @@ public class Appointment : AggregateRoot<Guid>
 
             return Status switch
             {
-                // Arrived + cancelled is « parti sans être vu »; a cancellation made from the agenda never arrived.
-                AppointmentStatus.Cancelled => ArrivedAtUtc is null ? WaitingRoomLane.None : WaitingRoomLane.Left,
-                AppointmentStatus.NoShow => WaitingRoomLane.None,
+                AppointmentStatus.Cancelled or AppointmentStatus.NoShow =>
+                    LeftUnseenAtUtc is null ? WaitingRoomLane.None : WaitingRoomLane.Left,
                 AppointmentStatus.Completed => WaitingRoomLane.Done,
                 _ => CalledInAtUtc is not null
                     ? (LeftChairAtUtc is not null ? WaitingRoomLane.Done : WaitingRoomLane.InChair)
@@ -1070,6 +1126,34 @@ public class Appointment : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// « Le recevoir aujourd'hui » (round 2, C6): a patient who turns up today for a RDV booked on another day. The
+    /// RDV itself moves to now and is marked arrived — never a second visit beside it, which is how he would come
+    /// back on Thursday too. Like a walk-in it takes no slot, so it is an acknowledged overlap.
+    /// </summary>
+    public void ReceiveToday(DateTime nowUtc)
+    {
+        if (PatientId is null)
+        {
+            throw new InvalidOperationException(NoPatientOnBoardMessage);
+        }
+
+        if (Status is not (AppointmentStatus.Scheduled or AppointmentStatus.Confirmed))
+        {
+            throw new InvalidOperationException(
+                $"Ce rendez-vous est « {FrenchLabel(Status)} » : il ne peut pas être avancé à aujourd'hui.");
+        }
+
+        AppointmentDateTime = ToMinute(nowUtc);
+        ClearPresence();
+        PlannedStartUtc = null;
+        PlannedDuration = null;
+        ArrivedAtUtc = nowUtc;
+        LateArrivalMinutes = null;
+        BookedWithOverlap = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
     /// Move this visit to <paramref name="target"/> on the board. Every lane reaches every other one (`salle-attente`
     /// D6, « all actions reversible ») with one refusal — a walk-in back to « À venir ». Returns false when the
     /// visit is already there.
@@ -1078,7 +1162,11 @@ public class Appointment : AggregateRoot<Guid>
     /// edge: <see cref="ManualNextStatusesFrom"/> derives the status control from it, so an edge added for the board
     /// (« Terminé » → « En cours ») would be offered in every RDV window. The board's own guard is the caller's
     /// « today only » — a reversal undoes the day's presence, never a closed past visit — and nothing here touches a
-    /// fiche, a note or a payment: only the status and the presence times move.</para>
+    /// fiche, a note or a payment: only the status, the presence times and (Q1) the RDV's real time move.</para>
+    ///
+    /// <para>⚠️ <b>A move never invents a time it does not know</b> (round 2, C8). « Faire entrer » straight from
+    /// « À venir » records the call and no arrival; a card dragged to « Terminé » from anywhere but the chair records
+    /// no call and no departure. Those visits stay out of « Attente moyenne » and keep their booked RDV time.</para>
     /// </summary>
     public bool MoveInWaitingRoom(WaitingRoomLane target, DateTime nowUtc)
     {
@@ -1105,40 +1193,44 @@ public class Appointment : AggregateRoot<Guid>
                     throw new InvalidOperationException(WalkInHasNoSlotMessage);
                 }
 
-                ArrivedAtUtc = null;
-                CalledInAtUtc = null;
-                LeftChairAtUtc = null;
+                ClearPresence();
                 SetStatusFromWaitingRoom(AppointmentStatus.Scheduled);
                 break;
 
             case WaitingRoomLane.Waiting:
+                // He is here: back from the chair, or arriving. The arrival kept is the first one recorded.
                 ArrivedAtUtc ??= nowUtc;
                 CalledInAtUtc = null;
                 LeftChairAtUtc = null;
+                LeftUnseenAtUtc = null;
                 SetStatusFromWaitingRoom(AppointmentStatus.Scheduled);
                 break;
 
             case WaitingRoomLane.InChair:
-                ArrivedAtUtc ??= nowUtc;
                 // Back from « Terminé » keeps the time he was called: re-opening a visit ended by mistake must not
                 // make the chair time start again.
                 CalledInAtUtc ??= nowUtc;
-
                 LeftChairAtUtc = null;
+                LeftUnseenAtUtc = null;
+                CallSkippedAtUtc = null;
                 SetStatusFromWaitingRoom(AppointmentStatus.InProgress);
                 break;
 
             case WaitingRoomLane.Done:
-                ArrivedAtUtc ??= nowUtc;
-                CalledInAtUtc ??= nowUtc;
-                LeftChairAtUtc ??= nowUtc;
+                // Only a patient who was in the chair has a known end.
+                if (CalledInAtUtc is not null)
+                {
+                    LeftChairAtUtc ??= nowUtc;
+                }
+
+                LeftUnseenAtUtc = null;
                 SetStatusFromWaitingRoom(AppointmentStatus.Completed);
                 break;
 
             case WaitingRoomLane.Left:
-                ArrivedAtUtc ??= nowUtc;
                 CalledInAtUtc = null;
                 LeftChairAtUtc = null;
+                LeftUnseenAtUtc = nowUtc;
                 SetStatusFromWaitingRoom(AppointmentStatus.Cancelled);
                 CancellationReason = LeftWithoutBeingSeenReason;
                 CancelledAt = nowUtc;
@@ -1149,41 +1241,103 @@ public class Appointment : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// « Pas là » (round 2, E1): the patient was called and is not there — out at the pharmacy, on the phone. He goes
+    /// back to the salle d'attente and <b>keeps his place</b> (his ready time is unchanged), tagged until his next
+    /// call. A patient called straight from « À venir » has no recorded arrival, so he goes back there.
+    /// </summary>
+    public void SkipCall(DateTime nowUtc)
+    {
+        if (WaitingRoomLane != WaitingRoomLane.InChair)
+        {
+            throw new InvalidOperationException("Ce patient n'est pas au fauteuil.");
+        }
+
+        CalledInAtUtc = null;
+        LeftChairAtUtc = null;
+        CallSkippedAtUtc = nowUtc;
+        SetStatusFromWaitingRoom(AppointmentStatus.Scheduled);
+    }
+
+    /// <summary>
+    /// « Passer en premier » (round 2, E2) — or its undo with <paramref name="urgent"/> false. Only a patient in the
+    /// salle d'attente has a place in a queue to jump. Returns whether anything changed.
+    /// </summary>
+    public bool SetUrgent(bool urgent, DateTime nowUtc)
+    {
+        if (WaitingRoomLane != WaitingRoomLane.Waiting)
+        {
+            throw new InvalidOperationException("Seul un patient en salle d'attente peut passer en premier.");
+        }
+
+        if (urgent == UrgentAtUtc.HasValue)
+        {
+            return false;
+        }
+
+        UrgentAtUtc = urgent ? nowUtc : null;
+        UpdatedAt = DateTime.UtcNow;
+        return true;
+    }
+
+    /// <summary>Everything a board action can change on this visit — what « Annuler » restores and compares.</summary>
+    public WaitingRoomState CaptureWaitingRoomState() => new(
+        WaitingRoomLane,
+        ArrivedAtUtc,
+        CalledInAtUtc,
+        LeftChairAtUtc,
+        LeftUnseenAtUtc,
+        UrgentAtUtc,
+        CallSkippedAtUtc,
+        DoctorId,
+        AppointmentDateTime,
+        Duration,
+        PlannedStartUtc,
+        PlannedDuration,
+        BookedWithOverlap);
+
+    /// <summary>
     /// Put the board back exactly as a snapshot says — the « Annuler » of every board action. Validated as a
     /// coherent board state (the times agree with the lane and with each other), because the snapshot travels
-    /// through the browser.
+    /// through the browser. The practitioner is the caller's business: only it knows the cabinet's dentists.
     /// </summary>
-    public void RestoreWaitingRoom(WaitingRoomLane lane, DateTime? arrivedAtUtc, DateTime? calledInAtUtc, DateTime? leftChairAtUtc, DateTime nowUtc)
+    public void RestoreWaitingRoom(WaitingRoomState state, DateTime nowUtc)
     {
+        ArgumentNullException.ThrowIfNull(state);
         if (PatientId is null)
         {
             throw new InvalidOperationException(NoPatientOnBoardMessage);
         }
 
-        var coherent = lane switch
+        var coherent = state.Lane switch
         {
-            WaitingRoomLane.Upcoming => !IsWalkIn && arrivedAtUtc is null && calledInAtUtc is null && leftChairAtUtc is null,
-            WaitingRoomLane.Waiting => arrivedAtUtc is not null && calledInAtUtc is null && leftChairAtUtc is null,
-            WaitingRoomLane.InChair => arrivedAtUtc is not null && calledInAtUtc is not null && leftChairAtUtc is null,
-            WaitingRoomLane.Done => leftChairAtUtc is null || calledInAtUtc is not null,
-            WaitingRoomLane.Left => arrivedAtUtc is not null && calledInAtUtc is null && leftChairAtUtc is null,
+            WaitingRoomLane.Upcoming => !IsWalkIn && state.ArrivedAtUtc is null && state.CalledInAtUtc is null
+                                        && state.LeftChairAtUtc is null && state.LeftUnseenAtUtc is null,
+            WaitingRoomLane.Waiting => state.ArrivedAtUtc is not null && state.CalledInAtUtc is null
+                                       && state.LeftChairAtUtc is null && state.LeftUnseenAtUtc is null,
+            WaitingRoomLane.InChair => state.CalledInAtUtc is not null && state.LeftChairAtUtc is null
+                                       && state.LeftUnseenAtUtc is null,
+            WaitingRoomLane.Done => (state.LeftChairAtUtc is null || state.CalledInAtUtc is not null)
+                                    && state.LeftUnseenAtUtc is null,
+            WaitingRoomLane.Left => state.CalledInAtUtc is null && state.LeftChairAtUtc is null
+                                    && state.LeftUnseenAtUtc is not null,
             _ => false,
         };
 
-        var ordered = (arrivedAtUtc is null || calledInAtUtc is null || arrivedAtUtc <= calledInAtUtc)
-                      && (calledInAtUtc is null || leftChairAtUtc is null || calledInAtUtc <= leftChairAtUtc)
-                      && (leftChairAtUtc ?? calledInAtUtc ?? arrivedAtUtc ?? nowUtc) <= nowUtc.AddMinutes(1);
+        var latest = nowUtc.AddMinutes(1);
+        var ordered = (state.ArrivedAtUtc is null || state.CalledInAtUtc is null || state.ArrivedAtUtc <= state.CalledInAtUtc)
+                      && (state.CalledInAtUtc is null || state.LeftChairAtUtc is null || state.CalledInAtUtc <= state.LeftChairAtUtc)
+                      && new[] { state.ArrivedAtUtc, state.CalledInAtUtc, state.LeftChairAtUtc, state.LeftUnseenAtUtc, state.UrgentAtUtc, state.CallSkippedAtUtc }
+                          .All(t => t is null || t <= latest)
+                      && state.Duration > TimeSpan.Zero
+                      && (state.PlannedDuration is null || state.PlannedDuration > TimeSpan.Zero)
+                      && (state.PlannedStartUtc is null) == (state.PlannedDuration is null);
 
         if (!coherent || !ordered)
         {
             throw new InvalidOperationException("Cet état de la salle d'attente n'est pas cohérent.");
         }
 
-        ArrivedAtUtc = arrivedAtUtc;
-        CalledInAtUtc = calledInAtUtc;
-        LeftChairAtUtc = leftChairAtUtc;
-
-        switch (lane)
+        switch (state.Lane)
         {
             case WaitingRoomLane.Upcoming:
             case WaitingRoomLane.Waiting:
@@ -1198,9 +1352,23 @@ public class Appointment : AggregateRoot<Guid>
             case WaitingRoomLane.Left:
                 SetStatusFromWaitingRoom(AppointmentStatus.Cancelled);
                 CancellationReason = LeftWithoutBeingSeenReason;
-                CancelledAt = nowUtc;
+                CancelledAt = state.LeftUnseenAtUtc;
                 break;
         }
+
+        // After the status write, which settles the RDV's time on its own rule: the snapshot is the truth here.
+        ArrivedAtUtc = state.ArrivedAtUtc;
+        CalledInAtUtc = state.CalledInAtUtc;
+        LeftChairAtUtc = state.LeftChairAtUtc;
+        LeftUnseenAtUtc = state.LeftUnseenAtUtc;
+        UrgentAtUtc = state.UrgentAtUtc;
+        CallSkippedAtUtc = state.CallSkippedAtUtc;
+        AppointmentDateTime = state.AppointmentDateTime;
+        Duration = state.Duration;
+        PlannedStartUtc = state.PlannedStartUtc;
+        PlannedDuration = state.PlannedDuration;
+        BookedWithOverlap = state.BookedWithOverlap;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     /// <summary>
@@ -1236,6 +1404,17 @@ public class Appointment : AggregateRoot<Guid>
         return true;
     }
 
+    /// <summary>The board's presence facts, all forgotten — a RDV that has not happened yet.</summary>
+    private void ClearPresence()
+    {
+        ArrivedAtUtc = null;
+        CalledInAtUtc = null;
+        LeftChairAtUtc = null;
+        LeftUnseenAtUtc = null;
+        UrgentAtUtc = null;
+        CallSkippedAtUtc = null;
+    }
+
     /// <summary>
     /// The board's status write. Leaving « Annulé » forgets its motif; a status that cannot carry a retard drops it
     /// (<see cref="LateArrivalStatuses"/> — the arrival time now answers « en retard de combien ? »).
@@ -1254,7 +1433,112 @@ public class Appointment : AggregateRoot<Guid>
             LateArrivalMinutes = null;
         }
 
+        SettleChairTime();
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// The RDV takes the real chair time once the visit is over (round 2, Q1): a visit called at 10:07 and finished
+    /// at 10:21 reads 10:07–10:22 on the agenda, in Google and in the free-slot search, and its booking is kept in
+    /// <see cref="PlannedStartUtc"/> for « prévu 10:00 ». Anything that re-opens the visit puts the booking back.
+    ///
+    /// <para><b>Only when both ends are known</b> — a call and a departure the board recorded. A visit completed by
+    /// its fiche alone, or dragged to « Terminé » from the waiting room, keeps its booked time (C8).</para>
+    ///
+    /// <para>⚠️ <b>The real interval is an acknowledged overlap</b>, and that is load-bearing: a séance that started
+    /// late overlaps the next booked RDV of the same dentist, and without it the double-booking constraint would
+    /// refuse « Patient suivant » with a 409. It is never cleared when the booking comes back either — the visit
+    /// happened today, and a reopened séance must not be refused because somebody booked the minutes it had freed.
+    /// The agenda's own collision check still sees the row.</para>
+    /// </summary>
+    private void SettleChairTime()
+    {
+        if (Status == AppointmentStatus.Completed && CalledInAtUtc is { } called && LeftChairAtUtc is { } left)
+        {
+            if (PlannedStartUtc is null)
+            {
+                PlannedStartUtc = AppointmentDateTime;
+                PlannedDuration = Duration;
+            }
+
+            var start = ToMinute(called);
+            var end = CeilToMinute(left);
+            if (end <= start)
+            {
+                end = start.AddMinutes(1);
+            }
+
+            AppointmentDateTime = start;
+            Duration = end - start;
+            BookedWithOverlap = true;
+            return;
+        }
+
+        if (PlannedStartUtc is { } planned)
+        {
+            AppointmentDateTime = planned;
+            Duration = PlannedDuration ?? Duration;
+            PlannedStartUtc = null;
+            PlannedDuration = null;
+        }
+    }
+
+    /// <summary>The booking becomes whatever the agenda just set: a user's move or resize is the new plan.</summary>
+    private void ForgetPlannedTime()
+    {
+        PlannedStartUtc = null;
+        PlannedDuration = null;
+    }
+
+    private static DateTime CeilToMinute(DateTime value)
+    {
+        var floor = ToMinute(value);
+        return floor == value ? floor : floor.AddMinutes(1);
     }
 }
 
+/// <summary>
+/// One visit's board state at one instant (`salle-attente` round 2, C9) — what « Annuler » puts back, and what it
+/// compares with the visit as it is now, so an undo never overwrites a move somebody made since.
+/// </summary>
+public sealed record WaitingRoomState(
+    WaitingRoomLane Lane,
+    DateTime? ArrivedAtUtc,
+    DateTime? CalledInAtUtc,
+    DateTime? LeftChairAtUtc,
+    DateTime? LeftUnseenAtUtc,
+    DateTime? UrgentAtUtc,
+    DateTime? CallSkippedAtUtc,
+    Guid? DoctorId,
+    DateTime AppointmentDateTime,
+    TimeSpan Duration,
+    DateTime? PlannedStartUtc,
+    TimeSpan? PlannedDuration,
+    bool BookedWithOverlap)
+{
+    /// <summary>
+    /// Same board state, to the millisecond — a time read back from PostgreSQL has lost its sub-microsecond ticks,
+    /// and one that travelled through the browser as JSON may have lost more, so exact equality would refuse every
+    /// undo. The status is deliberately not compared: the progress job may write « En cours » on a card nobody
+    /// moved, and the lane is what the board shows.
+    /// </summary>
+    public bool SameAs(WaitingRoomState other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return Lane == other.Lane
+               && Near(ArrivedAtUtc, other.ArrivedAtUtc)
+               && Near(CalledInAtUtc, other.CalledInAtUtc)
+               && Near(LeftChairAtUtc, other.LeftChairAtUtc)
+               && Near(LeftUnseenAtUtc, other.LeftUnseenAtUtc)
+               && Near(UrgentAtUtc, other.UrgentAtUtc)
+               && Near(CallSkippedAtUtc, other.CallSkippedAtUtc)
+               && DoctorId == other.DoctorId
+               && Near(AppointmentDateTime, other.AppointmentDateTime)
+               && Duration == other.Duration
+               && Near(PlannedStartUtc, other.PlannedStartUtc)
+               && PlannedDuration == other.PlannedDuration;
+    }
+
+    private static bool Near(DateTime? a, DateTime? b) =>
+        a is null || b is null ? a is null && b is null : Math.Abs((a.Value - b.Value).TotalMilliseconds) < 1;
+}

@@ -64,6 +64,12 @@ public class DoctorConfiguration : IEntityTypeConfiguration<Doctor>
             .IsRequired()
             .HasDefaultValue(true);
 
+        // « 2 fauteuils » (`salle-attente` round 2, Q3). ⚠️ No `HasDefaultValue`, like `Appointment.IsWalkIn`: the
+        // archive and the PC de secours skip store-generated columns, so a defaulted column would restore every
+        // two-chair dentist as one-chair. The migration supplies `false` for existing rows.
+        builder.Property(d => d.WorksTwoChairs)
+            .IsRequired();
+
         builder.HasOne(d => d.Clinic)
             .WithMany()
             .HasForeignKey(d => d.ClinicId)

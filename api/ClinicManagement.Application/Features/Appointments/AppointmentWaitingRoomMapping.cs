@@ -16,5 +16,7 @@ public static class AppointmentWaitingRoomMapping
         CalledInAtUtc = appointment.CalledInAtUtc,
         LeftChairAtUtc = appointment.LeftChairAtUtc,
         IsWalkIn = appointment.IsWalkIn,
+        PlannedStartUtc = appointment.PlannedStartUtc,
+        PlannedDurationMinutes = appointment.PlannedDuration is { } planned ? (int)planned.TotalMinutes : null,
     };
 }
