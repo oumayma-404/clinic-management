@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { FileText, FolderOpen, Images, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -20,7 +20,7 @@ import {
   type PlanPatient,
   type PlanProgress,
 } from "@/lib/legacy-import/plan"
-import { runImport, type RowResult } from "@/lib/legacy-import/run"
+import { runImport, type PauseReason, type RowResult } from "@/lib/legacy-import/run"
 import { FolderChoiceCard } from "./folder-choice-card"
 import { PlanPatientCard } from "./plan-patient-card"
 
@@ -42,15 +42,56 @@ export function LegacyImportScreen() {
   const [running, setRunning] = useState(false)
   const [finished, setFinished] = useState(false)
   const [stopped, setStopped] = useState<string | null>(null)
-  /** When the server last asked to slow down, and for how long — the footer says so while it lasts. */
-  const [pause, setPause] = useState<{ until: number; seconds: number } | null>(null)
+  /** The run's last pause — the server asked to slow down, or a call was lost — while it lasts. */
+  const [pause, setPause] = useState<{ until: number; seconds: number; reason: PauseReason } | null>(null)
   const controller = useRef<AbortController | null>(null)
+  /** Row updates since the last paint: a run of a thousand patients reports many a second, painted twice a second. */
+  const pendingRows = useRef<Record<string, RowResult>>({})
 
   useEffect(() => {
     if (!running) return
     const warn = (event: BeforeUnloadEvent) => event.preventDefault()
     window.addEventListener("beforeunload", warn)
     return () => window.removeEventListener("beforeunload", warn)
+  }, [running])
+
+  // An import left to run on its own must not be stopped by the screen going to sleep. The browser grants the lock
+  // to a visible page only, and drops it when the page is hidden, so it is asked again when the page comes back.
+  useEffect(() => {
+    if (!running || typeof navigator === "undefined" || !("wakeLock" in navigator)) return
+    let lock: WakeLockSentinel | null = null
+    let active = true
+    const release = async (held: WakeLockSentinel | null) => {
+      try {
+        await held?.release()
+      } catch {
+        // Already released by the browser (the page was hidden): nothing to give back.
+      }
+    }
+    const acquire = async () => {
+      if (document.visibilityState !== "visible") return
+      try {
+        const granted = await navigator.wakeLock.request("screen")
+        if (active) lock = granted
+        else await release(granted)
+      } catch {
+        // Refused (battery saver, a policy): the import runs the same; only the screen may go to sleep.
+      }
+    }
+    void acquire()
+    const onVisible = () => void acquire()
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      active = false
+      document.removeEventListener("visibilitychange", onVisible)
+      void release(lock)
+    }
+  }, [running])
+
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(flushRows, 500)
+    return () => window.clearInterval(timer)
   }, [running])
 
   const analyse = async () => {
@@ -77,18 +118,33 @@ export function LegacyImportScreen() {
     setStopped(null)
   }
 
-  const patchPatient = (key: string, patch: Partial<PlanPatient>) =>
-    setPlan((p) => p && { ...p, patients: p.patients.map((x) => (x.key === key ? { ...x, ...patch } : x)) })
+  const patchPatient = useCallback(
+    (key: string, patch: Partial<PlanPatient>) =>
+      setPlan((p) => p && { ...p, patients: p.patients.map((x) => (x.key === key ? { ...x, ...patch } : x)) }),
+    [],
+  )
 
-  const chooseFolder = (name: string, key: string | null, label?: string) =>
-    setPlan((p) => {
-      if (!p) return p
-      const cabinet =
-        key?.startsWith(CABINET_PREFIX) && label && !p.cabinet.some((c) => c.key === key)
-          ? [...p.cabinet, { key, id: key.slice(CABINET_PREFIX.length), label, number: null }]
-          : p.cabinet
-      return { ...p, cabinet, folders: p.folders.map((f) => (f.name === name ? { ...f, choice: key } : f)) }
-    })
+  /** Paints the row updates received since the last paint. */
+  function flushRows() {
+    const rows = pendingRows.current
+    if (!Object.keys(rows).length) return
+    pendingRows.current = {}
+    setResults((prev) => ({ ...prev, ...rows }))
+  }
+
+  /** Stable, so a run's repaint leaves every folder card alone (`FolderChoiceCard` is memoised). */
+  const chooseFolder = useCallback(
+    (name: string, key: string | null, label?: string) =>
+      setPlan((p) => {
+        if (!p) return p
+        const cabinet =
+          key?.startsWith(CABINET_PREFIX) && label && !p.cabinet.some((c) => c.key === key)
+            ? [...p.cabinet, { key, id: key.slice(CABINET_PREFIX.length), label, number: null }]
+            : p.cabinet
+        return { ...p, cabinet, folders: p.folders.map((f) => (f.name === name ? { ...f, choice: key } : f)) }
+      }),
+    [],
+  )
 
   const start = async () => {
     if (!plan || refuseInDemo(isDemo)) return
@@ -97,13 +153,22 @@ export function LegacyImportScreen() {
     setRunning(true)
     setStopped(null)
     const known = Object.fromEntries(Object.entries(results).map(([k, r]) => [k, r.patientId]))
+    // A row finished by an earlier run on this page is not asked again — unless files still wait for space.
+    const done = new Set(
+      Object.entries(results)
+        .filter(([, r]) => r.state === "done" && r.waitingForSpace === 0)
+        .map(([k]) => k),
+    )
     try {
       const stop = await runImport(plan, {
         policy,
         signal: abort.signal,
         known,
-        onRow: (key, result) => setResults((prev) => ({ ...prev, [key]: result })),
-        onPause: (seconds) => setPause({ until: Date.now() + seconds * 1000, seconds }),
+        done,
+        onRow: (key, result) => {
+          pendingRows.current[key] = result
+        },
+        onPause: (seconds, reason) => setPause({ until: Date.now() + seconds * 1000, seconds, reason }),
       })
       setStopped(stop)
       setFinished(true)
@@ -111,6 +176,7 @@ export function LegacyImportScreen() {
     } catch (error) {
       showErrorToast(error)
     } finally {
+      flushRows()
       setRunning(false)
       setPause(null)
       controller.current = null
@@ -119,6 +185,27 @@ export function LegacyImportScreen() {
 
   const summary = useMemo(() => (plan ? summarise(plan) : null), [plan])
   const failed = Object.values(results).filter((r) => r.state === "failed").length
+  /** Each card's inputs, built once per plan — a results update repaints only the cards whose row changed. */
+  const cards = useMemo(
+    () =>
+      plan
+        ? plan.patients
+            .filter((p) => !p.mergeInto)
+            .map((p) => ({
+              patient: p,
+              merged: plan.patients.filter((m) => m.mergeInto === p.key),
+              files: filesFor(plan, p.key),
+              folders: plan.folders.filter((f) => f.choice === p.key).map((f) => f.name),
+              historyCount: plan.patients.filter((m) => (m.mergeInto ?? m.key) === p.key).reduce((n, m) => n + m.history.length, 0),
+            }))
+        : [],
+    [plan],
+  )
+  const rowsTotal = cards.filter((c) => !c.patient.skip).length
+  const rowsSettled = cards.filter((c) => {
+    const state = results[c.patient.key]?.state
+    return !c.patient.skip && (state === "done" || state === "failed")
+  }).length
 
   return (
     <div className="space-y-6">
@@ -204,7 +291,7 @@ export function LegacyImportScreen() {
                     folder={f}
                     plan={plan}
                     disabled={running}
-                    onChoose={(key, label) => chooseFolder(f.name, key, label)}
+                    onChoose={chooseFolder}
                   />
                 ))}
               </ul>
@@ -217,21 +304,9 @@ export function LegacyImportScreen() {
                 Patients
               </h2>
               <ul className="space-y-3">
-                {plan.patients
-                  .filter((p) => !p.mergeInto)
-                  .map((p) => (
-                    <PlanPatientCard
-                      key={p.key}
-                      patient={p}
-                      merged={plan.patients.filter((m) => m.mergeInto === p.key)}
-                      files={filesFor(plan, p.key)}
-                      folders={plan.folders.filter((f) => f.choice === p.key).map((f) => f.name)}
-                      historyCount={plan.patients.filter((m) => (m.mergeInto ?? m.key) === p.key).reduce((n, m) => n + m.history.length, 0)}
-                      result={results[p.key]}
-                      locked={running}
-                      onChange={(patch) => patchPatient(p.key, patch)}
-                    />
-                  ))}
+                {cards.map((c) => (
+                  <PatientRow key={c.patient.key} card={c} result={results[c.patient.key]} locked={running} onPatch={patchPatient} />
+                ))}
               </ul>
             </section>
           )}
@@ -265,8 +340,10 @@ export function LegacyImportScreen() {
                   <span className="text-destructive">{stopped}</span>
                 ) : running ? (
                   pause && pause.until > Date.now()
-                    ? `Pause de ${pause.seconds} s : le serveur demande de ralentir. L'import reprend tout seul.`
-                    : "Import en cours. Gardez cette page ouverte."
+                    ? pause.reason === "connection"
+                      ? `Connexion perdue : nouvel essai dans ${pause.seconds} s. L'import reprend tout seul.`
+                      : `Pause de ${pause.seconds} s : le serveur demande de ralentir. L'import reprend tout seul.`
+                    : `Import en cours : ${rowsSettled} sur ${rowsTotal} patient${rowsTotal > 1 ? "s" : ""}. Gardez cette page ouverte.`
                 ) : summary.undecided > 0 ? (
                   <span className="text-warning-ink">
                     {summary.undecided} dossier{summary.undecided > 1 ? "s" : ""} à confirmer avant d&apos;importer.
@@ -304,6 +381,40 @@ export function LegacyImportScreen() {
     </div>
   )
 }
+
+type Card = {
+  patient: PlanPatient
+  merged: PlanPatient[]
+  files: ReturnType<typeof filesFor>
+  folders: string[]
+  historyCount: number
+}
+
+/** One patient card, repainted only when its own row, its own plan entry or the lock changes. */
+const PatientRow = memo(function PatientRow({
+  card,
+  result,
+  locked,
+  onPatch,
+}: {
+  card: Card
+  result: RowResult | undefined
+  locked: boolean
+  onPatch: (key: string, patch: Partial<PlanPatient>) => void
+}) {
+  return (
+    <PlanPatientCard
+      patient={card.patient}
+      merged={card.merged}
+      files={card.files}
+      folders={card.folders}
+      historyCount={card.historyCount}
+      result={result}
+      locked={locked}
+      onChange={(patch) => onPatch(card.patient.key, patch)}
+    />
+  )
+})
 
 function summarise(plan: ImportPlan) {
   const roots = plan.patients.filter((p) => !p.mergeInto && !p.skip)

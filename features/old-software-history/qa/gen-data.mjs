@@ -23,6 +23,9 @@ const LAST = ['Trabelsi', 'Gharbi', 'Jaziri', 'Mabrouk', 'Hammami', 'Dridi', 'Be
   'Ksouri', 'Laabidi', 'Mzoughi', 'Sassi', 'Toumi', 'Zribi', 'Abidi', 'Barhoumi', 'Chouchane', 'Dhaouadi', 'Ezzine', 'Fakhfakh',
   'Guesmi', 'Hosni', 'Issaoui', 'Jlassi', 'Kefi', 'Lahmar', 'Maalej', 'Najjar', 'Ouni', 'Rekik', 'Selmi', 'Turki', 'Yahyaoui',
   'Zaier']
+// Batches G and H only — none of these is in LAST.
+const LAST2 = ['Belhadj', 'Boughanmi', 'Cherif', 'Dahmani', 'Essid', 'Feki', 'Gafsi', 'Hachicha', 'Jemli', 'Kchaou', 'Louati',
+  'Mekki', 'Nefzi', 'Ouerghi', 'Rebai', 'Smaoui', 'Tounsi', 'Zghal', 'Amri', 'Bahri', 'Charfi', 'Daoud', 'Elleuch']
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']
 const DAYS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi']
 const dd = n => String(n).padStart(2, '0')
@@ -33,7 +36,12 @@ function person(n) {
   const opened = new Date(Date.UTC(2014 + (n % 9), (n * 2) % 12, 2 + ((n * 5) % 26)))
   // Patients 7 and 8 are a mother and her daughter sharing ONE phone (C3).
   const phone = n === 8 ? '98 765 432' : n === 7 ? '98 765 432' : `${[9, 5, 2][n % 3]}${(n * 13) % 10} ${String(100 + n * 7).slice(-3)} ${String(200 + n * 11).slice(-3)}`
-  return { n, first: FIRST[i], last: LAST[i], birth, opened, phone, female: n % 2 === 1 }
+  // Past the 61 names, a new pairing (first name i, last name i + 13) so batches E and F meet nobody from A–C.
+  // Batches G and H (n ≥ 105): family names A–F never use; two records 61·t apart land 62·t (mod 23) ≠ 0 apart, so no name twice.
+  const j = n - 105
+  const first = i < FIRST.length ? FIRST[i] : n >= 105 ? FIRST[j % FIRST.length] : FIRST[i % FIRST.length]
+  const last = i < FIRST.length ? LAST[i] : n >= 105 ? LAST2[(j + Math.floor(j / FIRST.length)) % LAST2.length] : LAST[(i + 13) % LAST.length]
+  return { n, first, last, birth, opened, phone, female: n % 2 === 1 }
 }
 
 async function recordPdf(p) {
@@ -86,7 +94,10 @@ async function image(w, h, noisy, seed) {
   return sharp({ create: { width: w, height: h, channels: 3, background: { r: (seed * 37) % 255, g: (seed * 91) % 255, b: 160 } } }).jpeg().toBuffer()
 }
 
-const BATCHES = { A: [1, 40, false], B: [41, 55, false], C: [56, 61, true] }
+// E (run 3): the unattended import under injected connection faults. F: a file that vanishes after it was picked.
+// G (run 3): 300 dossiers — a page cut mid-run, then the WHOLE folder picked again on a new page (prod, 26/11).
+// H (run 3): 60 dossiers for the colleague, enough calls to cross the ordinary 120 / 60 s (B1-large).
+const BATCHES = { A: [1, 40, false], B: [41, 55, false], C: [56, 61, true], E: [62, 101, false], F: [102, 104, false], G: [105, 404, false], H: [405, 464, false] }
 await rm(out, { recursive: true, force: true })
 for (const [name, [from, to, big]] of Object.entries(BATCHES)) {
   const records = join(out, name, `dossiers-${name}`)

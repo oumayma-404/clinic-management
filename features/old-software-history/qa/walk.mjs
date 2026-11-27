@@ -180,7 +180,17 @@ try {
       }
     }
   })()
+  // Arranged 429 (run 3 probe fix): the page now paces itself under the ordinary limit, so without a second caller
+  // spending the address's minute it never meets a 429 and the pause path goes unexercised.
+  const burstToken = await apiLogin(S.collegue)
+  const burst = (async () => {
+    await sleep(4000)
+    await Promise.all(Array.from({ length: 10 }, async () => {
+      for (let i = 0; i < 13; i++) await fetch(`${API}/patients?page=1&pageSize=1`, { headers: { Authorization: `Bearer ${burstToken}` } }).catch(() => {})
+    }))
+  })()
   const b = await run(col.page, 'Importer')
+  await burst
   pauseShot = true
   await watcher
   const b429 = col.stats.r429 - b0
