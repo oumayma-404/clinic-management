@@ -13,8 +13,9 @@ import { useUploadPolicy } from "@/lib/hooks/use-upload-policy"
 import {
   buildPlan,
   CABINET_PREFIX,
-  destinationLabel,
+  destinationLabels,
   filesFor,
+  rowIsComplete,
   undecided,
   type ImportPlan,
   type PlanPatient,
@@ -153,10 +154,11 @@ export function LegacyImportScreen() {
     setRunning(true)
     setStopped(null)
     const known = Object.fromEntries(Object.entries(results).map(([k, r]) => [k, r.patientId]))
-    // A row finished by an earlier run on this page is not asked again — unless files still wait for space.
+    // A row finished by an earlier run on this page is not asked again — unless files still wait for space, or a
+    // folder chosen since gave it files it has not sent.
     const done = new Set(
       Object.entries(results)
-        .filter(([, r]) => r.state === "done" && r.waitingForSpace === 0)
+        .filter(([k, r]) => r.state === "done" && r.waitingForSpace === 0 && rowIsComplete(plan, k, r.sent + r.already))
         .map(([k]) => k),
     )
     try {
@@ -206,6 +208,16 @@ export function LegacyImportScreen() {
     const state = results[c.patient.key]?.state
     return !c.patient.skip && (state === "done" || state === "failed")
   }).length
+  // Keyed on the patients and the cabinet, never on the plan: choosing a folder replaces the plan, and a new `roots` or
+  // `labelOf` would repaint every one of a thousand folder cards for one click.
+  const patients = plan?.patients
+  const cabinet = plan?.cabinet
+  const folderRoots = useMemo(() => (patients ?? []).filter((p) => !p.mergeInto && !p.skip), [patients])
+  const labelOf = useMemo(() => destinationLabels(patients ?? [], cabinet ?? []), [patients, cabinet])
+  // The radios-only pass has no patient card: its progress is the cabinet's patients receiving folders.
+  const cabinetSettled = Object.entries(results).filter(
+    ([k, r]) => k.startsWith(CABINET_PREFIX) && (r.state === "done" || r.state === "failed"),
+  ).length
 
   return (
     <div className="space-y-6">
@@ -289,7 +301,8 @@ export function LegacyImportScreen() {
                   <FolderChoiceCard
                     key={f.name}
                     folder={f}
-                    plan={plan}
+                    roots={folderRoots}
+                    labelOf={labelOf}
                     disabled={running}
                     onChoose={chooseFolder}
                   />
@@ -320,14 +333,7 @@ export function LegacyImportScreen() {
                 {Object.entries(results)
                   .filter(([k]) => k.startsWith(CABINET_PREFIX))
                   .map(([k, r]) => (
-                    <li key={k} className="space-y-1 p-3 text-sm">
-                      <p className="font-medium">{destinationLabel(plan, k)}</p>
-                      <p className={r.state === "failed" ? "text-destructive" : "text-muted-foreground"} role="status">
-                        {r.state === "running"
-                          ? `Envoi… ${r.sent} fichier${r.sent > 1 ? "s" : ""}`
-                          : `${r.sent} envoyé${r.sent > 1 ? "s" : ""} · ${r.already} déjà là${r.waitingForSpace ? ` · ${r.waitingForSpace} en attente d'espace` : ""}${r.errors.length ? ` · ${r.errors.join(" · ")}` : ""}`}
-                      </p>
-                    </li>
+                    <CabinetRow key={k} label={labelOf(k)} result={r} />
                   ))}
               </ul>
             </section>
@@ -343,13 +349,21 @@ export function LegacyImportScreen() {
                     ? pause.reason === "connection"
                       ? `Connexion perdue : nouvel essai dans ${pause.seconds} s. L'import reprend tout seul.`
                       : `Pause de ${pause.seconds} s : le serveur demande de ralentir. L'import reprend tout seul.`
-                    : `Import en cours : ${rowsSettled} sur ${rowsTotal} patient${rowsTotal > 1 ? "s" : ""}. Gardez cette page ouverte.`
+                    : `Import en cours : ${rowsSettled + cabinetSettled} sur ${rowsTotal + summary.cabinetTargets} patient${rowsTotal + summary.cabinetTargets > 1 ? "s" : ""}. Gardez cette page ouverte.`
+                ) : finished ? (
+                  <>
+                    {failed ? `Import terminé, ${failed} ligne${failed > 1 ? "s" : ""} incomplète${failed > 1 ? "s" : ""} : corrigez-les puis relancez.` : "Import terminé."}
+                    {summary.undecided > 0 && (
+                      <span className="text-warning-ink">
+                        {" "}
+                        {summary.undecided} dossier{summary.undecided > 1 ? "s attendent" : " attend"} votre choix : choisissez, puis relancez.
+                      </span>
+                    )}
+                  </>
                 ) : summary.undecided > 0 ? (
                   <span className="text-warning-ink">
-                    {summary.undecided} dossier{summary.undecided > 1 ? "s" : ""} à confirmer avant d&apos;importer.
+                    {summary.undecided} dossier{summary.undecided > 1 ? "s" : ""} à confirmer : {summary.undecided > 1 ? "ils attendront" : "il attendra"} votre choix, le reste peut être importé.
                   </span>
-                ) : finished ? (
-                  failed ? `Import terminé, ${failed} ligne${failed > 1 ? "s" : ""} incomplète${failed > 1 ? "s" : ""} : corrigez-les puis relancez.` : "Import terminé."
                 ) : (
                   `${summary.toCreate} patient${summary.toCreate > 1 ? "s" : ""} à créer · ${summary.files} fichier${summary.files > 1 ? "s" : ""} à envoyer`
                 )}
@@ -367,7 +381,7 @@ export function LegacyImportScreen() {
                 <Button
                   type="button"
                   className="gap-2 coarse:min-h-11"
-                  disabled={running || summary.undecided > 0 || (summary.toCreate + summary.existing + summary.cabinetTargets === 0)}
+                  disabled={running || summary.toCreate + summary.existing + summary.cabinetTargets === 0}
                   onClick={() => void start()}
                 >
                   {running && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
@@ -413,6 +427,20 @@ const PatientRow = memo(function PatientRow({
       locked={locked}
       onChange={(patch) => onPatch(card.patient.key, patch)}
     />
+  )
+})
+
+/** One cabinet patient receiving folders — repainted only when its own row changes. */
+const CabinetRow = memo(function CabinetRow({ label, result: r }: { label: string; result: RowResult }) {
+  return (
+    <li className="space-y-1 p-3 text-sm">
+      <p className="font-medium">{label}</p>
+      <p className={r.state === "failed" ? "text-destructive" : "text-muted-foreground"} role="status">
+        {r.state === "running"
+          ? `Envoi… ${r.sent} fichier${r.sent > 1 ? "s" : ""}`
+          : `${r.sent} envoyé${r.sent > 1 ? "s" : ""} · ${r.already} déjà là${r.waitingForSpace ? ` · ${r.waitingForSpace} en attente d'espace` : ""}${r.errors.length ? ` · ${r.errors.join(" · ")}` : ""}`}
+      </p>
+    </li>
   )
 })
 

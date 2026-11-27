@@ -103,11 +103,20 @@ export interface ImportPlan {
 
 export const CABINET_PREFIX = "cab:"
 
+const patientDestination = (p: PlanPatient) => `${p.lastName} ${p.firstName} — dossier ${p.key}`
+
 /** How a destination reads on screen, whichever kind it is. */
 export function destinationLabel(plan: ImportPlan, key: string): string {
   const p = plan.patients.find((x) => x.key === key)
-  if (p) return `${p.lastName} ${p.firstName} — dossier ${p.key}`
+  if (p) return patientDestination(p)
   return plan.cabinet.find((c) => c.key === key)?.label ?? key
+}
+
+/** Every destination's label at once — for a screen showing hundreds, where one search each would be millions. */
+export function destinationLabels(patients: PlanPatient[], cabinet: CabinetPatient[]): (key: string) => string {
+  const labels = new Map<string, string>(cabinet.map((c) => [c.key, c.label]))
+  for (const p of patients) labels.set(p.key, patientDestination(p))
+  return (key) => labels.get(key) ?? key
 }
 
 const isSystemFile = (n: string) => /^(thumbs\.db|desktop\.ini|\.ds_store)$/i.test(n) || /^(~\$|\._)/.test(n)
@@ -199,11 +208,24 @@ export async function buildPlan(
   }
   units.sort((a, b) => (Number(leadingNumber(a.key)) || Infinity) - (Number(leadingNumber(b.key)) || Infinity) || a.key.localeCompare(b.key))
 
+  // The attachments' folders, grouped now so the progress counts them too: matching a thousand is seconds of work.
+  const byFolder = new Map<string, File[]>()
+  const looseFiles: string[] = []
+  for (const f of attachmentFiles) {
+    if (isSystemFile(f.name)) continue
+    const parts = pathOf(f)
+    if (parts.length < 3) {
+      looseFiles.push(f.name)
+      continue
+    }
+    byFolder.set(parts[1], [...(byFolder.get(parts[1]) ?? []), f])
+  }
+
   // 2. Read each record PDF — several at once, since each waits on the disk and on pdf.js' worker in turn.
   const read: Array<{ record: LegacyRecord | null; history: LegacyHistoryEntry[]; remarks: string[] }> = new Array(units.length)
   let done = 0
   let next = 0
-  const total = units.length
+  const total = units.length + byFolder.size
   const reader = async () => {
     while (next < units.length) {
       const i = next++
@@ -306,29 +328,20 @@ export async function buildPlan(
     })),
     ...cabinet.map((c) => ({ key: c.key, names: [c.label.split(" · ")[0]], number: c.number })),
   ]
-  const byFolder = new Map<string, File[]>()
-  const looseFiles: string[] = []
-  for (const f of attachmentFiles) {
-    if (isSystemFile(f.name)) continue
-    const parts = pathOf(f)
-    if (parts.length < 3) {
-      looseFiles.push(f.name)
-      continue
-    }
-    byFolder.set(parts[1], [...(byFolder.get(parts[1]) ?? []), f])
-  }
-  const folders: AttachmentFolder[] = [...byFolder]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, files]) => {
-      const verdict = matchFolder(name, targets)
-      return {
-        name,
-        files: files.map((f) => planFile(policy, f, pathOf(f).slice(1).join("/"))),
-        bytes: files.reduce((n, f) => n + f.size, 0),
-        verdict,
-        choice: verdict.kind === "sure" ? verdict.key : verdict.kind === "none" ? null : undefined,
-      }
+  const folders: AttachmentFolder[] = []
+  for (const [name, files] of [...byFolder].sort(([a], [b]) => a.localeCompare(b))) {
+    const verdict = matchFolder(name, targets)
+    folders.push({
+      name,
+      files: files.map((f) => planFile(policy, f, pathOf(f).slice(1).join("/"))),
+      bytes: files.reduce((n, f) => n + f.size, 0),
+      verdict,
+      choice: verdict.kind === "sure" ? verdict.key : verdict.kind === "none" ? null : undefined,
     })
+    onProgress({ done: ++done, total })
+    // Let the page breathe: the progress line moves and « Analyser » never looks frozen on a big folder.
+    if (folders.length % 25 === 0) await new Promise((resolve) => setTimeout(resolve))
+  }
 
   const quota = policy && policy.storageQuotaBytes > 0 ? { total: policy.storageQuotaBytes, used: policy.storageUsedBytes } : null
   return { patients, folders, cabinet, looseFiles, quota }
@@ -340,5 +353,17 @@ export function filesFor(plan: ImportPlan, key: string): PlanFile[] {
   return [...own, ...plan.folders.filter((f) => f.choice === key).flatMap((f) => f.files)]
 }
 
-/** Folders still waiting for somebody to choose: the import does not start while there is one. */
+/**
+ * Folders still waiting for somebody to choose. ⚠️ They do NOT hold the import back: everything decided is sent, and
+ * these wait — chosen later, they go with « Relancer l'import ». A cabinet of 1 000 patients can have hundreds of real
+ * homonyms, and holding every sure folder hostage to them is what made a whole radios import look blocked.
+ */
 export const undecided = (plan: ImportPlan) => plan.folders.filter((f) => f.choice === undefined)
+
+/**
+ * A row an earlier run on this page finished, and that has nothing new to send: every file the plan now gives it was
+ * sent or found already there. A folder chosen after that run gives it more files, and the row runs again for them.
+ */
+export function rowIsComplete(plan: ImportPlan, key: string, sentOrAlready: number): boolean {
+  return filesFor(plan, key).filter((f) => !f.refusal).length <= sentOrAlready
+}

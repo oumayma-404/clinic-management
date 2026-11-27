@@ -78,7 +78,10 @@ async function run(page, label, limitMs = 15 * 60_000) {
     if (text) said.add(text.replace(/\d+ s\b/, 'N s').replace(/\d+ sur/, 'N sur'))
     const again = page.getByRole('button', { name: "Relancer l'import", exact: true })
     if ((await again.isVisible().catch(() => false)) && (await again.isEnabled().catch(() => false))) {
-      return { text, said: [...said], seconds: Math.round((Date.now() - started) / 1000) }
+      // Read again once finished: the line read above may predate the last repaint (run 5 probe fix, E5).
+      await sleep(700)
+      const last = await footer(page).innerText().catch(() => text)
+      return { text: last, said: [...said, last], seconds: Math.round((Date.now() - started) / 1000) }
     }
     if (Date.now() - started > limitMs) return { text: `TIMEOUT: ${text}`, said: [...said], seconds: Math.round(limitMs / 1000) }
   }

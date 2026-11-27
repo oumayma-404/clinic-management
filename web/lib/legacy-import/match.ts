@@ -1,10 +1,17 @@
-import { leadingNumber, plain, withoutNumber } from "./parse-record"
+import { plain } from "./parse-record"
 
 /**
  * Which patient a folder of radios/photos belongs to, when the folder was named by hand: « Mohamed Ben Salah »,
  * « BENSALAH Mohammed », « 8 - Ben Salah Med ». The rule is the camera import's: **never sure and wrong** — a
  * folder is filed on its own only when one patient is clearly it; when two are close, or the best is only close,
  * the screen asks.
+ *
+ * ⚠️ A folder name is read for its NAME only: a date, a year or a word like « radio » is not part of anybody's name,
+ * and scored as one it sent 1 033 of 1 045 folders to « à vérifier » (measured on a 1 045-patient cabinet whose
+ * folders read « TRABELSI Mohamed 2023 »). « Med » is read as « Mohamed », the way it is written in Tunisia.
+ *
+ * ⚠️ Each name is prepared once ({@link prepare}): comparing 1 000 folders with 1 000 patients rebuilt both sides a
+ * million times and held the page for ~12 s on a fast PC.
  */
 
 export type MatchVerdict =
@@ -27,8 +34,51 @@ const SURE = 0.9
 const MARGIN = 0.08
 const CLOSE = 0.55
 
+/** Words a folder name carries that are never part of a person's name. */
+const NOT_A_NAME = new Set([
+  "radio", "radios", "rx", "pano", "panoramique", "panoramiques", "retro", "retroalveolaire", "retroalveolaires",
+  "cbct", "scanner", "scan", "photo", "photos", "image", "images", "img", "dossier", "patient", "mr", "mme", "mlle", "dr",
+])
+/** Short forms written in place of a full first name. */
+const SHORT_FORM = new Map([
+  ["med", "mohamed"],
+  ["mohd", "mohamed"],
+  ["mhd", "mohamed"],
+])
+
+/** A year is not a dossier number: « 2023 - Ben Ali » was filed in 2023. */
+const isYear = (n: string) => /^(19|20)\d\d$/.test(n)
+
+/** The dossier number a folder name starts with: « 152 - Nom », « 152_Nom », « 152 Nom » — never a year. */
+export function folderNumber(name: string): string | null {
+  const n = name.match(/^\s*(\d+)(?:\s*[-_.)]\s*|\s+)/)?.[1] ?? null
+  return n && !isYear(n) ? n : null
+}
+
+interface Prepared {
+  words: string[]
+  /** The words sorted: equal keys are the same name in any order. */
+  key: string
+  pairs: Map<string, number>
+  pairTotal: number
+}
+
+/** A name's words, without numbers, dates or words like « radio », short forms written out. */
 function words(s: string): string[] {
-  return plain(withoutNumber(s)).replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean)
+  return plain(s)
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((w) => w && !/\d/.test(w) && !NOT_A_NAME.has(w))
+    .map((w) => SHORT_FORM.get(w) ?? w)
+}
+
+function prepare(s: string): Prepared {
+  const ws = words(s)
+  const joined = [...ws].sort().join("")
+  const pairs = new Map<string, number>()
+  for (let i = 0; i < joined.length - 1; i++) pairs.set(joined.slice(i, i + 2), (pairs.get(joined.slice(i, i + 2)) ?? 0) + 1)
+  return { words: ws, key: [...ws].sort().join(" "), pairs, pairTotal: Math.max(joined.length - 1, 0) }
 }
 
 function levenshtein(a: string, b: string): number {
@@ -44,7 +94,19 @@ function levenshtein(a: string, b: string): number {
   return prev[b.length]
 }
 
-const similarity = (a: string, b: string) => 1 - levenshtein(a, b) / Math.max(a.length, b.length, 1)
+/** Names repeat (Mohamed, Ben, Ali…): each pair of words is measured once per page, not once per folder × patient. */
+const similarities = new Map<string, number>()
+function similarity(a: string, b: string): number {
+  if (a === b) return 1
+  const k = a < b ? `${a}|${b}` : `${b}|${a}`
+  let s = similarities.get(k)
+  if (s === undefined) {
+    if (similarities.size > 500_000) similarities.clear()
+    s = 1 - levenshtein(a, b) / Math.max(a.length, b.length, 1)
+    similarities.set(k, s)
+  }
+  return s
+}
 
 /** Word by word, any order: each word takes its closest unused partner. « Mohamed » / « Mohammed » = 0,88. */
 function wordScore(a: string[], b: string[]): number {
@@ -67,32 +129,35 @@ function wordScore(a: string[], b: string[]): number {
 }
 
 /** Letter pairs of the whole name, order-free — catches « Ben Salah » against « Bensalah ». */
-function pairScore(a: string[], b: string[]): number {
-  const pairs = (ws: string[]) => {
-    const s = [...ws].sort().join("")
-    const out = new Map<string, number>()
-    for (let i = 0; i < s.length - 1; i++) out.set(s.slice(i, i + 2), (out.get(s.slice(i, i + 2)) ?? 0) + 1)
-    return out
-  }
-  const pa = pairs(a)
-  const pb = pairs(b)
+function pairScore(a: Prepared, b: Prepared): number {
+  const total = a.pairTotal + b.pairTotal
+  if (!total) return 0
   let shared = 0
-  let total = 0
-  for (const [k, n] of pa) {
-    shared += Math.min(n, pb.get(k) ?? 0)
-    total += n
-  }
-  for (const n of pb.values()) total += n
-  return total ? (2 * shared) / total : 0
+  for (const [k, n] of a.pairs) shared += Math.min(n, b.pairs.get(k) ?? 0)
+  return (2 * shared) / total
+}
+
+// ⚠️ No « skip the word measure when the letter pairs are far apart » shortcut: tried, it changed 44 verdicts in 3 000.
+function score(a: Prepared, b: Prepared): number {
+  if (!a.words.length || !b.words.length) return 0
+  if (a.key === b.key) return 1
+  return Math.max(wordScore(a.words, b.words), pairScore(a, b))
 }
 
 /** 0…1: how much folder name `a` reads like patient name `b`. */
 export function nameScore(a: string, b: string): number {
-  const wa = words(a)
-  const wb = words(b)
-  if (!wa.length || !wb.length) return 0
-  if (wa.slice().sort().join(" ") === wb.slice().sort().join(" ")) return 1
-  return Math.max(wordScore(wa, wb), pairScore(wa, wb))
+  return score(prepare(a), prepare(b))
+}
+
+/** Each target's names, prepared once however many folders are matched against them. */
+const preparedNames = new WeakMap<MatchTarget, Prepared[]>()
+function namesOf(t: MatchTarget): Prepared[] {
+  let held = preparedNames.get(t)
+  if (!held) {
+    held = t.names.map(prepare)
+    preparedNames.set(t, held)
+  }
+  return held
 }
 
 /**
@@ -100,14 +165,17 @@ export function nameScore(a: string, b: string): number {
  * close name sure; different, it makes even an identical name a question.
  */
 export function matchFolder(folder: string, targets: MatchTarget[]): MatchVerdict {
-  const folderNumber = leadingNumber(folder)
+  const number = folderNumber(folder)
+  const name = prepare(folder)
+  if (!name.words.length) return { kind: "none" }
   // Two records of one person (about to be merged) share a key: one candidate, not a tie.
   const byKey = new Map<string, { key: string; score: number; numberAgrees: boolean | null }>()
   for (const t of targets) {
-    const score = Math.max(...t.names.map((n) => nameScore(folder, n)))
-    const numberAgrees = folderNumber != null && t.number != null ? folderNumber === t.number : null
+    let best = 0
+    for (const n of namesOf(t)) best = Math.max(best, score(name, n))
+    const numberAgrees = number != null && t.number != null ? number === t.number : null
     const held = byKey.get(t.key)
-    if (!held || score > held.score) byKey.set(t.key, { key: t.key, score, numberAgrees: numberAgrees ?? held?.numberAgrees ?? null })
+    if (!held || best > held.score) byKey.set(t.key, { key: t.key, score: best, numberAgrees: numberAgrees ?? held?.numberAgrees ?? null })
   }
   const scored = [...byKey.values()].filter((c) => c.score >= CLOSE).sort((x, y) => y.score - x.score)
 
