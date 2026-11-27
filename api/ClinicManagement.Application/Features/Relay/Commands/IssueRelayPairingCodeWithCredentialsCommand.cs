@@ -79,7 +79,7 @@ public sealed class IssueRelayPairingCodeWithCredentialsCommandHandler
                 return Result<RelayPairingCodeDto>.Failure("Session invalide, veuillez réessayer.");
             }
 
-            if (!user.IsAdmin())
+            if (!user.RunsTheClinic())
             {
                 return Result<RelayPairingCodeDto>.Failure(RelayRefusals.NotAdmin, RelayRefusals.NotAdminCode);
             }

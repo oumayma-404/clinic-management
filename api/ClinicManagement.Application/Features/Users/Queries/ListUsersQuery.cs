@@ -56,7 +56,7 @@ public class ListUsersQueryHandler : IRequestHandler<ListUsersQuery, Result<Clin
             }
 
             // AC-5.4: only an admin can view the user list.
-            if (!currentUser.IsAdmin())
+            if (!currentUser.RunsTheClinic())
             {
                 return Result<ClinicUsersPageDto>.Failure("Seuls les administrateurs peuvent consulter les utilisateurs.");
             }

@@ -64,6 +64,7 @@ public static class FeedbackRules
         User.RoleAdmin => "Administrateur",
         User.RoleDoctor => "Médecin",
         User.RoleSecretary => "Secrétaire",
+        User.RoleManager => "Gestionnaire",
         _ => role ?? string.Empty,
     };
 

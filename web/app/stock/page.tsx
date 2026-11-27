@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useCallback, useEffect, useState } from "react"
 import { AppShell } from "@/components/app-shell"
@@ -119,7 +120,7 @@ export default function StockPage() {
             left alone for months. Bumping `refreshKey` on save is what makes the « expire bientôt » column and
             the header counts re-read against the new window immediately (AC-20). */}
         <StockExpirySettingsCard
-          isAdmin={user?.role === "admin"}
+          isAdmin={runsTheClinic(user?.role)}
           onChanged={() => setRefreshKey((k) => k + 1)}
         />
 

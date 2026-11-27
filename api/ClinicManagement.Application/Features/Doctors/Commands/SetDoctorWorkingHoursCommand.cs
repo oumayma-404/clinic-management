@@ -63,7 +63,7 @@ public class SetDoctorWorkingHoursCommandHandler : IRequestHandler<SetDoctorWork
             // availability and have patients booked outside it (audit § 2, finding 9). Copied from the sibling
             // UpdateDoctorProfileCommand, which already got this right.
             var isOwnRecord = doctor.UserId != null && doctor.UserId == user.Id;
-            if (!user.IsAdmin() && !isOwnRecord)
+            if (!user.RunsTheClinic() && !isOwnRecord)
                 return Result<List<WorkingDayDto>>.Failure("Vous ne pouvez modifier que votre propre profil.");
 
             // AC-P1.23 + AC-P1.26. Two things were wrong here:

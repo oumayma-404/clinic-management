@@ -36,7 +36,7 @@ public static class StaffLeaveAllowanceWrites
         if (resolved.IsFailure)
             return Result<(User, Clinic, User)>.FailureFrom(resolved);
         var admin = resolved.Value!;
-        if (!admin.IsAdmin())
+        if (!admin.RunsTheClinic())
             return Result<(User, Clinic, User)>.Failure(StaffLeaveRules.AdminOnly);
         var clinic = await clinics.GetByIdAsync(admin.ClinicId, cancellationToken);
         if (clinic is not { LeaveRequestsEnabled: true })

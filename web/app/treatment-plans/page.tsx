@@ -20,7 +20,7 @@ import { TreatmentPlansTable } from "@/components/treatment-plans/treatment-plan
 import { TreatmentsInProgressList } from "@/components/treatments/treatments-in-progress-list"
 import { PLAN_STATUS_LABELS } from "@/components/treatment-plans/treatment-plan-labels"
 import { useSession } from "@/lib/auth/session"
-import { isAdminOrDoctor } from "@/lib/nav"
+import { isAdminDoctorOrManager } from "@/lib/nav"
 import { formatDateFr, toLocalIso } from "@/lib/format"
 import { Search, X } from "lucide-react"
 import { replaceUrl } from "@/lib/history"
@@ -129,7 +129,7 @@ export default function TreatmentPlansPage() {
   // L5 — « Exporter » is `AdminOrDoctor` server-side; hidden rather than shown-and-refused, the reasoning
   // `access-denied-card` records. Presentation only, the endpoint is authoritative.
   const { user } = useSession()
-  const canExport = isAdminOrDoctor(user?.role)
+  const canExport = isAdminDoctorOrManager(user?.role)
 
   /*
    * Dashboard drill-throughs: ?status= (« Devis en attente de réponse », « Brouillons ») and

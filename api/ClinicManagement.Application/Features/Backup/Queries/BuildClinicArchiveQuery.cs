@@ -101,7 +101,7 @@ public class BuildClinicArchiveQueryHandler
 
         // Defense in depth behind the controller's AdminOnly policy, the shape BackupNowCommand already uses.
         // An archive is every record the cabinet holds, in one file, unencrypted.
-        if (!caller.IsAdmin())
+        if (!caller.RunsTheClinic())
         {
             return Result<ClinicArchiveFile>.Failure(
                 "Seuls les administrateurs peuvent télécharger une archive du cabinet.");

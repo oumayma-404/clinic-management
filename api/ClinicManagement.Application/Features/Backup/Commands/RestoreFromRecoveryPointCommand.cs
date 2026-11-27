@@ -83,7 +83,7 @@ public class RestoreFromRecoveryPointCommandHandler
             return Result<ClinicArchiveRestoreReport>.Failure("Utilisateur introuvable.");
         }
 
-        if (!caller.IsAdmin())
+        if (!caller.RunsTheClinic())
         {
             return Result<ClinicArchiveRestoreReport>.Failure(
                 "Seuls les administrateurs peuvent restaurer un point de restauration.");

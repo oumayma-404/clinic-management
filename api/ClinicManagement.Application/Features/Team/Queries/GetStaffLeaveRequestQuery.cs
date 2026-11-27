@@ -41,12 +41,12 @@ public class GetStaffLeaveRequestQueryHandler : IRequestHandler<GetStaffLeaveReq
                 return Result<StaffLeaveRequestDto>.FailureFrom(lookup);
             var leave = lookup.Value!;
             // Another secretary's request reads as not found, never as « not yours ».
-            if (leave.UserId != caller.Id && !caller.IsAdmin())
+            if (leave.UserId != caller.Id && !caller.RunsTheClinic())
                 return Result<StaffLeaveRequestDto>.Failure(StaffLeaveRules.RequestNotFound, StaffLeaveRules.NotFoundCode);
 
             var roster = await StaffLeaveRules.RosterAsync(_users, caller.ClinicId, cancellationToken);
             return Result<StaffLeaveRequestDto>.Success(
-                StaffLeaveRules.ToDto(leave, roster, StaffLeaveRules.ClinicToday(), viewerIsAdmin: caller.IsAdmin()));
+                StaffLeaveRules.ToDto(leave, roster, StaffLeaveRules.ClinicToday(), viewerIsAdmin: caller.RunsTheClinic()));
         }
         catch (Exception ex) when (ex is not ConflictException)
         {

@@ -53,7 +53,7 @@ Dockerized via `web/Dockerfile`.
 - **The session seam** (`lib/auth/session.tsx`): a single `useSession()` context — `{ user, mode, isLoading, logout }` — backed by `LocalSessionProvider`. SSR-tolerant (returns a loading default when no provider is in scope). ⚠️ `CloudSessionProvider`/`CloudBridge` are **deleted** with Auth0; the role they had to fetch separately (Auth0's profile carried none) now arrives on the session cookie's own read.
   - `LocalSessionProvider` reads `/bff/auth/session` from the cookie; inactivity expiry (30 min untrusted, 8 h on a device « Rester connecté » was ticked on) — which **pauses** a trusted session rather than ending it, see `idleExpiryEnding`; a 401 clears the stale cookie.
 - **Clinic-membership** is enforced client-side, not in middleware: pages wrap content in **`<ClinicGuard>`** (`components/clinic-guard.tsx`), which uses `useClinicAccess` to verify the user belongs to a clinic (else shows `unauthorized-page` / redirects to `/setup`).
-- **Role gating is client-side and presentation-only — the server is authoritative.** Two shapes:
+- **Role gating is client-side and presentation-only — the server is authoritative.** ⚠️ A fourth role, **« Gestionnaire » (`manager`)**, runs the cabinet like an admin minus the dashboard, Factures / Caisse / Chèques, the journal and mode discret (`runsTheClinic()` in `lib/auth/can.ts`, `MANAGER_HIDDEN_HREFS` in `lib/nav.ts`; `features/gestionnaire-role/notes.md`). Two shapes:
   - **Admin**: the catalog page `/medications` and `/users` check
     `useSession().user?.role === "admin"` and render a "Lock" card + back link for non-admins.
   - **Secretary** (`adoption-qa-i-access-control-and-audit` I3): `lib/nav.ts` owns the one comparison

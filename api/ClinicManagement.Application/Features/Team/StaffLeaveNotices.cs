@@ -197,7 +197,7 @@ public static class StaffLeaveNotices
         string clinicName,
         CancellationToken cancellationToken)
     {
-        foreach (var admin in roster.Where(u => u.IsAdmin() && u.IsActive && u.Id != leave.UserId))
+        foreach (var admin in roster.Where(u => u.RunsTheClinic() && u.IsActive && u.Id != leave.UserId))
         {
             await SendAsync(
                 emailSender, appUrl, logger, admin, RequestSubject(requesterName, leave), AdminPath,

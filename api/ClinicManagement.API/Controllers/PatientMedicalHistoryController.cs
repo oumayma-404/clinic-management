@@ -82,7 +82,7 @@ public class PatientMedicalHistoryController : ApiControllerBase
     /// that is no longer there. A typo stays correctable by <see cref="UpdateMedicalHistory"/>, which is open.
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult> DeleteMedicalHistory(Guid patientId, Guid id)
     {
         var command = new DeletePatientMedicalHistoryCommand

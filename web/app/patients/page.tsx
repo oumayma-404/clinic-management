@@ -18,7 +18,7 @@ import { History, Plus, Upload } from "lucide-react"
 import { useClinicRealtime } from "@/lib/realtime/use-clinic-realtime"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 import { useSession } from "@/lib/auth/session"
-import { isAdminOrDoctor } from "@/lib/nav"
+import { isAdminDoctorOrManager } from "@/lib/nav"
 import { formatCalendarDay, formatDateFr } from "@/lib/format"
 import { replaceUrl } from "@/lib/history"
 import { ExampleFicheHost } from "@/components/guide/example-fiche-host"
@@ -42,7 +42,7 @@ export default function PatientsPage() {
   // L5 — « Importer » is `AdminOrDoctor` server-side; hidden rather than shown-and-refused, for the reason
   // `access-denied-card` documents. Presentation only, the endpoint is authoritative.
   const { user } = useSession()
-  const canImport = isAdminOrDoctor(user?.role)
+  const canImport = isAdminDoctorOrManager(user?.role)
   // Registration-date window from the dashboard's « Nouveaux patients » drill-through.
   const [createdFrom, setCreatedFrom] = useState<string | undefined>()
   const [createdTo, setCreatedTo] = useState<string | undefined>()

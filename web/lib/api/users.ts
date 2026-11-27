@@ -5,14 +5,15 @@ import { unwrapPaged, type PagedResponse, type PageParams } from './paging';
  * The closed set of clinic roles, mirroring the backend `User.AssignableRoles`. Storage keys stay English —
  * they are what the authorization policies match on; the French labels are display-only.
  */
-export const USER_ROLES = ['admin', 'doctor', 'secretary'] as const;
+export const USER_ROLES = ['admin', 'manager', 'doctor', 'secretary'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
-/** French labels for the three roles. Display-only — never sent to the API. */
+/** French labels for the four roles. Display-only — never sent to the API. */
 export const USER_ROLE_LABELS_FR: Record<UserRole, string> = {
   admin: 'Administrateur',
   doctor: 'Médecin',
   secretary: 'Secrétaire',
+  manager: 'Gestionnaire',
 };
 
 // Mirrors the backend ClinicUserDto (admin user-management screen — AC-5.1).

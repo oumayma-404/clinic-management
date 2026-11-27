@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 export function NextPatientPill() {
   const { user } = useSession()
   const pathname = usePathname()
-  const mayCall = user?.role === "doctor" || user?.role === "admin"
+  const mayCall = user?.role === "doctor" || user?.role === "admin" || user?.role === "manager"
   const onBoard = pathname?.startsWith("/salle-attente") ?? false
   const { board, reload } = useWaitingRoom(null, { enabled: mayCall && !onBoard })
   const [busy, setBusy] = useState(false)

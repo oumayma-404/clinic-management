@@ -54,7 +54,7 @@ public class RemoveClinicLetterheadCommandHandler
                 return Result<ClinicLetterheadDto>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
-            if (!user.IsAdmin())
+            if (!user.RunsTheClinic())
             {
                 return Result<ClinicLetterheadDto>.Failure(LetterheadRules.AdminOnly);
             }

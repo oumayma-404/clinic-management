@@ -994,7 +994,9 @@ public class SetDentistChairsCommandHandler : IRequestHandler<SetDentistChairsCo
 
             var day = await WaitingRoomDay.LoadAsync(clinic.Value, DateTime.UtcNow, _appointments, _doctors, cancellationToken);
             var caller = await WaitingRoomCaller.ResolveDentistAsync(_clinicContext, _doctors, day, cancellationToken);
-            var isAdmin = string.Equals(_clinicContext.GetUserRole(), User.RoleAdmin, StringComparison.OrdinalIgnoreCase);
+            var isAdmin = _clinicContext.GetUserRole() is { } callerRole
+                && (string.Equals(callerRole, User.RoleAdmin, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(callerRole, User.RoleManager, StringComparison.OrdinalIgnoreCase));
 
             var targetId = request.DoctorId ?? caller?.Id;
             if (targetId is not { } id || (caller?.Id != id && !isAdmin))

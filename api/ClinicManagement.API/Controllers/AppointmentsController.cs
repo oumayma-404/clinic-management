@@ -403,7 +403,7 @@ public class AppointmentsController : ApiControllerBase
     /// <c>AdminOrDoctor</c>: reception has « Faire entrer » for the same move without ringing itself.
     /// </summary>
     [HttpPost("waiting-room/call-next")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<WaitingRoomChangeDto>> CallNextPatient([FromBody] CallNextPatientCommand command)
     {
         var result = await _mediator.Send(command);

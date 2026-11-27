@@ -916,7 +916,7 @@ export function PointagePersonRow({
   }
 
   const toggle = (next: boolean) => {
-    const asksFirst = next && lockOn && person.role !== "secretary" && person.role !== "admin"
+    const asksFirst = next && lockOn && person.role !== "secretary" && person.role !== "admin" && person.role !== "manager"
     if (asksFirst) setConfirmTrack(true)
     else void save(next)
   }

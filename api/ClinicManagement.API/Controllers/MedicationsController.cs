@@ -49,7 +49,7 @@ public class MedicationsController : ApiControllerBase
 
     /// <summary>Create a catalog entry. AdminOnly.</summary>
     [HttpPost]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<MedicationDto>> CreateMedication([FromBody] CreateMedicationRequest request)
     {
         var command = new CreateMedicationCommand
@@ -65,7 +65,7 @@ public class MedicationsController : ApiControllerBase
 
     /// <summary>Update a catalog entry. AdminOnly.</summary>
     [HttpPut("{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<MedicationDto>> UpdateMedication(Guid id, [FromBody] UpdateMedicationRequest request)
     {
         var command = new UpdateMedicationCommand
@@ -83,7 +83,7 @@ public class MedicationsController : ApiControllerBase
 
     /// <summary>Deactivate (soft-delete) a catalog entry. AdminOnly. A missing id is a genuine not-found (404).</summary>
     [HttpDelete("{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> DeactivateMedication(Guid id)
     {
         var result = await _mediator.Send(new DeactivateMedicationCommand { Id = id });
@@ -98,7 +98,7 @@ public class MedicationsController : ApiControllerBase
     /// the entity's own <c>Activate()</c> was unreachable from the product.</para>
     /// </summary>
     [HttpPost("{id:guid}/activate")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> ReactivateMedication(Guid id)
     {
         var result = await _mediator.Send(new DeactivateMedicationCommand { Id = id, Deactivate = false });
@@ -107,7 +107,7 @@ public class MedicationsController : ApiControllerBase
 
     /// <summary>Confirm the provisional dataset (clears "à vérifier" on all entries). AdminOnly.</summary>
     [HttpPost("confirm")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> ConfirmData()
     {
         var result = await _mediator.Send(new ConfirmMedicationDataCommand());

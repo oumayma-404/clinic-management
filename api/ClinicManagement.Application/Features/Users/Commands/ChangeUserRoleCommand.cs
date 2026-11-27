@@ -77,7 +77,7 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
 
             // The controller is AdminOnly, but the authoritative check is the DB role — the same
             // defense-in-depth every other admin command applies rather than trusting the JWT claim.
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
             {
                 return Result<ClinicUserDto>.Failure("Seuls les administrateurs peuvent modifier le rôle d'un utilisateur.");
             }
@@ -94,7 +94,7 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
             if (role == null)
             {
                 return Result<ClinicUserDto>.Failure(
-                    "Rôle invalide. Choisissez « admin », « doctor » ou « secretary ».");
+                    "Rôle invalide. Choisissez « admin », « doctor », « secretary » ou « manager ».");
             }
 
             var target = await _userRepository.GetByIdAsync(request.TargetUserId, cancellationToken);
@@ -102,6 +102,15 @@ public class ChangeUserRoleCommandHandler : IRequestHandler<ChangeUserRoleComman
             if (target == null || target.ClinicId != admin.ClinicId)
             {
                 return Result<ClinicUserDto>.Failure("Utilisateur introuvable.");
+            }
+
+            if (!StaffAccountAuthority.MayManage(admin, target))
+            {
+                return Result<ClinicUserDto>.Failure(StaffAccountAuthority.AdminAccountRefusal);
+            }
+            if (!StaffAccountAuthority.MayGrant(admin, role))
+            {
+                return Result<ClinicUserDto>.Failure(StaffAccountAuthority.AdminRoleRefusal);
             }
 
             // AC-P2.26: the self-lockout guard, extended from SetUserActiveCommand's deactivation case. An

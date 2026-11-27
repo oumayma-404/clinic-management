@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import Link from "next/link"
 import { Building2, Headset, UserPlus, Users } from "lucide-react"
@@ -25,7 +26,7 @@ interface ConversationListProps {
 
 /** The server orders them: threads with messages newest first, then shared threads, then colleagues A→Z (AC-1.3). */
 export function ConversationList({ conversations, loading, failed, onRetry, onOpen, viewerId }: ConversationListProps) {
-  const isAdmin = useSession().user?.role === "admin"
+  const isAdmin = runsTheClinic(useSession().user?.role)
 
   if (failed) {
     return (

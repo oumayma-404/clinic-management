@@ -48,7 +48,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// <remarks><b>AdminOrDoctor</b>: a devis carries what a patient owes, and the class policy admits reception.</remarks>
     [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("export")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult> ExportPlans(
         [FromQuery] Guid? patientId = null,
         [FromQuery] string? status = null,
@@ -116,7 +116,7 @@ public class TreatmentPlansController : ApiControllerBase
     // « Créances » immediately. Collecting on a plan and printing it stay open (the class policy) — that is
     // reception's job; deciding what treatment is proposed and for how much is not.
     [HttpPost]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> CreatePlan([FromBody] CreateTreatmentPlanCommand command)
     {
         var result = await _mediator.Send(command);
@@ -126,7 +126,7 @@ public class TreatmentPlansController : ApiControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> UpdatePlan(Guid id, [FromBody] UpdateTreatmentPlanCommand command)
     {
         command.Id = id;
@@ -135,7 +135,7 @@ public class TreatmentPlansController : ApiControllerBase
     }
 
     [HttpPost("{id:guid}/accept")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> AcceptPlan(Guid id)
     {
         var result = await _mediator.Send(new AcceptTreatmentPlanCommand { Id = id });
@@ -152,7 +152,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// </para>
     /// </summary>
     [HttpPost("{id:guid}/complete")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> CompletePlan(
         Guid id, [FromBody] CompleteTreatmentPlanCommand? command)
     {
@@ -196,7 +196,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// devis number is consumed; idempotent on a treatment that already has one.
     /// </summary>
     [HttpPost("{id:guid}/issue-devis")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> IssueDevis(
         Guid id, [FromBody] IssueDevisCommand? command)
     {
@@ -209,7 +209,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// and close the devis — one call, so a refused clôture can no longer leave the removals behind.
     /// </summary>
     [HttpPost("{id:guid}/stop")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> StopTreatment(
         Guid id, [FromBody] StopTreatmentPlanCommand command)
     {
@@ -220,7 +220,7 @@ public class TreatmentPlansController : ApiControllerBase
 
     /// <summary>« Reprendre le traitement »: reopen a stopped devis and restore the acts it parked.</summary>
     [HttpPost("{id:guid}/reopen")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> ReopenTreatment(
         Guid id, [FromBody] ReopenTreatmentPlanCommand command)
     {
@@ -245,7 +245,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// (audit adjacent defect A-13), so a secretary could close a devis.
     /// </summary>
     [HttpPost("{id:guid}/items/{itemId:guid}/done")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> MarkItemDone(Guid id, Guid itemId, [FromBody] MarkTreatmentPlanItemDoneCommand command)
     {
         command.PlanId = id;
@@ -264,7 +264,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// </para>
     /// </summary>
     [HttpPost("{id:guid}/items/{itemId:guid}/undone")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemDone(
         Guid id, Guid itemId, [FromBody] UnmarkTreatmentPlanItemDoneCommand? command)
     {
@@ -284,7 +284,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// Optional body carrying the plan's version, exactly like its sibling above.
     /// </summary>
     [HttpPost("{id:guid}/items/{itemId:guid}/steps/{stepId:guid}/undone")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> UnmarkItemStep(
         Guid id, Guid itemId, Guid stepId, [FromBody] UnmarkTreatmentPlanItemStepCommand? command)
     {
@@ -311,7 +311,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// </para>
     /// </summary>
     [HttpPut("{id:guid}/items/{itemId:guid}/steps")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> SetItemSteps(
         Guid id, Guid itemId, [FromBody] SetTreatmentPlanItemStepsCommand command)
     {
@@ -389,7 +389,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// </para>
     /// </summary>
     [HttpPost("continue-recorded-act")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> ContinueRecordedAct(
         [FromBody] ContinueRecordedActCommand command)
     {
@@ -404,7 +404,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// invoice or issuing an avoir. Enforcement is controller-only, deliberately, as for that whole class.
     /// </summary>
     [HttpPost("{id:guid}/amend")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> AmendPlan(Guid id, [FromBody] AmendTreatmentPlanCommand command)
     {
         command.Id = id;
@@ -414,7 +414,7 @@ public class TreatmentPlansController : ApiControllerBase
 
     /// <summary>Revise only the échéancier of an accepted devis (no act change). `AdminOrDoctor` — same class.</summary>
     [HttpPut("{id:guid}/installments")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> ReviseInstallments(
         Guid id, [FromBody] ReviseTreatmentPlanInstallmentsCommand command)
     {
@@ -428,7 +428,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// the workspace proposes booking next — so it sits with authoring the plan rather than with collecting on it.
     /// </summary>
     [HttpPut("{id:guid}/items/order")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> ReorderItems(
         Guid id, [FromBody] SetTreatmentPlanItemOrderCommand command)
     {
@@ -438,7 +438,7 @@ public class TreatmentPlansController : ApiControllerBase
     }
 
     [HttpPost("{id:guid}/cancel")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> CancelPlan(Guid id, [FromBody] CancelTreatmentPlanCommand command)
     {
         command.Id = id;
@@ -448,7 +448,7 @@ public class TreatmentPlansController : ApiControllerBase
 
     [HttpDelete("{id:guid}")]
     // Draft-only (`CanBeDeleted`), so no number is stranded — but it is still the removal of a proposal.
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<IActionResult> DeletePlan(Guid id)
     {
         var result = await _mediator.Send(new DeleteTreatmentPlanCommand { Id = id });
@@ -496,7 +496,7 @@ public class TreatmentPlansController : ApiControllerBase
     ///
     /// <para>AdminOrDoctor — it alters what a patient has paid on a numbered document.</para>
     /// </summary>
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     [HttpPost("{id:guid}/installments/{installmentId:guid}/payments/{paymentId:guid}/void")]
     public async Task<ActionResult<TreatmentPlanDto>> VoidInstallmentPayment(
         Guid id,
@@ -549,7 +549,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// leave. AdminOrDoctor: it brings a numbered document and its balance back into service.
     /// </summary>
     [HttpPost("{id:guid}/uncancel")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> UncancelPlan(
         Guid id, [FromBody] UncancelTreatmentPlanCommand command)
     {
@@ -563,7 +563,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// re-spreading the échéancier. AdminOrDoctor: it changes what the patient owes on a numbered document.
     /// </summary>
     [HttpPost("{id:guid}/items/{itemId:guid}/withdraw")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> WithdrawItem(
         Guid id, Guid itemId, [FromBody] WithdrawTreatmentPlanItemCommand? command)
     {
@@ -579,7 +579,7 @@ public class TreatmentPlansController : ApiControllerBase
 
     /// <summary>« Remettre au devis » — the mirror of <see cref="WithdrawItem"/>. Same class.</summary>
     [HttpPost("{id:guid}/items/{itemId:guid}/restore")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> RestoreItem(
         Guid id, Guid itemId, [FromBody] RestoreTreatmentPlanItemCommand? command)
     {
@@ -598,7 +598,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// fiscal document is understood to cover.
     /// </summary>
     [HttpPost("{id:guid}/notes/{invoiceId:guid}/detach")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> DetachNote(
         Guid id, Guid invoiceId, [FromBody] DetachTreatmentPlanNoteCommand? command)
     {
@@ -616,7 +616,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// names it. AdminOrDoctor: it re-files a numbered document under a different person.
     /// </summary>
     [HttpPost("{id:guid}/patient")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> ReassignPatient(
         Guid id, [FromBody] ReassignTreatmentPlanPatientCommand command)
     {
@@ -631,7 +631,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// clinical one, and it is what a written-off figure is reported from.
     /// </summary>
     [HttpPost("{id:guid}/write-off")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> WriteOffPlan(
         Guid id, [FromBody] WriteOffTreatmentPlanCommand command)
     {
@@ -645,7 +645,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// what a numbered document claims.
     /// </summary>
     [HttpPut("{id:guid}/items/{itemId:guid}/discount")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> SetItemDiscount(
         Guid id, Guid itemId, [FromBody] SetTreatmentPlanItemDiscountCommand command)
     {
@@ -660,7 +660,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// one, in one save. AdminOrDoctor, like the detach it replaces: it re-states which work was carried out.
     /// </summary>
     [HttpPost("{id:guid}/relink-seance")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> RelinkSeance(
         Guid id, [FromBody] RelinkTreatmentPlanSeanceCommand command)
     {
@@ -687,7 +687,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// a proposal, which is authoring work; it consumes no number and claims no money.
     /// </summary>
     [HttpPost("{id:guid}/duplicate")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> DuplicatePlan(
         Guid id, [FromBody] DuplicateTreatmentPlanCommand? command)
     {
@@ -705,7 +705,7 @@ public class TreatmentPlansController : ApiControllerBase
     /// operation: it decides who the next note d'honoraires raised from this devis credits.
     /// </summary>
     [HttpPut("{id:guid}/doctor")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<TreatmentPlanDto>> SetPlanDoctor(
         Guid id, [FromBody] SetTreatmentPlanDoctorCommand command)
     {

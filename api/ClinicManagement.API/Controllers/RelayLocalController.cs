@@ -17,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/relay/local")]
-[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
 public class RelayLocalController : ApiControllerBase
 {
     private readonly DeploymentProfile _deployment;

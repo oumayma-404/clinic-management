@@ -62,7 +62,7 @@ public class ResendStaffInvitationCommandHandler
         {
             var callerId = _clinicContext.GetUserId();
             var admin = string.IsNullOrEmpty(callerId) ? null : await _users.GetByAuth0SubAsync(callerId, cancellationToken);
-            if (admin is null || !admin.IsAdmin())
+            if (admin is null || !admin.RunsTheClinic())
             {
                 return Result<StaffInvitationResultDto>.Failure("Seuls les administrateurs peuvent renvoyer une invitation.");
             }
@@ -72,6 +72,11 @@ public class ResendStaffInvitationCommandHandler
             if (user is null || user.ClinicId != admin.ClinicId || !user.IsLocalAccount())
             {
                 return Result<StaffInvitationResultDto>.Failure("Utilisateur introuvable.");
+            }
+
+            if (!StaffAccountAuthority.MayManage(admin, user))
+            {
+                return Result<StaffInvitationResultDto>.Failure(StaffAccountAuthority.AdminAccountRefusal);
             }
 
             if (user.LastLoginAt is not null)

@@ -144,7 +144,7 @@ public static class AttendanceRules
         if (resolved.IsFailure)
             return Result<(User, Clinic)>.FailureFrom(resolved);
         var caller = resolved.Value!;
-        if (adminOnly && !caller.IsAdmin())
+        if (adminOnly && !caller.RunsTheClinic())
             return Result<(User, Clinic)>.Failure(AdminOnly);
 
         var clinic = await clinics.GetByIdAsync(caller.ClinicId, cancellationToken);

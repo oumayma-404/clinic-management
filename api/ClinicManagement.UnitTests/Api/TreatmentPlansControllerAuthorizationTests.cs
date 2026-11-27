@@ -179,13 +179,18 @@ public class TreatmentPlansControllerAuthorizationTests
 
     [Theory]
     [MemberData(nameof(AdminOrDoctorActionData))]
-    public void Financial_Reversal_Endpoints_Require_AdminOrDoctor(string action) // [AC-24a]
+    public void Financial_Reversal_Endpoints_Exclude_The_Secretary(string action) // [AC-24a]
     {
         var method = typeof(TreatmentPlansController).GetMethod(action)!;
         var authorize = method.GetCustomAttribute<AuthorizeAttribute>();
 
+        // The gestionnaire joined these (2026-11-27) — except marking a cheque banked, which belongs to « Chèques »,
+        // a money screen he does not get.
+        var expected = action == nameof(TreatmentPlansController.SetInstallmentPaymentBanked)
+            ? AuthorizationPolicies.AdminOrDoctor
+            : AuthorizationPolicies.AdminDoctorOrManager;
         Assert.NotNull(authorize);
-        Assert.Equal(AuthorizationPolicies.AdminOrDoctor, authorize!.Policy);
+        Assert.Equal(expected, authorize!.Policy);
     }
 
     [Theory]
@@ -248,13 +253,13 @@ public class TreatmentPlansControllerAuthorizationTests
 
     [Theory]
     [MemberData(nameof(AdminOnlyActionData))]
-    public void Loss_Recognition_Requires_AdminOnly(string action)
+    public void Loss_Recognition_Requires_AdminOrManager(string action)
     {
         var method = typeof(TreatmentPlansController).GetMethod(action);
         Assert.NotNull(method);
         var authorize = method!.GetCustomAttribute<AuthorizeAttribute>();
         Assert.NotNull(authorize);
-        Assert.Equal(AuthorizationPolicies.AdminOnly, authorize!.Policy);
+        Assert.Equal(AuthorizationPolicies.AdminOrManager, authorize!.Policy);
     }
 
     public static IEnumerable<object[]> AdminOnlyActionData() => AdminOnlyActions.Select(a => new object[] { a });

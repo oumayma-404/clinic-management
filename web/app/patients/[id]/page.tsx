@@ -1216,7 +1216,8 @@ export default function PatientDetailsPage() {
   // reception's job in a Tunisian cabinet), while deleting from it stayed `AdminOrDoctor`. So « Modifier »,
   // « Dossier médical », the odontogramme and the antécédents are open on purpose — only destruction is not.
   const { user: sessionUser } = useSession()
-  const canDeleteClinicalRecords = sessionUser?.role === "admin" || sessionUser?.role === "doctor"
+  const canDeleteClinicalRecords =
+    sessionUser?.role === "admin" || sessionUser?.role === "doctor" || sessionUser?.role === "manager"
 
   // Real-time: when any client of this clinic edits this patient's record, appointments, or files, the
   // server signals the resource and we re-run the loader below (bump refreshKey). Additive (AC-5).

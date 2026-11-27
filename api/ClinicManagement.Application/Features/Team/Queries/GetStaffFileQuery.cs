@@ -48,7 +48,7 @@ public class GetStaffFileQueryHandler : IRequestHandler<GetStaffFileQuery, Resul
             if (resolved.IsFailure)
                 return Result<StaffFileDto>.FailureFrom(resolved);
             var admin = resolved.Value!;
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
                 return Result<StaffFileDto>.Failure(StaffLeaveRules.AdminOnly);
 
             var clinic = await _clinics.GetByIdAsync(admin.ClinicId, cancellationToken);

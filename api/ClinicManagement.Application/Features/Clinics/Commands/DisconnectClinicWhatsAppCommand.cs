@@ -63,7 +63,7 @@ public class DisconnectClinicWhatsAppCommandHandler
                 return Result<ReminderSettingsDto>.Failure("Utilisateur introuvable.");
             }
 
-            if (!user.IsAdmin())
+            if (!user.RunsTheClinic())
             {
                 return Result<ReminderSettingsDto>.Failure("Seuls les administrateurs peuvent déconnecter WhatsApp.");
             }

@@ -26,7 +26,7 @@ namespace ClinicManagement.API.Controllers;
 [Route("api/outbox")]
 // The owner's question (« est-ce que les rappels partent ? »), and the answer aggregates the whole clinic's
 // queues — the same class of clinic-wide operational read as the audit ledger and the backup history.
-[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
 public class OutboxController : ApiControllerBase
 {
     private readonly IMediator _mediator;

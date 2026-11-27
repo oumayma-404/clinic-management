@@ -57,7 +57,7 @@ public class GetClinicReminderSettingsQueryHandler
                 return Result<ReminderSettingsDto>.Failure("Utilisateur introuvable.");
             }
 
-            if (!user.IsAdmin())
+            if (!user.RunsTheClinic())
             {
                 return Result<ReminderSettingsDto>.Failure("Seuls les administrateurs peuvent consulter les paramètres de rappel.");
             }

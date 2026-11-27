@@ -144,7 +144,7 @@ public class ManageTotpCommandHandler
             }
 
             // ⚠️ The capability AND the role, never the role alone — see the command's own note.
-            if (_secondFactorPolicy.RequiresAdminSecondFactor && user.IsAdmin())
+            if (_secondFactorPolicy.RequiresAdminSecondFactor && user.RunsTheClinic())
             {
                 return Result.Failure(
                     "Le second facteur est obligatoire pour les administrateurs de cette installation et ne peut pas être désactivé.");

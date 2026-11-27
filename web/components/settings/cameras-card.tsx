@@ -27,7 +27,7 @@ import { useSession } from "@/lib/auth/session"
 import { getErrorMessage, showErrorToast } from "@/lib/errors"
 import { formatDateTime, formatFileSize, quoteFr } from "@/lib/format"
 import { useDoctors } from "@/lib/hooks/use-doctors"
-import { isAdminOrDoctor } from "@/lib/nav"
+import { isAdminDoctorOrManager } from "@/lib/nav"
 import { useCameraShell } from "@/lib/photo-import/shell-camera"
 import { formatOffset } from "@/lib/photo-import/wall-clock"
 import { RealtimeResource } from "@/lib/realtime/clinic-hub"
@@ -49,7 +49,7 @@ export function CamerasCard() {
   const [cameras, setCameras] = useState<ClinicCameraDto[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [forgetting, setForgetting] = useState<ClinicCameraDto | null>(null)
-  const canForget = isAdminOrDoctor(user?.role)
+  const canForget = isAdminDoctorOrManager(user?.role)
 
   const load = useCallback(async () => {
     try {

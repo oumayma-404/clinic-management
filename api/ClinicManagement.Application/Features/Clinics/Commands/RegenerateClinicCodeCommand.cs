@@ -52,7 +52,7 @@ public class RegenerateClinicCodeCommandHandler : IRequestHandler<RegenerateClin
             }
 
             // AC-5.4 / AC-4.5: only an admin can regenerate the clinic code.
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
             {
                 return Result<ClinicDto>.Failure("Seuls les administrateurs peuvent régénérer le code du cabinet.");
             }

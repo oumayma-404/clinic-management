@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import type React from "react"
 
@@ -183,7 +184,7 @@ export default function ClinicSettings() {
    * that `PUT /api/doctors/{id}` could not resolve.
    */
   const [documentIdentityTarget, setDocumentIdentityTarget] = useState<Doctor | null>(null)
-  const isClinicAdmin = user?.role === "admin"
+  const isClinicAdmin = runsTheClinic(user?.role)
 
   // Edit Modes and Notifications State
   const [isEditingClinicInfo, setIsEditingClinicInfo] = useState(false)
@@ -1535,7 +1536,7 @@ export default function ClinicSettings() {
           put the thing staff read daily underneath the thing an admin sets once. This link is left behind
           deliberately: someone who knows the setting as "in Paramètres" has to find where it went.
         */}
-        {user?.role === "admin" && (
+        {isClinicAdmin && (
           <Card>
             <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
               <div className="space-y-0.5">
@@ -1555,7 +1556,7 @@ export default function ClinicSettings() {
         <CamerasCard />
 
         {/* Admin-only backup card — Local mode only (US-8 / FR-G). */}
-        {mode === "local" && user?.role === "admin" && <BackupSettings />}
+        {mode === "local" && isClinicAdmin && <BackupSettings />}
 
         {/* clinic-pc-copy: « PC de secours ». The card renders nothing where the deployment has none (its read 404s). */}
         {isClinicAdmin && <RelayCard />}
@@ -1591,7 +1592,8 @@ export default function ClinicSettings() {
         </Card>
 
         {/* « Mode discret » — last on the page, on the owner's call. */}
-        {isClinicAdmin && <MoneyDiscreetCard />}
+        {/* Admin only: a gestionnaire never switches the money screens on or off (owner's call, 2026-11-27). */}
+        {user?.role === "admin" && <MoneyDiscreetCard />}
       </div>
 
       {/* AC-P2.30 — set another practitioner's CNOMDT number and cachet (PUT /api/doctors/{id}). */}

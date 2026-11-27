@@ -125,7 +125,7 @@ public class GetBackupHistoryQueryHandler : IRequestHandler<GetBackupHistoryQuer
             }
 
             // Defence in depth behind the controller's AdminOnly policy, the same shape BackupNowCommand uses.
-            if (!caller.IsAdmin())
+            if (!caller.RunsTheClinic())
             {
                 return Result<BackupHistoryDto>.Failure(
                     "Seuls les administrateurs peuvent consulter l'historique des sauvegardes.");

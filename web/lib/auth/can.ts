@@ -9,23 +9,31 @@
  * The gate is a UX affordance, never a security boundary — the server re-checks every one of these.
  */
 
-/** Admin-only: clinic settings, user management, reference-data catalogs. */
-export function isAdmin(role: string | undefined): boolean {
+/** Admin only: the journal d'activité, « mode discret », « Premiers pas », and anything about an admin account. */
+export function isAdmin(role: string | null | undefined): boolean {
   return role === "admin"
 }
 
 /**
- * May reverse or alter an issued financial document — cancel an invoice, establish an avoir, void a payment,
- * cancel or amend a devis. Mirrors the server's `AdminOrDoctor` policy exactly.
+ * Admin or « Gestionnaire »: clinic settings, users, catalogues, team, backup, PC de secours. Mirrors the server's
+ * `AdminOrManager` policy. A gestionnaire never sees the money screens, the journal, or an admin's account controls.
  */
-export function canReverseFinancials(role: string | undefined): boolean {
-  return role === "admin" || role === "doctor"
+export function runsTheClinic(role: string | null | undefined): boolean {
+  return role === "admin" || role === "manager"
+}
+
+/**
+ * May reverse or alter an issued financial document — cancel an invoice, establish an avoir, void a payment,
+ * cancel or amend a devis. Mirrors the server's `AdminDoctorOrManager` policy exactly.
+ */
+export function canReverseFinancials(role: string | null | undefined): boolean {
+  return role === "admin" || role === "doctor" || role === "manager"
 }
 
 /** May change any practitioner's congé — a doctor only their own (the server's rule in `DoctorLeaveRules`). */
 export function canEditAnyLeave(role: string | null | undefined): boolean {
-  return role === "admin" || role === "secretary"
+  return role === "admin" || role === "secretary" || role === "manager"
 }
 
 /** Shown on a disabled control so the user knows who to ask rather than assuming the feature is missing. */
-export const REVERSAL_FORBIDDEN_HINT = "Réservé au praticien ou à l'administrateur"
+export const REVERSAL_FORBIDDEN_HINT = "Réservé au praticien, au gestionnaire ou à l'administrateur"

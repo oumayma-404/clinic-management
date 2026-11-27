@@ -46,7 +46,7 @@ public class DentalActsController : ApiControllerBase
 
     /// <summary>Create a catalog entry. AdminOnly.</summary>
     [HttpPost]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<DentalActDto>> CreateAct([FromBody] CreateDentalActCommand command)
     {
         var result = await _mediator.Send(command);
@@ -55,7 +55,7 @@ public class DentalActsController : ApiControllerBase
 
     /// <summary>Update a catalog entry. AdminOnly.</summary>
     [HttpPut("{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<DentalActDto>> UpdateAct(Guid id, [FromBody] UpdateDentalActCommand command)
     {
         command.Id = id;
@@ -65,7 +65,7 @@ public class DentalActsController : ApiControllerBase
 
     /// <summary>Deactivate (soft-delete) a catalog entry. AdminOnly. A missing id is a genuine not-found (404).</summary>
     [HttpDelete("{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> DeactivateAct(Guid id)
     {
         var result = await _mediator.Send(new DeactivateDentalActCommand { Id = id });
@@ -80,7 +80,7 @@ public class DentalActsController : ApiControllerBase
     /// the entity's own <c>Activate()</c> was unreachable from the product.</para>
     /// </summary>
     [HttpPost("{id:guid}/activate")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> ReactivateAct(Guid id)
     {
         var result = await _mediator.Send(new DeactivateDentalActCommand { Id = id, Deactivate = false });
@@ -89,7 +89,7 @@ public class DentalActsController : ApiControllerBase
 
     /// <summary>Confirm the provisional dataset (clears "à vérifier" on all acts and every VLC). AdminOnly.</summary>
     [HttpPost("confirm")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> ConfirmData()
     {
         var result = await _mediator.Send(new ConfirmDentalActsCommand());
@@ -111,7 +111,7 @@ public class DentalActsController : ApiControllerBase
 
     /// <summary>Update one valeur de la lettre clé. AdminOnly. A missing id is a genuine not-found (404).</summary>
     [HttpPut("letter-values/{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<CnamLetterValueDto>> UpdateLetterValue(
         Guid id, [FromBody] UpdateCnamLetterValueRequest request)
     {

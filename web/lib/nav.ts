@@ -145,22 +145,18 @@ export const baseSections: NavSection[] = [
  * to revoke a departed colleague. The one genuinely Local-only action inside, « Réinitialiser le mot de
  * passe », is gated in `user-management.tsx` where it lives (AC-P2.29).
  */
-export function buildConfigItems(isAdmin: boolean, showSubscription = true): NavItem[] {
+export function buildConfigItems(role: string | null | undefined, showSubscription = true): NavItem[] {
+  const runsTheClinic = role === "admin" || role === "manager"
   return [
     { name: "Types de procédures", href: "/procedure-types", icon: Stethoscope },
-    ...(isAdmin
+    ...(runsTheClinic
       ? [
           { name: "Médicaments", href: "/medications", icon: Pill },
-        ]
-      : []),
-    ...(isAdmin
-      ? [
           { name: "Utilisateurs", href: "/users", icon: UserCog },
-          // AC-19. The endpoint behind it is `AdminOnly` and the page carries its own `role === "admin"` gate;
-          // this only stops reception being shown a door that does not open.
-          { name: "Journal d'activité", href: "/journal", icon: FileClock },
         ]
       : []),
+    // AC-19. The endpoint behind it is `AdminOnly` — a gestionnaire does not get it either (owner's call, 2026-11-27).
+    ...(role === "admin" ? [{ name: "Journal d'activité", href: "/journal", icon: FileClock }] : []),
     { name: "Paramètres", href: "/settings", icon: Settings },
     // Open to a doctor; a secretary is filtered out by `SECRETARY_HIDDEN_HREFS` (owner's call, 2026-10-04).
     //
@@ -205,13 +201,19 @@ const SECRETARY_HIDDEN_HREFS: ReadonlySet<string> = new Set([
   "/securite",
 ])
 
+/**
+ * What a « Gestionnaire » does not get (owner's call, 2026-11-27): the dashboard, the three money screens and the
+ * journal. Everything else an admin has — settings, users, abonnement, sécurité — is his.
+ */
+const MANAGER_HIDDEN_HREFS: ReadonlySet<string> = new Set(["/", "/factures", "/caisse", "/cheques", "/journal"])
+
 /** True when this role must not see the clinic-wide money screens. The one place the comparison is written. */
 export function hidesClinicWideMoney(role: string | null | undefined): boolean {
-  return role === "secretary"
+  return role === "secretary" || role === "manager"
 }
 
 /**
- * True when this role satisfies the server's `AdminOrDoctor` policy — the one place that comparison is written
+ * True when this role satisfies the server's `AdminDoctorOrManager` policy — the one place that comparison is written
  * client-side, for the **actions** gated on it rather than the routes.
  *
  * <p>⚠️ A <b>positive</b> test, not `!hidesClinicWideMoney(role)`. The two are the same partition today, but they
@@ -222,8 +224,8 @@ export function hidesClinicWideMoney(role: string | null | undefined): boolean {
  * <p><b>Presentation, not security</b>, like everything in this file: `POST /api/patients/import` carries
  * `AdminOrDoctor` and refuses a secretary whatever this returns.</p>
  */
-export function isAdminOrDoctor(role: string | null | undefined): boolean {
-  return role === "admin" || role === "doctor"
+export function isAdminDoctorOrManager(role: string | null | undefined): boolean {
+  return role === "admin" || role === "doctor" || role === "manager"
 }
 
 /**
@@ -237,6 +239,7 @@ export const MONEY_HIDDEN_HREFS: ReadonlySet<string> = new Set(
 /** Is this destination reachable by that role? Shared by the rail, the drawer and the phone's bottom bar. */
 export function isNavItemVisible(href: string, role: string | null | undefined, moneyHidden = false): boolean {
   if (moneyHidden && MONEY_HIDDEN_HREFS.has(href)) return false
+  if (role === "manager") return !MANAGER_HIDDEN_HREFS.has(href)
   return !hidesClinicWideMoney(role) || !SECRETARY_HIDDEN_HREFS.has(href)
 }
 
@@ -280,7 +283,7 @@ export function buildNavSections(
     .filter((section) => section.items.length > 0)
 
   // Through the same filter as the sections above, or a hidden Configuration row would still render.
-  const config = buildConfigItems(role === "admin", showSubscription).filter((i) =>
+  const config = buildConfigItems(role, showSubscription).filter((i) =>
     isNavItemVisible(i.href, role, moneyHidden),
   )
 

@@ -87,7 +87,7 @@ public class CancelStaffLeaveRequestCommandHandler
                 return Result<StaffLeaveRequestDto>.FailureFrom(lookup);
             leave = lookup.Value!;
 
-            var byAdmin = caller.IsAdmin();
+            var byAdmin = caller.RunsTheClinic();
             var ownRequest = leave.UserId == caller.Id;
             if (!ownRequest && !byAdmin)
                 return Result<StaffLeaveRequestDto>.Failure(StaffLeaveRules.NotOwnRequest);
@@ -140,6 +140,6 @@ public class CancelStaffLeaveRequestCommandHandler
         }
 
         return Result<StaffLeaveRequestDto>.Success(
-            StaffLeaveRules.ToDto(leave, roster, today, viewerIsAdmin: caller.IsAdmin()));
+            StaffLeaveRules.ToDto(leave, roster, today, viewerIsAdmin: caller.RunsTheClinic()));
     }
 }

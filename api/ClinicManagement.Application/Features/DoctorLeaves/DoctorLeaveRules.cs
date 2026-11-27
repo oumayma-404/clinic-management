@@ -67,7 +67,7 @@ public static class DoctorLeaveRules
             return Result<Doctor>.Failure(PractitionerNotFound, NotFoundCode);
 
         var isOwnRecord = doctor.UserId != null && doctor.UserId == user.Id;
-        if (!user.IsAdmin() && !user.IsSecretary() && !isOwnRecord)
+        if (!user.RunsTheClinic() && !user.IsSecretary() && !isOwnRecord)
             return Result<Doctor>.Failure(NotOwnLeave);
 
         return Result<Doctor>.Success(doctor);

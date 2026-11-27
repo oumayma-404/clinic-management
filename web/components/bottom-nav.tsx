@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -85,7 +86,7 @@ export function BottomNav() {
   const { moneyHidden } = useMoneyVisibility()
   const items = barItems.filter((item) => isNavItemVisible(item.href, user?.role, moneyHidden))
   // « Nouveautés » lives in the drawer, so « Plus » is where a phone learns there is something new to read.
-  const { unread: unreadNews } = useNewsBadge(user?.role === "admin")
+  const { unread: unreadNews } = useNewsBadge(runsTheClinic(user?.role))
   // Reuses the drawer's own state — no third piece of sidebar state, so AC-P3.18 still holds: nothing a phone
   // session does can overwrite the persisted desktop rail preference.
   const { setMobileOpen } = useSidebar()

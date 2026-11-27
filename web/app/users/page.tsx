@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
@@ -26,7 +27,7 @@ import { TEAM_SETTINGS_HREF } from "@/components/team/team-today-list"
 export default function UsersPage() {
   const { user, isLoading } = useSession()
   const router = useRouter()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
 
   return (
     <ClinicGuard>

@@ -169,7 +169,7 @@ public class StockController : ApiControllerBase
     [HttpDelete("{id}")]
     // Takes the article's whole movement history with it — the one operation here whose effect cannot be read
     // off any screen afterwards, because the screen that would show it is what disappears.
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> DeleteStockItem(Guid id)
     {
         var result = await _mediator.Send(new DeleteStockItemCommand { Id = id });
@@ -194,7 +194,7 @@ public class StockController : ApiControllerBase
     }
 
     /// <summary>Set the clinic's approaching-expiry window (0–365 days; 0 disables the alert). Admin-only.</summary>
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [HttpPut("expiry-settings")]
     public async Task<ActionResult<StockExpirySettingsDto>> SetExpirySettings(
         [FromBody] SetStockExpirySettingsCommand command)

@@ -32,6 +32,7 @@ public class ResetUserTotpCommand : IRequest<Result>
 public class ResetUserTotpCommandHandler : IRequestHandler<ResetUserTotpCommand, Result>
 {
     private readonly ICurrentClinicResolver _clinicResolver;
+    private readonly IClinicContext _clinicContext;
     private readonly IUserRepository _userRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationGenerator _notifications;
@@ -40,6 +41,7 @@ public class ResetUserTotpCommandHandler : IRequestHandler<ResetUserTotpCommand,
 
     public ResetUserTotpCommandHandler(
         ICurrentClinicResolver clinicResolver,
+        IClinicContext clinicContext,
         IUserRepository userRepository,
         IUnitOfWork unitOfWork,
         INotificationGenerator notifications,
@@ -47,6 +49,7 @@ public class ResetUserTotpCommandHandler : IRequestHandler<ResetUserTotpCommand,
         ILogger<ResetUserTotpCommandHandler> logger)
     {
         _clinicResolver = clinicResolver;
+        _clinicContext = clinicContext;
         _userRepository = userRepository;
         _unitOfWork = unitOfWork;
         _notifications = notifications;
@@ -71,6 +74,17 @@ public class ResetUserTotpCommandHandler : IRequestHandler<ResetUserTotpCommand,
             if (target is null || target.ClinicId != clinicId.Value)
             {
                 return Result.Failure("Utilisateur introuvable.");
+            }
+
+            // The policy admits admins and gestionnaires; only an admin resets an admin's authenticator.
+            var caller = await _userRepository.GetByAuth0SubAsync(_clinicContext.GetUserId() ?? string.Empty, cancellationToken);
+            if (caller is null || caller.ClinicId != clinicId.Value || !caller.RunsTheClinic())
+            {
+                return Result.Failure("Utilisateur introuvable.");
+            }
+            if (!StaffAccountAuthority.MayManage(caller, target))
+            {
+                return Result.Failure(StaffAccountAuthority.AdminAccountRefusal);
             }
 
             if (!target.IsTotpEnrolled)

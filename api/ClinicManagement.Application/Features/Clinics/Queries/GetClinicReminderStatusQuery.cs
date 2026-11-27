@@ -56,7 +56,7 @@ public class GetClinicReminderStatusQueryHandler
                 return Result<IReadOnlyList<ReminderStatusDto>>.Failure("Utilisateur introuvable.");
             }
 
-            if (!user.IsAdmin())
+            if (!user.RunsTheClinic())
             {
                 return Result<IReadOnlyList<ReminderStatusDto>>.Failure("Seuls les administrateurs peuvent consulter l'état d'envoi des rappels.");
             }

@@ -6,7 +6,7 @@ import { treatmentPlansApi } from "@/lib/api/treatment-plans"
 import type { TreatmentPlanDto } from "@/lib/api/types"
 import { useSession } from "@/lib/auth/session"
 import { showErrorToast } from "@/lib/errors"
-import { isAdminOrDoctor } from "@/lib/nav"
+import { isAdminDoctorOrManager } from "@/lib/nav"
 import { PlanItemStepsDialog } from "./plan-item-steps-dialog"
 import { isPlanLive, planItemStepOptions } from "./plan-next-action"
 
@@ -124,7 +124,7 @@ export function useBookingPlanSteps(
   ) : null
 
   return {
-    onEditPlanSteps: isAdminOrDoctor(user?.role) ? onEditPlanSteps : undefined,
+    onEditPlanSteps: isAdminDoctorOrManager(user?.role) ? onEditPlanSteps : undefined,
     canEditPlanSteps,
     stepsDialog,
   }

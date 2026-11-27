@@ -36,7 +36,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>The cabinet's requests: <c>status=pending</c> (to decide), <c>decided</c>, or all.</summary>
     [HttpGet("leave-requests")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffLeaveRequestsPageDto>> ListLeaveRequests(
         [FromQuery] string? status, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken cancellationToken)
     {
@@ -47,7 +47,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>Each active secretary's balance for the year and next accepted congé.</summary>
     [HttpGet("overview")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<TeamLeaveOverviewDto>> Overview(CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new GetTeamLeaveOverviewQuery(), cancellationToken);
@@ -55,7 +55,7 @@ public class TeamController : ApiControllerBase
     }
 
     [HttpGet("leave-requests/pending-count")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<PendingStaffLeaveCountDto>> PendingCount(CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new GetPendingStaffLeaveCountQuery(), cancellationToken);
@@ -71,7 +71,7 @@ public class TeamController : ApiControllerBase
     }
 
     [HttpPost("leave-requests/{id:guid}/decision")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffLeaveRequestDto>> Decide(
         Guid id, [FromBody] DecideStaffLeaveRequestCommand command, CancellationToken cancellationToken)
     {
@@ -130,7 +130,7 @@ public class TeamController : ApiControllerBase
     }
 
     [HttpGet("users/{userId}/file")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffFileDto>> StaffFile(
         string userId, [FromQuery] int? year, CancellationToken cancellationToken)
     {
@@ -139,7 +139,7 @@ public class TeamController : ApiControllerBase
     }
 
     [HttpPost("users/{userId}/absences")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffLeaveRequestDto>> RecordAbsence(
         string userId, [FromBody] RecordStaffAbsenceCommand command, CancellationToken cancellationToken)
     {
@@ -150,7 +150,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Modifier la règle »'s live result: her balance as if this rule were saved. Writes nothing.</summary>
     [HttpGet("users/{userId}/leave-rule-preview")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffLeaveBalanceDto>> PreviewLeaveRule(
         string userId,
         [FromQuery] decimal days,
@@ -172,7 +172,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Fixer le solde »'s live result: her balance as if this « Solde de départ » were saved. Writes nothing.</summary>
     [HttpGet("users/{userId}/leave-opening-preview")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffLeaveBalanceDto>> PreviewOpeningLeaveBalance(
         string userId, [FromQuery] decimal days, [FromQuery] DateOnly onDay, CancellationToken cancellationToken)
     {
@@ -183,7 +183,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Droit à congé » → « Modifier la règle »: a later rule supersedes the earlier one from its own day.</summary>
     [HttpPut("users/{userId}/leave-rule")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffLeaveBalanceDto>> SetLeaveRule(
         string userId, [FromBody] SetLeaveRuleCommand command, CancellationToken cancellationToken)
     {
@@ -194,7 +194,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Solde de départ »: what she has left on a day; everything before it is inside the figure.</summary>
     [HttpPost("users/{userId}/leave-opening")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffLeaveBalanceDto>> SetOpeningLeaveBalance(
         string userId, [FromBody] SetOpeningLeaveBalanceCommand command, CancellationToken cancellationToken)
     {
@@ -205,7 +205,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Ajouter ou retirer des jours », with a motif.</summary>
     [HttpPost("users/{userId}/leave-adjustments")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffLeaveBalanceDto>> AdjustLeaveBalance(
         string userId, [FromBody] AdjustLeaveBalanceCommand command, CancellationToken cancellationToken)
     {
@@ -216,7 +216,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>Strikes a « Droit à congé » line through, with a motif; it stays listed.</summary>
     [HttpPost("leave-allowance-entries/{id:guid}/cancel")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<StaffLeaveBalanceDto>> CancelLeaveAllowanceEntry(
         Guid id, [FromBody] CancelLeaveAllowanceEntryCommand command, CancellationToken cancellationToken)
     {
@@ -227,7 +227,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Équipe → Pointage » in Paramètres: the bornes and who pointe.</summary>
     [HttpGet("attendance-settings")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<AttendanceSettingsDto>> AttendanceSettings(CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new GetAttendanceSettingsQuery(), cancellationToken);
@@ -236,7 +236,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Ajouter une borne »: the cabinet's signed-in devices an admin may choose from.</summary>
     [HttpGet("terminals/devices")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<List<BorneDeviceDto>>> BorneDevices(CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new GetBorneDevicesQuery(), cancellationToken);
@@ -249,7 +249,7 @@ public class TeamController : ApiControllerBase
     /// waits for that device to claim it, and no cookie is set here.
     /// </summary>
     [HttpPost("terminals")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<AttendanceTerminalDto>> RegisterTerminal(
         [FromBody] RegisterTerminalRequest request, CancellationToken cancellationToken)
     {
@@ -278,7 +278,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Retirer »: takes effect at the device's next punch.</summary>
     [HttpDelete("terminals/{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<AttendanceTerminalDto>> RevokeTerminal(Guid id, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new RevokeAttendanceTerminalCommand { Id = id }, cancellationToken);
@@ -297,7 +297,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Réinitialiser le schéma »: clears it and lifts a lock.</summary>
     [HttpDelete("users/{userId}/schema")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<AttendancePersonSettingDto>> ResetSchema(string userId, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new ResetAttendanceSchemaCommand { UserId = userId }, cancellationToken);
@@ -306,7 +306,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Débloquer »: lifts a 5-wrong-schémas block and keeps the schéma.</summary>
     [HttpPost("users/{userId}/schema/unlock")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<AttendancePersonSettingDto>> UnlockSchema(string userId, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new UnlockAttendanceSchemaCommand { UserId = userId }, cancellationToken);
@@ -315,7 +315,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Personnes qui pointent »: <c>tracked</c> true/false, or null to follow the role.</summary>
     [HttpPut("users/{userId}/attendance-profile")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<AttendancePersonSettingDto>> SetAttendanceProfile(
         string userId, [FromBody] SetAttendanceProfileCommand command, CancellationToken cancellationToken)
     {
@@ -326,7 +326,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Présences »: the month sheet, for everyone or one person.</summary>
     [HttpGet("attendance")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<AttendanceSheetDto>> AttendanceSheet(
         [FromQuery] string? month, [FromQuery] string? userId, CancellationToken cancellationToken)
     {
@@ -335,7 +335,7 @@ public class TeamController : ApiControllerBase
     }
 
     [HttpGet("attendance/export")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     public async Task<IActionResult> ExportAttendance([FromQuery] string? month, CancellationToken cancellationToken)
     {
@@ -353,7 +353,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Corriger »: the hours that count, with a motif; the borne's own hours stay on the line.</summary>
     [HttpPost("attendance/{id:guid}/correction")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<AttendanceEntryDto>> CorrectAttendance(
         Guid id, [FromBody] CorrectAttendanceEntryCommand command, CancellationToken cancellationToken)
     {
@@ -364,7 +364,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Ajouter un pointage » for a day with none, with a motif.</summary>
     [HttpPost("attendance")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<AttendanceEntryDto>> RecordAttendance(
         [FromBody] RecordAttendanceEntryCommand command, CancellationToken cancellationToken)
     {
@@ -374,7 +374,7 @@ public class TeamController : ApiControllerBase
 
     /// <summary>« Équipe aujourd'hui » on the dashboard.</summary>
     [HttpGet("today")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<TeamTodayDto>> Today(CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new GetTeamTodayQuery(), cancellationToken);

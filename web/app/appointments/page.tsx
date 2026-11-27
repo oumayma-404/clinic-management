@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useState, useCallback, useEffect, useRef } from "react"
 import { AppShell } from "@/components/app-shell"
@@ -157,7 +158,7 @@ export default function AppointmentsPage() {
   // Google Calendar connect/import/push endpoints are AdminOnly — only show the controls to admins so
   // a non-admin never gets a 403 → generic "Échec" toast (finding #9).
   const { user } = useSession()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
   // Per-practitioner filter (AC-3.2): "all" = no filter. Passed down to the calendar's fetch.
   const { doctors, allDoctors } = useDoctors()
   // Seeded from the URL for the same reason as the day and the statuses above it — see `useUrlFilters` below.

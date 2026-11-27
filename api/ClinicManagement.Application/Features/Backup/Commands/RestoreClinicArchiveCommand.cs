@@ -81,7 +81,7 @@ public class RestoreClinicArchiveCommandHandler
             return Result<ClinicArchiveRestoreReport>.Failure("Utilisateur introuvable.");
         }
 
-        if (!caller.IsAdmin())
+        if (!caller.RunsTheClinic())
         {
             return Result<ClinicArchiveRestoreReport>.Failure(
                 "Seuls les administrateurs peuvent restaurer une archive.");

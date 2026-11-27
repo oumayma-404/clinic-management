@@ -134,6 +134,7 @@ public class RelayLeaseGateMiddleware
         context.User.Identity?.IsAuthenticated == true
         && context.Items.TryGetValue(EffectiveRole.HttpContextItemKey, out var role)
         && role is string r
-        && !string.Equals(r, Domain.Entities.User.RoleAdmin, StringComparison.OrdinalIgnoreCase);
+        && !string.Equals(r, Domain.Entities.User.RoleAdmin, StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(r, Domain.Entities.User.RoleManager, StringComparison.OrdinalIgnoreCase);
 
 }

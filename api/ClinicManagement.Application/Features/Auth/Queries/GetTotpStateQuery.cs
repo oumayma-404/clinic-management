@@ -68,7 +68,7 @@ public class GetTotpStateQueryHandler : IRequestHandler<GetTotpStateQuery, Resul
 
             return Result<TotpStateDto>.Success(new TotpStateDto(
                 IsEnrolled: user.IsTotpEnrolled,
-                IsRequired: _secondFactorPolicy.RequiresAdminSecondFactor && user.IsAdmin(),
+                IsRequired: _secondFactorPolicy.RequiresAdminSecondFactor && user.RunsTheClinic(),
                 RecoveryCodesRemaining: user.IsTotpEnrolled ? user.UnusedRecoveryCodeCount : null,
                 EnrolledAt: user.TotpEnrolledAt,
                 MayReplace: user.IsTotpReplacementGranted()));

@@ -78,7 +78,10 @@ public class StaffNotificationRepository : IStaffNotificationRepository
         ApplicationDbContext db, string userId) =>
         n => (n.ActorUserId == null || n.ActorUserId != userId)
              && (n.TargetUserId == null || n.TargetUserId == userId)
-             && (n.TargetRole == null || db.Users.Any(u => u.Id == userId && u.Role == n.TargetRole))
+             && (n.TargetRole == null || db.Users.Any(u => u.Id == userId
+                 && (u.Role == n.TargetRole
+                     // An « admin » row (PC de secours, stockage, congés, pointage) is the gestionnaire's work too.
+                     || (n.TargetRole == User.RoleAdmin && u.Role == User.RoleManager))))
              && !db.NotificationDismissals.Any(d => d.NotificationId == n.Id && d.UserId == userId);
 
     /// <summary>

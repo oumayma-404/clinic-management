@@ -104,7 +104,7 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
             {
                 return Result<CreatedClinicUserDto>.Failure("Utilisateur introuvable.");
             }
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
             {
                 return Result<CreatedClinicUserDto>.Failure("Seuls les administrateurs peuvent créer un compte.");
             }
@@ -123,7 +123,11 @@ public class CreateClinicUserCommandHandler : IRequestHandler<CreateClinicUserCo
             if (role == null)
             {
                 return Result<CreatedClinicUserDto>.Failure(
-                    "Rôle invalide. Les rôles autorisés sont : admin, doctor, secretary.");
+                    "Rôle invalide. Les rôles autorisés sont : admin, doctor, secretary, manager.");
+            }
+            if (!StaffAccountAuthority.MayGrant(admin, role))
+            {
+                return Result<CreatedClinicUserDto>.Failure(StaffAccountAuthority.AdminRoleRefusal);
             }
 
             // Mirrors JoinClinicCommand: a doctor account with no practitioner behind it is what left every hosted
