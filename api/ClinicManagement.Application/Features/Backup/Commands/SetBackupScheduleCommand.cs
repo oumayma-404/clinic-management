@@ -70,7 +70,7 @@ public class SetBackupScheduleCommandHandler
             // Defence in depth behind the controller's AdminOnly policy — the shape every command on this
             // controller uses. Turning the backup off is exactly the sort of change whose effect cannot be read
             // off any screen afterwards, which is what AdminOnly is for.
-            if (!caller.IsAdmin())
+            if (!caller.RunsTheClinic())
             {
                 return Result<BackupScheduleDto>.Failure(
                     "Seuls les administrateurs peuvent modifier la planification des sauvegardes.");

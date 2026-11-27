@@ -17,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 /// <summary>« Paramètres → PC de secours »: the clinic admin's side (<c>clinic-pc-copy</c>). Absent where no change log is published.</summary>
 [ApiController]
 [Route("api/relay")]
-[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
 [AllowedWhileCloudFenced("Managing the PC de secours itself — retiring it is how an administrator frees a cabinet whose PC fell silent.")]
 public class RelayController : ApiControllerBase
 {

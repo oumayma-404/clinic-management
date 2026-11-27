@@ -104,7 +104,7 @@ public class ListRecoveryPointsQueryHandler : IRequestHandler<ListRecoveryPoints
 
         // Defense in depth behind the controller's AdminOnly policy, the shape every sibling here uses. Listing the
         // points is listing the moments a cabinet's whole record can be put back from.
-        if (!caller.IsAdmin())
+        if (!caller.RunsTheClinic())
         {
             return Result<RecoveryPointsDto>.Failure(
                 "Seuls les administrateurs peuvent consulter les points de restauration.");

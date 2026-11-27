@@ -23,6 +23,8 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     public const string RoleAdmin = "admin";
     public const string RoleDoctor = "doctor";
     public const string RoleSecretary = "secretary";
+    /// <summary>« Gestionnaire » — runs the cabinet like an admin, minus the money screens, the journal and admin accounts.</summary>
+    public const string RoleManager = "manager";
 
     /// <summary>
     /// The closed set of roles a clinic user may hold — the single authority for "is this a real role".
@@ -33,7 +35,7 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     /// silently matched no policy at all.
     /// </para>
     /// </summary>
-    public static readonly IReadOnlyList<string> AssignableRoles = new[] { RoleAdmin, RoleDoctor, RoleSecretary };
+    public static readonly IReadOnlyList<string> AssignableRoles = new[] { RoleAdmin, RoleDoctor, RoleSecretary, RoleManager };
 
     public Guid ClinicId { get; private set; }
     public string Role { get; private set; } // one of AssignableRoles
@@ -708,4 +710,12 @@ public class User : AggregateRoot<string> // Using Auth0 sub as ID (Cloud) or "l
     public bool IsDoctor() => Role.Equals(RoleDoctor, StringComparison.OrdinalIgnoreCase);
     public bool IsSecretary() => Role.Equals(RoleSecretary, StringComparison.OrdinalIgnoreCase);
     public bool IsAdmin() => Role.Equals(RoleAdmin, StringComparison.OrdinalIgnoreCase);
+    public bool IsManager() => Role.Equals(RoleManager, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Admin or gestionnaire: the people who run the cabinet (team, settings, catalogues, backup). The handler twin of
+    /// the <c>AdminOrManager</c> policy. ⚠️ Not for the money screens, the journal or anything about an admin account —
+    /// those stay on <see cref="IsAdmin"/>.
+    /// </summary>
+    public bool RunsTheClinic() => IsAdmin() || IsManager();
 }

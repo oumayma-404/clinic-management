@@ -129,7 +129,7 @@ public class DentalRecordsController : ApiControllerBase
     /// </para>
     /// </summary>
     [HttpGet("{id}/deletion-preview")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<DentalRecordDeletionPreviewDto>> PreviewDentalRecordDeletion(
         Guid patientId, Guid id)
     {
@@ -148,7 +148,7 @@ public class DentalRecordsController : ApiControllerBase
     }
 
     [HttpDelete("{id}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult> DeleteDentalRecord(Guid patientId, Guid id)
     {
         var command = new DeleteDentalRecordCommand

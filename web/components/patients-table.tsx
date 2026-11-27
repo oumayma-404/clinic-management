@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
@@ -119,7 +120,7 @@ export function PatientsTable({
   const [checkFailed, setCheckFailed] = useState(false)
   // Delete is admin-gated (finding #15) — matches the app's admin-only destructive-action convention.
   const { user } = useSession()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
 
   // Ask the server what blocks this patient as soon as the dialog opens.
   useEffect(() => {

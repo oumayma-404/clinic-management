@@ -261,7 +261,7 @@ public class MedicalDocumentsController : ApiControllerBase
     /// not <b>destroy</b> them. Note this also deletes the blob, so there is nothing to restore afterwards.</para>
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<IActionResult> DeleteDocument(
         Guid id,
         CancellationToken cancellationToken = default)

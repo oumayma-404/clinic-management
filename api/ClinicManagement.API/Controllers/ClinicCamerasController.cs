@@ -74,7 +74,7 @@ public class ClinicCamerasController : ApiControllerBase
     }
 
     [HttpDelete("{cameraId}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<IActionResult> Forget(Guid cameraId, CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(new ForgetClinicCameraCommand { CameraId = cameraId }, cancellationToken);

@@ -42,7 +42,7 @@ public sealed class AttendanceLockEvaluator
     /// A tracked account, never an admin's: the switch that lifts the lock and « Ajouter un pointage » (AC-5) are hers,
     /// so a locked admin with a broken borne could never get back in.
     /// </summary>
-    public static bool IsLockable(User user) => user.IsActive && user.IsAttendanceTracked && !user.IsAdmin();
+    public static bool IsLockable(User user) => user.IsActive && user.IsAttendanceTracked && !user.RunsTheClinic();
 
     public Task<bool> IsLockedAsync(User user, DateTime nowUtc, CancellationToken cancellationToken) =>
         IsLockedAsync(user, nowUtc, alreadyRead: null, cancellationToken);

@@ -49,7 +49,7 @@ public class GetTeamLeaveOverviewQueryHandler : IRequestHandler<GetTeamLeaveOver
             if (resolved.IsFailure)
                 return Result<TeamLeaveOverviewDto>.FailureFrom(resolved);
             var admin = resolved.Value!;
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
                 return Result<TeamLeaveOverviewDto>.Failure(StaffLeaveRules.AdminOnly);
 
             var today = request.Today ?? StaffLeaveRules.ClinicToday();

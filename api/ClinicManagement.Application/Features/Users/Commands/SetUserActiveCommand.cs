@@ -75,7 +75,7 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
             }
 
             // AC-5.4: only an admin can (de)activate users.
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
             {
                 return Result<ClinicUserDto>.Failure("Seuls les administrateurs peuvent modifier le statut d'un utilisateur.");
             }
@@ -97,6 +97,11 @@ public class SetUserActiveCommandHandler : IRequestHandler<SetUserActiveCommand,
             if (target == null || target.ClinicId != admin.ClinicId)
             {
                 return Result<ClinicUserDto>.Failure("Utilisateur introuvable.");
+            }
+
+            if (!StaffAccountAuthority.MayManage(admin, target))
+            {
+                return Result<ClinicUserDto>.Failure(StaffAccountAuthority.AdminAccountRefusal);
             }
 
             if (request.IsActive)

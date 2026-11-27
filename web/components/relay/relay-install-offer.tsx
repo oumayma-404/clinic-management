@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -237,7 +238,7 @@ export function RelayStartupOffer() {
     const shell = relayInstallShell()
     if (!shell) return
     considered.current = true
-    if (user.role !== "admin" || alreadyConsideredThisRun() || offerSetAside()) return
+    if (!runsTheClinic(user.role) || alreadyConsideredThisRun() || offerSetAside()) return
 
     let cancelled = false
     void (async () => {

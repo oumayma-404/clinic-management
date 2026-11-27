@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -66,7 +67,7 @@ export function ProcedureTypesTable({ onEdit, onAdd, reloadKey = 0 }: ProcedureT
   // the three admin-only catalog pages are: everyone still needs to see the catalogue. Hiding the write
   // controls rather than letting a non-admin press them and collect an unexplained 403 (AC-7.4).
   const { user } = useSession()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [procedureToDelete, setProcedureToDelete] = useState<ProcedureTypeDto | null>(null)
   const [search, setSearch] = useState("")

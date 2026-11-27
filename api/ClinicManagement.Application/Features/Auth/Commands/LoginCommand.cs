@@ -115,7 +115,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
     private bool SecondFactorApplies(Domain.Entities.User user) =>
         user.IsTotpEnrolled
         || user.TotpReenrolmentRequired
-        || (_secondFactorPolicy.RequiresAdminSecondFactor && user.IsAdmin());
+        || (_secondFactorPolicy.RequiresAdminSecondFactor && user.RunsTheClinic());
 
     private static Result<LoginResultDto> Refuse(string code) =>
         Result<LoginResultDto>.Failure(ClinicAuthRefusals.MessageFor(code)!, code);
@@ -185,7 +185,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<LoginRes
 
             // clinic-pc-copy AC-8.1: a retired PC de secours opens for the cabinet's administrators only — they are
             // the ones who decide what happens to the copy on it. After the password, for the oracle reason below.
-            if (_relayLocal.IsRetired && !user.IsAdmin())
+            if (_relayLocal.IsRetired && !user.RunsTheClinic())
             {
                 return Refuse(ClinicAuthRefusals.RetiredRelayAdminsOnly);
             }

@@ -76,7 +76,7 @@ public class GetOutboxDepthQueryHandler : IRequestHandler<GetOutboxDepthQuery, R
                 return Result<OutboxDepthDto>.Failure("Utilisateur introuvable.");
             }
 
-            if (!caller.IsAdmin())
+            if (!caller.RunsTheClinic())
             {
                 return Result<OutboxDepthDto>.Failure(
                     "Seuls les administrateurs peuvent consulter l'état des files d'attente.");

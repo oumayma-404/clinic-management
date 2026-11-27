@@ -17,7 +17,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/news")]
-[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
 [AllowedWhileCloudFenced("Its one write is an admin's read marker on the vendor's news, a row the PC de secours never carries.")]
 public class NewsController : ApiControllerBase
 {

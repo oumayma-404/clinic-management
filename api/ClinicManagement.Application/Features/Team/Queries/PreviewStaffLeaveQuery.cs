@@ -63,7 +63,7 @@ public class PreviewStaffLeaveQueryHandler : IRequestHandler<PreviewStaffLeaveQu
             var target = caller;
             if (!string.IsNullOrEmpty(request.UserId) && request.UserId != caller.Id)
             {
-                if (!caller.IsAdmin())
+                if (!caller.RunsTheClinic())
                     return Result<StaffLeavePreviewDto>.Failure(StaffLeaveRules.AdminOnly);
                 var other = await _users.GetByIdAsync(request.UserId, cancellationToken);
                 if (other == null || other.ClinicId != caller.ClinicId)

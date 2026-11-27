@@ -19,7 +19,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/expenses")]
-[Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+[Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
 public class ExpensesController : ApiControllerBase
 {
     private readonly IMediator _mediator;
@@ -164,7 +164,7 @@ public class ExpensesController : ApiControllerBase
     [HttpDelete("{id:guid}")]
     // Deleting a dépense silently *raises* the reported Net, and no screen shows what used to be there — the
     // exact shape of change the audit ledger (I6) exists to answer « qui a fait ça ? » about.
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> DeleteExpense(Guid id)
     {
         var result = await _mediator.Send(new DeleteExpenseCommand { Id = id });

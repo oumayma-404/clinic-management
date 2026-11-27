@@ -78,7 +78,7 @@ public class PatientFamilyHistoryController : ApiControllerBase
     /// reception's job, erasing a piece of the clinical picture is not.
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult> DeleteFamilyHistory(Guid patientId, Guid id)
     {
         var command = new DeletePatientFamilyHistoryCommand

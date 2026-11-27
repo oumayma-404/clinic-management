@@ -77,7 +77,7 @@ public class DecideStaffLeaveRequestCommandHandler
             if (resolved.IsFailure)
                 return Result<StaffLeaveRequestDto>.FailureFrom(resolved);
             admin = resolved.Value!;
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
                 return Result<StaffLeaveRequestDto>.Failure(StaffLeaveRules.AdminOnly);
 
             var found = await _clinics.GetByIdAsync(admin.ClinicId, cancellationToken);

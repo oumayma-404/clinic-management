@@ -186,7 +186,7 @@ public class PatientsController : ApiControllerBase
     /// and not something reception does — and per the API contract the two import endpoints share the export's gate.
     /// </remarks>
     [HttpPost("import/preview")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     [AllowsWithoutSubscription("AC-4.9 — a dry run: a Query by design, writing nothing. The commit below is refused.")]
     [RequestSizeLimit(MaxImportFileBytes)]
     public async Task<ActionResult<PatientImportPreviewDto>> PreviewPatientImport(
@@ -222,7 +222,7 @@ public class PatientsController : ApiControllerBase
     /// rather than on a server-side row id that would not survive the round trip.</para>
     /// </summary>
     [HttpPost("import")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     [RequestSizeLimit(MaxImportFileBytes)]
     public async Task<ActionResult<PatientImportResultDto>> ImportPatients(
         [FromForm] Models.PatientImportRequest request,
@@ -485,7 +485,7 @@ public class PatientsController : ApiControllerBase
     /// </summary>
     [HttpDelete("{id}")]
     // The one irreversible operation on a patient record. Archiving is the escape hatch every other role has.
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> DeletePatient(Guid id)
     {
         var result = await _mediator.Send(new DeletePatientCommand { Id = id });
@@ -505,7 +505,7 @@ public class PatientsController : ApiControllerBase
     [HttpGet("{id}/deletion-check")]
     // Gated with the delete it precedes, not one step looser: it exists to fill that confirm dialog, and a role
     // that cannot reach the button has no use for the answer.
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<ActionResult<PatientDeletionCheckDto>> GetDeletionCheck(Guid id)
     {
         var result = await _mediator.Send(new GetPatientDeletionCheckQuery { PatientId = id });
@@ -527,7 +527,7 @@ public class PatientsController : ApiControllerBase
     [HttpPost("{id}/archive")]
     // Nothing is destroyed, but the patient leaves every list, search and picker — indistinguishable from gone
     // to whoever looks for them next.
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<PatientDto>> ArchivePatient(Guid id, [FromBody] ArchivePatientRequest? request)
     {
         var result = await _mediator.Send(new ArchivePatientCommand { Id = id, Reason = request?.Reason });
@@ -542,7 +542,7 @@ public class PatientsController : ApiControllerBase
 
     /// <summary>Restore an archived patient everywhere.</summary>
     [HttpPost("{id}/unarchive")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<PatientDto>> UnarchivePatient(Guid id)
     {
         var result = await _mediator.Send(new UnarchivePatientCommand { Id = id });
@@ -562,7 +562,7 @@ public class PatientsController : ApiControllerBase
     [HttpPost("{id}/merge-into-suggested-duplicate")]
     // A record is destroyed, so the same gate deletion and archiving carry — and reception, who answers most of
     // « Patients à compléter », may complete a fiche but not remove one.
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<MergeSuggestedDuplicateResult>> MergeIntoSuggestedDuplicate(Guid id)
     {
         var result = await _mediator.Send(new MergeIntoSuggestedDuplicateCommand { Id = id });

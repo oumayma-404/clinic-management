@@ -70,7 +70,7 @@ public class PreviewClinicLetterheadQueryHandler : IRequestHandler<PreviewClinic
                 return Result<byte[]>.Failure("Session invalide, veuillez vous reconnecter.");
             }
 
-            if (!user.IsAdmin())
+            if (!user.RunsTheClinic())
             {
                 return Result<byte[]>.Failure(LetterheadRules.AdminOnly);
             }

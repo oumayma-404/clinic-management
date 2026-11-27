@@ -36,7 +36,7 @@ internal static class ArchiveGrantGuard
             return Result<Guid>.Failure("Utilisateur introuvable.");
         }
 
-        if (!caller.IsAdmin())
+        if (!caller.RunsTheClinic())
         {
             return Result<Guid>.Failure("Seuls les administrateurs peuvent gérer les postes autorisés.");
         }

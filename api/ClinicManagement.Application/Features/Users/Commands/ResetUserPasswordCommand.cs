@@ -63,7 +63,7 @@ public class ResetUserPasswordCommandHandler : IRequestHandler<ResetUserPassword
             }
 
             // AC-5.4: only an admin can reset another user's password.
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
             {
                 return Result<ResetPasswordResultDto>.Failure("Seuls les administrateurs peuvent réinitialiser les mots de passe.");
             }
@@ -78,6 +78,11 @@ public class ResetUserPasswordCommandHandler : IRequestHandler<ResetUserPassword
             if (target == null || target.ClinicId != admin.ClinicId)
             {
                 return Result<ResetPasswordResultDto>.Failure("Utilisateur introuvable.");
+            }
+
+            if (!StaffAccountAuthority.MayManage(admin, target))
+            {
+                return Result<ResetPasswordResultDto>.Failure(StaffAccountAuthority.AdminAccountRefusal);
             }
 
             // Only local (password-backed) accounts have a password to reset.

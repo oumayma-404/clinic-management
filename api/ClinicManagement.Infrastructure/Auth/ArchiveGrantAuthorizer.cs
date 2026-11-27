@@ -36,7 +36,7 @@ public class ArchiveGrantAuthorizer : IArchiveGrantAuthorizer
         // The account behind the grant, re-checked every time rather than trusted from issue: an admin who has
         // been deactivated or demoted since must not leave a machine able to pull the cabinet's whole record.
         var issuer = await _users.GetByIdAsync(grant.CreatedByUserId, cancellationToken);
-        if (issuer == null || !issuer.IsActive || !issuer.IsAdmin() || issuer.ClinicId != grant.ClinicId)
+        if (issuer == null || !issuer.IsActive || !issuer.RunsTheClinic() || issuer.ClinicId != grant.ClinicId)
         {
             return null;
         }

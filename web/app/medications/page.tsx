@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
@@ -19,7 +20,7 @@ import { RealtimeResource } from "@/lib/realtime/clinic-hub"
 export default function MedicationsPage() {
   const { user, isLoading } = useSession()
   const router = useRouter()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingMedication, setEditingMedication] = useState<MedicationDto | null>(null)

@@ -82,7 +82,7 @@ public class GoogleCalendarControllerHardeningTests
         Assert.NotNull(method);
         var authorize = method!.GetCustomAttribute<AuthorizeAttribute>();
         Assert.NotNull(authorize);
-        Assert.Equal("AdminOnly", authorize!.Policy);
+        Assert.Equal("AdminOrManager", authorize!.Policy);
     }
 
     [Theory]

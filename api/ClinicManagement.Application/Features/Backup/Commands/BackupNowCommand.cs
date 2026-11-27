@@ -64,7 +64,7 @@ public class BackupNowCommandHandler : IRequestHandler<BackupNowCommand, Result<
             }
 
             // AC-8.1: only an admin may trigger a backup.
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
             {
                 return Result<BackupResultDto>.Failure("Seuls les administrateurs peuvent lancer une sauvegarde.");
             }

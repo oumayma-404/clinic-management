@@ -57,7 +57,7 @@ public class RecallController : ApiControllerBase
     // Finally matches this endpoint's own doc comment, which claimed "Admin-editable" while enforcing nothing
     // (audit § 2, finding 8). The recall LIST and the per-patient actions below stay open to all staff —
     // those are day-to-day work, not configuration.
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [HttpPut("settings")]
     public async Task<ActionResult<RecallSettingsDto>> SetSettings([FromBody] SetRecallSettingsCommand command)
     {

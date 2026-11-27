@@ -301,7 +301,7 @@ public class InvoicesController : ApiControllerBase
     /// not a refund — money actually returned to the patient is an avoir.
     /// </para>
     /// </summary>
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     [HttpPost("{id}/payments/{paymentId}/void")]
     public async Task<ActionResult<InvoiceDto>> VoidPayment(
         Guid id,
@@ -353,7 +353,7 @@ public class InvoicesController : ApiControllerBase
     }
 
     [HttpPost("{id}/cancel")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<InvoiceDto>> CancelInvoice(Guid id, [FromBody] CancelInvoiceCommand command, CancellationToken cancellationToken = default)
     {
         command.Id = id;
@@ -378,7 +378,7 @@ public class InvoicesController : ApiControllerBase
     /// back to the patient, a correction records that the note was wrong.</para>
     /// </summary>
     [HttpPost("{id}/correct")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<InvoiceDto>> CorrectInvoice(Guid id, [FromBody] CorrectInvoiceCommand command, CancellationToken cancellationToken = default)
     {
         command.Id = id;
@@ -399,7 +399,7 @@ public class InvoicesController : ApiControllerBase
     /// it was written. Refused once a cheque is banked.</para>
     /// </summary>
     [HttpPost("{id}/payments/{paymentId}/date")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<InvoiceDto>> AmendPaymentDate(
         Guid id,
         Guid paymentId,
@@ -420,7 +420,7 @@ public class InvoicesController : ApiControllerBase
 
     /// <summary>Establish an avoir (credit note) against a (partially) paid invoice (admin/doctor only).</summary>
     [HttpPost("{id}/avoir")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<CreditNoteDto>> CreateCreditNote(Guid id, [FromBody] CreateCreditNoteCommand command, CancellationToken cancellationToken = default)
     {
         command.InvoiceId = id;
@@ -470,7 +470,7 @@ public class InvoicesController : ApiControllerBase
     [HttpDelete("{id}")]
     // Only a draft can be deleted (no number consumed, no money attached), but it is still the removal of a
     // money document — the same bracket as cancelling a note or issuing an avoir.
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<IActionResult> DeleteInvoice(Guid id, CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(new DeleteInvoiceCommand { Id = id }, cancellationToken);

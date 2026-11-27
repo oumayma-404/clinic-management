@@ -549,7 +549,7 @@ public class PatientFilesController : ApiControllerBase
     // why the class policy is open. Removing a scanned document is not: nothing on any screen afterwards says
     // it was ever there.
     [HttpDelete("{fileId}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<IActionResult> DeleteFile(
         Guid patientId,
         Guid fileId,
@@ -663,7 +663,7 @@ public class PatientFilesController : ApiControllerBase
     }
 
     [HttpDelete("folders/{folderId}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<IActionResult> DeleteFolder(
         Guid patientId,
         Guid folderId,

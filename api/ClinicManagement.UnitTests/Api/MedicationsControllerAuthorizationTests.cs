@@ -35,7 +35,7 @@ public class MedicationsControllerAuthorizationTests
         var authorize = method.GetCustomAttribute<AuthorizeAttribute>();
 
         Assert.NotNull(authorize);
-        Assert.Equal(AuthorizationPolicies.AdminOnly, authorize!.Policy);
+        Assert.Equal(AuthorizationPolicies.AdminOrManager, authorize!.Policy);
     }
 
     [Theory]
@@ -46,7 +46,8 @@ public class MedicationsControllerAuthorizationTests
         var authorize = method.GetCustomAttribute<AuthorizeAttribute>();
 
         // Reads inherit the class-level [Authorize] (any authenticated user); no per-method AdminOnly.
-        Assert.True(authorize is null || authorize.Policy != AuthorizationPolicies.AdminOnly);
+        Assert.True(authorize is null
+            || authorize.Policy is not (AuthorizationPolicies.AdminOnly or AuthorizationPolicies.AdminOrManager));
     }
 
     [Fact]

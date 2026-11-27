@@ -132,7 +132,7 @@ public static class RelayAdmin
             return Result<User>.Failure("Session invalide, veuillez vous reconnecter.");
         }
 
-        return user.IsAdmin()
+        return user.RunsTheClinic()
             ? Result<User>.Success(user)
             : Result<User>.Failure(RelayRefusals.NotAdmin, RelayRefusals.NotAdminCode);
     }

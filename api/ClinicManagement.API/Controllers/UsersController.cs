@@ -19,7 +19,7 @@ namespace ClinicManagement.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
 [AllowedWhileCloudFenced("FR-11 — an administrator's account changes stay on the cloud during a cut.")]
 public class UsersController : ApiControllerBase
 {

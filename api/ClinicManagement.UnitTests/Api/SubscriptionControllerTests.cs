@@ -89,7 +89,7 @@ public class SubscriptionControllerTests
     [Fact]
     public void Only_The_Payment_History_Is_Admin_Only()
     {
-        Assert.Equal(AuthorizationPolicies.AdminOnly, MethodPolicy(nameof(SubscriptionController.GetHistory)));
+        Assert.Equal(AuthorizationPolicies.AdminOrManager, MethodPolicy(nameof(SubscriptionController.GetHistory)));
         Assert.Null(MethodPolicy(nameof(SubscriptionController.GetSubscription)));
     }
 

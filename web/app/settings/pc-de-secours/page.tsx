@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -83,7 +84,7 @@ function Record({ item }: { item: RelayReviewItemDto }) {
 
 export default function RelayReturnsPage() {
   const { user, isLoading: sessionLoading } = useSession()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
 
   const initial = useUrlFilterSeed()
   const [list, setList] = useState<ListKey>(initial.get("liste") === "a-reprendre" ? "a-reprendre" : "a-verifier")

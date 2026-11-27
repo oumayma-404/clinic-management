@@ -353,7 +353,7 @@ public class UpdateDentalRecordCommandHandler : IRequestHandler<UpdateDentalReco
                     // ⚠️ A correction cancels every payment on the note — the same act as the note's own
                     // « Corriger », which is AdminOrDoctor. The fiche is open to reception (AnyClinicRole), so the
                     // role is checked here or a secretary could void la caisse through the fiche's door.
-                    if (_clinicContext.GetUserRole() is not (User.RoleAdmin or User.RoleDoctor))
+                    if (_clinicContext.GetUserRole() is not (User.RoleAdmin or User.RoleDoctor or User.RoleManager))
                     {
                         return Result<DentalRecordDto>.Failure(
                             "Seul un praticien ou un administrateur peut corriger une note d'honoraires.",

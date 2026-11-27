@@ -64,7 +64,7 @@ public class DoctorsController : ApiControllerBase
     [RequestSizeLimit(FileTypeCatalog.ProfileImageBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = FileTypeCatalog.ProfileImageBytes)]
     [HttpPut("{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<IActionResult> UpdateProfile(Guid id, [FromForm] UpdateDoctorProfileRequest request, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(ToCommand(id, request), cancellationToken);
@@ -98,7 +98,7 @@ public class DoctorsController : ApiControllerBase
     /// <summary>Set a dentist's per-practitioner working hours (AC-3.3). An empty list clears the override.</summary>
     [HttpPut("{id:guid}/working-hours")]
     // Reading the hours is what the agenda does for everyone; deciding them is the practitioner's own call.
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult<IEnumerable<WorkingDayDto>>> SetWorkingHours(Guid id, [FromBody] SetDoctorWorkingHoursCommand command, CancellationToken cancellationToken)
     {
         command.DoctorId = id;

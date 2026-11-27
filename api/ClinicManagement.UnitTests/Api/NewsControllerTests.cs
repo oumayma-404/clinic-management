@@ -32,7 +32,7 @@ public class NewsControllerTests
     {
         var policy = typeof(NewsController).GetCustomAttribute<AuthorizeAttribute>()?.Policy;
 
-        Assert.Equal(AuthorizationPolicies.AdminOnly, policy);
+        Assert.Equal(AuthorizationPolicies.AdminOrManager, policy);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -223,7 +224,7 @@ export function DashboardHeader() {
         return true
       case "AttendanceBorneInstalled":
         // The admin checks it in « Équipe »; for the device's owner the row says everything.
-        if (user?.role === "admin") router.push(TEAM_SETTINGS_HREF)
+        if (runsTheClinic(user?.role)) router.push(TEAM_SETTINGS_HREF)
         return true
       case "AttendanceBorneNotReceived":
       case "AttendanceSchemaBlocked":
@@ -296,7 +297,7 @@ export function DashboardHeader() {
       router.push("/mes-presences")
     } else if (notification.targetKind === "StaffLeaveRequest") {
       // conges-secretaires — an admin decides on « Utilisateurs → Congés », a secretary reads her answer on « Congés ».
-      if (user?.role === "admin") {
+      if (runsTheClinic(user?.role)) {
         router.push(`/users?onglet=${USERS_LEAVE_TAB}`)
         window.dispatchEvent(new CustomEvent(USERS_LEAVE_TAB_EVENT))
       } else {

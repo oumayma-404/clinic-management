@@ -205,7 +205,7 @@ public class ClinicsController : ApiControllerBase
     /// </summary>
     // Admin-only: rewriting the practitioner roster is clinic-wide configuration, and it was reachable by any
     // authenticated user including a secretary (audit § 2, finding 8).
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [HttpPut("doctors")]
     public async Task<IActionResult> UpdateDoctors([FromBody] UpdateDoctorsRequest request)
     {
@@ -235,7 +235,7 @@ public class ClinicsController : ApiControllerBase
     [HttpPut]
     // Clinic configuration, and specifically the billing settings — matricule fiscal, TVA, timbre.
     // Every write on the tabs beside it was already admin-gated; this one was reachable by any authenticated user.
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> UpdateClinic([FromForm] UpdateClinicRequest request)
     {
         var command = new UpdateClinicCommand
@@ -281,7 +281,7 @@ public class ClinicsController : ApiControllerBase
     /// </summary>
     [OnlineOnly("FR-5 — the clinic code creates accounts, which wait for the internet (FR-11).")]
     [HttpPost("regenerate-code")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> RegenerateCode()
     {
         var result = await _mediator.Send(new RegenerateClinicCodeCommand());
@@ -296,7 +296,7 @@ public class ClinicsController : ApiControllerBase
 
     /// <summary>Paramètres → « Équipe »: the secretary congés switch (tri-state, a version round-tripped).</summary>
     [HttpPut("team-modules")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> SetTeamModules([FromBody] SetTeamModulesCommand command)
     {
         var result = await _mediator.Send(command);
@@ -345,7 +345,7 @@ public class ClinicsController : ApiControllerBase
     /// stored SMS API key / WhatsApp access token, only per-secret configured flags.
     /// </summary>
     [HttpGet("reminder-settings")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> GetReminderSettings(CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(new GetClinicReminderSettingsQuery(), cancellationToken);
@@ -364,7 +364,7 @@ public class ClinicsController : ApiControllerBase
     /// </summary>
     [OnlineOnly("FR-5 — « Rappels » settings wait for the internet: the reminders are sent by the cloud.")]
     [HttpPut("reminder-settings")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> UpdateReminderSettings(
         [FromBody] UpdateReminderSettingsRequest request, CancellationToken cancellationToken = default)
     {
@@ -384,7 +384,7 @@ public class ClinicsController : ApiControllerBase
     /// AC-3) — so a failed reminder is noticed instead of vanishing. Recipient phone is masked.
     /// </summary>
     [HttpGet("reminder-status")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> GetReminderStatus(
         [FromQuery] int take = GetClinicReminderStatusQuery.DefaultTake, CancellationToken cancellationToken = default)
     {
@@ -502,7 +502,7 @@ public class ClinicsController : ApiControllerBase
     /// </summary>
     [OnlineOnly("FR-5 — « Rappels » settings wait for the internet: the reminders are sent by the cloud.")]
     [HttpPost("whatsapp/connect")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> ConnectWhatsApp(
         [FromBody] ConnectWhatsAppRequest request, CancellationToken cancellationToken = default)
     {
@@ -528,7 +528,7 @@ public class ClinicsController : ApiControllerBase
     /// </summary>
     [OnlineOnly("FR-5 — « Rappels » settings wait for the internet: the reminders are sent by the cloud.")]
     [HttpDelete("whatsapp/connect")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> DisconnectWhatsApp(CancellationToken cancellationToken = default)
     {
         if (!_deployment.ExposesMetaOnboarding)
@@ -606,7 +606,7 @@ public class ClinicsController : ApiControllerBase
     [RequestSizeLimit(LetterheadRequestBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = LetterheadRequestBytes)]
     [HttpPut("letterhead")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> UpdateLetterhead(
         [FromForm] UpdateClinicLetterheadRequest request, CancellationToken cancellationToken = default)
     {
@@ -637,7 +637,7 @@ public class ClinicsController : ApiControllerBase
 
     /// <summary>Back to the text header. The bands stay in storage for the documents already issued with them.</summary>
     [HttpDelete("letterhead")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> RemoveLetterhead([FromQuery] uint version, CancellationToken cancellationToken = default)
     {
         var result = await _mediator.Send(new RemoveClinicLetterheadCommand { Version = version }, cancellationToken);
@@ -649,7 +649,7 @@ public class ClinicsController : ApiControllerBase
     [RequestFormLimits(MultipartBodyLengthLimit = LetterheadRequestBytes)]
     [EnableRateLimiting(RateLimiting.DemoPdfPolicy)]
     [HttpPost("letterhead/preview")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> PreviewLetterhead(
         [FromForm] UpdateClinicLetterheadRequest request, CancellationToken cancellationToken = default)
     {

@@ -122,7 +122,7 @@ public class UpdateClinicCommandHandler : IRequestHandler<UpdateClinicCommand, R
                 || (request.StampDutyAmount.HasValue && request.StampDutyAmount.Value != clinic.StampDutyAmount);
 
             // Refused BEFORE the logo upload below, so an unauthorized caller never writes to storage.
-            if (legalBillingChanging && !user.IsAdmin())
+            if (legalBillingChanging && !user.RunsTheClinic())
             {
                 return Result<ClinicDto>.Failure(
                     "Seul un administrateur peut modifier les paramètres de facturation " +

@@ -67,7 +67,7 @@ import { useDoctors } from "@/lib/hooks/use-doctors"
 import { dayFromKey, leaveCoversDay, leavePeriodLabel } from "@/lib/doctor-leaves"
 import { DoctorLeaveDialog } from "@/components/doctor-leaves/doctor-leave-dialog"
 import { AllDoctorLeavesDialog } from "@/components/doctor-leaves/all-leaves-dialog"
-import { canEditAnyLeave } from "@/lib/auth/can"
+import { canEditAnyLeave, runsTheClinic } from "@/lib/auth/can"
 import { WEEKDAYS, type WorkingDay } from "@/lib/working-hours"
 import {
   APPOINTMENT_STATUSES,
@@ -759,7 +759,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   // The "Push to Google" endpoint is AdminOnly — only admins get the action (finding #9); everyone still
   // sees the "non synchronisé" status badge.
   const { user } = useSession()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
   const [pushingId, setPushingId] = useState<string | null>(null)
 
   const handlePushToGoogle = async (appointment: AppointmentDto) => {

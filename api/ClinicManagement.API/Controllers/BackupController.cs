@@ -40,7 +40,7 @@ namespace ClinicManagement.API.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
 public class BackupController : ApiControllerBase
 {
     /// <summary>

@@ -88,6 +88,7 @@ public class ClinicalRecordDeletionAuthorizationTests
         var authorize = method.GetCustomAttribute<AuthorizeAttribute>();
 
         Assert.NotNull(authorize);
-        Assert.Equal(AuthorizationPolicies.AdminOrDoctor, authorize!.Policy);
+        // The gestionnaire joined admin and doctor here (2026-11-27); the secretary still cannot erase.
+        Assert.Equal(AuthorizationPolicies.AdminDoctorOrManager, authorize!.Policy);
     }
 }

@@ -66,7 +66,7 @@ public class DisconnectGoogleCalendarCommandHandler : IRequestHandler<Disconnect
 
             // The endpoint is AdminOnly; the DB role is re-checked here as everywhere else, because the
             // authoritative clinic and role come from the user record, not the token claim.
-            if (!user.IsAdmin())
+            if (!user.RunsTheClinic())
             {
                 return Result<bool>.Failure("Seuls les administrateurs peuvent déconnecter Google Calendar.");
             }

@@ -41,7 +41,7 @@ public class GetPendingStaffLeaveCountQueryHandler
             if (resolved.IsFailure)
                 return Result<PendingStaffLeaveCountDto>.FailureFrom(resolved);
             var admin = resolved.Value!;
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
                 return Result<PendingStaffLeaveCountDto>.Failure(StaffLeaveRules.AdminOnly);
 
             var clinic = await _clinics.GetByIdAsync(admin.ClinicId, cancellationToken);

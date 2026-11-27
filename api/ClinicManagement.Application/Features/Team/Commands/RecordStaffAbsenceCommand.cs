@@ -70,7 +70,7 @@ public class RecordStaffAbsenceCommandHandler : IRequestHandler<RecordStaffAbsen
             if (resolved.IsFailure)
                 return Result<StaffLeaveRequestDto>.FailureFrom(resolved);
             admin = resolved.Value!;
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
                 return Result<StaffLeaveRequestDto>.Failure(StaffLeaveRules.AdminOnly);
 
             var clinic = await _clinics.GetByIdAsync(admin.ClinicId, cancellationToken);

@@ -62,7 +62,7 @@ public class SubscriptionController : ApiControllerBase
     /// <param name="page">1-based. Omitting it gets the first page — this read is never unbounded.</param>
     /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
     [HttpGet("history")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [AllowsWithoutSubscription("AC-4.8 — the owner deciding whether to renew reads what they last paid.")]
     public async Task<ActionResult<SubscriptionHistoryPageDto>> GetHistory(
         [FromQuery] int? page = null,

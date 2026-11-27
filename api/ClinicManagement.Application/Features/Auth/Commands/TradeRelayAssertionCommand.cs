@@ -64,7 +64,7 @@ public sealed class TradeRelayAssertionCommandHandler : IRequestHandler<TradeRel
             // partout ») reaches this PC with the row, and every older ticket then means nothing.
             var user = await _users.GetByAuth0SubAsync(claims.UserId, cancellationToken);
             if (user is null || !user.IsActive || user.ClinicId != claims.ClinicId || user.TokenVersion != claims.TokenVersion
-                || (_local.IsRetired && !user.IsAdmin()))
+                || (_local.IsRetired && !user.RunsTheClinic()))
             {
                 return Refuse();
             }

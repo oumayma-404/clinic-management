@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useCallback, useEffect, useState } from "react"
 import { SlidersHorizontal, X } from "lucide-react"
@@ -74,7 +75,7 @@ type ChannelFilter = "all" | "SMS" | "WhatsApp"
  */
 export function RappelsScreen() {
   const { user } = useSession()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
 
   const [status, setStatus] = useState<StatusFilter>("all")
   const [channel, setChannel] = useState<ChannelFilter>("all")

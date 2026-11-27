@@ -123,12 +123,12 @@ public class ClinicalRecordAccessTests
     }
 
     [Fact]
-    public void Deleting_From_The_Clinical_Record_Requires_AdminOrDoctor()
+    public void Deleting_From_The_Clinical_Record_Requires_AdminDoctorOrManager()
     {
         foreach (var (controller, action) in AdminOrDoctorActions)
         {
             Assert.Equal(
-                AuthorizationPolicies.AdminOrDoctor,
+                AuthorizationPolicies.AdminDoctorOrManager,
                 EffectivePolicy(controller, action));
         }
     }

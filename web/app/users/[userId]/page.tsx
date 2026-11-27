@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
@@ -57,7 +58,7 @@ export default function StaffFilePage() {
   const userId = decodeSegment(params?.userId)
   const { user, isLoading: sessionLoading } = useSession()
   const { data: status } = useUserStatus()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
   const leaveEnabled = status?.clinic?.leaveRequestsEnabled === true
   const attendanceEnabled = status?.clinic?.attendanceEnabled === true
   const [attendanceName, setAttendanceName] = useState<string | null>(null)

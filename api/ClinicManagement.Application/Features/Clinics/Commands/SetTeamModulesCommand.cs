@@ -50,7 +50,7 @@ public class SetTeamModulesCommandHandler : IRequestHandler<SetTeamModulesComman
             var admin = await _users.GetByAuth0SubAsync(callerId, cancellationToken);
             if (admin == null)
                 return Result<TeamModulesDto>.Failure("Utilisateur introuvable.");
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
                 return Result<TeamModulesDto>.Failure("Seuls les administrateurs peuvent modifier ces réglages.");
 
             var clinic = await _clinics.GetByIdAsync(admin.ClinicId, cancellationToken);

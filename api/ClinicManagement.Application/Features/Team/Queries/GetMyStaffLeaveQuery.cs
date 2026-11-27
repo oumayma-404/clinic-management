@@ -64,7 +64,7 @@ public class GetMyStaffLeaveQueryHandler : IRequestHandler<GetMyStaffLeaveQuery,
             {
                 Balance = StaffLeaveAccounts.Balance(account, year),
                 Statement = StaffLeaveAccounts.Statement(account, year, all, entries),
-                Items = all.Select(r => StaffLeaveRules.ToDto(r, roster, today, viewerIsAdmin: caller.IsAdmin())).ToList(),
+                Items = all.Select(r => StaffLeaveRules.ToDto(r, roster, today, viewerIsAdmin: caller.RunsTheClinic())).ToList(),
             });
         }
         catch (Exception ex) when (ex is not ConflictException)

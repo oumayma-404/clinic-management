@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
@@ -71,7 +72,7 @@ export default function AbonnementPage() {
 
 function AbonnementContent() {
   const { user, isLoading: sessionLoading } = useSession()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
 
   // ⚠️ The state comes from the provider, not from a second read of the same two endpoints. This page used to fire
   // its own `getMode()` **and** `subscriptionApi.get()` on mount — duplicating what Trigger 0 had already done — and

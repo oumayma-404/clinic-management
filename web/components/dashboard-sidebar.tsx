@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -40,7 +41,7 @@ export function DashboardSidebar() {
   // never blank/"undefined" on first-run/setup before a clinic name exists (spec Edge Cases).
   const brandName = status?.clinic?.name?.trim() || PRODUCT_NAME
 
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
   const news = useNewsBadge(isAdmin)
 
   /*
@@ -82,7 +83,7 @@ export function DashboardSidebar() {
     attendanceTracked,
   )
   // Requests waiting for an admin, beside « Utilisateurs » (`conges-secretaires`).
-  const pendingLeave = usePendingLeaveCount(user?.role === "admin" && leaveEnabled)
+  const pendingLeave = usePendingLeaveCount(runsTheClinic(user?.role) && leaveEnabled)
   const badgeFor = (href: string) => (href === "/users" ? pendingLeave : 0)
 
   // `collapsed` is passed rather than read from context: inside the mobile drawer the rail is always

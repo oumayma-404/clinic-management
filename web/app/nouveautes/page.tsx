@@ -1,4 +1,5 @@
 "use client"
+import { runsTheClinic } from "@/lib/auth/can"
 
 import { AppShell } from "@/components/app-shell"
 import { ClinicGuard } from "@/components/clinic-guard"
@@ -9,7 +10,7 @@ import { useSession } from "@/lib/auth/session"
 
 export default function NouveautesPage() {
   const { user, isLoading } = useSession()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = runsTheClinic(user?.role)
 
   return (
     <ClinicGuard>

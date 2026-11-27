@@ -20,7 +20,7 @@ namespace ClinicManagement.API.Controllers;
 // by a top-level navigation from Google and cannot present a bearer token). Per-clinic connection binding
 // (feature cloud-security-and-tenant-isolation, #4) replaces the former single global token/calendar.
 [ApiController]
-[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
 [Route("api/[controller]")]
 public class GoogleCalendarController : ApiControllerBase
 {
@@ -100,7 +100,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// the list itself and every row that will survive names its own reason.</para>
     /// </summary>
     [HttpGet("imports/{runId:guid}/revert-preview")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> PreviewRevert(Guid runId, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(
@@ -118,7 +118,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// </summary>
     [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
     [HttpPost("imports/{runId:guid}/revert")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> RevertImport(Guid runId, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(
@@ -147,7 +147,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// </summary>
     [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
     [HttpPost("disconnect")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> Disconnect(CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new DisconnectGoogleCalendarCommand(), cancellationToken);
@@ -261,7 +261,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// </summary>
     [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
     [HttpPost("sync-appointment/{appointmentId}")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> SyncAppointmentToGoogle(Guid appointmentId)
     {
         try
@@ -289,7 +289,7 @@ public class GoogleCalendarController : ApiControllerBase
     /// </summary>
     [OnlineOnly("FR-5 — Google Agenda is reached from the cloud; nothing reaches it during a cut.")]
     [HttpPost("connect")]
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     public async Task<IActionResult> Connect(CancellationToken cancellationToken = default)
     {
         var clientId = _configuration["GoogleCalendar:ClientId"];

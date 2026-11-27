@@ -98,7 +98,7 @@ public class UpdateDoctorProfileCommandHandler : IRequestHandler<UpdateDoctorPro
             // FR-3.1: own-or-admin. Checked BEFORE any mutation / upload so an unauthorized caller never
             // touches storage.
             var isOwnRecord = doctor.UserId != null && doctor.UserId == user.Id;
-            if (!user.IsAdmin() && !isOwnRecord)
+            if (!user.RunsTheClinic() && !isOwnRecord)
             {
                 return Result<DoctorProfileDto>.Failure("Vous ne pouvez modifier que votre propre profil.");
             }

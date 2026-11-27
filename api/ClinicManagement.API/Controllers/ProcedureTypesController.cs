@@ -88,7 +88,7 @@ public class ProcedureTypesController : ApiControllerBase
     // Catalog WRITES are admin-only, matching the CNAM nomenclature, dental-act and medication catalogs —
     // this one was simply missed (audit § 2, finding 8). Procedure-type prices feed straight into what a
     // patient is charged. Reads stay open to all staff.
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [HttpPost]
     public async Task<ActionResult<Application.DTOs.ProcedureTypeDto>> CreateProcedureType([FromBody] CreateProcedureTypeCommand command)
     {
@@ -105,7 +105,7 @@ public class ProcedureTypesController : ApiControllerBase
     /// <summary>
     /// Update a procedure type
     /// </summary>
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [HttpPut("{id}")]
     public async Task<ActionResult<Application.DTOs.ProcedureTypeDto>> UpdateProcedureType(Guid id, [FromBody] UpdateProcedureTypeCommand command)
     {
@@ -125,7 +125,7 @@ public class ProcedureTypesController : ApiControllerBase
     /// the PUT above because the list has replace semantics (an empty list clears it, which is the opt-out)
     /// while every field of the update command is null-means-unchanged.
     /// </summary>
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [HttpPut("{id}/materials")]
     public async Task<ActionResult<Application.DTOs.ProcedureTypeDto>> SetMaterials(
         Guid id, [FromBody] SetProcedureTypeMaterialsCommand command)
@@ -144,7 +144,7 @@ public class ProcedureTypesController : ApiControllerBase
     /// <summary>
     /// Delete (soft delete) a procedure type
     /// </summary>
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteProcedureType(Guid id)
     {
@@ -172,7 +172,7 @@ public class ProcedureTypesController : ApiControllerBase
     /// Bring an archived act back (I1). A separate route rather than a flag on the DELETE, so the inverse of an
     /// archive is a thing a client can point at — the dental-acts catalogue's shape.
     /// </summary>
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [HttpPost("{id}/activate")]
     public async Task<IActionResult> ReactivateProcedureType(Guid id)
     {
@@ -185,7 +185,7 @@ public class ProcedureTypesController : ApiControllerBase
     /// whose name already exists), and give the starter protocols the clinic has not edited their step
     /// intervals. Returns both counts: a run can legitimately add nothing and update many protocols.
     /// </summary>
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrManager)]
     [HttpPost("initialize-defaults")]
     public async Task<IActionResult> InitializeDefaults()
     {

@@ -76,7 +76,7 @@ public class LocalAuthEnforcementMiddleware
             // two would route the user to enrolment and leave them stuck, since every call still 403s.
             var policy = context.RequestServices.GetService<ISecondFactorPolicy>();
             if (policy?.RequiresAdminSecondFactor == true
-                && account.IsAdmin()
+                && account.RunsTheClinic()
                 && !account.IsTotpEnrolled
                 && !IsSecondFactorRequest(context.Request))
             {

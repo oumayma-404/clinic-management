@@ -63,7 +63,7 @@ public class ListStaffLeaveRequestsQueryHandler
             if (resolved.IsFailure)
                 return Result<StaffLeaveRequestsPageDto>.FailureFrom(resolved);
             var admin = resolved.Value!;
-            if (!admin.IsAdmin())
+            if (!admin.RunsTheClinic())
                 return Result<StaffLeaveRequestsPageDto>.Failure(StaffLeaveRules.AdminOnly);
 
             var clinic = await _clinics.GetByIdAsync(admin.ClinicId, cancellationToken);

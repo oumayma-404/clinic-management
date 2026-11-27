@@ -5,7 +5,14 @@ using Microsoft.AspNetCore.Authorization;
 namespace ClinicManagement.Application.Common.Authorization;
 
 /// <summary>
-/// The product's whole authorization vocabulary — four policies, each applied somewhere.
+/// The product's whole authorization vocabulary — six clinic policies, each applied somewhere.
+///
+/// <para><b>« Gestionnaire » (<c>manager</c>, 2026-11-27, owner's call).</b> Runs the cabinet like an admin — team,
+/// settings, catalogues, backup, devis and patient money — but never sees the clinic-wide money SCREENS (tableau de
+/// bord, factures, caisse, chèques), the journal d'activité or « mode discret », and never creates or touches an
+/// admin account (refused in the Users handlers). <see cref="AdminOrDoctor"/> and <see cref="AdminOnly"/> now hold
+/// only those; everything else they used to cover moved to <see cref="AdminDoctorOrManager"/> and
+/// <see cref="AdminOrManager"/>.</para>
 ///
 /// <para><b>Why only four, and why these.</b> The set used to be five, three of which
 /// (<c>DoctorOnly</c>, <c>SecretaryOnly</c>, <c>DoctorOrSecretary</c>) had <b>zero usages</b> for the entire
@@ -56,7 +63,7 @@ public static class AuthorizationPolicies
     public const string Authenticated = "Authenticated";
 
     /// <summary>
-    /// Any member of the clinic — admin, doctor or secretary. Reception's job, per-patient money, <b>the patient's
+    /// Any member of the clinic — admin, doctor, secretary or gestionnaire. Reception's job, per-patient money, <b>the patient's
     /// clinical record (read and record, never delete)</b>, and the shared reads every role needs (the
     /// notification bell, « Mon profil », the catalog lookups the pickers read).
     ///
@@ -71,7 +78,10 @@ public static class AuthorizationPolicies
     public const string AnyClinicRole = "AnyClinicRole";
 
     /// <summary>
-    /// Admin or doctor — clinic-wide money and irreversible clinical loss:
+    /// Admin or doctor — since the « Gestionnaire » role, ONLY the clinic-wide money screens: le tableau de bord, la
+    /// caisse et son extrait, les chèques (and marking one banked), the factures export and le chiffre d'affaires.
+    /// The list below is what it USED to cover; everything but the screens moved to <see cref="AdminDoctorOrManager"/>.
+    /// Former scope:
     /// <list type="bullet">
     ///   <item><b>Clinic-wide money</b>: le tableau de bord, la caisse et son extrait, les créances, le chiffre
     ///   d'affaires, les chèques détenus, and every money CSV export.</item>
@@ -90,12 +100,28 @@ public static class AuthorizationPolicies
     public const string AdminOrDoctor = "AdminOrDoctor";
 
     /// <summary>
-    /// Admin only — user management, clinic configuration, the integration secrets, and the destructive
+    /// Admin only — since the « Gestionnaire » role, ONLY the journal d'activité, « mode discret » and the
+    /// « Premiers pas » card. Everything below moved to <see cref="AdminOrManager"/>. Former scope:
+    /// user management, clinic configuration, the integration secrets, and the destructive
     /// operations whose effect cannot be read off any screen afterwards: deleting a patient, deleting an
     /// expense (which silently raises the reported Net) and deleting a stock article (which wipes its whole
     /// movement history).
     /// </summary>
     public const string AdminOnly = "AdminOnly";
+
+    /// <summary>
+    /// Admin, doctor or gestionnaire — what <see cref="AdminOrDoctor"/> covered minus the money screens: the devis
+    /// and their corrections, annuler une note / un paiement, avoir, dépenses, créances, deleting from the clinical
+    /// record, the patient CSV import, archive and merge, « Patient suivant ».
+    /// </summary>
+    public const string AdminDoctorOrManager = "AdminDoctorOrManager";
+
+    /// <summary>
+    /// Admin or gestionnaire — what <see cref="AdminOnly"/> covered minus the journal, mode discret and Premiers pas:
+    /// users (never an admin account — the handlers refuse that), clinic settings, catalogues, team, backup and
+    /// restore, PC de secours, abonnement, deleting a patient / a dépense / a stock article, write-off.
+    /// </summary>
+    public const string AdminOrManager = "AdminOrManager";
 
     /// <summary>
     /// A signed-in <b>console</b> account — the vendor's back-office, and the one policy in this file that admits
@@ -135,15 +161,23 @@ public static class AuthorizationPolicies
         // Reception's job + per-patient money + the clinical record + the reads every role shares.
         options.AddPolicy(AnyClinicRole, policy =>
             policy.Requirements.Add(new RoleRequirement(
-                User.RoleAdmin, User.RoleDoctor, User.RoleSecretary)));
+                User.RoleAdmin, User.RoleDoctor, User.RoleSecretary, User.RoleManager)));
 
-        // Clinic-wide money, the corrective money operations, and deleting from the clinical record.
+        // The clinic-wide money screens.
         options.AddPolicy(AdminOrDoctor, policy =>
             policy.Requirements.Add(new RoleRequirement(User.RoleAdmin, User.RoleDoctor)));
 
-        // Users, clinic configuration, and the irreversible deletes.
+        // The journal, mode discret, Premiers pas.
         options.AddPolicy(AdminOnly, policy =>
             policy.Requirements.Add(new RoleRequirement(User.RoleAdmin)));
+
+        // AdminOrDoctor's former scope minus the money screens.
+        options.AddPolicy(AdminDoctorOrManager, policy =>
+            policy.Requirements.Add(new RoleRequirement(User.RoleAdmin, User.RoleDoctor, User.RoleManager)));
+
+        // Users, clinic configuration, catalogues, team, backup, and the irreversible deletes.
+        options.AddPolicy(AdminOrManager, policy =>
+            policy.Requirements.Add(new RoleRequirement(User.RoleAdmin, User.RoleManager)));
 
         // The vendor's console. Registered here rather than at the host so the two derived guards keep passing with
         // no exemption list, and scheme-pinned so it authenticates against the console's issuer rather than the

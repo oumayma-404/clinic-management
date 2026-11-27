@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useSession } from "@/lib/auth/session"
-import { isAdmin } from "@/lib/auth/can"
+import { runsTheClinic } from "@/lib/auth/can"
 import {
   googleCalendarApi,
   type CalendarImportRevertPreview,
@@ -44,7 +44,7 @@ import { formatDateFr } from "@/lib/format"
  */
 export function CalendarImportUndoBanner({ onReverted }: { onReverted: () => void }) {
   const { user } = useSession()
-  const mayRevert = isAdmin(user?.role)
+  const mayRevert = runsTheClinic(user?.role)
 
   const [run, setRun] = useState<CalendarImportRunDto | null>(null)
   const [preview, setPreview] = useState<CalendarImportRevertPreview | null>(null)

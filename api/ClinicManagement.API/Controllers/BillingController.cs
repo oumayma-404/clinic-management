@@ -71,7 +71,7 @@ public class BillingController : ApiControllerBase
     [RefusedInDemo("Hands the cabinet's data out of the demo as a CSV.")]
     [HttpGet("billing/receivables/export")]
     [HiddenWhenMoneyMasked]
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     public async Task<ActionResult> ExportReceivables(
         [FromQuery] string? search = null, CancellationToken cancellationToken = default)
     {
@@ -120,7 +120,7 @@ public class BillingController : ApiControllerBase
     [HiddenWhenMoneyMasked]
     // Clinic-wide debt: the practice's exposure in one figure. This is the fork the class policy exists for —
     // the sibling read above (« Solde patient ») stays open because reception cannot collect without it.
-    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    [Authorize(Policy = AuthorizationPolicies.AdminDoctorOrManager)]
     /// <param name="page">1-based page number. Omit both paging parameters to get every row.</param>
     /// <param name="pageSize">Rows per page, clamped to <c>PageRequest.MaxPageSize</c>.</param>
     /// <param name="search">Free-text filter on the patient's name, applied before the page is cut.</param>

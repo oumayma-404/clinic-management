@@ -68,11 +68,11 @@ public class AdminSurfaceCoverageTests
         controller.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Where(m => !m.IsSpecialName);
 
-    /// <summary>True when the action requires the admin policy, whether set on the method or the class.</summary>
+    /// <summary>True when the action requires an admin-or-gestionnaire policy, on the method or the class.</summary>
     private static bool RequiresAdmin(MethodInfo method) =>
         method.GetCustomAttributes<AuthorizeAttribute>()
             .Concat(method.DeclaringType!.GetCustomAttributes<AuthorizeAttribute>())
-            .Any(a => a.Policy == AuthorizationPolicies.AdminOnly);
+            .Any(a => a.Policy is AuthorizationPolicies.AdminOnly or AuthorizationPolicies.AdminOrManager);
 
     [Fact]
     public void Every_mutating_catalog_action_is_admin_gated() // [AC-7.2] the rule, not the instance
@@ -89,7 +89,7 @@ public class AdminSurfaceCoverageTests
         Assert.True(
             unguarded.Count == 0,
             "These catalog write endpoints are not admin-gated. Reference-catalog writes set prices and codes "
-            + "the whole clinic bills against, so each needs [Authorize(Policy = AuthorizationPolicies.AdminOnly)] "
+            + "the whole clinic bills against, so each needs [Authorize(Policy = AuthorizationPolicies.AdminOrManager)] "
             + "— or a deliberate decision recorded here about why it does not:\n  "
             + string.Join("\n  ", unguarded));
     }

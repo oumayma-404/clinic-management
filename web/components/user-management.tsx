@@ -105,6 +105,11 @@ export function UserManagement() {
    * question a third deployment kind could answer differently — and if one ever does, it has one place to change.
    */
   const canResetPasswords = true
+  // A gestionnaire manages every account but an admin's, and never hands out the admin role — the server refuses
+  // both (`StaffAccountAuthority`); this only stops offering what would be refused.
+  const viewerIsManager = currentUser?.role === "manager"
+  const grantableRoles = viewerIsManager ? USER_ROLES.filter((r) => r !== "admin") : USER_ROLES
+  const mayManage = (u: ClinicUserDto) => !viewerIsManager || u.role?.toLowerCase() !== "admin"
   /**
    * US-3: same underlying question as `canResetPasswords` — does this product own its accounts — asked
    * separately because the two are genuinely independent of the *third* one below. `POST /api/users` stays open
@@ -418,6 +423,7 @@ export function UserManagement() {
    * two trees two lists to keep in step.
    */
   const rowMenu = (u: ClinicUserDto) => {
+    if (!mayManage(u)) return null
     // The server forbids self-deactivation (an unrecoverable lockout), and « Sécurité » is where you replace your own factor.
     const isSelf = !!u.email && u.email === currentUser?.email
     return (
@@ -717,7 +723,7 @@ export function UserManagement() {
                   fields={(u) => [
                     {
                       label: "Rôle",
-                      value: knownRole(u.role) ? (
+                      value: knownRole(u.role) && mayManage(u) ? (
                         <Select
                           value={knownRole(u.role)!}
                           onValueChange={(value) => setPending({ type: "role", user: u, role: value as UserRole })}
@@ -731,7 +737,7 @@ export function UserManagement() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {USER_ROLES.map((role) => (
+                            {grantableRoles.map((role) => (
                               <SelectItem key={role} value={role} className="text-sm">
                                 {USER_ROLE_LABELS_FR[role]}
                               </SelectItem>
@@ -791,7 +797,7 @@ export function UserManagement() {
                                 wrong one had to be deactivated and re-registered. A legacy value outside the
                                 closed set keeps the read-only badge: pre-selecting a role we did not store
                                 would misreport what the account actually holds. */}
-                            {knownRole(user.role) ? (
+                            {knownRole(user.role) && mayManage(user) ? (
                               <Select
                                 value={knownRole(user.role)!}
                                 onValueChange={(value) =>
@@ -803,7 +809,7 @@ export function UserManagement() {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {USER_ROLES.map((role) => (
+                                  {grantableRoles.map((role) => (
                                     <SelectItem key={role} value={role} className="text-sm">
                                       {USER_ROLE_LABELS_FR[role]}
                                     </SelectItem>
@@ -1009,7 +1015,7 @@ export function UserManagement() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {USER_ROLES.map((role) => (
+                  {grantableRoles.map((role) => (
                     <SelectItem key={role} value={role}>
                       {USER_ROLE_LABELS_FR[role]}
                     </SelectItem>

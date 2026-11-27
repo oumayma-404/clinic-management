@@ -319,4 +319,48 @@ public class ChangeUserRoleCommandHandlerTests
         Assert.Equal(User.RoleSecretary, foreign.Role);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
+    // « Gestionnaire » (2026-11-27): changes everyone but an admin, and never hands out the admin role.
+    [Fact]
+    public async Task A_Manager_Changes_A_Secretary_Into_A_Manager()
+    {
+        var manager = Local(User.RoleManager, ClinicId);
+        var target = Local(User.RoleSecretary, ClinicId);
+        AsAdmin(manager, manager, target);
+        _users.Setup(r => r.GetByIdAsync(target.Id, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+
+        var result = await ChangeAsync(target.Id, User.RoleManager);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(User.RoleManager, target.Role);
+    }
+
+    [Fact]
+    public async Task A_Manager_Cannot_Make_Anyone_Admin()
+    {
+        var manager = Local(User.RoleManager, ClinicId);
+        var target = Local(User.RoleSecretary, ClinicId);
+        AsAdmin(manager, manager, target);
+        _users.Setup(r => r.GetByIdAsync(target.Id, It.IsAny<CancellationToken>())).ReturnsAsync(target);
+
+        var result = await ChangeAsync(target.Id, User.RoleAdmin);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(User.RoleSecretary, target.Role);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task A_Manager_Cannot_Change_An_Admins_Role()
+    {
+        var manager = Local(User.RoleManager, ClinicId);
+        var admin = Local(User.RoleAdmin, ClinicId);
+        AsAdmin(manager, manager, admin);
+        _users.Setup(r => r.GetByIdAsync(admin.Id, It.IsAny<CancellationToken>())).ReturnsAsync(admin);
+
+        var result = await ChangeAsync(admin.Id, User.RoleSecretary);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(User.RoleAdmin, admin.Role);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
 }
