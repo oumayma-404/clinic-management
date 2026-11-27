@@ -30,11 +30,20 @@ namespace ClinicManagement.Infrastructure.Migrations
                     b.Property<DateTime>("AppointmentDateTime")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("ArrivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("BookedWithOverlap")
                         .HasColumnType("boolean");
 
                     b.Property<Guid?>("CalendarImportRunId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CallSkippedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CalledInAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("CancellationReason")
                         .HasMaxLength(500)
@@ -70,8 +79,17 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<bool>("IsWalkIn")
+                        .HasColumnType("boolean");
+
                     b.Property<int?>("LateArrivalMinutes")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LeftChairAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LeftUnseenAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Notes")
                         .HasColumnType("text");
@@ -89,6 +107,12 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<Guid?>("PatientId")
                         .HasColumnType("uuid");
+
+                    b.Property<long?>("PlannedDuration")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("PlannedStartUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ProcedureColorHex")
                         .HasMaxLength(7)
@@ -110,6 +134,9 @@ namespace ClinicManagement.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UrgentAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<uint>("Version")
@@ -1985,6 +2012,9 @@ namespace ClinicManagement.Infrastructure.Migrations
 
                     b.Property<string>("WorkingHoursJson")
                         .HasColumnType("text");
+
+                    b.Property<bool>("WorksTwoChairs")
+                        .HasColumnType("boolean");
 
                     b.HasKey("Id");
 

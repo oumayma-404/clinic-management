@@ -21,7 +21,7 @@ export const KPI_LABELS: Record<DashboardKpiKey, string> = {
   net: 'Net',
   visitsToClose: 'Séances à clôturer',
   treatmentsInProgress: 'Traitements en cours',
-  waitingList: 'Salle d’attente',
+  waitingList: 'Liste d’attente',
   draftPlans: 'Devis en attente de réponse',
   overdueLabOrders: 'Prothèses en retard',
   lowStock: 'Stock bas',

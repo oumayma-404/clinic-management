@@ -11,7 +11,7 @@ using ClinicManagement.Application.Common.Authorization;
 namespace ClinicManagement.API.Controllers;
 
 /// <summary>
-/// Clinic waiting list (salle d'attente / liste d'attente). CRUD over the clinic's waiting-list entries,
+/// Clinic waiting list (« Liste d'attente » — patients waiting for a SLOT; the salle d'attente is the appointment board). CRUD over the clinic's waiting-list entries,
 /// plus promoting an entry to a real appointment. Clinic-scoped.
 /// </summary>
 [ApiController]

@@ -59,6 +59,7 @@ import {
 import { useSession } from "@/lib/auth/session"
 import type { AppointmentDto } from "@/lib/api/types"
 import { cn, parseDurationToMinutes } from "@/lib/utils"
+import { boardPresenceWord, liveBlockMinutes } from "@/lib/waiting-room"
 import type { DoctorDto } from "@/lib/api/clinics"
 import { doctorsApi, type DoctorLeaveDto } from "@/lib/api/doctors"
 import { useClinicLeaves } from "@/lib/hooks/use-doctor-leaves"
@@ -1639,7 +1640,10 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
       .map((a) => {
         const start = new Date(a.appointmentDateTime)
         const startMin = start.getHours() * 60 + start.getMinutes()
-        const endMin = startMin + Math.max(parseDurationToMinutes(a.duration), 1)
+        // The LIVE length, the one `renderAppointmentBlock` draws: a séance still « au fauteuil » past its booking
+        // collides with the visits after it, and must be laned beside them rather than painted under them.
+        const endMin =
+          startMin + Math.max(liveBlockMinutes(a, parseDurationToMinutes(a.duration), currentTime.getTime()), 1)
         return { appointment: a, startMin, endMin }
       })
       .sort((x, y) => x.startMin - y.startMin || x.endMin - y.endMin)
@@ -1711,6 +1715,12 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
   ) => {
     const aptStart = new Date(appointment.appointmentDateTime)
     const durationMinutes = parseDurationToMinutes(appointment.duration)
+    // Salle d'attente, round 2. A patient still « au fauteuil » past his booking grows the block to now (E4), so the
+    // desk sees the delay before the next patient asks; the block says who is here (E3); and a visit finished on the
+    // board, whose RDV took the real chair time, says when it had been booked (Q1).
+    const shownMinutes = liveBlockMinutes(appointment, durationMinutes, currentTime.getTime())
+    const presence = boardPresenceWord(appointment.waitingRoom)
+    const plannedStart = appointment.waitingRoom?.plannedStartUtc ? new Date(appointment.waitingRoom.plannedStartUtc) : null
     const startMinutesOfDay = aptStart.getHours() * 60 + aptStart.getMinutes()
     // `hourGridOffsetTop`, not bare arithmetic: the sticky day header sits above the grid inside the same
     // positioned wrapper, and the current-time line already accounts for it by reading the DOM.
@@ -1739,7 +1749,7 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
      * visit grows to the floor when it is alone (the common case, and the reason for the floor) and keeps its
      * true 16 px when it has a neighbour (where growing it would lie about the schedule anyway).
      */
-    const naturalHeight = (durationMinutes / 60) * hourHeight
+    const naturalHeight = (shownMinutes / 60) * hourHeight
     const heightFloor = isNarrow ? MIN_APPT_HEIGHT_PHONE : MIN_APPT_HEIGHT
     const roomBelow = Number.isFinite(minutesToNextStart)
       ? (minutesToNextStart / 60) * hourHeight
@@ -1804,7 +1814,9 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
     const bookedActPrefix = canonicalStatus === "Completed" ? "prévu : " : ""
     // The booked slot never moves for a retard; this mark is the only place the agenda states one.
     const lateArrival = appointment.lateArrivalMinutes ?? 0
-    const blockLabel = `${appointment.patientName} · ${format(aptStart, "HH:mm")} · ${durationMinutes} min · ${statusLabel}${
+    const blockLabel = `${appointment.patientName} · ${format(aptStart, "HH:mm")}${
+      plannedStart ? ` (prévu ${format(plannedStart, "HH:mm")})` : ""
+    } · ${durationMinutes} min · ${statusLabel}${presence ? ` · ${presence}` : ""}${
       lateArrival > 0 ? ` · arrivé avec ${lateArrival} min de retard` : ""
     }${actsSummary ? ` · ${bookedActPrefix}${actsSummary}` : ""}${planSeance ? " · séance d'un devis" : ""}`
 
@@ -1907,6 +1919,8 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
               )}
             >
               {format(aptStart, "HH:mm")}
+              {plannedStart && ` (prévu ${format(plannedStart, "HH:mm")})`}
+              {presence && ` · ${presence}`}
               {planSeance && " · devis"}
               {actsSummary ? ` · ${bookedActPrefix}${actsSummary.split(" + ")[0]}` : ""}
             </span>
@@ -2022,6 +2036,14 @@ export function AppointmentCalendar({ view, selectedDate, onDateChange, onTimeSl
             )}
           >
             <span className="shrink-0 font-medium tabular-nums">{format(aptStart, "HH:mm")}</span>
+            {plannedStart && (
+              <span className="shrink-0 tabular-nums opacity-80">prévu {format(plannedStart, "HH:mm")}</span>
+            )}
+            {presence && (
+              <span className="shrink-0 rounded-sm bg-white/60 px-1 text-2xs font-semibold leading-none dark:bg-background/50">
+                {presence}
+              </span>
+            )}
             {/*
               ⚠️ **The « devis » mark, which the agenda did not have at any width.** A séance that is one étape
               of a six-visit treatment rendered exactly like a loose visit, so at 8 a.m. the screen a dentist

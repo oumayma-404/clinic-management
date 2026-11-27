@@ -202,4 +202,35 @@ public class FicheVisitCompletionTests
 
         Assert.Equal(FicheVisitOutcome.NoVisit, outcome);
     }
+
+    // ── salle-attente S3: « Terminer la séance » ends the chair ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Terminer_La_Seance_On_A_Patient_In_The_Chair_Records_When_He_Left_It()
+    {
+        var visit = new Appointment(Guid.NewGuid(), ClinicId, Guid.NewGuid(), null, SlotStart, TimeSpan.FromHours(1));
+        visit.MoveInWaitingRoom(WaitingRoomLane.Waiting, SlotStart.AddMinutes(-10));
+        visit.MoveInWaitingRoom(WaitingRoomLane.InChair, SlotStart);
+        var harness = new Harness(visit);
+
+        var outcome = await harness.Apply(visit, finishSeance: true, isCreate: false, DuringTheSeance);
+
+        Assert.Equal(FicheVisitOutcome.Completed, outcome);
+        Assert.Equal(DuringTheSeance, visit.LeftChairAtUtc);
+        Assert.Equal(WaitingRoomLane.Done, visit.WaitingRoomLane);
+        harness.Uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task A_Save_During_The_Seance_Leaves_The_Patient_In_The_Chair()
+    {
+        var visit = new Appointment(Guid.NewGuid(), ClinicId, Guid.NewGuid(), null, SlotStart, TimeSpan.FromHours(1));
+        visit.MoveInWaitingRoom(WaitingRoomLane.InChair, SlotStart);
+        var harness = new Harness(visit);
+
+        await harness.Apply(visit, finishSeance: false, isCreate: false, DuringTheSeance);
+
+        Assert.Null(visit.LeftChairAtUtc);
+        Assert.Equal(WaitingRoomLane.InChair, visit.WaitingRoomLane);
+    }
 }

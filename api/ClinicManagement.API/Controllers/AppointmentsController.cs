@@ -4,6 +4,7 @@ using ClinicManagement.API.Startup;
 using MediatR;
 using ClinicManagement.Application.DTOs;
 using ClinicManagement.Application.Features.Appointments.Commands;
+using ClinicManagement.Application.Features.Appointments;
 using ClinicManagement.Application.Features.Appointments.Queries;
 using ClinicManagement.Application.Common.Authorization;
 using ClinicManagement.Application.Common.Models;
@@ -285,6 +286,139 @@ public class AppointmentsController : ApiControllerBase
 
         return Ok(result.Value);
     }
+
+    // ------------------------------------------------------------------------------------ salle d'attente
+
+    /// <summary>
+    /// « Salle d'attente » — today's board: À venir · En salle d'attente · Au fauteuil · Terminé (`salle-attente`).
+    /// <c>AnyClinicRole</c> from the class: reception runs it, the dentist reads his queue from it.
+    /// </summary>
+    [HttpGet("waiting-room")]
+    public async Task<ActionResult<WaitingRoomDto>> GetWaitingRoom([FromQuery] Guid? doctorId = null)
+    {
+        var result = await _mediator.Send(new GetWaitingRoomQuery { DoctorId = doctorId });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// Move one visit on the board — « Arrivé », « Faire entrer », « Terminer », « Parti sans être vu », every
+    /// « Remettre… » and every drag. The answer carries what its « Annuler » posts back to <c>restore</c>.
+    /// </summary>
+    [HttpPost("{id:guid}/waiting-room")]
+    public async Task<ActionResult<WaitingRoomChangeDto>> MoveInWaitingRoom(Guid id, [FromBody] MoveInWaitingRoomRequest request)
+    {
+        var result = await _mediator.Send(new MoveInWaitingRoomCommand
+        {
+            AppointmentId = id,
+            Lane = request.Lane,
+            DoctorId = request.DoctorId,
+        });
+        return result.IsFailure ? WaitingRoomFailure(result) : Ok(result.Value);
+    }
+
+    public class MoveInWaitingRoomRequest
+    {
+        public string Lane { get; set; } = string.Empty;
+
+        /// <summary>« Quel praticien ? » — seating a visit that names no dentist in a cabinet de groupe.</summary>
+        public Guid? DoctorId { get; set; }
+    }
+
+    /// <summary>« Pas là » — the patient called in is not there: back to the salle d'attente, the next one is called.</summary>
+    [HttpPost("{id:guid}/waiting-room/not-here")]
+    public async Task<ActionResult<WaitingRoomChangeDto>> SkipCalledPatient(Guid id)
+    {
+        var result = await _mediator.Send(new SkipCalledPatientCommand { AppointmentId = id });
+        return result.IsFailure ? WaitingRoomFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>« Passer en premier » — or, with <c>urgent: false</c>, its removal.</summary>
+    [HttpPost("{id:guid}/waiting-room/urgent")]
+    public async Task<ActionResult<WaitingRoomChangeDto>> SetWaitingRoomUrgent(Guid id, [FromBody] SetWaitingRoomUrgentRequest request)
+    {
+        var result = await _mediator.Send(new SetWaitingRoomUrgentCommand { AppointmentId = id, Urgent = request.Urgent });
+        return result.IsFailure ? WaitingRoomFailure(result) : Ok(result.Value);
+    }
+
+    public class SetWaitingRoomUrgentRequest
+    {
+        public bool Urgent { get; set; } = true;
+    }
+
+    /// <summary>« Changer de praticien » — a visit whose dentist is on congé or gone from the team.</summary>
+    [HttpPost("{id:guid}/waiting-room/dentist")]
+    public async Task<ActionResult<WaitingRoomChangeDto>> SetWaitingRoomDentist(Guid id, [FromBody] SetWaitingRoomDentistRequest request)
+    {
+        var result = await _mediator.Send(new SetWaitingRoomDentistCommand { AppointmentId = id, DoctorId = request.DoctorId });
+        return result.IsFailure ? WaitingRoomFailure(result) : Ok(result.Value);
+    }
+
+    public class SetWaitingRoomDentistRequest
+    {
+        public Guid DoctorId { get; set; }
+    }
+
+    /// <summary>« 2 fauteuils » — set by the dentist for himself, or by an administrator for any dentist.</summary>
+    [HttpPut("waiting-room/chairs")]
+    public async Task<ActionResult<WaitingRoomDentistDto>> SetDentistChairs([FromBody] SetDentistChairsCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? WaitingRoomFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Qui arrive ? » — each listed patient's next RDV on another day, for « Le recevoir aujourd'hui ».
+    /// </summary>
+    [HttpGet("waiting-room/other-day")]
+    public async Task<ActionResult<List<WaitingRoomOtherDayVisitDto>>> GetOtherDayVisits([FromQuery] string? patientIds)
+    {
+        // Comma-separated, the shape the browser's one query-string builder sends a list in.
+        var ids = (patientIds ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(raw => Guid.TryParse(raw, out var id) ? id : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .ToList();
+        var result = await _mediator.Send(new GetOtherDayVisitsQuery { PatientIds = ids });
+        return result.IsFailure ? HandleFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>« Annuler » — put the visits a board action touched back as its answer recorded them.</summary>
+    [HttpPost("waiting-room/restore")]
+    public async Task<ActionResult<WaitingRoomChangeDto>> RestoreWaitingRoom([FromBody] RestoreWaitingRoomCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? WaitingRoomFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>« Sans RDV » — a patient who walked in; marks his RDV of the day arrived instead when he has one.</summary>
+    [HttpPost("waiting-room/walk-in")]
+    public async Task<ActionResult<WaitingRoomChangeDto>> RegisterWalkIn([FromBody] RegisterWalkInCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? WaitingRoomFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>
+    /// « Patient suivant » — the dentist ends his chair and calls the next of his queue, and reception is rung.
+    /// <c>AdminOrDoctor</c>: reception has « Faire entrer » for the same move without ringing itself.
+    /// </summary>
+    [HttpPost("waiting-room/call-next")]
+    [Authorize(Policy = AuthorizationPolicies.AdminOrDoctor)]
+    public async Task<ActionResult<WaitingRoomChangeDto>> CallNextPatient([FromBody] CallNextPatientCommand command)
+    {
+        var result = await _mediator.Send(command);
+        return result.IsFailure ? WaitingRoomFailure(result) : Ok(result.Value);
+    }
+
+    /// <summary>« Somebody moved first » is a 409 the screen answers by refreshing; an unknown visit a 404.</summary>
+    private ActionResult WaitingRoomFailure(Result result) =>
+        WaitingRoomRefusals.IsConflict(result.Code)
+            ? HandleFailure(result, StatusCodes.Status409Conflict)
+            : result.Code == WaitingRoomRefusals.NotFoundCode
+                ? HandleFailure(result, StatusCodes.Status404NotFound)
+                : result.Code == WaitingRoomRefusals.NotYourChairsCode
+                    ? HandleFailure(result, StatusCodes.Status403Forbidden)
+                    : HandleFailure(result);
 
     /// <summary>
     /// Create a new appointment

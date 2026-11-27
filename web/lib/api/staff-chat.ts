@@ -43,6 +43,8 @@ export interface StaffMessageAppointmentLink {
   dentistName: string | null
   cancelled: boolean
   missing: boolean
+  /** A walk-in (`salle-attente`): `startsAt` is the minute he arrived, never shown as « RDV hh:mm ». */
+  walkIn?: boolean
 }
 
 /** The arrival action for one appointment of today. */

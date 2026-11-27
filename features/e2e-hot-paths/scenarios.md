@@ -769,6 +769,27 @@ The dentist writes the fiche **during** the séance and leaves « Payé » empty
 | SEAT-13 | 0 | SEAT-06 | « Encaisser » naming that draft (`?replacesDraft=`) | The **fiche** is billed — its total, not the draft's; the draft is gone; **one** note on the séance, paid | a booking draft billed its own typed amount and blocked the fiche's « Payé » — the fiche makes the note (owner, 2026-11-19) |
 | SEAT-12 | 0 | a running visit | « Enregistrer » twice | The fiche stays open (« Enregistré à … »), **one** fiche, the visit not « Terminé » | the in-place save — `SaveMode` `stay` lives in `.tsx` |
 
+---
+
+# HP-21 · La salle d'attente (`features/salle-attente`)
+
+Reception marks who arrived, the dentist calls « Patient suivant », the desk is rung, and the payment frees the chair.
+The state lives on the appointment (`ArrivedAtUtc` · `CalledInAtUtc` · `LeftChairAtUtc` · `IsWalkIn`) and the lane is
+derived. Every test names its visit — earlier runs leave patients waiting on the same day. The desk's call banner and
+the toast's « Annuler » are client-side and need a second signed-in person: held by `features/salle-attente/qa/walk.mjs`
+(A10, A13), not by this suite.
+
+| Id | T | Pre | Do | Expect | Defends |
+|---|---|---|---|---|---|
+| WAIT-01 | 0 | a visit later today | « Arrivé » (`POST …/waiting-room` `Waiting`) | The board lists it waiting with an `arrivedAtUtc`; the agenda's `AppointmentDto.waitingRoom.lane` says the same | the four DTO fill sites — a fifth that forgets `WaitingRoom` reads everyone as not arrived |
+| WAIT-02 | 0 | a patient with no RDV today | « Sans RDV » with a dentist | A real appointment of today, `isWalkIn`, waiting, on the agenda; a second « Sans RDV » for him is **409** | a walk-in nobody can find in the agenda; the same person queued twice |
+| WAIT-03 | 0 | two arrived visits | « Patient suivant » on the first, then on the second | First seated; then second seated and first **Completed**; a stale second press is **409**, never the next patient | a double tap calling two patients; a chair never freed |
+| WAIT-04 | 0 | an early arrival for a later slot + a patient due now | Both arrive | The one due now is ahead in the queue | the queue's one owner (`WaitingRoomOrder`) — first-come would seat a 45-min-early patient first |
+| WAIT-05 | 0 | a visit marked arrived | Post the action's own change to `restore` | Back to « À venir », `arrivedAtUtc` null | « all actions reversible » — a mis-click with no way back |
+| WAIT-06 | 1 | an arrived visit whose slot has started | `AppointmentProgressJob` runs | It stays waiting — never « En cours » nor « Séance passée » while he sits there. Held by `AppointmentProgressQueryTranslationTests` / `AppointmentProgressJobTests` (a minute's wait is not worth the suite's time) | the job writing « Séance passée » on someone still in the waiting room |
+| WAIT-07 | 0 | an arrived visit | « Parti sans être vu », then back to the waiting room | `Cancelled` with lane `Left`; then waiting again, no longer cancelled | a cancellation that cannot be taken back |
+| WAIT-08 | 0 | a patient in the chair, his fiche saved mid-séance | The desk bills the fiche | The visit is **Completed** and leaves the chair | `WaitingRoomPaymentInterceptor` — the payment is the visit's end the desk already records |
+
 ## Coverage count
 
 | Path | Scenarios | T0 |
@@ -787,7 +808,8 @@ The dentist writes the fiche **during** the séance and leaves « Payé » empty
 | HP-12 Historique | 8 | 2 |
 | HP-13 Transversal | 9 | 5 |
 | HP-20 Séance au fauteuil | 12 | 11 |
-| **Total** | **280** | **136** |
+| HP-21 Salle d'attente | 8 | 7 |
+| **Total** | **288** | **143** |
 
 
 ---

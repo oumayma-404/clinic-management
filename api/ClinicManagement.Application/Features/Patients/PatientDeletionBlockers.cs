@@ -27,7 +27,7 @@ public static class PatientDeletionBlockers
         Add(blockers, "medicalHistory", counts.MedicalHistoryEntries, "antécédent médical", "antécédents médicaux", null);
         Add(blockers, "familyHistory", counts.FamilyHistoryEntries, "antécédent familial", "antécédents familiaux", null);
         Add(blockers, "labOrders", counts.LabOrders, "bon de prothèse", "bons de prothèse", null);
-        Add(blockers, "waitingList", counts.WaitingListEntries, "entrée en salle d'attente", "entrées en salle d'attente", null);
+        Add(blockers, "waitingList", counts.WaitingListEntries, "entrée en liste d'attente", "entrées en liste d'attente", null);
         Add(blockers, "notifications", counts.Notifications, "rappel", "rappels", null);
         Add(blockers, "legacyHistory", counts.LegacyHistoryEntries, "élément de l'ancien logiciel", "éléments de l'ancien logiciel", "legacy-history");
 

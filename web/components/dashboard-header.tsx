@@ -23,6 +23,7 @@ import { LoadFailureNotice } from "@/components/ui/load-failure"
 import { NotificationPanel } from "@/components/notification-panel"
 import { StaffChatLauncher } from "@/components/staff-chat/staff-chat-launcher"
 import { HelpMenu } from "@/components/help-menu"
+import { NextPatientPill } from "@/components/waiting-room/next-patient-pill"
 import { BorneLink } from "@/components/team/borne-link"
 import { ClockChip } from "@/components/team/clock-chip"
 import { useClockStatus } from "@/components/team/clock-in-gate"
@@ -481,6 +482,8 @@ export function DashboardHeader() {
         <ClockChip onOpen={() => setClockOpen(true)} />
 
         {attendanceEnabled && <BorneLink variant="header" />}
+
+        <NextPatientPill />
 
         <HelpMenu />
 

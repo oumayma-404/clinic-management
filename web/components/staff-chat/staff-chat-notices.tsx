@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import { createPortal } from "react-dom"
-import { AlertTriangle, Loader2, MessageSquare, Volume2, X } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { AlertTriangle, BellRing, Loader2, MessageSquare, Volume2, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { useClockStatus } from "@/components/team/clock-in-gate"
@@ -10,9 +11,13 @@ import type { StaffQuickMessageDto } from "@/lib/api/staff-chat"
 import { useSession } from "@/lib/auth/session"
 import { showErrorToast } from "@/lib/errors"
 import { useStaffQuickMessages } from "@/lib/hooks/use-staff-chat"
+import { runBoardAction } from "@/lib/hooks/use-waiting-room"
+import { waitingRoomApi } from "@/lib/api/waiting-room"
+import { notHereSentence } from "@/lib/waiting-room"
 import {
   dismissNotice,
   holdNotice,
+  isCallIn,
   noticeText,
   replyFromNotice,
   useAlertPreferences,
@@ -59,8 +64,27 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
   const { openConversation } = useStaffChat()
   const { audioBlocked, enableAudio } = useAlertPreferences()
   const [sending, setSending] = useState<string | null>(null)
-  const { message, urgent } = notice
+  const router = useRouter()
+  const { message } = notice
   const sender = message.sender.name
+  // « Patient suivant » is urgent for its sound and its stay, not an emergency: it keeps the calm colours.
+  const callIn = isCallIn(message)
+  const urgent = notice.urgent && !callIn
+  const calledName = callIn && message.patient && !message.patient.missing ? message.patient.name : null
+  // « Pas là » (salle d'attente round 2, E1) belongs HERE too: this notice is where the desk answers the ring, and it
+  // stays on top — the board's banner, with its own « Pas là », sits under it until it is answered.
+  const calledVisit = callIn && message.appointment && !message.appointment.missing && !message.appointment.cancelled
+    ? message.appointment.id
+    : null
+
+  const notHere = async (appointmentId: string) => {
+    setSending("not-here")
+    const change = await runBoardAction(() => waitingRoomApi.notHere(appointmentId), () => undefined, {
+      message: (c) => notHereSentence(calledName, { lane: c.lane ?? "None", patientName: c.patientName }),
+    })
+    setSending(null)
+    if (change) dismissNotice(message.id)
+  }
 
   const reply = async (item: StaffQuickMessageDto) => {
     setSending(item.key)
@@ -89,7 +113,11 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
       }}
       className={cn(
         "pointer-events-auto rounded-lg border bg-card p-3 shadow-lg",
-        urgent ? "border-destructive/60 ring-2 ring-destructive/30" : "border-border",
+        urgent
+          ? "border-destructive/60 ring-2 ring-destructive/30"
+          : callIn
+            ? "border-primary/60 ring-2 ring-primary/30"
+            : "border-border",
       )}
     >
       <div className="flex items-start gap-2">
@@ -100,13 +128,20 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
           )}
           aria-hidden="true"
         >
-          {urgent ? <AlertTriangle className="size-4" /> : <MessageSquare className="size-4" />}
+          {urgent ? (
+            <AlertTriangle className="size-4" />
+          ) : callIn ? (
+            <BellRing className="size-4" />
+          ) : (
+            <MessageSquare className="size-4" />
+          )}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{sender}</p>
           <p className={cn("text-sm", urgent ? "font-medium text-destructive" : "text-muted-foreground")}>
             {noticeText(message)}
           </p>
+          {calledName && <p className="truncate text-base font-bold text-foreground">{calledName}</p>}
         </div>
         <Button
           variant="ghost"
@@ -119,8 +154,34 @@ function NoticeCard({ notice, replies }: { notice: StaffNotice; replies: StaffQu
         </Button>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
+        {callIn && (
+          <Button
+            size="sm"
+            className="coarse:min-h-11"
+            onClick={() => {
+              dismissNotice(message.id)
+              router.push("/salle-attente")
+            }}
+          >
+            Voir la salle d&apos;attente
+          </Button>
+        )}
+        {calledVisit && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="coarse:min-h-11"
+            disabled={sending !== null}
+            onClick={() => void notHere(calledVisit)}
+            aria-label={`${calledName ?? "Le patient"} n'est pas là`}
+          >
+            {sending === "not-here" && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
+            Pas là
+          </Button>
+        )}
         <Button
           size="sm"
+          variant={callIn ? "outline" : "default"}
           className="coarse:min-h-11"
           onClick={() => {
             dismissNotice(message.id)

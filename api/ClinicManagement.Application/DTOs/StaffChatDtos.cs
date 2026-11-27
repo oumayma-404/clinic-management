@@ -62,6 +62,8 @@ public class StaffMessageAppointmentDto
     public string? DentistName { get; set; }
     public bool Cancelled { get; set; }
     public bool Missing { get; set; }
+    /// <summary>A walk-in (`salle-attente`): its start is the arrival minute, not an agreed time.</summary>
+    public bool WalkIn { get; set; }
 }
 
 /// <summary>The arrival action for one appointment of today: « Signalé à 09:32 par Salma » (AC-3.3) or why it cannot go (AC-3.4).</summary>

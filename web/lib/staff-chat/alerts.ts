@@ -15,6 +15,8 @@ import { installAudioUnlock, isAudioBlocked, onAudioBlockedChange, playChime, re
  */
 
 const ARRIVAL_KEY = "patient-arrived"
+/** « Patient suivant » ringing reception (`salle-attente`): sent urgent, so it stays and rings even when muted. */
+export const CALL_IN_KEY = "call-in"
 const NOTICE_MS = 8_000
 const MAX_NOTICES = 3
 const CATCH_UP_AT = 3
@@ -28,12 +30,16 @@ export function noticeText(message: StaffMessageDto): string {
   const label = message.quickMessage?.label ?? "Nouveau message"
   const visit = message.appointment
   if (message.quickMessage?.key === ARRIVAL_KEY && visit?.startsAt && !visit.missing && !visit.cancelled) {
-    return `${label} · RDV ${formatChatTime(visit.startsAt)}`
+    // A walk-in has no agreed time: its « start » is the minute he walked in.
+    return visit.walkIn ? `${label} · Sans RDV` : `${label} · RDV ${formatChatTime(visit.startsAt)}`
   }
   return label
 }
 
 const isUrgent = (message: StaffMessageDto) => Boolean(message.quickMessage?.urgent)
+
+/** A dentist's « Patient suivant ». Its in-app notice names the patient; the OS notification never does (AC-4.1). */
+export const isCallIn = (message: StaffMessageDto) => message.quickMessage?.key === CALL_IN_KEY
 
 // ── The notices ──────────────────────────────────────────────────────────────────────────────────────────────
 

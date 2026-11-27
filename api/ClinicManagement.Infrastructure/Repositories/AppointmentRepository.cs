@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ClinicManagement.Application.Common;
 using ClinicManagement.Domain.Entities;
 using ClinicManagement.Domain.Repositories;
 using ClinicManagement.Domain.Enums;
@@ -256,7 +257,13 @@ public class AppointmentRepository : IAppointmentRepository
         return db.Appointments
             .Where(a => (a.Status == AppointmentStatus.Scheduled || a.Status == AppointmentStatus.Confirmed)
                         && a.AppointmentDateTime <= nowUtc
-                        && a.AppointmentDateTime > earliestStart)
+                        && a.AppointmentDateTime > earliestStart
+                        // Salle d'attente: a patient reception has marked arrived is waiting, not in the chair, and
+                        // the board — never the clock — says when he is called in. Null for every cabinet that does
+                        // not use the board, which is what keeps this pass unchanged for them. A patient called in
+                        // with no recorded arrival is on the board too (round 2, C8).
+                        && a.ArrivedAtUtc == null
+                        && a.CalledInAtUtc == null)
             // Unique column last: this read is not paged today, but an unstable order over a set the pass mutates
             // makes a partial failure report a different subset every tick.
             .OrderBy(a => a.AppointmentDateTime)
@@ -282,13 +289,22 @@ public class AppointmentRepository : IAppointmentRepository
         ApplicationDbContext db, DateTime nowUtc, TimeSpan lookback)
     {
         var earliestStart = nowUtc - lookback;
+        var startOfToday = ClinicClock.TodayRangeUtc(nowUtc).From;
 
         return db.Appointments
             .Where(a => (a.Status == AppointmentStatus.Scheduled
                          || a.Status == AppointmentStatus.Confirmed
                          || a.Status == AppointmentStatus.InProgress)
                         && a.AppointmentDateTime <= nowUtc
-                        && a.AppointmentDateTime > earliestStart)
+                        && a.AppointmentDateTime > earliestStart
+                        // Salle d'attente: a patient still waiting, or still in the chair, has not had his séance
+                        // « passée » — the slot ending says nothing while reception says he is here. Only on his own
+                        // day: tomorrow the leftovers are closed by the ordinary rule, with no invented time.
+                        // Round 2: « on the board » is an arrival OR a call — a patient seated straight from « À venir »
+                        // has no arrival, and this pass would otherwise close him the minute his slot ended (C1).
+                        && ((a.ArrivedAtUtc == null && a.CalledInAtUtc == null)
+                            || a.LeftChairAtUtc != null
+                            || a.AppointmentDateTime < startOfToday))
             .OrderBy(a => a.AppointmentDateTime)
             .ThenBy(a => a.Id);
     }

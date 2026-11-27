@@ -23,7 +23,13 @@ export function NewPatientForGroup({
   onCreated,
   onCancel,
   onPickExisting,
+  savedWhat = "le choix du groupe",
+  submitLabel = "Créer et choisir",
 }: {
+  /** What the host saves after the patient — the salle d'attente's « l'arrivée » reuses this form. */
+  savedWhat?: string
+  /** The submit's label — « Créer et choisir » here, « Créer et marquer arrivé » in the salle d'attente. */
+  submitLabel?: string
   /** What was typed in the search — split into Prénom and Nom, both editable. */
   typed: string
   onCreated: (patient: PatientRef) => void
@@ -79,7 +85,7 @@ export function NewPatientForGroup({
         <UserPlus className="size-4 shrink-0 text-primary" aria-hidden="true" />
         Nouveau patient
       </p>
-      <NewPatientFields patient={patient} idPrefix={`${prefix}-`} savedWhat="le choix du groupe" disabled={busy} />
+      <NewPatientFields patient={patient} idPrefix={`${prefix}-`} savedWhat={savedWhat} disabled={busy} />
       {invalid && (
         <p role="alert" className="text-sm text-destructive">
           {invalid}
@@ -88,7 +94,7 @@ export function NewPatientForGroup({
       <div className="flex flex-wrap gap-2">
         <Button type="submit" className="gap-1.5 coarse:min-h-11" disabled={busy}>
           {busy && <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />}
-          Créer et choisir
+          {submitLabel}
         </Button>
         <Button type="button" variant="ghost" className="coarse:min-h-11" disabled={busy} onClick={onCancel}>
           Annuler

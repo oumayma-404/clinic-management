@@ -34,6 +34,13 @@ public class Doctor : AggregateRoot<Guid>
     /// </summary>
     public bool IsActive { get; private set; } = true;
 
+    /// <summary>
+    /// « 2 fauteuils » (`salle-attente` round 2, Q3): this dentist leaves a patient in one chair — the anaesthesia
+    /// working — and takes the next in the other. « Patient suivant » then ends nobody: each visit ends with
+    /// « Terminer », the fiche or a payment. False for everyone else, which is the ordinary one-chair practice.
+    /// </summary>
+    public bool WorksTwoChairs { get; private set; }
+
     // Navigation properties
     public Clinic Clinic { get; private set; } = null!;
 
@@ -133,6 +140,19 @@ public class Doctor : AggregateRoot<Guid>
     {
         WorkingHoursJson = string.IsNullOrWhiteSpace(workingHoursJson) ? null : workingHoursJson;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Turn « 2 fauteuils » on or off. Returns whether anything changed.</summary>
+    public bool SetWorksTwoChairs(bool twoChairs)
+    {
+        if (WorksTwoChairs == twoChairs)
+        {
+            return false;
+        }
+
+        WorksTwoChairs = twoChairs;
+        UpdatedAt = DateTime.UtcNow;
+        return true;
     }
 }
 
