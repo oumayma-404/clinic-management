@@ -8,7 +8,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PatientSearchList } from "@/components/patients/patient-search-list"
 import { formatFileSize, quoteFr } from "@/lib/format"
-import { CABINET_PREFIX, destinationLabel, type AttachmentFolder, type ImportPlan } from "@/lib/legacy-import/plan"
+import { CABINET_PREFIX, type AttachmentFolder, type PlanPatient } from "@/lib/legacy-import/plan"
 import { cn } from "@/lib/utils"
 
 const NONE = "__none"
@@ -24,12 +24,16 @@ const NONE = "__none"
  */
 export const FolderChoiceCard = memo(function FolderChoiceCard({
   folder,
-  plan,
+  roots,
+  labelOf,
   onChoose,
   disabled,
 }: {
   folder: AttachmentFolder
-  plan: ImportPlan
+  /** This batch's patients a folder may go to — stable per plan, so choosing one folder repaints that card only. */
+  roots: PlanPatient[]
+  /** How a destination reads: built once per plan, not searched for in every card. */
+  labelOf: (key: string) => string
   /** `label` comes with a cabinet patient picked by hand, who may not be in the plan's list yet. */
   onChoose: (folderName: string, key: string | null, label?: string) => void
   disabled: boolean
@@ -46,7 +50,6 @@ export const FolderChoiceCard = memo(function FolderChoiceCard({
   const id = `folder-${folder.name.replace(/[^\p{L}\p{N}]+/gu, "-")}`
   const refused = folder.files.filter((f) => f.refusal).length
   const candidates = folder.verdict.kind === "ask" ? folder.verdict.candidates : []
-  const roots = plan.patients.filter((p) => !p.mergeInto && !p.skip)
   const pending = folder.choice === undefined
   const offered = new Set([...candidates.map((c) => c.key), ...roots.map((p) => p.key)])
 
@@ -57,7 +60,7 @@ export const FolderChoiceCard = memo(function FolderChoiceCard({
     setSearching(false)
   }
   const pickValue = folder.choice && offered.has(folder.choice) ? folder.choice : folder.choice === null ? NONE : ""
-  const pickLabel = pickValue === NONE ? "Ne pas importer ce dossier" : pickValue ? destinationLabel(plan, pickValue) : "Choisir…"
+  const pickLabel = pickValue === NONE ? "Ne pas importer ce dossier" : pickValue ? labelOf(pickValue) : "Choisir…"
 
   return (
     <li className={cn("space-y-3 rounded-lg border bg-card p-3 sm:p-4", pending && "border-warning bg-warning-wash/40")}>
@@ -71,9 +74,11 @@ export const FolderChoiceCard = memo(function FolderChoiceCard({
           </p>
           <p className={cn("text-sm", pending ? "text-warning-ink" : folder.choice ? "text-foreground" : "text-muted-foreground")}>
             {pending
-              ? "Le nom ressemble à plusieurs patients : choisissez."
+              ? candidates.length > 1
+                ? "Le nom ressemble à plusieurs patients : choisissez."
+                : "Le nom ressemble à ce patient sans être identique : confirmez."
               : folder.choice
-                ? `→ ${destinationLabel(plan, folder.choice)}`
+                ? `→ ${labelOf(folder.choice)}`
                 : "Ne sera pas importé."}
           </p>
         </div>
@@ -91,7 +96,7 @@ export const FolderChoiceCard = memo(function FolderChoiceCard({
             <div key={c.key} className="flex items-center gap-2">
               <RadioGroupItem id={`${id}-${c.key}`} value={c.key} />
               <Label htmlFor={`${id}-${c.key}`} className="min-w-0 py-1.5 font-normal coarse:py-3">
-                <span className="break-words">{destinationLabel(plan, c.key)}</span>
+                <span className="break-words">{labelOf(c.key)}</span>
                 <span className="ms-1 text-muted-foreground">({Math.round(c.score * 100)} % de ressemblance)</span>
               </Label>
             </div>
@@ -126,7 +131,7 @@ export const FolderChoiceCard = memo(function FolderChoiceCard({
                   <SelectItem value={NONE}>Ne pas importer ce dossier</SelectItem>
                   {roots.map((p) => (
                     <SelectItem key={p.key} value={p.key}>
-                      {destinationLabel(plan, p.key)}
+                      {labelOf(p.key)}
                     </SelectItem>
                   ))}
                 </SelectContent>

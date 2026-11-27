@@ -78,7 +78,11 @@ async function run(page, label) {
     if (/Pause de \d+ s/.test(text)) paused ??= text
     const again = await page.getByRole('button', { name: "Relancer l'import", exact: true }).isVisible().catch(() => false)
     const enabled = again && (await page.getByRole('button', { name: "Relancer l'import", exact: true }).isEnabled())
-    if (enabled) return { text, paused, seconds: Math.round((Date.now() - started) / 1000) }
+    if (enabled) {
+      // Read again once finished: the line read above may predate the last repaint (run 5 probe fix).
+      await sleep(700)
+      return { text: await footer(page).innerText().catch(() => text), paused, seconds: Math.round((Date.now() - started) / 1000) }
+    }
     if (Date.now() - started > 15 * 60_000) return { text: `TIMEOUT: ${text}`, paused, seconds: 900 }
   }
 }
