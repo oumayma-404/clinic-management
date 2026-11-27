@@ -69,4 +69,19 @@ public class AppointmentProgressQueryTranslationTests
         Assert.Contains("WHERE", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
     }
+
+    // salle-attente: a patient reception marked arrived is never started by the clock, and one still waiting or
+    // in the chair never gets « Séance passée » on his own day. Both predicates must reach SQL.
+    [Fact]
+    public void Both_Passes_Leave_The_Salle_D_Attente_To_Reception()
+    {
+        using var db = Context();
+
+        var running = AppointmentRepository.RunningCandidateQuery(db, Now, TimeSpan.FromDays(1)).ToQueryString();
+        var elapsed = AppointmentRepository.ElapsedCandidateQuery(db, Now, TimeSpan.FromDays(30)).ToQueryString();
+
+        Assert.Contains("ArrivedAtUtc", running, StringComparison.Ordinal);
+        Assert.Contains("ArrivedAtUtc", elapsed, StringComparison.Ordinal);
+        Assert.Contains("LeftChairAtUtc", elapsed, StringComparison.Ordinal);
+    }
 }

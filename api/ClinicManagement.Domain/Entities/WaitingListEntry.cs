@@ -4,7 +4,7 @@ using ClinicManagement.Domain.Enums;
 namespace ClinicManagement.Domain.Entities;
 
 /// <summary>
-/// A patient on the clinic waiting list (salle d'attente / liste d'attente) — someone waiting for a slot
+/// A patient on the clinic waiting list (« Liste d'attente », not the salle d'attente board) — someone waiting for a slot
 /// to free up. Clinic-scoped; carries an optional preferred doctor, a priority and a free-text desired
 /// timeframe ("matin", "cette semaine", …). Either promoted to a real appointment (storing the resulting
 /// appointment id) or cancelled.

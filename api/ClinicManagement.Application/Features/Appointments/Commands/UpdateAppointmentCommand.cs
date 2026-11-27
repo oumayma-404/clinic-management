@@ -477,6 +477,8 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                             appointment.Start();
                             break;
                         case AppointmentStatus.Completed:
+                            // « Terminé » chosen in the RDV window ends the salle d'attente's chair too (S3).
+                            appointment.StampLeftChairIfOpen(DateTime.UtcNow);
                             appointment.Complete();
                             break;
                         case AppointmentStatus.Cancelled:
@@ -733,6 +735,7 @@ public class UpdateAppointmentCommandHandler : IRequestHandler<UpdateAppointment
                 Procedures = appointment.ToProcedureDtos(),
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 LateArrivalMinutes = appointment.LateArrivalMinutes,
+                WaitingRoom = appointment.ToWaitingRoomDto(),
                 // Reflects committed state; the async Google sync below may set the id afterwards, and
                 // the frontend refetches (bumps refreshKey) to clear the "non synchronisé" badge.
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null

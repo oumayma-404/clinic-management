@@ -15,7 +15,9 @@ namespace ClinicManagement.Application.Features.StaffChat.Commands;
 
 /// <summary>
 /// « Signaler l'arrivée » (US-3, FR-5): « Patient arrivé » with the appointment, to that appointment's dentist — into
-/// their secretariat when a secretary sends it, into the two-person thread otherwise. Writes nothing on the appointment.
+/// their secretariat when a secretary sends it, into the two-person thread otherwise.
+/// <para>Since `salle-attente` it also records the arrival on the appointment when nobody had (one press, one fact,
+/// whichever door it came through); a resend never moves the time already recorded.</para>
 /// </summary>
 public class SendArrivalNoticeCommand : IRequest<Result<StaffMessageDto>>
 {
@@ -27,6 +29,7 @@ public class SendArrivalNoticeCommand : IRequest<Result<StaffMessageDto>>
 public class SendArrivalNoticeCommandHandler : IRequestHandler<SendArrivalNoticeCommand, Result<StaffMessageDto>>
 {
     private readonly IStaffMessageRepository _messages;
+    private readonly IAppointmentRepository _appointments;
     private readonly IStaffQuickMessageListRepository _quickMessages;
     private readonly IPatientRepository _patients;
     private readonly IUserRepository _users;
@@ -39,6 +42,7 @@ public class SendArrivalNoticeCommandHandler : IRequestHandler<SendArrivalNotice
 
     public SendArrivalNoticeCommandHandler(
         IStaffMessageRepository messages,
+        IAppointmentRepository appointments,
         IStaffQuickMessageListRepository quickMessages,
         IPatientRepository patients,
         IUserRepository users,
@@ -50,6 +54,7 @@ public class SendArrivalNoticeCommandHandler : IRequestHandler<SendArrivalNotice
         ILogger<SendArrivalNoticeCommandHandler> logger)
     {
         _messages = messages;
+        _appointments = appointments;
         _quickMessages = quickMessages;
         _patients = patients;
         _users = users;
@@ -66,6 +71,7 @@ public class SendArrivalNoticeCommandHandler : IRequestHandler<SendArrivalNotice
         StaffMessage message;
         StaffChatRoster roster;
         StaffConversation conversation;
+        var arrivalRecorded = false;
         try
         {
             var loaded = await StaffChatRoster.LoadForCallerAsync(_clinicContext, _users, _doctors, cancellationToken);
@@ -113,11 +119,35 @@ public class SendArrivalNoticeCommandHandler : IRequestHandler<SendArrivalNotice
                 roster.ClinicId, conversation, roster.Viewer.UserId, null, arrived, appointment.PatientId, appointment.Id,
                 DateTime.UtcNow);
             await _messages.AddAsync(message, cancellationToken);
+
+            if (await _appointments.GetByIdAsync(appointment.Id, cancellationToken) is { } visit
+                && visit.ClinicId == roster.ClinicId
+                && visit.WaitingRoomLane == WaitingRoomLane.Upcoming)
+            {
+                visit.MoveInWaitingRoom(WaitingRoomLane.Waiting, DateTime.UtcNow);
+                await _appointments.UpdateAsync(visit, cancellationToken);
+                arrivalRecorded = true;
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is not ConflictException)
         {
             return Result<StaffMessageDto>.Failure("L'arrivée n'a pas pu être signalée.", ex);
+        }
+
+        if (arrivalRecorded)
+        {
+            // StaffChat broadcasts nothing on its own (RealtimeBroadcastBehavior excludes it), and the board listens
+            // to « appointments ». Best-effort, like every broadcast.
+            try
+            {
+                await _realtime.NotifyEntityChangedAsync(roster.ClinicId, "appointments", cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Arrival recorded on {AppointmentId} but the board was not signalled", message.AppointmentId);
+            }
         }
 
         return Result<StaffMessageDto>.Success(await StaffMessagePosted.AnnounceAsync(

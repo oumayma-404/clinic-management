@@ -211,7 +211,10 @@ public class AppointmentProgressJob
         {
             // A blocked slot is time the practitioner reserved, so its passing closes it outright; a visit with a
             // fiche is « Terminé » (the fiche answered « venu ? »); any other visit keeps its presence question open.
-            var target = !appointment.PatientId.HasValue || documented.Contains(appointment.Id)
+            // A patient the salle d'attente called in came: his presence is answered too (`salle-attente` D13).
+            var target = !appointment.PatientId.HasValue
+                         || documented.Contains(appointment.Id)
+                         || appointment.CalledInAtUtc.HasValue
                 ? AppointmentStatus.Completed
                 : AppointmentStatus.AwaitingClosure;
 

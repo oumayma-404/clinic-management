@@ -79,6 +79,7 @@ public static class StaffMessageLinks
                         StartsAt = appointment.StartsAt,
                         DentistName = roster.Dentists.FirstOrDefault(d => d.DoctorId == appointment.DoctorId)?.Name,
                         Cancelled = appointment.Status == AppointmentStatus.Cancelled,
+                        WalkIn = appointment.IsWalkIn,
                     }
                     : new StaffMessageAppointmentDto { Id = aid, Missing = true };
             }

@@ -220,6 +220,8 @@ how it was built, `notes.md` is what shipped.
   devis · un seul constructeur d'avenant pour le formulaire et l'édition en ligne
 - [`time-24h-clock`](features/time-24h-clock/notes.md) — L'heure se saisit et se lit sur 24 heures, partout — et `lang="fr"` n'y était pour rien
 - [`patient-form-density`](features/patient-form-density/notes.md) — La fiche patient tient sur onze lignes, et la denture en a trois
+- [`salle-attente`](features/salle-attente/notes.md) — « Arrivé », « Patient suivant » et la sonnerie à l'accueil :
+  l'état vit sur le RDV (3 heures + `IsWalkIn`), la colonne est dérivée, tout s'annule, l'encaissement libère le fauteuil
 - [`visit-closure-worklist`](features/visit-closure-worklist/notes.md) — A séance is not finished until three things are answered, and the app now asks
 - [`seance-au-fauteuil`](features/seance-au-fauteuil/notes.md) — La fiche se remplit pendant la séance et
   l'ordonnance s'imprime sur place · « Enregistrer » ne termine pas le RDV · « Payé » part vide, l'accueil encaisse

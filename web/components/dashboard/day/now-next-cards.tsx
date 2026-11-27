@@ -86,7 +86,7 @@ function SlotCard({
   const delta = closure
     ? nowMinutes - slot.endMinutes
     : live
-      ? nowMinutes - slot.startMinutes
+      ? nowMinutes - (slot.chairSinceMinutes ?? slot.startMinutes)
       : slot.startMinutes - nowMinutes
   // The block's own note is the reason it exists (« réunion », « congé ») and lives nowhere else.
   const reason = appointment.notes?.trim() || undefined

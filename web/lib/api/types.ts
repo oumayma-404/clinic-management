@@ -813,6 +813,11 @@ export interface AppointmentDto {
   invoiceNumber?: string | null;
   /** « Retard » — minutes the patient arrived after the booked start; null/absent when nobody recorded one. */
   lateArrivalMinutes?: number | null;
+  /**
+   * The visit on the « Salle d'attente » board (`salle-attente`): its lane and its presence times. Absent on a
+   * server that predates the feature, which reads exactly as « nobody marked this visit arrived ».
+   */
+  waitingRoom?: AppointmentWaitingRoomDto | null;
   /** True when the appointment is reflected in Google Calendar (derived server-side from the event id). */
   isSyncedToGoogle: boolean;
 }
@@ -2519,4 +2524,128 @@ export interface PatientFileAnnotationDto {
   label: string
   createdAt: string
   createdBy?: string | null
+}
+
+// ── Salle d'attente (`salle-attente`) ───────────────────────────────────────────────────────────────────────────
+
+/** A lane of the board. `Left` is « Parti sans être vu », shown under « Terminé ». */
+export type WaitingRoomLane = 'None' | 'Upcoming' | 'Waiting' | 'InChair' | 'Done' | 'Left';
+
+/** Where a visit sits on the board, as `AppointmentDto.waitingRoom` carries it. */
+export interface AppointmentWaitingRoomDto {
+  lane: WaitingRoomLane;
+  arrivedAtUtc?: string | null;
+  calledInAtUtc?: string | null;
+  leftChairAtUtc?: string | null;
+  isWalkIn: boolean;
+  /** The booked start while the RDV shows the real chair time (round 2, Q1) — the agenda prints « prévu 10:00 ». */
+  plannedStartUtc?: string | null;
+  plannedDurationMinutes?: number | null;
+}
+
+export interface WaitingRoomDentistDto {
+  doctorId: string;
+  name: string;
+  /** On congé today: no « quel praticien ? » offers him (round 2, C10). */
+  absentToday?: boolean;
+  /** « 2 fauteuils » (round 2, Q3): « Patient suivant » ends nobody. */
+  worksTwoChairs?: boolean;
+}
+
+/** Why a visit's dentist cannot see him today: on congé, or no longer in the team (round 2, C10). */
+export type WaitingRoomDoctorUnavailable = 'OnLeave' | 'NotInTeam';
+
+/** One visit on the board. */
+export interface WaitingRoomVisitDto {
+  appointmentId: string;
+  patientId: string;
+  patientName: string;
+  /** The patient's number as recorded — « Qui arrive ? » finds today's RDV by phone too (round 2, C5). */
+  patientPhone?: string | null;
+  doctorId?: string | null;
+  doctorName?: string | null;
+  /** Set when this visit's dentist cannot see him today (round 2, C10). */
+  doctorUnavailable?: WaitingRoomDoctorUnavailable | null;
+  /** The chair this visit belongs to: its dentist, or the only one when it names none. */
+  chairDoctorId?: string | null;
+  appointmentDateTime: string;
+  durationMinutes: number;
+  lane: WaitingRoomLane;
+  status: string;
+  isWalkIn: boolean;
+  arrivedAtUtc?: string | null;
+  calledInAtUtc?: string | null;
+  leftChairAtUtc?: string | null;
+  /** When a « parti sans être vu » left. */
+  leftAtUtc?: string | null;
+  /** « Passer en premier » (round 2, E2): set while he goes before the queue. */
+  urgentAtUtc?: string | null;
+  /** « Pas là » (round 2, E1): when he was called and was not there; cleared at his next call. */
+  callSkippedAtUtc?: string | null;
+  /** The acts booked, joined — « Détartrage + Composite ». */
+  acts?: string | null;
+  /** 1-based place in the queue (waiting lane only). */
+  position?: number | null;
+}
+
+/** Today's board. The waiting lane comes ordered — the browser never re-sorts it. */
+export interface WaitingRoomDto {
+  /** What every wait timer counts from: cabinet PCs drift, so the browser offsets its clock by this. */
+  serverNowUtc: string;
+  dentists: WaitingRoomDentistDto[];
+  callerDoctorId?: string | null;
+  canCallNext: boolean;
+  /**
+   * « Attente moyenne » (round 2, Q2): arrival → called in, whole minutes, over today's patients already called in.
+   * Null when nobody has been called in with both times known. Never recomputed in the browser.
+   */
+  averageWaitMinutes?: number | null;
+  upcoming: WaitingRoomVisitDto[];
+  waiting: WaitingRoomVisitDto[];
+  inChair: WaitingRoomVisitDto[];
+  done: WaitingRoomVisitDto[];
+}
+
+/**
+ * A visit's board state at one instant — the unit an « Annuler » restores, and (as `after`) what it checks first.
+ * Opaque to the browser: sent back exactly as received.
+ */
+export interface WaitingRoomSnapshotDto {
+  appointmentId: string;
+  lane: WaitingRoomLane;
+  arrivedAtUtc?: string | null;
+  calledInAtUtc?: string | null;
+  leftChairAtUtc?: string | null;
+  leftUnseenAtUtc?: string | null;
+  urgentAtUtc?: string | null;
+  callSkippedAtUtc?: string | null;
+  doctorId?: string | null;
+  appointmentDateTime: string;
+  durationMinutes: number;
+  plannedStartUtc?: string | null;
+  plannedDurationMinutes?: number | null;
+  bookedWithOverlap: boolean;
+}
+
+/** A patient's next RDV on another day — « Le recevoir aujourd'hui » (round 2, C6). */
+export interface WaitingRoomOtherDayVisitDto {
+  patientId: string;
+  appointmentId: string;
+  appointmentDateTime: string;
+  doctorName?: string | null;
+  acts?: string | null;
+}
+
+/** What a board action did — posted back unchanged by its « Annuler ». */
+export interface WaitingRoomChangeDto {
+  changed: boolean;
+  before: WaitingRoomSnapshotDto[];
+  /** Every visit as the action left it: « Annuler » is refused when one has moved since (round 2, C9). */
+  after: WaitingRoomSnapshotDto[];
+  removeWalkInIds: string[];
+  appointmentId?: string | null;
+  patientName?: string | null;
+  lane?: WaitingRoomLane | null;
+  /** A « Sans RDV » that found the patient's RDV of the day and marked it arrived instead. */
+  usedTodaysAppointment: boolean;
 }

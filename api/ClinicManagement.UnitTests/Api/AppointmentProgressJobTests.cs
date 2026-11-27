@@ -384,4 +384,18 @@ public class AppointmentProgressJobTests
             r => r.NotifyEntityChangedAsync(ClinicA, "appointments", It.IsAny<CancellationToken>()), Times.Never);
         Assert.Equal(AppointmentStatus.InProgress, second.Status);
     }
+
+    // salle-attente D13: tomorrow, a patient the board called in has his presence answered — he came.
+    [Fact]
+    public async Task A_Visit_The_Salle_D_Attente_Called_In_Closes_As_Termine_Without_A_Fiche()
+    {
+        var called = Elapsed(ClinicA, Guid.NewGuid(), AppointmentStatus.Scheduled);
+        called.MoveInWaitingRoom(WaitingRoomLane.InChair, new DateTime(2026, 8, 14, 14, 5, 0, DateTimeKind.Utc));
+        var harness = ClosingHarness(called);
+
+        await harness.Job().CloseElapsedAppointments(AfterTheSlot);
+
+        Assert.Equal(AppointmentStatus.Completed, called.Status);
+        Assert.Null(called.LeftChairAtUtc);
+    }
 }

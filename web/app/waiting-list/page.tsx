@@ -284,7 +284,7 @@ export default function WaitingListPage() {
     loadPatients()
   }, [loadEntries, loadPatients])
 
-  // AC-P4.21/4.26 — the salle d'attente is the canonical two-user screen: one person adds a walk-in at the
+  // AC-P4.21/4.26 — the liste d'attente is the canonical two-user screen: one person adds a walk-in at the
   // desk while another works from the same queue. It had no subscription, so both saw a stale list until
   // somebody reloaded. `waitinglist` covers the queue itself; `appointments` because promoting an entry
   // creates a rendez-vous and removes the row, which the other viewer must see too.
@@ -559,7 +559,7 @@ export default function WaitingListPage() {
                   />
                 </div>
                 {/* « Promouvoir » stays a visible button rather than sinking into the menu: it is the whole
-                    point of the salle d'attente and the one action taken dozens of times a day. */}
+                    point of the liste d'attente and the one action taken dozens of times a day. */}
                 <CardList
                   className={CARDS_ONLY_LG}
                   ariaLabel="Liste d'attente"

@@ -43,11 +43,19 @@ public enum FicheVisitOutcome
 /// </summary>
 public static class FicheVisitCompletion
 {
-    /// <summary>The rule itself, pure so its truth table is testable without a repository.</summary>
+    /// <summary>
+    /// The rule itself, pure so its truth table is testable without a repository.
+    ///
+    /// <para>⚠️ <b>A patient « Au fauteuil » is never ended by the clock</b> (`salle-attente` round 2, C1): a séance
+    /// called at 10:25 for a 10:00 RDV is not over at 10:30, and a fiche saved at 10:35 used to mark it « Terminé »
+    /// with the patient still seated and the chair shown empty. While the board says he is in the chair, only
+    /// « Terminer la séance », « Patient suivant », « Terminer » or a payment end the visit.</para>
+    /// </summary>
     public static bool ShouldComplete(Appointment visit, bool finishSeance, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(visit);
-        return finishSeance || visit.HasEndedBy(nowUtc);
+        return finishSeance
+               || (visit.WaitingRoomLane != WaitingRoomLane.InChair && visit.HasEndedBy(nowUtc));
     }
 
     /// <summary>
@@ -79,6 +87,10 @@ public static class FicheVisitCompletion
             var outcome = FicheVisitOutcome.LeftRunning;
             if (ShouldComplete(appointment, finishSeance, nowUtc))
             {
+                // The salle d'attente's chair ends with the séance (`salle-attente` S3). Read BEFORE the status moves:
+                // the lane is derived from it, and a completed visit is no longer « au fauteuil ».
+                var leftChair = appointment.StampLeftChairIfOpen(nowUtc);
+
                 // Three outcomes, not two (AC-P1.12): `Contradicted` is a fiche documenting a visit the schedule says
                 // was cancelled or missed. It is logged and the visit is deliberately NOT reopened.
                 var completion = appointment.MarkVisitCompleted();
@@ -98,7 +110,7 @@ public static class FicheVisitCompletion
                 }
 
                 // Only Completed changed the row; the save is skipped otherwise rather than issuing an empty UPDATE.
-                if (outcome == FicheVisitOutcome.Completed)
+                if (outcome == FicheVisitOutcome.Completed || leftChair)
                 {
                     await unitOfWork.SaveChangesAsync(cancellationToken);
                 }

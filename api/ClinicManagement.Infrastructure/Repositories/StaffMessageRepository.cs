@@ -127,7 +127,7 @@ public class StaffMessageRepository : IStaffMessageRepository
             .Where(a => a.ClinicId == clinicId && ids.Contains(a.Id))
             .AsNoTracking()
             .Select(a => new StaffLinkedAppointment(
-                a.Id, a.PatientId, a.DoctorId, a.AppointmentDateTime, a.Status, a.DisregardedAtUtc != null))
+                a.Id, a.PatientId, a.DoctorId, a.AppointmentDateTime, a.Status, a.DisregardedAtUtc != null, a.IsWalkIn))
             .ToListAsync(cancellationToken);
     }
 
@@ -141,7 +141,7 @@ public class StaffMessageRepository : IStaffMessageRepository
                 && a.DisregardedAtUtc == null)
             .AsNoTracking()
             .Select(a => new StaffLinkedAppointment(
-                a.Id, a.PatientId, a.DoctorId, a.AppointmentDateTime, a.Status, false))
+                a.Id, a.PatientId, a.DoctorId, a.AppointmentDateTime, a.Status, false, a.IsWalkIn))
             .ToListAsync(cancellationToken);
     }
 

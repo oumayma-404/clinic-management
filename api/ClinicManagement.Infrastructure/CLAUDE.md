@@ -53,6 +53,7 @@ self-generated HTTPS trust material, and per-clinic reference-catalog seeding. A
 
 ## EF Core Persistence (`Persistence/`)
 
+- **`WaitingRoomPaymentInterceptor.cs`** (`salle-attente`) — any added `Payment` / `InstallmentPayment` ends the chair of the visit its note or fiche names (`Appointment.EndChairIfOpen`); never throws. ⚠️ Registered **first** in `AddInterceptors`, before the audit one, or the appointment it closes is missing from that save's audit rows (`WaitingRoomCoverageTests`).
 - **`AuditSaveChangesInterceptor.cs`** — writes the audit ledger (`adoption-qa-i-access-control-and-audit` I6).
   One row per mutated **aggregate root**, carrying the actor (`IAuditActorProvider`), the clinic, the entity, the
   action, and for updates/deletes a compact changed-field summary.

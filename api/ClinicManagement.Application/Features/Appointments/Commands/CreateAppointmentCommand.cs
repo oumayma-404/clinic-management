@@ -298,6 +298,7 @@ public class CreateAppointmentCommandHandler : IRequestHandler<CreateAppointment
                 Procedures = appointment.ToProcedureDtos(),
                 TreatmentPlanItemId = appointment.TreatmentPlanItemId,
                 LateArrivalMinutes = appointment.LateArrivalMinutes,
+                WaitingRoom = appointment.ToWaitingRoomDto(),
                 CreatedAt = appointment.CreatedAt,
                 Version = appointment.Version,
                 IsSyncedToGoogle = appointment.GoogleCalendarEventId != null

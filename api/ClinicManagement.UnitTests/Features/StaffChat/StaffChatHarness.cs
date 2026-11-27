@@ -26,6 +26,7 @@ internal sealed class StaffChatHarness
     public User Outsider { get; } = User.CreateLocalUser(OtherClinicId, "secretary", "x@ailleurs.tn", "HASH", "Ailleurs");
 
     public Mock<IStaffMessageRepository> Messages { get; } = new();
+    public Mock<IAppointmentRepository> Appointments { get; } = new();
     public Mock<IStaffQuickMessageListRepository> QuickMessageLists { get; } = new();
     public Mock<IPatientRepository> Patients { get; } = new();
     public Mock<IUserRepository> Users { get; } = new();
@@ -130,7 +131,7 @@ internal sealed class StaffChatHarness
         NullLogger<ReleaseStaffMessageClaimCommandHandler>.Instance);
 
     public SendArrivalNoticeCommandHandler Arrival() => new(
-        Messages.Object, QuickMessageLists.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object,
+        Messages.Object, Appointments.Object, QuickMessageLists.Object, Patients.Object, Users.Object, Doctors.Object, Context.Object,
         UnitOfWork.Object, Realtime.Object, Push.Object, NullLogger<SendArrivalNoticeCommandHandler>.Instance);
 
     public GetTodayArrivalsQueryHandler TodayArrivals() => new(Messages.Object, Users.Object, Doctors.Object, Context.Object);

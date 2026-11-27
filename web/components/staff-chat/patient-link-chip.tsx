@@ -67,7 +67,9 @@ export function PatientLinkChips({
             }}
           >
             <CalendarClock className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <span className="tabular-nums">RDV {formatChatTime(appointment.startsAt)}</span>
+            <span className="tabular-nums">
+              {appointment.walkIn ? "Sans RDV" : `RDV ${formatChatTime(appointment.startsAt)}`}
+            </span>
             {appointment.dentistName && <span className="min-w-0 truncate">· {appointment.dentistName}</span>}
           </Link>
         ))}
